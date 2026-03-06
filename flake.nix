@@ -1,0 +1,45 @@
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    flake-utils.url = "github:numtide/flake-utils";
+    cargo-v5.url = "github:gmhs-robotics/cargo-v5";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+  };
+
+  outputs =
+    {
+      nixpkgs,
+      flake-utils,
+      rust-overlay,
+      cargo-v5,
+      ...
+    }:
+    (flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
+        cargo-v5' = cargo-v5.packages.${system}.default;
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+      in
+      {
+        devShell = pkgs.mkShell {
+          buildInputs = [
+            pkgs.ripgrep
+            cargo-v5'
+            (rustToolchain.override {
+              extensions = [
+                "rust-analyzer"
+                "rust-src"
+                "clippy"
+              ];
+            })
+          ];
+        };
+      }
+    ));
+}
+

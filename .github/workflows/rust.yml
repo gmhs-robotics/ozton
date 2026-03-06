@@ -1,0 +1,43 @@
+name: Rust
+
+on: [push, pull_request]
+
+jobs:
+    check:
+        name: Check
+        runs-on: ubuntu-latest
+        steps:
+            - name: Setup | Checkout
+              uses: actions/checkout@v2
+
+            - name: Setup | Toolchain
+              uses: dtolnay/rust-toolchain@master
+              with:
+                  profile: minimal
+                  toolchain: nightly
+                  components: rust-src
+
+            - name: Check
+              uses: actions-rs/cargo@v1
+              with:
+                  command: check
+                  args: --target=armv7a-vex-v5 -Zbuild-std=std,panic_abort -Zbuild-std-features=compiler-builtins-mem
+
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        steps:
+            - name: Setup | Checkout
+              uses: actions/checkout@v2
+
+            - name: Setup | Toolchain
+              uses: dtolnay/rust-toolchain@master
+              with:
+                  profile: minimal
+                  toolchain: nightly
+                  components: rust-src
+
+            - name: Check
+              uses: actions-rs/cargo@v1
+              with:
+                  command: test
