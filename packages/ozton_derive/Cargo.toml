@@ -1,0 +1,21 @@
+[package]
+name = "ozton-derive"
+description = "Derive macros in ozton. Used for creating framing structs dynamically."
+repository = "https://github.com/gmhs-robotics/ozton/"
+authors = ["elijah629"]
+license = "MIT"
+categories = ["science::robotics", "no-std", "mathematics", "embedded"]
+keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+syn = { version = "2.0.117", features = ["extra-traits", "full"] }
+
+[package.metadata.docs.rs]
+targets = ["armv7a-none-eabi"]

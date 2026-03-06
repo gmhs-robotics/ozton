@@ -1,5 +1,5 @@
 [package]
-name = "ozton"
+name = "examples"
 version = "0.1.0"
 edition = "2024"
 
@@ -16,11 +16,6 @@ ozton = { path = "packages/ozton" }
 [workspace]
 members = ["packages/*"]
 resolver = "2"
-
-[workspace.dependencies]
-vexide = "0.8.0"
-vexide-devices = "0.8.0"
-ozton = { version = "0.1.0", path = "packages/ozton", default-features = false }
 
 [profile.release]
 strip = true
