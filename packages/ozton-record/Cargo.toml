@@ -10,6 +10,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-trait = "0.1.89"
+autons = { version = "0.2.0" }
+rkyv = "0.8.15"
 vexide = { workspace = true }
 
 [package.metadata.docs.rs]
