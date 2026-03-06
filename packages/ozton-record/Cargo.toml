@@ -1,0 +1,20 @@
+[package]
+name = "ozton-record"
+description = "Recording framework for ozton."
+repository = "https://github.com/gmhs-robotics/ozton/"
+authors = ["elijah629"]
+license = "MIT"
+categories = ["science::robotics", "no-std", "mathematics", "embedded"]
+keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vexide = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["armv7a-vex-v5"]
+cargo-args = [
+    "-Zbuild-std=std,panic_abort",
+    "-Zbuild-std-features=compiler-builtins-mem",
+]

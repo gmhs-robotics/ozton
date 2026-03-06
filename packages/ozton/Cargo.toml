@@ -10,5 +10,18 @@ keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
 version = "0.1.0"
 edition = "2024"
 
+[dependencies]
+ozton-derive = { workspace = true, optional = true }
+ozton-record = { workspace = true, optional = true }
+
+[features]
+default = [
+  "derive",
+  "record"
+]
+
+derive = ["dep:ozton-derive"]
+record = ["dep:ozton-record"]
+
 [package.metadata.docs.rs]
 targets = ["armv7a-none-eabi"] # Not actually, but this is at least close.

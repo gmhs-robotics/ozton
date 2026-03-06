@@ -17,6 +17,13 @@ ozton = { path = "packages/ozton" }
 members = ["packages/*"]
 resolver = "2"
 
+[workspace.dependencies]
+vexide = "0.8.0"
+vexide-devices = "0.8.0"
+ozton = { version = "0.1.0", path = "packages/ozton", default-features = false }
+ozton-derive = { version = "0.1.0", path = "packages/ozton-derive", default-features = false }
+ozton-record = { version = "0.1.0", path = "packages/ozton-record", default-features = false }
+
 [profile.release]
 strip = true
 # opt-level = "z"

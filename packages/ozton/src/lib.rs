@@ -3,6 +3,8 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub mod prelude {
+#[doc(inline)]
+#[cfg(feature = "derive")]
+pub use ozton_derive as derive;
 
-}
+pub mod prelude {}

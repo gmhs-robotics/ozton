@@ -59,7 +59,7 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
         })
         .collect::<Vec<_>>();
 
-    // TODO: Add derives to serialize with rykv on the brain.
+    // TODO: Add derives to serialize with rkyv on the brain.
 
     let generated = quote! {
         pub struct #frame_ident {

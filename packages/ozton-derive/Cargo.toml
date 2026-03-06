@@ -18,4 +18,8 @@ quote = "1.0.45"
 syn = { version = "2.0.117", features = ["extra-traits", "full"] }
 
 [package.metadata.docs.rs]
-targets = ["armv7a-none-eabi"]
+targets = ["armv7a-vex-v5"]
+cargo-args = [
+    "-Zbuild-std=std,panic_abort",
+    "-Zbuild-std-features=compiler-builtins-mem",
+]
