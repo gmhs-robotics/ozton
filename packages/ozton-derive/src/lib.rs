@@ -1,8 +1,9 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
-use syn::{Attribute, DeriveInput, parse_macro_input};
+use syn::{Attribute, DeriveInput, Path, parse_macro_input};
 
 #[proc_macro_derive(RobotFrame, attributes(frame))]
 pub fn robot_frame_derive(input: TokenStream) -> TokenStream {
@@ -17,6 +18,7 @@ pub fn robot_frame_derive(input: TokenStream) -> TokenStream {
 fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
     let name = &ast.ident;
     let frame_ident = format_ident!("{}Frame", name);
+    let record_path = resolve_record_path()?;
 
     let fields = match &ast.data {
         syn::Data::Struct(data_struct) => match &data_struct.fields {
@@ -54,7 +56,7 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             let field_type = &field.ty;
 
             Ok(Some(quote! {
-                pub #field_ident: <#field_type as ::ozton_record::FrameType>::Output,
+                pub #field_ident: <#field_type as #record_path::FrameType>::Output,
             }))
         })
         .collect::<Result<Vec<_>, syn::Error>>()?
@@ -63,14 +65,41 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
         .collect::<Vec<_>>();
 
     let generated = quote! {
-        #[derive(::ozton_record::rkyv::Archive, ::ozton_record::rkyv::Serialize, ::ozton_record::rkyv::Deserialize, Default, Clone, Debug)]
-        #[rkyv(crate = ::ozton_record::rkyv)]
+        #[derive(#record_path::rkyv::Archive, #record_path::rkyv::Serialize, #record_path::rkyv::Deserialize, Default, Clone, Debug)]
+        #[rkyv(crate = #record_path::rkyv)]
         pub struct #frame_ident {
             #(#fields)*
         }
     };
 
     Ok(generated.into())
+}
+
+fn resolve_record_path() -> Result<Path, syn::Error> {
+    if let Ok(found) = crate_name("ozton") {
+        return Ok(match found {
+            FoundCrate::Itself => syn::parse_quote!(crate::record),
+            FoundCrate::Name(name) => {
+                let ident = format_ident!("{}", name);
+                syn::parse_quote!(::#ident::record)
+            }
+        });
+    }
+
+    if let Ok(found) = crate_name("ozton-record") {
+        return Ok(match found {
+            FoundCrate::Itself => syn::parse_quote!(crate),
+            FoundCrate::Name(name) => {
+                let ident = format_ident!("{}", name);
+                syn::parse_quote!(::#ident)
+            }
+        });
+    }
+
+    Err(syn::Error::new(
+        proc_macro2::Span::call_site(),
+        "RobotFrame derive requires either `ozton` or `ozton-record` to be a direct dependency",
+    ))
 }
 
 fn parse_field_attr(attrs: &[Attribute]) -> Result<bool, syn::Error> {
