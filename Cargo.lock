@@ -244,7 +244,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "ozton"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ozton-derive",
  "ozton-record",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "ozton-derive"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -261,10 +261,11 @@ dependencies = [
 
 [[package]]
 name = "ozton-record"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "autons",
+ "ozton-derive",
  "rkyv",
  "vexide",
 ]

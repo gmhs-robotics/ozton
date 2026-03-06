@@ -6,14 +6,17 @@ authors = ["elijah629"]
 license = "MIT"
 categories = ["science::robotics", "no-std", "mathematics", "embedded"]
 keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
 async-trait = "0.1.89"
 autons = { version = "0.2.0" }
-rkyv = "0.8.15"
+rkyv = { workspace = true }
 vexide = { workspace = true }
+
+[dev-dependencies]
+ozton-derive = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["armv7a-vex-v5"]

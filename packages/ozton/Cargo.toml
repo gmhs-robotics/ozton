@@ -1,13 +1,13 @@
 [package]
 name = "ozton"
-description = "A controls library for vexide."
+description = "A meta-framework for building compeition robots with vexide."
 repository = "https://github.com/gmhs-robotics/ozton/"
 authors = ["elijah629"]
 license = "MIT"
 readme = "../../README.md"
 categories = ["science::robotics", "no-std", "mathematics", "embedded"]
 keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
