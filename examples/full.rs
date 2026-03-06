@@ -1,6 +1,9 @@
 use ozton::record::frame::Recordable;
 use vexide::{prelude::*, smart::PortError};
 
+// This macro creates another struct named RobotFrame which maps all smart devices which can be
+// replayed into primitives to be saved. IE: motors go to f64's of velocity, AdiDevices go to
+// booleans.
 #[derive(ozton::derive::RobotFrame)]
 struct Robot {
     #[frame(skip)]
@@ -29,6 +32,14 @@ impl Recordable for Robot {
             right: right_volts,
         }
     }
+
+    // Data is directly passed from get -> transform in drive
+    // You can see the split here!
+    //
+    // Ordinarily, without this library for recording, you could delete the head of this
+    // function and the tail of the previous function and set that as your drive method and it
+    // would work as intended. The reason we split it is to save frames to an SD card for
+    // later playback
 
     async fn transform_to_frame(&mut self, frame: &Self::Frame) -> Result<(), PortError> {
         for motor in &mut self.left {
