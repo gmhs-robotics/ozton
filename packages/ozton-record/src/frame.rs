@@ -54,7 +54,7 @@ impl From<Error> for RecordingError {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Recordable {
     type Frame: Frameable;
     const UPDATE_INTERVAL: Duration;
