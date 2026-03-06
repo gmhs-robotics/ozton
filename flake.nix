@@ -29,6 +29,7 @@
         devShell = pkgs.mkShell {
           buildInputs = [
             pkgs.ripgrep
+            pkgs.cargo-release
             cargo-v5'
             (rustToolchain.override {
               extensions = [
@@ -42,4 +43,3 @@
       }
     ));
 }
-
