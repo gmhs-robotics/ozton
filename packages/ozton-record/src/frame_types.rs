@@ -11,3 +11,7 @@ impl FrameType for Motor {
 impl FrameType for AdiDigitalOut {
     type Output = bool;
 }
+
+impl<const N: usize> FrameType for [Motor; N] {
+    type Output = f64;
+}

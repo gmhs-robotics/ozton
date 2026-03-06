@@ -54,7 +54,7 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
             let field_type = &field.ty;
 
             Ok(Some(quote! {
-                pub #field_ident: <#field_type as ::ozton_record::frame_types::FrameType>::Output,
+                pub #field_ident: <#field_type as ::ozton_record::FrameType>::Output,
             }))
         })
         .collect::<Result<Vec<_>, syn::Error>>()?
@@ -64,6 +64,7 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let generated = quote! {
         #[derive(::ozton_record::rkyv::Archive, ::ozton_record::rkyv::Serialize, ::ozton_record::rkyv::Deserialize, Default, Clone, Debug)]
+        #[rkyv(crate = ::ozton_record::rkyv)]
         pub struct #frame_ident {
             #(#fields)*
         }
