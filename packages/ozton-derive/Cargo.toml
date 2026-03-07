@@ -1,11 +1,9 @@
 [package]
 name = "ozton-derive"
-description = "Derive macros in ozton. Used for creating framing structs dynamically."
+description = "Proc macros for ozton recording ergonomics."
 repository = "https://github.com/gmhs-robotics/ozton/"
 authors = ["elijah629"]
 license = "MIT"
-categories = ["science::robotics", "no-std", "mathematics", "embedded"]
-keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
 version = "0.2.0"
 edition = "2024"
 
@@ -14,13 +12,6 @@ proc-macro = true
 
 [dependencies]
 proc-macro-crate = "3.4.0"
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-syn = { version = "2.0.117", features = ["extra-traits", "full"] }
-
-[package.metadata.docs.rs]
-targets = ["armv7a-vex-v5"]
-cargo-args = [
-    "-Zbuild-std=std,panic_abort",
-    "-Zbuild-std-features=compiler-builtins-mem",
-]
+proc-macro2 = "1.0.101"
+quote = "1.0.41"
+syn = { version = "2.0.106", features = ["full"] }

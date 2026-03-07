@@ -1,6 +1,8 @@
 use std::{cell::RefCell, time::Duration};
 
 use ozton_record::{
+    Interpolate,
+    frame::{FrameRobot, RecordMode},
     prelude::Recordable,
     rkyv::{Archive, Deserialize, Serialize},
 };
@@ -12,19 +14,39 @@ struct DummyFrame {
     value: u8,
 }
 
+impl Interpolate for DummyFrame {
+    fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
+        Self {
+            value: Interpolate::interpolate(&from.value, &to.value, amount),
+        }
+    }
+}
+
 struct NonSendRobot {
     value: RefCell<u8>,
 }
 
 #[async_trait::async_trait(?Send)]
-impl Recordable for NonSendRobot {
+impl FrameRobot for NonSendRobot {
     type Frame = DummyFrame;
-    const UPDATE_INTERVAL: Duration = Duration::from_millis(20);
 
-    async fn transform_to_frame(&mut self, frame: &Self::Frame) -> Result<(), PortError> {
+    async fn finalize_frame(&self, frame: &Self::Frame) -> Self::Frame {
+        frame.clone()
+    }
+
+    async fn apply_frame(
+        &mut self,
+        frame: &Self::Frame,
+        _mode: RecordMode,
+    ) -> Result<(), PortError> {
         *self.value.get_mut() = frame.value;
         Ok(())
     }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Recordable for NonSendRobot {
+    const UPDATE_INTERVAL: Duration = Duration::from_millis(20);
 
     async fn get_new_frame(&self) -> Self::Frame {
         DummyFrame {

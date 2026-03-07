@@ -10,18 +10,36 @@ keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
 version = "0.2.0"
 edition = "2024"
 
+[dev-dependencies]
+vexide = { workspace = true, features = ["full", "default-sdk"] }
+
 [dependencies]
+ozton-control = { workspace = true, optional = true }
 ozton-derive = { workspace = true, optional = true }
+ozton-drivetrain = { workspace = true, optional = true }
+ozton-math = { workspace = true, optional = true }
+ozton-motion = { workspace = true, optional = true }
 ozton-record = { workspace = true, optional = true }
+ozton-tracking = { workspace = true, optional = true }
 
 [features]
 default = [
+  "control",
   "derive",
-  "record"
+  "drivetrain",
+  "math",
+  "motion",
+  "record",
+  "tracking"
 ]
 
+control = ["dep:ozton-control"]
 derive = ["dep:ozton-derive"]
+drivetrain = ["dep:ozton-drivetrain"]
+math = ["dep:ozton-math"]
+motion = ["dep:ozton-motion"]
 record = ["dep:ozton-record"]
+tracking = ["dep:ozton-tracking"]
 
 [package.metadata.docs.rs]
 targets = ["armv7a-none-eabi"] # Not actually, but this is at least close.

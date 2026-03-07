@@ -103,6 +103,11 @@ where
         default_selection: usize,
         callback: SelectorCallback<R, I>,
     ) -> Self {
+        crate::log!(
+            "selector.new: options={} default_selection={}",
+            options.len(),
+            default_selection
+        );
         Self::new_with_theme(display, options, default_selection, callback, THEME_DARK)
     }
 
@@ -122,6 +127,12 @@ where
         let rows = options.len().max(1);
         let cell_height = Self::cell_height(rows);
         let selection = default_selection.min(options.len() - 1);
+        crate::log!(
+            "selector.new_with_theme: rows={} cell_height={} initial_selection={}",
+            rows,
+            cell_height,
+            selection
+        );
 
         let state = Rc::new(RefCell::new(SelectorState {
             options,
@@ -194,6 +205,11 @@ where
                     let current_selection = state.selection;
 
                     if prev_selection != current_selection {
+                        crate::log!(
+                            "selector.touch: selection {} -> {}",
+                            prev_selection,
+                            current_selection
+                        );
                         state.dirty_rows.extend([prev_selection, current_selection]);
                     }
 
@@ -364,6 +380,11 @@ where
     async fn run(&self, robot: &mut R) {
         let (callback, selection) = {
             let state = self.state.borrow();
+            crate::log!(
+                "selector.run: invoking callback for selection={} label={}",
+                state.selection,
+                state.options[state.selection].label()
+            );
             (self.callback, state.options[state.selection].clone())
         };
 
@@ -379,9 +400,11 @@ where
 
 impl<I: SelectorItem + 'static> StatusHandle<I> {
     pub fn show_status(&self, text: impl Into<String>) {
+        let text = text.into();
+        crate::log!("selector.status: {}", text);
         let mut state = self.state.borrow_mut();
         state.status = Some(StatusMessage {
-            text: text.into(),
+            text,
             set_at: Instant::now(),
         });
         state.status_dirty = true;
@@ -419,6 +442,12 @@ impl<I: SelectorItem + Clone + 'static> SelectionController<I> {
         }
 
         self.last_selection = Some(selection_index);
-        Some(self.status.selection())
+        let selection = self.status.selection();
+        crate::log!(
+            "selector.consume_selection_change: selection_index={} label={}",
+            selection_index,
+            selection.label()
+        );
+        Some(selection)
     }
 }

@@ -1,6 +1,6 @@
 [package]
-name = "ozton-record"
-description = "Recording framework for ozton."
+name = "ozton-control"
+description = "Controls theory primitives in ozton."
 repository = "https://github.com/gmhs-robotics/ozton/"
 authors = ["elijah629"]
 license = "MIT"
@@ -10,16 +10,8 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
-async-trait = "0.1.89"
-autons = { version = "0.2.0" }
-ozton-drivetrain = { workspace = true }
-ozton-tracking = { workspace = true }
-rkyv = { workspace = true }
+vexide-devices = { workspace = true }
 vexide = { workspace = true }
-
-[dev-dependencies]
-futures = "0.3.31"
-ozton-derive = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["armv7a-vex-v5"]

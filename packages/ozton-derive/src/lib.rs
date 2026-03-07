@@ -5,17 +5,17 @@ use proc_macro_crate::{FoundCrate, crate_name};
 use quote::{format_ident, quote};
 use syn::{Attribute, DeriveInput, Path, parse_macro_input};
 
-#[proc_macro_derive(RobotFrame, attributes(frame))]
-pub fn robot_frame_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(RecordedRobot, attributes(record))]
+pub fn recorded_robot_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
-    match impl_robot_frame(&ast) {
-        Ok(x) => x,
-        Err(e) => e.to_compile_error().into(),
+    match impl_recorded_robot(&ast) {
+        Ok(tokens) => tokens,
+        Err(error) => error.to_compile_error().into(),
     }
 }
 
-fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
+fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
     let name = &ast.ident;
     let frame_ident = format_ident!("{}Frame", name);
     let record_path = resolve_record_path()?;
@@ -23,23 +23,22 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
     let fields = match &ast.data {
         syn::Data::Struct(data_struct) => match &data_struct.fields {
             syn::Fields::Named(fields_named) => &fields_named.named,
-
             _ => {
                 return Err(syn::Error::new_spanned(
                     &ast.ident,
-                    "RobotFrame only supports named fields",
+                    "RecordedRobot only supports named fields",
                 ));
             }
         },
         _ => {
             return Err(syn::Error::new_spanned(
                 &ast.ident,
-                "RobotFrame can only be derived for structs",
+                "RecordedRobot can only be derived for structs",
             ));
         }
     };
 
-    let fields = fields
+    let included_fields = fields
         .iter()
         .map(|field| {
             let skip = parse_field_attr(&field.attrs)?;
@@ -53,22 +52,105 @@ fn impl_robot_frame(ast: &syn::DeriveInput) -> Result<TokenStream, syn::Error> {
                 .expect("named fields ensured above")
                 .clone();
 
-            let field_type = &field.ty;
-
-            Ok(Some(quote! {
-                pub #field_ident: <#field_type as #record_path::FrameType>::Output,
-            }))
+            Ok(Some((field_ident, field.ty.clone())))
         })
         .collect::<Result<Vec<_>, syn::Error>>()?
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
 
+    let frame_fields = included_fields.iter().map(|(field_ident, field_type)| {
+        quote! {
+            pub #field_ident: <#field_type as #record_path::FrameType>::Output,
+        }
+    });
+
+    let interpolate_fields = included_fields.iter().map(|(field_ident, _)| {
+        quote! {
+            #field_ident: #record_path::Interpolate::interpolate(
+                &from.#field_ident,
+                &to.#field_ident,
+                amount,
+            ),
+        }
+    });
+
+    let finalize_fields = included_fields.iter().map(|(field_ident, field_type)| {
+        quote! {
+            #field_ident: <#field_type as #record_path::RecordField>::finalize_frame_value(
+                &self.#field_ident,
+                &frame.#field_ident,
+            ).await,
+        }
+    });
+
+    let apply_fields = included_fields.iter().map(|(field_ident, field_type)| {
+        quote! {
+            <#field_type as #record_path::RecordField>::apply_frame_value(
+                &mut self.#field_ident,
+                &frame.#field_ident,
+                mode,
+            ).await?;
+        }
+    });
+
+    let record_field_bounds = included_fields.iter().map(|(_, field_type)| {
+        quote! {
+            #field_type: #record_path::RecordField,
+        }
+    });
+
+    let where_clause = if included_fields.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            where
+                #(#record_field_bounds)*
+        }
+    };
+
     let generated = quote! {
-        #[derive(#record_path::rkyv::Archive, #record_path::rkyv::Serialize, #record_path::rkyv::Deserialize, Default, Clone, Debug)]
+        #[derive(
+            #record_path::rkyv::Archive,
+            #record_path::rkyv::Serialize,
+            #record_path::rkyv::Deserialize,
+            Default,
+            Clone,
+            Debug
+        )]
         #[rkyv(crate = #record_path::rkyv)]
         pub struct #frame_ident {
-            #(#fields)*
+            #(#frame_fields)*
+        }
+
+        impl #record_path::Interpolate for #frame_ident {
+            fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
+                Self {
+                    #(#interpolate_fields)*
+                }
+            }
+        }
+
+        #[#record_path::async_trait(?Send)]
+        impl #record_path::frame::FrameRobot for #name
+        #where_clause
+        {
+            type Frame = #frame_ident;
+
+            async fn finalize_frame(&self, frame: &Self::Frame) -> Self::Frame {
+                #frame_ident {
+                    #(#finalize_fields)*
+                }
+            }
+
+            async fn apply_frame(
+                &mut self,
+                frame: &Self::Frame,
+                mode: #record_path::frame::RecordMode,
+            ) -> Result<(), #record_path::PortError> {
+                #(#apply_fields)*
+                Ok(())
+            }
         }
     };
 
@@ -98,7 +180,7 @@ fn resolve_record_path() -> Result<Path, syn::Error> {
 
     Err(syn::Error::new(
         proc_macro2::Span::call_site(),
-        "RobotFrame derive requires either `ozton` or `ozton-record` to be a direct dependency",
+        "RecordedRobot derive requires either `ozton` or `ozton-record` to be a direct dependency",
     ))
 }
 
@@ -106,7 +188,7 @@ fn parse_field_attr(attrs: &[Attribute]) -> Result<bool, syn::Error> {
     let mut skip = false;
 
     for attr in attrs {
-        if !attr.path().is_ident("frame") {
+        if !attr.path().is_ident("record") {
             continue;
         }
 
@@ -116,7 +198,7 @@ fn parse_field_attr(attrs: &[Attribute]) -> Result<bool, syn::Error> {
                 return Ok(());
             }
 
-            Err(meta.error("unsupported frame attribute; expected `skip`"))
+            Err(meta.error("unsupported record attribute; expected `skip`"))
         })?;
     }
 
@@ -130,20 +212,20 @@ mod tests {
     use super::parse_field_attr;
 
     #[test]
-    fn frame_skip_sets_skip_true() {
-        let attrs = vec![parse_quote!(#[frame(skip)])];
+    fn record_skip_sets_skip_true() {
+        let attrs = vec![parse_quote!(#[record(skip)])];
         assert!(parse_field_attr(&attrs).unwrap());
     }
 
     #[test]
-    fn no_frame_attr_does_not_skip() {
+    fn no_record_attr_does_not_skip() {
         let attrs = vec![parse_quote!(#[allow(dead_code)])];
         assert!(!parse_field_attr(&attrs).unwrap());
     }
 
     #[test]
-    fn unknown_frame_attr_errors() {
-        let attrs = vec![parse_quote!(#[frame(foo)])];
+    fn unknown_record_attr_errors() {
+        let attrs = vec![parse_quote!(#[record(foo)])];
         assert!(parse_field_attr(&attrs).is_err());
     }
 }
