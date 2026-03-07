@@ -14,3 +14,14 @@ robot.
 
 Highly inspired by vexide/evian and vexide/autons. A lot of source was taken
 from them.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE.md) or
+  https://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT.md) or
+  https://opensource.org/licenses/MIT)
+
+at your option.
