@@ -20,8 +20,7 @@ use ozton_motion::{Basic, Seeking};
 use ozton_tracking::{
     Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
-use vexide::runtime::block_on;
-use vexide_devices::math::Angle;
+use vexide::{math::Angle, runtime::block_on};
 
 #[derive(Debug)]
 struct SimState {

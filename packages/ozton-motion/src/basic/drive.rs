@@ -11,8 +11,10 @@ use ozton_control::{
 };
 use ozton_drivetrain::{Drivetrain, model::Arcade};
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksVelocity};
-use vexide::time::{Sleep, sleep};
-use vexide_devices::math::Angle;
+use vexide::{
+    math::Angle,
+    time::{Sleep, sleep},
+};
 
 pub(crate) struct DriveState {
     pub sleep: Sleep,

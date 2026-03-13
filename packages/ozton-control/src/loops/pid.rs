@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use vexide_devices::math::Angle;
+use vexide::math::Angle;
 
 use super::Feedback;
 

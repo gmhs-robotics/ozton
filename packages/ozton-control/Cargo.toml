@@ -10,7 +10,6 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
-vexide-devices = { workspace = true }
 vexide = { workspace = true }
 
 [package.metadata.docs.rs]

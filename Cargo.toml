@@ -13,7 +13,6 @@ resolver = "2"
 
 [workspace.dependencies]
 vexide = "0.8.0"
-vexide-devices = "0.8.0"
 ozton-control = { version = "0.2.0", path = "packages/ozton-control", default-features = false }
 ozton-derive = { version = "0.2.0", path = "packages/ozton-derive", default-features = false }
 ozton-drivetrain = { version = "0.2.0", path = "packages/ozton-drivetrain", default-features = false }

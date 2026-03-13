@@ -57,7 +57,7 @@ pub mod wheeled;
 use glam::DVec2 as Vec2;
 pub use gps::{GpsTracking, GpsTrackingConfig};
 pub use sensor::{Gyro, RotarySensor};
-use vexide_devices::math::Angle;
+use vexide::math::Angle;
 
 /// Marker trait for a tracking system.
 pub trait Tracking {}

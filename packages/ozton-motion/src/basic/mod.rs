@@ -6,7 +6,7 @@ use glam::DVec2 as Vec2;
 use ozton_control::{Tolerances, loops::Feedback};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
-use vexide_devices::math::Angle;
+use vexide::math::Angle;
 
 mod drive;
 mod turn_to_point;

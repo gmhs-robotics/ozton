@@ -8,11 +8,11 @@ use std::{
 
 use glam::DVec2 as Vec2;
 use vexide::{
+    math::Angle,
     smart::{PortError, gps::GpsSensor},
     task::{Task, spawn},
     time::sleep,
 };
-use vexide_devices::math::Angle;
 
 use crate::{Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
 

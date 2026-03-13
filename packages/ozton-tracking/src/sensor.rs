@@ -2,6 +2,7 @@ use std::{cell::RefCell, rc::Rc, vec::Vec};
 
 use vexide::{
     adi::encoder::AdiEncoder,
+    math::Angle,
     smart::{
         PortError,
         gps::GpsSensor,
@@ -10,7 +11,6 @@ use vexide::{
         rotation::RotationSensor,
     },
 };
-use vexide_devices::math::Angle;
 
 /// A sensor that can measure continuous angular rotation, such as an encoder.
 pub trait RotarySensor {

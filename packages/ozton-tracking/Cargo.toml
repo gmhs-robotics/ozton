@@ -12,7 +12,6 @@ edition = "2024"
 [dependencies]
 glam = { workspace = true }
 vexide = { workspace = true }
-vexide-devices = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["armv7a-vex-v5"]

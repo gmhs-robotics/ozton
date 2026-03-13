@@ -4,11 +4,11 @@ use std::{cell::RefCell, f64::consts::PI, rc::Rc, time::Instant};
 
 use glam::DVec2 as Vec2;
 use vexide::{
+    math::Angle,
     smart::motor::Motor,
     task::{Task, spawn},
     time::sleep,
 };
-use vexide_devices::math::Angle;
 
 use super::TracksVelocity;
 use crate::{

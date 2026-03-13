@@ -5,7 +5,7 @@ use core::cell::RefCell;
 
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
-use vexide_devices::smart::{PortError, motor::Motor};
+use vexide::smart::{PortError, motor::Motor};
 
 use super::{DrivetrainModel, Holonomic, Tank};
 

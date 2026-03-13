@@ -1,6 +1,6 @@
 //! Common feedforward (open-loop) controllers.
 
-use vexide_devices::math::Angle;
+use vexide::math::Angle;
 
 use super::Feedforward;
 

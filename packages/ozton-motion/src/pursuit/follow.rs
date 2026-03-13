@@ -7,8 +7,10 @@ use std::{
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drivetrain, model::Tank};
 use ozton_tracking::{TracksHeading, TracksPosition};
-use vexide::time::{Sleep, sleep};
-use vexide_devices::math::Angle;
+use vexide::{
+    math::Angle,
+    time::{Sleep, sleep},
+};
 
 use super::Waypoint;
 

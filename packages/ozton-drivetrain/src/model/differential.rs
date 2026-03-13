@@ -3,7 +3,7 @@ extern crate alloc;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
-use vexide_devices::smart::{PortError, motor::Motor};
+use vexide::smart::{PortError, motor::Motor};
 
 use super::{DrivetrainModel, Tank};
 

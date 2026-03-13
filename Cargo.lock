@@ -385,7 +385,6 @@ name = "ozton-control"
 version = "0.2.0"
 dependencies = [
  "vexide",
- "vexide-devices",
 ]
 
 [[package]]
@@ -405,7 +404,7 @@ dependencies = [
  "glam",
  "ozton-math",
  "ozton-tracking",
- "vexide-devices",
+ "vexide",
 ]
 
 [[package]]
@@ -413,7 +412,6 @@ name = "ozton-math"
 version = "0.2.0"
 dependencies = [
  "glam",
- "vexide-devices",
 ]
 
 [[package]]
@@ -427,7 +425,6 @@ dependencies = [
  "ozton-tracking",
  "vex-sdk-mock",
  "vexide",
- "vexide-devices",
 ]
 
 [[package]]
@@ -450,7 +447,6 @@ version = "0.2.0"
 dependencies = [
  "glam",
  "vexide",
- "vexide-devices",
 ]
 
 [[package]]

@@ -12,7 +12,6 @@ edition = "2024"
 [dependencies]
 glam = { workspace = true }
 vexide = { workspace = true }
-vexide-devices = { workspace = true }
 ozton-control = { workspace = true }
 ozton-drivetrain = { workspace = true }
 ozton-math = { workspace = true }
