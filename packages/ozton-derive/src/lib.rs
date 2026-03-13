@@ -61,7 +61,7 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let frame_fields = included_fields.iter().map(|(field_ident, field_type)| {
         quote! {
-            pub #field_ident: <#field_type as #record_path::FrameType>::Output,
+            pub #field_ident: <#record_path::RecordedField<#field_type> as #record_path::FrameType>::Output,
         }
     });
 
@@ -77,7 +77,7 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let finalize_fields = included_fields.iter().map(|(field_ident, field_type)| {
         quote! {
-            #field_ident: <#field_type as #record_path::RecordField>::finalize_frame_value(
+            #field_ident: #record_path::RecordedField::<#field_type>::finalize_wrapped(
                 &self.#field_ident,
                 &frame.#field_ident,
             ).await,
@@ -86,7 +86,7 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let apply_fields = included_fields.iter().map(|(field_ident, field_type)| {
         quote! {
-            <#field_type as #record_path::RecordField>::apply_frame_value(
+            #record_path::RecordedField::<#field_type>::apply_wrapped(
                 &mut self.#field_ident,
                 &frame.#field_ident,
                 mode,

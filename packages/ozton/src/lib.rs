@@ -41,7 +41,7 @@ pub mod prelude {
     pub use crate::record::{
         DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
         DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, RecordableRobot,
-        RecordedDifferential, frame::RecordMode,
+        RecordedDifferential, RecordedField, frame::RecordMode,
     };
     #[cfg(feature = "tracking")]
     pub use crate::tracking::{

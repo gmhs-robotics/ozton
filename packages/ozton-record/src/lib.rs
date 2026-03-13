@@ -66,6 +66,7 @@ pub mod prelude {
         frame_types::{
             DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
             DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, RecordedDifferential,
+            RecordedField,
         },
         runtime::{PlaybackAutonomous, RecordingAutonomous},
     };
@@ -75,6 +76,6 @@ pub use frame::Recordable as RecordableRobot;
 pub use frame_types::{
     DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
     DifferentialVoltageFrame, DifferentialVoltagePlayback, FrameType, Interpolate, RecordField,
-    Recordable, RecordableDrivetrain, RecordedDifferential, TrackedMotionFrame, Vec2Frame,
-    apply_differential_voltage_frame, apply_tracked_differential_frame,
+    Recordable, RecordableDrivetrain, RecordedDifferential, RecordedField, TrackedMotionFrame,
+    Vec2Frame, apply_differential_voltage_frame, apply_tracked_differential_frame,
 };

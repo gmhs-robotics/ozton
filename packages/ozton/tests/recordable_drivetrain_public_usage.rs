@@ -4,13 +4,13 @@ use ozton::{
     derive::RecordedRobot,
     drivetrain::model::Differential,
     prelude::{NoTracking, RecordableDrivetrain},
-    record::{DifferentialVoltageFrame, Recordable, RecordableRobot},
+    record::{DifferentialVoltageFrame, RecordableRobot},
 };
 
 #[allow(dead_code)]
 #[derive(RecordedRobot)]
 struct Robot {
-    drivetrain: Recordable<RecordableDrivetrain<Differential, NoTracking>>,
+    drivetrain: RecordableDrivetrain<Differential, NoTracking>,
 }
 
 #[ozton::record::async_trait(?Send)]

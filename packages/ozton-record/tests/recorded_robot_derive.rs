@@ -3,7 +3,7 @@ use std::{cell::RefCell, time::Duration};
 use futures::executor::block_on;
 use ozton_derive::RecordedRobot;
 use ozton_record::{
-    FrameType, Interpolate, PortError, RecordField, Recordable, RecordableRobot,
+    FrameType, Interpolate, PortError, RecordField, RecordableRobot,
     frame::{FrameRobot, RecordMode},
 };
 
@@ -44,8 +44,8 @@ impl RecordField for DigitalField {
 
 #[derive(RecordedRobot)]
 struct TestRobot {
-    analog: Recordable<AnalogField>,
-    digital: Recordable<DigitalField>,
+    analog: AnalogField,
+    digital: DigitalField,
     #[record(skip)]
     skipped: u8,
 }
@@ -70,15 +70,15 @@ fn derive_generates_frametype_outputs() {
     };
 
     let TestRobotFrame { analog, digital } = frame;
-    let _: <Recordable<AnalogField> as FrameType>::Output = analog;
-    let _: <Recordable<DigitalField> as FrameType>::Output = digital;
+    let _: <AnalogField as FrameType>::Output = analog;
+    let _: <DigitalField as FrameType>::Output = digital;
 }
 
 #[test]
 fn derive_applies_and_finalizes_fields() {
     let mut robot = TestRobot {
-        analog: Recordable::new(AnalogField(RefCell::new(0.0))),
-        digital: Recordable::new(DigitalField(RefCell::new(false))),
+        analog: AnalogField(RefCell::new(0.0)),
+        digital: DigitalField(RefCell::new(false)),
         skipped: 7,
     };
 
@@ -97,8 +97,8 @@ fn derive_applies_and_finalizes_fields() {
     ))
     .unwrap();
 
-    assert!((*robot.analog.0.0.borrow() - 2.5).abs() < 1e-9);
-    assert!(*robot.digital.0.0.borrow());
+    assert!((*robot.analog.0.borrow() - 2.5).abs() < 1e-9);
+    assert!(*robot.digital.0.borrow());
     assert_eq!(robot.skipped, 7);
 }
 

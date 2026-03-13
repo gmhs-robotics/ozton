@@ -9,7 +9,7 @@ use std::{
 use futures::executor::block_on;
 use ozton_derive::RecordedRobot;
 use ozton_record::{
-    PortError, Recordable, RecordableRobot,
+    PortError, RecordableRobot,
     frame::{FrameRobot, RecordMode, Recording},
 };
 
@@ -47,7 +47,7 @@ impl ozton_record::RecordField for LoggedActuator {
 
 #[derive(RecordedRobot)]
 struct ScriptedRobot {
-    actuator: Recordable<LoggedActuator>,
+    actuator: LoggedActuator,
     #[record(skip)]
     script: RefCell<VecDeque<f64>>,
 }
@@ -67,9 +67,9 @@ impl RecordableRobot for ScriptedRobot {
 fn recording_pipeline_records_finalizes_and_replays_loaded_frames() {
     let applied = Rc::new(RefCell::new(Vec::new()));
     let mut robot = ScriptedRobot {
-        actuator: Recordable::new(LoggedActuator {
+        actuator: LoggedActuator {
             applied: applied.clone(),
-        }),
+        },
         script: RefCell::new(VecDeque::from([0.5])),
     };
 

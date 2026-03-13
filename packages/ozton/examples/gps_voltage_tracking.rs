@@ -5,7 +5,7 @@ use ozton::{
     drivetrain::model::Differential,
     prelude::{Drivetrain, RecordableDrivetrain},
     record::{
-        self, DifferentialVoltageFrame, Recordable, RecordableRobot,
+        self, DifferentialVoltageFrame, RecordableRobot,
         runtime::{PlaybackAutonomous, RecordingAutonomous},
     },
     tracking::GpsTracking,
@@ -17,7 +17,7 @@ struct Robot {
     #[record(skip)]
     controller: Controller,
 
-    drivetrain: Recordable<RecordableDrivetrain<Differential, GpsTracking>>,
+    drivetrain: RecordableDrivetrain<Differential, GpsTracking>,
 }
 
 #[record::async_trait(?Send)]
@@ -49,7 +49,7 @@ async fn main(peripherals: Peripherals) {
 
     let robot = Robot {
         controller: peripherals.primary_controller,
-        drivetrain: Recordable::new(RecordableDrivetrain::new(Drivetrain::new(
+        drivetrain: RecordableDrivetrain::new(Drivetrain::new(
             Differential::new(
                 [
                     Motor::new(peripherals.port_1, Gearset::Green, Direction::Reverse),
@@ -61,7 +61,7 @@ async fn main(peripherals: Peripherals) {
                 ],
             ),
             GpsTracking::new(gps),
-        ))),
+        )),
     };
 
     if cfg!(feature = "record") {

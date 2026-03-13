@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use ozton::{
     derive::RecordedRobot,
-    record::{FrameType, Recordable, RecordableRobot},
+    record::{FrameType, RecordableRobot},
 };
 
 struct AnalogField;
@@ -22,7 +22,7 @@ impl ozton::record::RecordField for AnalogField {
 
 #[derive(RecordedRobot)]
 struct Robot {
-    analog: Recordable<AnalogField>,
+    analog: AnalogField,
 }
 
 #[ozton::record::async_trait(?Send)]
@@ -37,9 +37,9 @@ impl RecordableRobot for Robot {
 #[test]
 fn derive_works_via_ozton() {
     let frame = RobotFrame { analog: 42.0 };
-    let _: <Recordable<AnalogField> as FrameType>::Output = frame.analog;
+    let _: <AnalogField as FrameType>::Output = frame.analog;
 
     let _robot = Robot {
-        analog: Recordable::new(AnalogField),
+        analog: AnalogField,
     };
 }

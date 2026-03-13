@@ -76,6 +76,9 @@ pub trait FrameType {
 /// Wraps a live field to opt it into ozton's recording field model.
 pub struct Recordable<T>(pub T);
 
+/// Public alias used by derive-generated code when wrapping live fields.
+pub type RecordedField<T> = Recordable<T>;
+
 impl<T> Recordable<T> {
     #[must_use]
     pub const fn new(inner: T) -> Self {
@@ -85,6 +88,20 @@ impl<T> Recordable<T> {
     #[must_use]
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T: RecordField> Recordable<T> {
+    pub async fn finalize_wrapped(field: &T, frame: &T::Output) -> T::Output {
+        field.finalize_frame_value(frame).await
+    }
+
+    pub async fn apply_wrapped(
+        field: &mut T,
+        frame: &T::Output,
+        mode: RecordMode,
+    ) -> Result<(), PortError> {
+        field.apply_frame_value(frame, mode).await
     }
 }
 
