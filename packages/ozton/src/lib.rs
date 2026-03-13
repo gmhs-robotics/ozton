@@ -22,9 +22,9 @@ pub use ozton_motion as motion;
 #[cfg(feature = "record")]
 pub use ozton_record as record;
 #[cfg(feature = "record")]
-pub use ozton_record::record_frame;
-#[cfg(feature = "record")]
 pub use ozton_record::log;
+#[cfg(feature = "record")]
+pub use ozton_record::record_frame;
 #[doc(inline)]
 #[cfg(feature = "tracking")]
 pub use ozton_tracking as tracking;
@@ -40,10 +40,8 @@ pub mod prelude {
     #[cfg(feature = "record")]
     pub use crate::record::{
         DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
-        DifferentialVoltagePlayback,
-        RecordableDrivetrain,
-        RecordedDifferential,
-        frame::{RecordMode, Recordable},
+        DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, RecordableRobot,
+        RecordedDifferential, frame::RecordMode,
     };
     #[cfg(feature = "tracking")]
     pub use crate::tracking::{

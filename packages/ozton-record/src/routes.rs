@@ -74,7 +74,11 @@ impl RouteIndex {
 
     #[allow(dead_code)]
     pub fn save(&self) -> std::io::Result<()> {
-        crate::log!("routes.save: writing {} entries to {}", self.map.len(), Self::INDEX_PATH);
+        crate::log!(
+            "routes.save: writing {} entries to {}",
+            self.map.len(),
+            Self::INDEX_PATH
+        );
         let mut out = String::new();
 
         for (route_id, name) in &self.map {

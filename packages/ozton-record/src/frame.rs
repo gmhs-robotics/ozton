@@ -92,11 +92,15 @@ type FrameSerializer<'a> = HighSerializer<AlignedVec, ArenaHandle<'a>, Error>;
 type FrameDeserializer = HighDeserializer<Error>;
 type FrameValidator<'a> = HighValidator<'a, Error>;
 
-pub trait Frameable =
-    Archive + Default + Clone + std::fmt::Debug + Interpolate + for<'a> Serialize<FrameSerializer<'a>>
-    where
-        <Self as Archive>::Archived:
-            for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
+pub trait Frameable = Archive
+    + Default
+    + Clone
+    + std::fmt::Debug
+    + Interpolate
+    + for<'a> Serialize<FrameSerializer<'a>>
+where
+    <Self as Archive>::Archived:
+        for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
 
 impl<F: Frameable> Recording<F> {
     #[allow(dead_code)]

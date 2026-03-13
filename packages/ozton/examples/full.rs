@@ -5,8 +5,7 @@ use ozton::{
     drivetrain::model::Differential,
     prelude::{Drivetrain, NoTracking, RecordableDrivetrain},
     record::{
-        self,
-        frame::Recordable,
+        self, Recordable, RecordableRobot,
         runtime::{PlaybackAutonomous, RecordingAutonomous},
     },
 };
@@ -17,12 +16,12 @@ struct Robot {
     #[record(skip)]
     controller: Controller,
 
-    drivetrain: RecordableDrivetrain<Differential, NoTracking>,
-    intake: Motor,
+    drivetrain: Recordable<RecordableDrivetrain<Differential, NoTracking>>,
+    intake: Recordable<Motor>,
 }
 
 #[record::async_trait(?Send)]
-impl Recordable for Robot {
+impl RecordableRobot for Robot {
     const UPDATE_INTERVAL: Duration = Controller::UPDATE_INTERVAL;
 
     async fn get_new_frame(&self) -> Self::Frame {
@@ -49,7 +48,7 @@ async fn main(peripherals: Peripherals) {
 
     let robot = Robot {
         controller: peripherals.primary_controller,
-        drivetrain: RecordableDrivetrain::new(Drivetrain::new(
+        drivetrain: Recordable::new(RecordableDrivetrain::new(Drivetrain::new(
             Differential::new(
                 [
                     Motor::new(peripherals.port_1, Gearset::Green, Direction::Reverse),
@@ -61,8 +60,12 @@ async fn main(peripherals: Peripherals) {
                 ],
             ),
             NoTracking,
+        ))),
+        intake: Recordable::new(Motor::new(
+            peripherals.port_5,
+            Gearset::Green,
+            Direction::Forward,
         )),
-        intake: Motor::new(peripherals.port_5, Gearset::Green, Direction::Forward),
     };
 
     if cfg!(feature = "record") {

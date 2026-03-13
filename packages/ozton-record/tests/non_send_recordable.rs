@@ -1,9 +1,8 @@
 use std::{cell::RefCell, time::Duration};
 
 use ozton_record::{
-    Interpolate,
+    Interpolate, RecordableRobot,
     frame::{FrameRobot, RecordMode},
-    prelude::Recordable,
     rkyv::{Archive, Deserialize, Serialize},
 };
 use vexide::smart::PortError;
@@ -45,7 +44,7 @@ impl FrameRobot for NonSendRobot {
 }
 
 #[async_trait::async_trait(?Send)]
-impl Recordable for NonSendRobot {
+impl RecordableRobot for NonSendRobot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(20);
 
     async fn get_new_frame(&self) -> Self::Frame {

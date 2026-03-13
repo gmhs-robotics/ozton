@@ -370,9 +370,7 @@ impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
             return;
         }
 
-        crate::log!(
-            "runtime.playback_autonomous.before_route: route missing or failed to load"
-        );
+        crate::log!("runtime.playback_autonomous.before_route: route missing or failed to load");
         self.selection
             .status()
             .show_status(format!("Missing route {display_name}"));

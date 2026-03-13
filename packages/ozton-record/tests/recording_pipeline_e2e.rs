@@ -9,8 +9,8 @@ use std::{
 use futures::executor::block_on;
 use ozton_derive::RecordedRobot;
 use ozton_record::{
-    PortError,
-    frame::{FrameRobot, RecordMode, Recordable, Recording},
+    PortError, Recordable, RecordableRobot,
+    frame::{FrameRobot, RecordMode, Recording},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,13 +47,13 @@ impl ozton_record::RecordField for LoggedActuator {
 
 #[derive(RecordedRobot)]
 struct ScriptedRobot {
-    actuator: LoggedActuator,
+    actuator: Recordable<LoggedActuator>,
     #[record(skip)]
     script: RefCell<VecDeque<f64>>,
 }
 
 #[ozton_record::async_trait(?Send)]
-impl Recordable for ScriptedRobot {
+impl RecordableRobot for ScriptedRobot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(5);
 
     async fn get_new_frame(&self) -> Self::Frame {
@@ -67,9 +67,9 @@ impl Recordable for ScriptedRobot {
 fn recording_pipeline_records_finalizes_and_replays_loaded_frames() {
     let applied = Rc::new(RefCell::new(Vec::new()));
     let mut robot = ScriptedRobot {
-        actuator: LoggedActuator {
+        actuator: Recordable::new(LoggedActuator {
             applied: applied.clone(),
-        },
+        }),
         script: RefCell::new(VecDeque::from([0.5])),
     };
 
@@ -99,8 +99,10 @@ fn recording_pipeline_records_finalizes_and_replays_loaded_frames() {
         }
     );
     assert!(
-        applied.iter().skip(1).all(|frame| frame.mode == RecordMode::Playback
-            && (frame.value - 0.75).abs() < 1e-9),
+        applied
+            .iter()
+            .skip(1)
+            .all(|frame| frame.mode == RecordMode::Playback && (frame.value - 0.75).abs() < 1e-9),
         "expected playback applications to use finalized frame, got {:?}",
         *applied
     );
