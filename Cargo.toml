@@ -13,13 +13,13 @@ resolver = "2"
 
 [workspace.dependencies]
 vexide = "0.8.0"
-ozton-control = { version = "0.2.0", path = "packages/ozton-control", default-features = false }
-ozton-derive = { version = "0.2.0", path = "packages/ozton-derive", default-features = false }
-ozton-drivetrain = { version = "0.2.0", path = "packages/ozton-drivetrain", default-features = false }
-ozton-math = { version = "0.2.0", path = "packages/ozton-math", default-features = false }
-ozton-motion = { version = "0.2.0", path = "packages/ozton-motion", default-features = false }
-ozton-record = { version = "0.2.0", path = "packages/ozton-record", default-features = false }
-ozton-tracking = { version = "0.2.0", path = "packages/ozton-tracking", default-features = false }
+ozton-control = { version = "0.3.0", path = "packages/ozton-control", default-features = false }
+ozton-derive = { version = "0.3.0", path = "packages/ozton-derive", default-features = false }
+ozton-drivetrain = { version = "0.3.0", path = "packages/ozton-drivetrain", default-features = false }
+ozton-math = { version = "0.3.0", path = "packages/ozton-math", default-features = false }
+ozton-motion = { version = "0.3.0", path = "packages/ozton-motion", default-features = false }
+ozton-record = { version = "0.3.0", path = "packages/ozton-record", default-features = false }
+ozton-tracking = { version = "0.3.0", path = "packages/ozton-tracking", default-features = false }
 glam = { version = "0.29.3", default-features = false, features = ["libm"] }
 rkyv = "0.8.15"
 
