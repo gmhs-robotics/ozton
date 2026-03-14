@@ -41,6 +41,10 @@ impl FrameRobot for NonSendRobot {
         *self.value.get_mut() = frame.value;
         Ok(())
     }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait(?Send)]

@@ -5,7 +5,7 @@ use autons::prelude::{SelectCompete, SelectCompeteExt};
 use vexide::{prelude::*, time::sleep};
 
 use super::{
-    frame::{Frameable, RecordMode, Recordable, Recording},
+    frame::{Frameable, RecordMode, Recordable, Recording, RecordingError},
     routes::RouteIndex,
     selector::{PlaybackChoice, RecordOption, RecordTarget, RecorderSelect, SelectionController},
 };
@@ -193,6 +193,7 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
             "runtime.recording_autonomous.save_recording: success route={} name={display_name}",
             route_id
         );
+        self.robot.on_save().await;
         self.selection
             .status()
             .show_status(prefixed_status("Saved ", &display_name));
@@ -373,19 +374,35 @@ impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
             path.display()
         );
 
-        if let Ok(recording) = Recording::load(&path) {
-            self.selection
-                .status()
-                .show_status(prefixed_status("Playing ", &display_name));
-            crate::log!("runtime.playback_autonomous.before_route: playback starting");
-            recording.playback(&mut self.robot).await;
-            return;
+        match Recording::load(&path) {
+            Ok(recording) => {
+                self.selection
+                    .status()
+                    .show_status(prefixed_status("Playing ", &display_name));
+                crate::log!("runtime.playback_autonomous.before_route: playback starting");
+                recording.playback(&mut self.robot).await;
+            }
+            Err(RecordingError::Io(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                crate::log!(
+                    "runtime.playback_autonomous.before_route: missing route file path={} error={error}",
+                    path.display()
+                );
+                self.selection
+                    .status()
+                    .show_status(prefixed_status("Missing route ", &display_name));
+            }
+            Err(error) => {
+                crate::log!(
+                    "runtime.playback_autonomous.before_route: load failed path={} error={error}",
+                    path.display()
+                );
+                self.selection
+                    .status()
+                    .show_status(prefixed_status("Load failed ", &display_name));
+            }
         }
-
-        crate::log!("runtime.playback_autonomous.before_route: route missing or failed to load");
-        self.selection
-            .status()
-            .show_status(prefixed_status("Missing route ", &display_name));
     }
 }
 

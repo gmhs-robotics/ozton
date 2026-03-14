@@ -19,8 +19,14 @@ use crate::{Tracking, TracksForwardTravel, TracksHeading, TracksPosition, Tracks
 /// Configuration for [`GpsTracking`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GpsTrackingConfig {
+    /// Delay before the tracker starts polling the GPS.
+    pub startup_delay: Duration,
+
     /// Sampling interval for GPS updates.
     pub update_interval: Duration,
+
+    /// Number of consecutive usable samples required before GPS data is treated as reliable.
+    pub required_stable_samples: usize,
 
     /// Maximum acceptable GPS RMS position error in meters.
     ///
@@ -31,7 +37,9 @@ pub struct GpsTrackingConfig {
 impl Default for GpsTrackingConfig {
     fn default() -> Self {
         Self {
+            startup_delay: Duration::from_millis(250),
             update_interval: Duration::from_millis(10),
+            required_stable_samples: 5,
             max_position_error: None,
         }
     }
@@ -46,6 +54,8 @@ struct GpsTrackingData {
     angular_velocity: f64,
     position_error: Option<f64>,
     status: Option<u32>,
+    stable_samples: usize,
+    ready: bool,
 }
 
 /// Tracking system that derives differential-drive odometry primitives from a [`GpsSensor`].
@@ -68,37 +78,21 @@ impl GpsTracking {
     /// Creates a GPS tracker with explicit configuration.
     pub fn with_config(mut gps: GpsSensor, config: GpsTrackingConfig) -> Self {
         log!(
-            "gps.with_config: update_interval={}ms max_position_error={:?}",
+            "gps.with_config: startup_delay={}ms update_interval={}ms required_stable_samples={} max_position_error={:?}",
+            config.startup_delay.as_millis(),
             config.update_interval.as_millis(),
+            config.required_stable_samples,
             config.max_position_error
         );
         let _ = gps.set_data_interval(config.update_interval);
 
-        let initial_position = Self::read_position(&gps).unwrap_or_default();
-        let initial_heading = Self::read_heading(&gps).unwrap_or_default();
-        let initial_error = gps.error().ok();
-        let initial_status = gps.status().ok();
-        log!(
-            "gps.with_config: initial_position={initial_position:?} initial_heading={initial_heading:?} initial_error={initial_error:?} initial_status={initial_status:?}"
-        );
-
         let data = Rc::new(RefCell::new(GpsTrackingData {
-            position: initial_position,
-            heading: initial_heading,
-            position_error: initial_error,
-            status: initial_status,
             ..Default::default()
         }));
 
         Self {
             data: data.clone(),
-            _task: spawn(Self::task(
-                gps,
-                config,
-                data,
-                initial_position,
-                initial_heading,
-            )),
+            _task: spawn(Self::task(gps, config, data)),
         }
     }
 
@@ -110,6 +104,16 @@ impl GpsTracking {
     /// Returns the most recent raw GPS status word.
     pub fn status(&self) -> Option<u32> {
         self.data.borrow().status
+    }
+
+    /// Returns whether the tracker has accumulated enough usable samples to trust its pose.
+    pub fn is_ready(&self) -> bool {
+        self.data.borrow().ready
+    }
+
+    /// Returns the current count of consecutive usable samples.
+    pub fn stable_samples(&self) -> usize {
+        self.data.borrow().stable_samples
     }
 
     fn read_position(gps: &GpsSensor) -> Result<Vec2, PortError> {
@@ -126,14 +130,39 @@ impl GpsTracking {
         gps.gyro_rate().map(|rate| (-rate.z).to_radians())
     }
 
+    fn is_position_usable(config: GpsTrackingConfig, position_error: Option<f64>) -> bool {
+        position_error.is_some_and(|error| {
+            config
+                .max_position_error
+                .is_none_or(|maximum| error <= maximum)
+        })
+    }
+
     async fn task(
         gps: GpsSensor,
         config: GpsTrackingConfig,
         data: Rc<RefCell<GpsTrackingData>>,
-        mut prev_position: Vec2,
-        mut prev_heading: Angle,
     ) {
+        if !config.startup_delay.is_zero() {
+            log!(
+                "gps.task: waiting {}ms before first sample",
+                config.startup_delay.as_millis()
+            );
+            sleep(config.startup_delay).await;
+        }
+
+        let mut prev_position = Self::read_position(&gps).unwrap_or_default();
+        let mut prev_heading = Self::read_heading(&gps).unwrap_or_default();
         let mut prev_time = Instant::now();
+        {
+            let mut data = data.borrow_mut();
+            data.position = prev_position;
+            data.heading = prev_heading;
+            data.position_error = gps.error().ok();
+            data.status = gps.status().ok();
+            data.stable_samples = 0;
+            data.ready = false;
+        }
         log!("gps.task: started");
 
         loop {
@@ -152,7 +181,8 @@ impl GpsTracking {
                 data.status
             );
 
-            let heading = Self::read_heading(&gps).unwrap_or(prev_heading);
+            let heading_result = Self::read_heading(&gps);
+            let heading = heading_result.unwrap_or(prev_heading);
             let delta_heading = (heading - prev_heading).wrapped_half();
             let dt_seconds = dt.as_secs_f64();
 
@@ -170,13 +200,15 @@ impl GpsTracking {
                 data.angular_velocity
             );
 
-            let position_is_usable = data.position_error.is_none_or(|error| {
-                config
-                    .max_position_error
-                    .is_none_or(|maximum| error <= maximum)
-            });
+            let position_is_usable = Self::is_position_usable(config, data.position_error);
+            let position_result = if position_is_usable {
+                Self::read_position(&gps).ok()
+            } else {
+                None
+            };
+            let sample_is_usable = heading_result.is_ok() && position_result.is_some();
 
-            if position_is_usable && let Ok(position) = Self::read_position(&gps) {
+            if let Some(position) = position_result {
                 let delta_position = position - prev_position;
                 let avg_heading = (prev_heading + (delta_heading / 2.0)).wrapped_full();
                 let local_displacement =
@@ -205,6 +237,19 @@ impl GpsTracking {
                     config.max_position_error
                 );
             }
+
+            if sample_is_usable {
+                data.stable_samples = data.stable_samples.saturating_add(1);
+            } else {
+                data.stable_samples = 0;
+            }
+            data.ready = data.stable_samples >= config.required_stable_samples;
+            log!(
+                "gps.task: sample_is_usable={} stable_samples={} ready={}",
+                sample_is_usable,
+                data.stable_samples,
+                data.ready
+            );
 
             prev_heading = heading;
         }

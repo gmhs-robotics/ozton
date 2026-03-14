@@ -247,28 +247,44 @@ where
                         )
                     };
 
-                    let state = state.borrow();
+                    let (redraw_items, status_text) = {
+                        let state = state.borrow();
+                        let redraw_items = dirty_rows
+                            .into_iter()
+                            .filter(|row_index| *row_index < rows)
+                            .filter_map(|row_index| {
+                                state.options.get(row_index).map(|item| {
+                                    (
+                                        row_index,
+                                        item.label().to_owned(),
+                                        row_index == selection,
+                                        active_row == Some(row_index),
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>();
+                        let status_text = if redraw_status {
+                            state.status.as_ref().map(|status| status.text.clone())
+                        } else {
+                            None
+                        };
+                        (redraw_items, status_text)
+                    };
 
-                    for row_index in dirty_rows.into_iter().filter(|row_index| *row_index < rows) {
-                        if let Some(item) = state.options.get(row_index) {
-                            Self::draw_item(
-                                &mut display,
-                                &theme,
-                                item.label(),
-                                row_index,
-                                row_index == selection,
-                                active_row == Some(row_index),
-                                cell_height,
-                            );
-                        }
+                    for (row_index, label, selected, active) in redraw_items {
+                        Self::draw_item(
+                            &mut display,
+                            &theme,
+                            &label,
+                            row_index,
+                            selected,
+                            active,
+                            cell_height,
+                        );
                     }
 
                     if redraw_status {
-                        Self::draw_status(
-                            &mut display,
-                            &theme,
-                            state.status.as_ref().map(|status| status.text.as_str()),
-                        );
+                        Self::draw_status(&mut display, &theme, status_text.as_deref());
                     }
 
                     display.render();

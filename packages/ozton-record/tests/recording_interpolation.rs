@@ -1,10 +1,6 @@
 use std::time::Duration;
 
-use ozton_record::{
-    Interpolate,
-    frame::Recording,
-    rkyv::{Archive, Deserialize, Serialize},
-};
+use ozton_record::{Interpolate, frame::Recording, rkyv::{Archive, Deserialize, Serialize}};
 
 #[derive(Archive, Serialize, Deserialize, Default, Clone, Debug)]
 #[rkyv(crate = ::ozton_record::rkyv)]
@@ -23,7 +19,7 @@ impl Interpolate for SampleFrame {
 }
 
 #[test]
-fn frame_at_interpolates_recording_timeline() {
+fn frame_at_reuses_latest_recorded_sample() {
     let mut recording = Recording::default();
     recording.push_timed(
         Duration::ZERO,
@@ -41,10 +37,10 @@ fn frame_at_interpolates_recording_timeline() {
     );
 
     let sample = recording.frame_at(Duration::from_millis(25)).unwrap();
-    assert!((sample.analog - 0.25).abs() < 1e-9);
+    assert!((sample.analog - 0.0).abs() < 1e-9);
     assert!(!sample.digital);
 
     let sample = recording.frame_at(Duration::from_millis(75)).unwrap();
-    assert!((sample.analog - 0.75).abs() < 1e-9);
-    assert!(sample.digital);
+    assert!((sample.analog - 0.0).abs() < 1e-9);
+    assert!(!sample.digital);
 }

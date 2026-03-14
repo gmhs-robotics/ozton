@@ -86,11 +86,23 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
 
     let apply_fields = included_fields.iter().map(|(field_ident, field_type)| {
         quote! {
-            <#field_type as #record_path::RecordField>::apply_frame_value(
+            if let Err(error) = <#field_type as #record_path::RecordField>::apply_frame_value(
                 &mut self.#field_ident,
                 &frame.#field_ident,
                 mode,
-            ).await?;
+            ).await {
+                result = Err(error);
+            }
+        }
+    });
+
+    let stop_fields = included_fields.iter().map(|(field_ident, field_type)| {
+        quote! {
+            if let Err(error) = <#field_type as #record_path::RecordField>::stop_playback(
+                &mut self.#field_ident,
+            ).await {
+                result = Err(error);
+            }
         }
     });
 
@@ -148,8 +160,15 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
                 frame: &Self::Frame,
                 mode: #record_path::frame::RecordMode,
             ) -> Result<(), #record_path::PortError> {
+                let mut result = Ok(());
                 #(#apply_fields)*
-                Ok(())
+                result
+            }
+
+            async fn stop_playback(&mut self) -> Result<(), #record_path::PortError> {
+                let mut result = Ok(());
+                #(#stop_fields)*
+                result
             }
         }
     };

@@ -91,6 +91,11 @@ pub trait RecordField {
         frame: &Self::Output,
         mode: RecordMode,
     ) -> Result<(), PortError>;
+
+    /// Stops any motor-like output after playback completes.
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        Ok(())
+    }
 }
 
 impl<T: RecordField> FrameType for T {
@@ -378,6 +383,10 @@ impl RecordField for Motor {
         }
         result
     }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        self.set_voltage(0.0)
+    }
 }
 
 #[async_trait(?Send)]
@@ -484,6 +493,18 @@ impl<const N: usize> RecordField for [Motor; N] {
         for motor in self {
             if let Err(error) = motor.set_voltage(command * motor.max_voltage()) {
                 crate::log!("frame_types.motor_array.apply: element error={error:?}");
+                result = Err(error);
+            }
+        }
+
+        result
+    }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        let mut result = Ok(());
+
+        for motor in self {
+            if let Err(error) = motor.set_voltage(0.0) {
                 result = Err(error);
             }
         }
@@ -676,6 +697,10 @@ where
             },
         }
     }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        self.drivetrain.model.drive_tank(0.0, 0.0)
+    }
 }
 
 /// Replays a recorded differential command and optionally uses tracking to correct drift.
@@ -788,7 +813,7 @@ impl DifferentialRecording for GpsTracking {
     }
 
     fn tracked_motion_frame(&self) -> Option<TrackedMotionFrame> {
-        Some(tracked_motion_frame(self))
+        self.is_ready().then(|| tracked_motion_frame(self))
     }
 }
 

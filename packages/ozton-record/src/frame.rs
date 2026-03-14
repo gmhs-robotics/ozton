@@ -79,6 +79,9 @@ pub trait FrameRobot {
     /// Applies a frame to the live robot.
     async fn apply_frame(&mut self, frame: &Self::Frame, mode: RecordMode)
     -> Result<(), PortError>;
+
+    /// Resets any motor outputs that should be stopped after playback completes.
+    async fn stop_playback(&mut self) -> Result<(), PortError>;
 }
 
 #[async_trait(?Send)]
@@ -86,6 +89,9 @@ pub trait Recordable: FrameRobot {
     const UPDATE_INTERVAL: Duration;
 
     async fn get_new_frame(&self) -> Self::Frame;
+
+    /// Runs after a recording and route index entry have been successfully saved.
+    async fn on_save(&mut self) {}
 }
 
 type FrameSerializer<'a> = HighSerializer<AlignedVec, ArenaHandle<'a>, Error>;
@@ -132,40 +138,40 @@ impl<F: Frameable> Recording<F> {
     #[allow(dead_code)]
     pub fn frame_at(&self, elapsed: Duration) -> Option<F> {
         let first = self.frames.first()?;
-        let mut previous = first;
-        let mut previous_time = Duration::from_micros(first.delta_time_micros);
+        let mut current = first;
+        let mut current_time = Duration::from_micros(first.delta_time_micros);
 
-        if elapsed <= previous_time {
-            return Some(previous.frame.clone());
+        if elapsed <= current_time {
+            crate::log!(
+                "recording.stepped_frame_at: elapsed={}us frame={:?}",
+                elapsed.as_micros(),
+                current.frame
+            );
+            return Some(current.frame.clone());
         }
 
-        for current in self.frames.iter().skip(1) {
-            let current_time = previous_time + Duration::from_micros(current.delta_time_micros);
+        for next in self.frames.iter().skip(1) {
+            let next_time = current_time + Duration::from_micros(next.delta_time_micros);
 
-            if elapsed <= current_time {
-                let segment = current_time.saturating_sub(previous_time);
-                if segment.is_zero() {
-                    return Some(current.frame.clone());
-                }
-
-                let amount =
-                    elapsed.saturating_sub(previous_time).as_secs_f64() / segment.as_secs_f64();
-
-                let interpolated = F::interpolate(&previous.frame, &current.frame, amount);
+            if elapsed < next_time {
                 crate::log!(
-                    "recording.frame_at: elapsed={}us amount={amount:.4} previous={:?} current={:?} interpolated={interpolated:?}",
+                    "recording.stepped_frame_at: elapsed={}us frame={:?}",
                     elapsed.as_micros(),
-                    previous.frame,
                     current.frame
                 );
-                return Some(interpolated);
+                return Some(current.frame.clone());
             }
 
-            previous = current;
-            previous_time = current_time;
+            current = next;
+            current_time = next_time;
         }
 
-        Some(previous.frame.clone())
+        crate::log!(
+            "recording.stepped_frame_at: elapsed={}us frame={:?}",
+            elapsed.as_micros(),
+            current.frame
+        );
+        Some(current.frame.clone())
     }
 
     #[allow(dead_code)]
@@ -185,7 +191,9 @@ impl<F: Frameable> Recording<F> {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, RecordingError> {
         crate::log!("recording.load: path={}", path.as_ref().display());
         let bytes = std::fs::read(path)?;
-        let recording = from_bytes::<Self, Error>(&bytes)?;
+        let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
+        aligned.extend_from_slice(&bytes);
+        let recording = from_bytes::<Self, Error>(&aligned)?;
         crate::log!(
             "recording.load: success frames={} duration={}us",
             recording.frames.len(),
@@ -215,8 +223,8 @@ impl<F: Frameable> Recording<F> {
 
             if let Some(frame) = self.frame_at(elapsed) {
                 crate::log!(
-                    "recording.playback: apply interpolated frame elapsed={}us frame={frame:?}",
-                    elapsed.as_micros()
+                    "recording.playback: apply frame elapsed={}us frame={frame:?}",
+                    elapsed.as_micros(),
                 );
                 if let Err(error) = robot.apply_frame(&frame, RecordMode::Playback).await {
                     crate::log!("recording.playback: apply error: {error:?}");
@@ -240,6 +248,10 @@ impl<F: Frameable> Recording<F> {
             if let Err(error) = robot.apply_frame(&last.frame, RecordMode::Playback).await {
                 crate::log!("recording.playback: final apply error: {error:?}");
             }
+        }
+
+        if let Err(error) = robot.stop_playback().await {
+            crate::log!("recording.playback: stop_playback error: {error:?}");
         }
         crate::log!("recording.playback: complete");
     }
