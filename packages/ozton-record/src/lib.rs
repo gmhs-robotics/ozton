@@ -62,20 +62,19 @@ pub mod selector;
 
 pub mod prelude {
     pub use crate::{
-        frame::{FrameRobot, RecordMode, Recordable as RecordableRobot},
+        frame::{FrameRobot, RecordMode, Recordable},
         frame_types::{
             DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
-            DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, RecordedDifferential,
-            RecordedField,
+            DifferentialVoltagePlayback, RecordableDrivetrain,
         },
         runtime::{PlaybackAutonomous, RecordingAutonomous},
     };
 }
 
-pub use frame::Recordable as RecordableRobot;
+pub use frame::Recordable;
 pub use frame_types::{
     DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
     DifferentialVoltageFrame, DifferentialVoltagePlayback, FrameType, Interpolate, RecordField,
-    Recordable, RecordableDrivetrain, RecordedDifferential, RecordedField, TrackedMotionFrame,
-    Vec2Frame, apply_differential_voltage_frame, apply_tracked_differential_frame,
+    RecordableDrivetrain, TrackedMotionFrame, Vec2Frame, apply_differential_voltage_frame,
+    apply_tracked_differential_frame,
 };

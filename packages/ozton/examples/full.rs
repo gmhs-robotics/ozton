@@ -5,7 +5,7 @@ use ozton::{
     drivetrain::model::Differential,
     prelude::{Drivetrain, NoTracking, RecordableDrivetrain},
     record::{
-        self, RecordableRobot,
+        self,
         runtime::{PlaybackAutonomous, RecordingAutonomous},
     },
 };
@@ -21,7 +21,7 @@ struct Robot {
 }
 
 #[record::async_trait(?Send)]
-impl RecordableRobot for Robot {
+impl record::Recordable for Robot {
     const UPDATE_INTERVAL: Duration = Controller::UPDATE_INTERVAL;
 
     async fn get_new_frame(&self) -> Self::Frame {

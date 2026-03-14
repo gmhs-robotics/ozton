@@ -73,52 +73,6 @@ pub trait FrameType {
     type Output;
 }
 
-/// Wraps a live field to opt it into ozton's recording field model.
-pub struct Recordable<T>(pub T);
-
-/// Public alias used by derive-generated code when wrapping live fields.
-pub type RecordedField<T> = Recordable<T>;
-
-impl<T> Recordable<T> {
-    #[must_use]
-    pub const fn new(inner: T) -> Self {
-        Self(inner)
-    }
-
-    #[must_use]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T: RecordField> Recordable<T> {
-    pub async fn finalize_wrapped(field: &T, frame: &T::Output) -> T::Output {
-        field.finalize_frame_value(frame).await
-    }
-
-    pub async fn apply_wrapped(
-        field: &mut T,
-        frame: &T::Output,
-        mode: RecordMode,
-    ) -> Result<(), PortError> {
-        field.apply_frame_value(frame, mode).await
-    }
-}
-
-impl<T> Deref for Recordable<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for Recordable<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 /// A live robot field that can enrich recorded data and apply it during driver control or playback.
 #[async_trait(?Send)]
 pub trait RecordField {
@@ -141,23 +95,6 @@ pub trait RecordField {
 
 impl<T: RecordField> FrameType for T {
     type Output = T::Output;
-}
-
-#[async_trait(?Send)]
-impl<T: RecordField> RecordField for Recordable<T> {
-    type Output = T::Output;
-
-    async fn finalize_frame_value(&self, frame: &Self::Output) -> Self::Output {
-        self.0.finalize_frame_value(frame).await
-    }
-
-    async fn apply_frame_value(
-        &mut self,
-        frame: &Self::Output,
-        mode: RecordMode,
-    ) -> Result<(), PortError> {
-        self.0.apply_frame_value(frame, mode).await
-    }
 }
 
 /// Opts a tracking type into `RecordableDrivetrain<Differential, T>`.
@@ -419,9 +356,6 @@ impl<M: DrivetrainModel, T: Tracking> DerefMut for RecordableDrivetrain<M, T> {
         &mut self.drivetrain
     }
 }
-
-/// Backwards-compatible alias for the tracked differential recording workflow.
-pub type RecordedDifferential<T> = RecordableDrivetrain<Differential, T>;
 
 #[async_trait(?Send)]
 impl RecordField for Motor {

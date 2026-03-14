@@ -189,89 +189,86 @@ where
                         _ => None,
                     };
 
-                    let mut state = state.borrow_mut();
+                    let (dirty_rows, redraw_status, selection, active_row) = {
+                        let mut state = state.borrow_mut();
 
-                    let prev_selection = state.selection;
-                    let prev_active = state.active_row;
+                        let prev_selection = state.selection;
+                        let prev_active = state.active_row;
 
-                    if let Some(row_index) = touched_index
-                        && row_index < state.options.len()
-                    {
-                        state.selection = row_index;
-                    }
-
-                    state.active_row = touched_index.filter(|row| *row < state.options.len());
-
-                    let current_selection = state.selection;
-
-                    if prev_selection != current_selection {
-                        crate::log!(
-                            "selector.touch: selection {} -> {}",
-                            prev_selection,
-                            current_selection
-                        );
-                        state.dirty_rows.extend([prev_selection, current_selection]);
-                    }
-
-                    if prev_active != state.active_row {
-                        if let Some(prev) = prev_active {
-                            state.dirty_rows.push(prev);
+                        if let Some(row_index) = touched_index
+                            && row_index < state.options.len()
+                        {
+                            state.selection = row_index;
                         }
 
-                        if let Some(current) = state.active_row {
-                            state.dirty_rows.push(current);
+                        state.active_row = touched_index.filter(|row| *row < state.options.len());
+
+                        let current_selection = state.selection;
+
+                        if prev_selection != current_selection {
+                            crate::log!(
+                                "selector.touch: selection {} -> {}",
+                                prev_selection,
+                                current_selection
+                            );
+                            state.dirty_rows.extend([prev_selection, current_selection]);
                         }
-                    }
 
-                    let mut status_text = state.status.as_ref().map(|s| s.text.clone());
-                    if let Some(status) = &state.status
-                        && Instant::now().saturating_duration_since(status.set_at)
-                            >= Self::status_duration()
-                    {
-                        state.status = None;
-                        status_text = None;
-                        state.status_dirty = true;
-                    }
+                        if prev_active != state.active_row {
+                            if let Some(prev) = prev_active {
+                                state.dirty_rows.push(prev);
+                            }
 
-                    let redraw_status = if state.status_dirty {
-                        state.status_dirty = false;
-                        true
-                    } else {
-                        false
+                            if let Some(current) = state.active_row {
+                                state.dirty_rows.push(current);
+                            }
+                        }
+
+                        if let Some(status) = &state.status
+                            && Instant::now().saturating_duration_since(status.set_at)
+                                >= Self::status_duration()
+                        {
+                            state.status = None;
+                            state.status_dirty = true;
+                        }
+
+                        let redraw_status = if state.status_dirty {
+                            state.status_dirty = false;
+                            true
+                        } else {
+                            false
+                        };
+
+                        (
+                            core::mem::take(&mut state.dirty_rows),
+                            redraw_status,
+                            state.selection,
+                            state.active_row,
+                        )
                     };
 
-                    let selection = state.selection;
-                    let active_row = state.active_row;
-                    let dirty_rows = core::mem::take(&mut state.dirty_rows);
-                    let redraw_rows: Vec<(usize, String)> = dirty_rows
-                        .into_iter()
-                        .filter_map(|index| {
-                            state
-                                .options
-                                .get(index)
-                                .map(|item| (index, item.label().to_string()))
-                        })
-                        .collect();
+                    let state = state.borrow();
 
-                    drop(state);
-
-                    for (row_index, label) in redraw_rows
-                        .into_iter()
-                        .filter(|(row_index, _)| *row_index < rows)
-                    {
-                        Self::draw_item(
-                            &mut display,
-                            &theme,
-                            &label,
-                            row_index,
-                            row_index == selection,
-                            active_row == Some(row_index),
-                            cell_height,
-                        );
+                    for row_index in dirty_rows.into_iter().filter(|row_index| *row_index < rows) {
+                        if let Some(item) = state.options.get(row_index) {
+                            Self::draw_item(
+                                &mut display,
+                                &theme,
+                                item.label(),
+                                row_index,
+                                row_index == selection,
+                                active_row == Some(row_index),
+                                cell_height,
+                            );
+                        }
                     }
 
                     if redraw_status {
-                        Self::draw_status(&mut display, &theme, status_text.as_deref());
+                        Self::draw_status(
+                            &mut display,
+                            &theme,
+                            state.status.as_ref().map(|status| status.text.as_str()),
+                        );
                     }
 
                     display.render();
@@ -418,7 +415,8 @@ impl<I: SelectorItem + 'static> StatusHandle<I> {
     where
         I: Clone,
     {
-        self.state.borrow().options[self.state.borrow().selection].clone()
+        let state = self.state.borrow();
+        state.options[state.selection].clone()
     }
 }
 

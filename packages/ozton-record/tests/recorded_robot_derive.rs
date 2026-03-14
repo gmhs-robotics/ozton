@@ -3,7 +3,7 @@ use std::{cell::RefCell, time::Duration};
 use futures::executor::block_on;
 use ozton_derive::RecordedRobot;
 use ozton_record::{
-    FrameType, Interpolate, PortError, RecordField, RecordableRobot,
+    FrameType, Interpolate, PortError, RecordField, Recordable,
     frame::{FrameRobot, RecordMode},
 };
 
@@ -51,7 +51,7 @@ struct TestRobot {
 }
 
 #[async_trait::async_trait(?Send)]
-impl RecordableRobot for TestRobot {
+impl Recordable for TestRobot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 
     async fn get_new_frame(&self) -> Self::Frame {

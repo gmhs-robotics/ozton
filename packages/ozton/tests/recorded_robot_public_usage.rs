@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use ozton::{
     derive::RecordedRobot,
-    record::{FrameType, RecordableRobot},
+    record::{FrameType, Recordable},
 };
 
 struct AnalogField;
@@ -26,7 +26,7 @@ struct Robot {
 }
 
 #[ozton::record::async_trait(?Send)]
-impl RecordableRobot for Robot {
+impl Recordable for Robot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 
     async fn get_new_frame(&self) -> Self::Frame {

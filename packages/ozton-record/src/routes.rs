@@ -1,15 +1,9 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{borrow::Cow, collections::BTreeMap, path::PathBuf};
 
 #[derive(Debug, Clone, Default)]
 pub struct RouteIndex {
     /// route id -> display name
     pub map: BTreeMap<u32, String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RouteEntry {
-    pub id: u32,
-    pub display_name: String,
 }
 
 impl RouteIndex {
@@ -58,18 +52,12 @@ impl RouteIndex {
         out
     }
 
-    pub fn entries(&self) -> Vec<RouteEntry> {
-        let mut entries: Vec<RouteEntry> = self
-            .map
-            .iter()
-            .map(|(id, name)| RouteEntry {
-                id: *id,
-                display_name: name.clone(),
-            })
-            .collect();
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
+        self.map.iter().map(|(id, name)| (*id, name.as_str()))
+    }
 
-        entries.sort_by_key(|entry| entry.id);
-        entries
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 
     #[allow(dead_code)]
@@ -79,7 +67,12 @@ impl RouteIndex {
             self.map.len(),
             Self::INDEX_PATH
         );
-        let mut out = String::new();
+        let mut out = String::with_capacity(
+            self.map
+                .iter()
+                .map(|(route_id, name)| route_id.to_string().len() + name.len() + 2)
+                .sum(),
+        );
 
         for (route_id, name) in &self.map {
             out.push_str(&route_id.to_string());
@@ -103,8 +96,14 @@ impl RouteIndex {
         self.map.insert(route_id, name.to_string());
     }
 
-    pub fn display_name(&self, id: u32) -> String {
-        self.map.get(&id).cloned().unwrap_or_else(|| id.to_string())
+    pub fn display_name(&self, id: u32) -> Option<&str> {
+        self.map.get(&id).map(String::as_str)
+    }
+
+    pub fn display_name_or_id(&self, id: u32) -> Cow<'_, str> {
+        self.display_name(id)
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| Cow::Owned(id.to_string()))
     }
 
     #[allow(dead_code)]
@@ -115,6 +114,9 @@ impl RouteIndex {
     }
 
     pub fn path_for(id: u32) -> PathBuf {
-        PathBuf::from(format!("{id}.{}", Self::ROUTE_EXTENSION))
+        let mut path = id.to_string();
+        path.push('.');
+        path.push_str(Self::ROUTE_EXTENSION);
+        PathBuf::from(path)
     }
 }

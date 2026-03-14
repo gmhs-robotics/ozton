@@ -5,8 +5,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use vex_sdk_mock as _;
-
 use glam::DVec2 as Vec2;
 use ozton_control::{
     Tolerances,
@@ -20,6 +18,7 @@ use ozton_motion::{Basic, Seeking};
 use ozton_tracking::{
     Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
+use vex_sdk_mock as _;
 use vexide::{math::Angle, runtime::block_on};
 
 #[derive(Debug)]
@@ -54,7 +53,9 @@ impl SimState {
 
     fn sync(&mut self) {
         let now = Instant::now();
-        let dt = now.saturating_duration_since(self.last_update).as_secs_f64();
+        let dt = now
+            .saturating_duration_since(self.last_update)
+            .as_secs_f64();
         self.last_update = now;
 
         self.linear_velocity = self.throttle_command * self.max_linear_velocity;
@@ -160,7 +161,10 @@ impl TracksForwardTravel for MockTracking {
 
 fn new_drivetrain() -> Drivetrain<MockArcadeModel, MockTracking> {
     let state = Rc::new(RefCell::new(SimState::new(3.5, 5.0)));
-    Drivetrain::new(MockArcadeModel::new(state.clone()), MockTracking::new(state))
+    Drivetrain::new(
+        MockArcadeModel::new(state.clone()),
+        MockTracking::new(state),
+    )
 }
 
 fn linear_tolerances() -> Tolerances {
@@ -239,12 +243,19 @@ fn basic_motion_reaches_distance_and_heading_goals() {
         "expected x close to 1.2, got {:?}",
         final_position
     );
-    assert!(final_position.y.abs() < 0.08, "expected y near 0, got {:?}", final_position);
+    assert!(
+        final_position.y.abs() < 0.08,
+        "expected y near 0, got {:?}",
+        final_position
+    );
     assert!(
         wrap_radians(final_heading - std::f64::consts::FRAC_PI_2).abs() < 0.08,
         "expected heading near 90deg, got {final_heading}"
     );
-    assert!(final_velocity.abs() < 0.08, "expected robot settled, got {final_velocity}");
+    assert!(
+        final_velocity.abs() < 0.08,
+        "expected robot settled, got {final_velocity}"
+    );
 }
 
 #[test]

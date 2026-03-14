@@ -103,6 +103,13 @@ where
         for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
 
 impl<F: Frameable> Recording<F> {
+    #[must_use]
+    pub fn with_frame_capacity(frame_capacity: usize) -> Self {
+        Self {
+            frames: Vec::with_capacity(frame_capacity),
+        }
+    }
+
     #[allow(dead_code)]
     pub fn push_timed(&mut self, delta: Duration, frame: F) {
         crate::log!(

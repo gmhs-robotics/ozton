@@ -40,8 +40,7 @@ pub mod prelude {
     #[cfg(feature = "record")]
     pub use crate::record::{
         DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
-        DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, RecordableRobot,
-        RecordedDifferential, RecordedField, frame::RecordMode,
+        DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, frame::RecordMode,
     };
     #[cfg(feature = "tracking")]
     pub use crate::tracking::{

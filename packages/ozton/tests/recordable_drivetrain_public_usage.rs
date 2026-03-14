@@ -4,7 +4,7 @@ use ozton::{
     derive::RecordedRobot,
     drivetrain::model::Differential,
     prelude::{NoTracking, RecordableDrivetrain},
-    record::{DifferentialVoltageFrame, RecordableRobot},
+    record::{DifferentialVoltageFrame, Recordable},
 };
 
 #[allow(dead_code)]
@@ -14,7 +14,7 @@ struct Robot {
 }
 
 #[ozton::record::async_trait(?Send)]
-impl RecordableRobot for Robot {
+impl Recordable for Robot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
 
     async fn get_new_frame(&self) -> Self::Frame {

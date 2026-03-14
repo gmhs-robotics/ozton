@@ -9,7 +9,7 @@ use std::{
 use futures::executor::block_on;
 use ozton_derive::RecordedRobot;
 use ozton_record::{
-    PortError, RecordableRobot,
+    PortError, Recordable,
     frame::{FrameRobot, RecordMode, Recording},
 };
 
@@ -53,7 +53,7 @@ struct ScriptedRobot {
 }
 
 #[ozton_record::async_trait(?Send)]
-impl RecordableRobot for ScriptedRobot {
+impl Recordable for ScriptedRobot {
     const UPDATE_INTERVAL: Duration = Duration::from_millis(5);
 
     async fn get_new_frame(&self) -> Self::Frame {
