@@ -113,7 +113,7 @@ where
             this.target_distance + state.initial_forward_travel,
             dt,
         );
-        let angular_output = this
+        let angular_output = -this
             .angular_controller
             .update(heading, this.target_heading, dt);
 

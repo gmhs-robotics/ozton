@@ -56,6 +56,7 @@ macro_rules! record_frame {
 
 pub mod frame;
 pub mod frame_types;
+pub mod lift;
 pub mod routes;
 pub mod runtime;
 pub mod selector;

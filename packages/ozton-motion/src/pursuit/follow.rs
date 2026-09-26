@@ -55,10 +55,15 @@ where
         let this = self.get_mut();
 
         if this.state.is_none() {
+            if !this.lookahead_distance.is_finite() || this.lookahead_distance <= 0.0 {
+                drop(this.drivetrain.model.drive_tank(0.0, 0.0));
+                return Poll::Ready(());
+            }
             let now = Instant::now();
             let position = this.drivetrain.tracking.position();
 
             let Some(mut next) = this.waypoints.next() else {
+                drop(this.drivetrain.model.drive_tank(0.0, 0.0));
                 return Poll::Ready(()); // path is empty
             };
 
@@ -79,6 +84,7 @@ where
                 next = if let Some(next_waypoint) = this.waypoints.next() {
                     next_waypoint
                 } else {
+                    drop(this.drivetrain.model.drive_tank(0.0, 0.0));
                     return Poll::Ready(());
                 };
             }
@@ -90,9 +96,10 @@ where
                 current.position,
                 next.position,
             ) {
-                // No initial intersections, shouldn't be possible since we inserted the
-                // current position into the start of the path.
-                (None, None) => unreachable!(),
+                (None, None) => {
+                    drop(this.drivetrain.model.drive_tank(0.0, 0.0));
+                    return Poll::Ready(());
+                }
 
                 // One intersection; use that.
                 (Some(solution), None) | (None, Some(solution)) => solution,
@@ -191,6 +198,7 @@ where
             velocity * (2.0 - curvature * this.track_width) / 2.0,
         ));
 
+        state.sleep = sleep(Duration::from_millis(5));
         cx.waker().wake_by_ref();
         Poll::Pending
     }
@@ -232,18 +240,27 @@ where
 
 fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
     let delta = end - start;
-    let side = (start_angle.sin() * delta.x - start_angle.cos() * delta.y).signum();
-
-    let a = -start_angle.tan();
-    let c = start_angle.tan() * start.x - start.y;
-    let x = (a * end.x + end.y + c).abs() / (a * a + 1.0).sqrt();
-    let d = start.distance(end);
-
-    if d == 0.0 {
+    let distance_squared = delta.length_squared();
+    if distance_squared == 0.0 {
         return 0.0;
     }
+    2.0 * (start_angle.sin() * delta.x - start_angle.cos() * delta.y) / distance_squared
+}
 
-    side * ((2.0 * x) / (d * d))
+#[cfg(test)]
+mod tests {
+    use glam::DVec2;
+    use vexide::math::Angle;
+
+    use super::signed_arc_curvature;
+
+    #[test]
+    fn curvature_at_quarter_turn_is_finite() {
+        let curvature =
+            signed_arc_curvature(DVec2::ZERO, Angle::from_degrees(90.0), DVec2::new(1.0, 0.0));
+        assert!(curvature.is_finite());
+        assert!((curvature - 2.0).abs() < 1e-10);
+    }
 }
 
 /// Finds the intersection points between a line segment and a circle.

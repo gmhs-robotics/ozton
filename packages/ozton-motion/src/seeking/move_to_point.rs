@@ -92,18 +92,43 @@ where
             return Poll::Ready(());
         }
 
-        let angle_error =
-            (heading - Angle::from_radians(local_target.y.atan2(local_target.x))).wrapped_half();
+        let drive_heading = if this.reverse {
+            heading + Angle::from_radians(std::f64::consts::PI)
+        } else {
+            heading
+        };
+        let angle_error = (drive_heading
+            - Angle::from_radians(local_target.y.atan2(local_target.x)))
+        .wrapped_half();
         let mut projected_cte = distance_error * angle_error.sin();
 
-        if angle_error.as_radians().abs() > FRAC_PI_2 {
+        if !this.reverse && angle_error.as_radians().abs() > FRAC_PI_2 {
             projected_cte *= -1.0;
             distance_error *= -1.0;
         }
 
-        let angular_output = this.lateral_controller.update(projected_cte, 0.0, dt);
-        let linear_output =
-            this.linear_controller.update(-distance_error, 0.0, dt) * angle_error.cos().abs();
+        let turn_in_place = this.reverse && angle_error.as_radians().abs() > FRAC_PI_2 / 3.0;
+        let angular_measurement = if turn_in_place {
+            -angle_error.as_radians()
+        } else {
+            -projected_cte
+        };
+        let angular_output = this.lateral_controller.update(angular_measurement, 0.0, dt)
+            * if this.reverse && !turn_in_place {
+                -1.0
+            } else {
+                1.0
+            };
+        let linear_output = if turn_in_place {
+            0.0
+        } else {
+            let signed_distance = if this.reverse {
+                -distance_error
+            } else {
+                distance_error
+            };
+            this.linear_controller.update(-signed_distance, 0.0, dt) * angle_error.cos().abs()
+        };
 
         drop(
             this.drivetrain

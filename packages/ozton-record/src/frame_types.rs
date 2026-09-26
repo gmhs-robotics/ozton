@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use async_trait::async_trait;
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Arcade, Differential, DrivetrainModel, Tank},
+    model::{Arcade, DrivetrainModel, Tank},
 };
 use ozton_tracking::{
     GpsTracking, NoTracking, Tracking, TracksHeading, TracksPosition, TracksVelocity,
@@ -288,6 +288,7 @@ impl Default for DifferentialVoltagePlayback {
 pub struct RecordableDrivetrain<M: DrivetrainModel, T: Tracking> {
     pub drivetrain: Drivetrain<M, T>,
     differential_playback: DifferentialPlayback,
+    playback_origin: Option<(TrackedMotionFrame, TrackedMotionFrame)>,
 }
 
 impl<M: DrivetrainModel, T: Tracking> RecordableDrivetrain<M, T> {
@@ -296,6 +297,7 @@ impl<M: DrivetrainModel, T: Tracking> RecordableDrivetrain<M, T> {
         Self {
             drivetrain,
             differential_playback: DifferentialPlayback::RawVoltage,
+            playback_origin: None,
         }
     }
 
@@ -307,6 +309,7 @@ impl<M: DrivetrainModel, T: Tracking> RecordableDrivetrain<M, T> {
         Self {
             drivetrain,
             differential_playback: playback,
+            playback_origin: None,
         }
     }
 
@@ -316,7 +319,7 @@ impl<M: DrivetrainModel, T: Tracking> RecordableDrivetrain<M, T> {
     }
 }
 
-impl<T: DifferentialRecording> RecordableDrivetrain<Differential, T> {
+impl<M: Tank<Error = PortError>, T: DifferentialRecording> RecordableDrivetrain<M, T> {
     pub fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
         self.drivetrain.model.drive_tank(left, right)
     }
@@ -335,7 +338,7 @@ impl<T: DifferentialRecording> RecordableDrivetrain<Differential, T> {
     }
 
     #[must_use]
-    pub fn new(drivetrain: Drivetrain<Differential, T>) -> Self {
+    pub fn new(drivetrain: Drivetrain<M, T>) -> Self {
         Self::with_differential_playback(drivetrain, T::default_differential_playback())
     }
 
@@ -624,8 +627,9 @@ impl<const N: usize> RecordField for [AdiPwmOut; N] {
 }
 
 #[async_trait(?Send)]
-impl<T> RecordField for RecordableDrivetrain<Differential, T>
+impl<M, T> RecordField for RecordableDrivetrain<M, T>
 where
+    M: Tank<Error = PortError>,
     T: DifferentialRecording,
 {
     type Output = DifferentialVoltageFrame;
@@ -669,6 +673,9 @@ where
                     self.drivetrain.model.drive_tank(frame.left, frame.right)
                 }
                 (DifferentialPlayback::VoltageCorrection(playback), Some(current)) => {
+                    let origin = *self.playback_origin.get_or_insert((frame.motion, current));
+                    let mut target = *frame;
+                    target.motion = relative_motion(frame.motion, origin.0, origin.1);
                     crate::log!(
                         "frame_types.recordable_drivetrain.apply: voltage correction current={current:?} target_motion={:?}",
                         frame.motion
@@ -676,12 +683,15 @@ where
                     apply_tracked_differential_motion(
                         &mut self.drivetrain.model,
                         current,
-                        frame,
+                        &target,
                         playback,
                         true,
                     )
                 }
                 (DifferentialPlayback::MotionTracking(playback), Some(current)) => {
+                    let origin = *self.playback_origin.get_or_insert((frame.motion, current));
+                    let mut target = *frame;
+                    target.motion = relative_motion(frame.motion, origin.0, origin.1);
                     crate::log!(
                         "frame_types.recordable_drivetrain.apply: motion tracking current={current:?} target_motion={:?}",
                         frame.motion
@@ -689,7 +699,7 @@ where
                     apply_tracked_differential_motion(
                         &mut self.drivetrain.model,
                         current,
-                        frame,
+                        &target,
                         playback,
                         false,
                     )
@@ -699,17 +709,23 @@ where
     }
 
     async fn stop_playback(&mut self) -> Result<(), PortError> {
-        self.drivetrain.model.drive_tank(0.0, 0.0)
+        self.playback_origin = None;
+        for _ in 0..80 {
+            self.drivetrain.model.drive_tank(0.0, 0.0)?;
+            vexide::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        self.drivetrain.model.stop_now()
     }
 }
 
 /// Replays a recorded differential command and optionally uses tracking to correct drift.
-pub fn apply_tracked_differential_frame<T>(
-    drivetrain: &mut Drivetrain<Differential, T>,
+pub fn apply_tracked_differential_frame<M, T>(
+    drivetrain: &mut Drivetrain<M, T>,
     playback: DifferentialPlayback,
     target: &DifferentialVoltageFrame,
 ) -> Result<(), PortError>
 where
+    M: Tank<Error = PortError>,
     T: DifferentialRecording,
 {
     crate::log!(
@@ -742,12 +758,13 @@ where
 }
 
 /// Backwards-compatible helper for the tracked-voltage playback mode.
-pub fn apply_differential_voltage_frame<T>(
-    drivetrain: &mut Drivetrain<Differential, T>,
+pub fn apply_differential_voltage_frame<M, T>(
+    drivetrain: &mut Drivetrain<M, T>,
     playback: DifferentialVoltagePlayback,
     target: &DifferentialVoltageFrame,
 ) -> Result<(), PortError>
 where
+    M: Tank<Error = PortError>,
     T: DifferentialRecording,
 {
     apply_tracked_differential_frame(
@@ -758,7 +775,7 @@ where
 }
 
 fn apply_tracked_differential_motion(
-    model: &mut Differential,
+    model: &mut impl Tank<Error = PortError>,
     current: TrackedMotionFrame,
     target: &DifferentialVoltageFrame,
     playback: DifferentialVoltagePlayback,
@@ -787,6 +804,26 @@ fn apply_tracked_differential_motion(
         include_recorded_voltage
     );
     model.drive_tank(left, right)
+}
+
+fn relative_motion(
+    target: TrackedMotionFrame,
+    recorded_start: TrackedMotionFrame,
+    current_start: TrackedMotionFrame,
+) -> TrackedMotionFrame {
+    let delta_x = target.position.x - recorded_start.position.x;
+    let delta_y = target.position.y - recorded_start.position.y;
+    let rotation = current_start.heading_radians - recorded_start.heading_radians;
+    let (sine, cosine) = rotation.sin_cos();
+    TrackedMotionFrame {
+        position: Vec2Frame::new(
+            current_start.position.x + delta_x * cosine - delta_y * sine,
+            current_start.position.y + delta_x * sine + delta_y * cosine,
+        ),
+        heading_radians: current_start.heading_radians
+            + wrap_radians(target.heading_radians - recorded_start.heading_radians),
+        ..target
+    }
 }
 
 fn tracked_motion_frame<T>(tracking: &T) -> TrackedMotionFrame
@@ -823,7 +860,7 @@ impl DifferentialRecording for WheeledTracking {
     }
 
     fn tracked_motion_frame(&self) -> Option<TrackedMotionFrame> {
-        Some(tracked_motion_frame(self))
+        self.is_ready().then(|| tracked_motion_frame(self))
     }
 }
 

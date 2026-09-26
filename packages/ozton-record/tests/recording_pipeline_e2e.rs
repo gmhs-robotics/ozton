@@ -106,6 +106,7 @@ fn recording_pipeline_records_finalizes_and_replays_loaded_frames() {
         "expected playback applications to use finalized frame, got {:?}",
         *applied
     );
+    assert_eq!(applied.len(), 2, "final playback frame must apply once");
 
     let _ = std::fs::remove_file(path);
 }

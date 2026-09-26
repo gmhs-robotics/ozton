@@ -108,7 +108,13 @@ impl RouteIndex {
 
     #[allow(dead_code)]
     pub fn next_id(&self) -> u32 {
-        let next_id = self.map.keys().max().map(|id| id + 1).unwrap_or(1);
+        let next_id = self
+            .map
+            .keys()
+            .next_back()
+            .and_then(|id| id.checked_add(1))
+            .or_else(|| (1..=u32::MAX).find(|id| !self.map.contains_key(id)))
+            .unwrap_or(0);
         crate::log!("routes.next_id: {}", next_id);
         next_id
     }
@@ -118,5 +124,18 @@ impl RouteIndex {
         path.push('.');
         path.push_str(Self::ROUTE_EXTENSION);
         PathBuf::from(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RouteIndex;
+
+    #[test]
+    fn next_id_wraps_to_unused_route_without_overwriting() {
+        let mut index = RouteIndex::default();
+        index.update(1, "first");
+        index.update(u32::MAX, "last");
+        assert_eq!(index.next_id(), 2);
     }
 }

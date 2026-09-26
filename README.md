@@ -12,8 +12,8 @@ robot.
 
 ## Credits
 
-Highly inspired by vexide/evian and vexide/autons. A lot of source was taken
-from them.
+Control and tracking code was inspired by vexide/evian. Route selection is
+implemented within ozton and uses vexide's competition runtime directly.
 
 ## License
 

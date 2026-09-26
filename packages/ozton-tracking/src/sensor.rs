@@ -150,8 +150,20 @@ impl Gyro for InertialSensor {
 
     fn angular_velocity(&self) -> Result<f64, Self::Error> {
         InertialSensor::gyro_rate(self)
-            .map(|rate| rate.z.to_radians())
+            .map(|rate| (-rate.z).to_radians())
             .map_err(|err| InertialError::Port { source: err })
+    }
+}
+
+impl Gyro for Rc<InertialSensor> {
+    type Error = InertialError;
+
+    fn heading(&self) -> Result<Angle, Self::Error> {
+        <InertialSensor as Gyro>::heading(self.as_ref())
+    }
+
+    fn angular_velocity(&self) -> Result<f64, Self::Error> {
+        <InertialSensor as Gyro>::angular_velocity(self.as_ref())
     }
 }
 

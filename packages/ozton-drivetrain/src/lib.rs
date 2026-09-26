@@ -1,5 +1,3 @@
-#![no_std]
-
 //! Robot drivetrains and models.
 //!
 //! This crate provides types for representing and modeling different mobile robot drivetrain

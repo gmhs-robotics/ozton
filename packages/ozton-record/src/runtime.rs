@@ -1,11 +1,13 @@
-use core::{future::Future, pin::Pin};
 use std::time::{Duration, Instant};
 
-use autons::prelude::{SelectCompete, SelectCompeteExt};
-use vexide::{prelude::*, time::sleep};
+use vexide::{
+    competition::{Compete, CompeteExt},
+    prelude::*,
+    time::sleep,
+};
 
 use super::{
-    frame::{Frameable, RecordMode, Recordable, Recording, RecordingError},
+    frame::{Frameable, PlaybackOutcome, RecordMode, Recordable, Recording, RecordingError},
     routes::RouteIndex,
     selector::{PlaybackChoice, RecordOption, RecordTarget, RecorderSelect, SelectionController},
 };
@@ -118,6 +120,7 @@ pub struct RecordingAutonomous<R: Recordable + 'static> {
     pub index: RouteIndex,
     recorder: RecordingSession<R::Frame>,
     selection: SelectionController<RecordOption>,
+    _selector: RecorderSelect<RecordOption>,
 }
 
 #[allow(dead_code)]
@@ -126,12 +129,7 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
         crate::log!("runtime.recording_autonomous.compete: start");
         let index = RouteIndex::load();
 
-        let selector = RecorderSelect::new(
-            display,
-            record_options(&index),
-            0,
-            Self::arm_recording_callback,
-        );
+        let selector = RecorderSelect::new(display, record_options(&index), 0);
 
         let selection = SelectionController::new(selector.status_handle());
         let recorder =
@@ -142,8 +140,9 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
             index,
             recorder,
             selection,
+            _selector: selector,
         }
-        .compete(selector)
+        .compete()
         .await;
     }
 
@@ -221,13 +220,6 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
             self.arm_recording(option).await;
         }
     }
-
-    fn arm_recording_callback(
-        &mut self,
-        option: RecordOption,
-    ) -> Pin<Box<dyn Future<Output = ()> + '_>> {
-        Box::pin(self.arm_recording(option))
-    }
 }
 
 #[allow(dead_code)]
@@ -237,6 +229,7 @@ pub struct PlaybackAutonomous<R: Recordable + 'static> {
     active_route: Option<u32>,
     route_played_this_autonomous: bool,
     selection: SelectionController<PlaybackChoice>,
+    _selector: RecorderSelect<PlaybackChoice>,
 }
 
 #[allow(dead_code)]
@@ -245,12 +238,7 @@ impl<R: Recordable + 'static> PlaybackAutonomous<R> {
         crate::log!("runtime.playback_autonomous.compete: start");
         let index = RouteIndex::load();
 
-        let selector = RecorderSelect::new(
-            display,
-            playback_choices(&index),
-            0,
-            Self::play_selected_callback,
-        );
+        let selector = RecorderSelect::new(display, playback_choices(&index), 0);
         let selection = SelectionController::new(selector.status_handle());
 
         Self {
@@ -259,8 +247,9 @@ impl<R: Recordable + 'static> PlaybackAutonomous<R> {
             active_route: None,
             route_played_this_autonomous: false,
             selection,
+            _selector: selector,
         }
-        .compete(selector)
+        .compete()
         .await;
     }
 
@@ -278,23 +267,23 @@ impl<R: Recordable + 'static> PlaybackAutonomous<R> {
             self.play_selected(choice).await;
         }
     }
-
-    fn play_selected_callback(
-        &mut self,
-        choice: PlaybackChoice,
-    ) -> Pin<Box<dyn Future<Output = ()> + '_>> {
-        Box::pin(self.play_selected(choice))
-    }
 }
 
-impl<R: Recordable + 'static> SelectCompete for RecordingAutonomous<R> {
+impl<R: Recordable + 'static> Compete for RecordingAutonomous<R> {
     async fn driver(&mut self) {
         crate::log!("runtime.recording_autonomous.driver: enter");
+        self.robot.on_playback_abort().await;
         loop {
             self.update_selection().await;
 
             let frame = self.robot.get_new_frame().await;
             crate::log!("runtime.recording_autonomous.driver: raw frame {frame:?}");
+            if self.recorder.is_recording() && !self.robot.playback_ready() {
+                self.recorder.set_target(RecordTarget::Off);
+                self.selection
+                    .status()
+                    .show_status("Tracking lost: recording discarded");
+            }
             if self.recorder.is_recording() {
                 let finalized = self.robot.finalize_frame(&frame).await;
                 crate::log!("runtime.recording_autonomous.driver: finalized frame {finalized:?}");
@@ -305,24 +294,32 @@ impl<R: Recordable + 'static> SelectCompete for RecordingAutonomous<R> {
                 crate::log!("runtime.recording_autonomous.driver: live apply error: {error:?}");
             }
 
-            sleep(R::UPDATE_INTERVAL).await;
+            sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
         }
     }
 
     async fn disabled(&mut self) {
         crate::log!("runtime.recording_autonomous.disabled");
-        self.update_selection().await;
+        self.robot.on_playback_abort().await;
 
         if let Some((target, recording)) = self.recorder.finish() {
             self.save_recording(target, recording).await;
         }
+        self.update_selection().await;
+    }
+
+    async fn autonomous(&mut self) {
+        self.robot.on_playback_abort().await;
+        self.update_selection().await;
+        sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
     }
 }
 
-impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
+impl<R: Recordable + 'static> Compete for PlaybackAutonomous<R> {
     async fn driver(&mut self) {
         self.route_played_this_autonomous = false;
         crate::log!("runtime.playback_autonomous.driver: enter");
+        self.robot.on_playback_abort().await;
 
         loop {
             self.update_selection().await;
@@ -334,17 +331,19 @@ impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
                 crate::log!("runtime.playback_autonomous.driver: live apply error: {error:?}");
             }
 
-            sleep(R::UPDATE_INTERVAL).await;
+            sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
         }
     }
 
     async fn disabled(&mut self) {
         self.route_played_this_autonomous = false;
         crate::log!("runtime.playback_autonomous.disabled");
+        self.robot.on_playback_abort().await;
         self.update_selection().await;
     }
 
-    async fn before_route(&mut self) {
+    async fn autonomous(&mut self) {
+        self.robot.on_playback_abort().await;
         crate::log!(
             "runtime.playback_autonomous.before_route: active_route={:?} already_played={}",
             self.active_route,
@@ -353,14 +352,14 @@ impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
         self.update_selection().await;
 
         if self.route_played_this_autonomous {
-            sleep(R::UPDATE_INTERVAL).await;
+            sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
             return;
         }
 
         let Some(route_id) = self.active_route else {
             crate::log!("runtime.playback_autonomous.before_route: playback disabled");
             self.selection.status().show_status("Playback disabled");
-            sleep(R::UPDATE_INTERVAL).await;
+            sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
             return;
         };
 
@@ -380,11 +379,19 @@ impl<R: Recordable + 'static> SelectCompete for PlaybackAutonomous<R> {
                     .status()
                     .show_status(prefixed_status("Playing ", &display_name));
                 crate::log!("runtime.playback_autonomous.before_route: playback starting");
-                recording.playback(&mut self.robot).await;
+                match recording.playback(&mut self.robot).await {
+                    PlaybackOutcome::Completed => {}
+                    PlaybackOutcome::TrackingLost => self
+                        .selection
+                        .status()
+                        .show_status("Playback stopped: tracking lost"),
+                    PlaybackOutcome::OutputFailed => self
+                        .selection
+                        .status()
+                        .show_status("Playback stopped: output failed"),
+                }
             }
-            Err(RecordingError::Io(error))
-                if error.kind() == std::io::ErrorKind::NotFound =>
-            {
+            Err(RecordingError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                 crate::log!(
                     "runtime.playback_autonomous.before_route: missing route file path={} error={error}",
                     path.display()
@@ -446,9 +453,13 @@ fn playback_choices(index: &RouteIndex) -> Vec<PlaybackChoice> {
 }
 
 fn estimated_frame_capacity(update_interval: Duration) -> usize {
-    let interval_micros = update_interval.as_micros().max(1);
+    let interval_micros = effective_update_interval(update_interval).as_micros();
     let duration_micros = AUTONOMOUS_DURATION.as_micros();
     ((duration_micros + interval_micros - 1) / interval_micros + 1) as usize
+}
+
+fn effective_update_interval(interval: Duration) -> Duration {
+    interval.max(Duration::from_millis(1))
 }
 
 fn prefixed_status(prefix: &str, suffix: &str) -> String {

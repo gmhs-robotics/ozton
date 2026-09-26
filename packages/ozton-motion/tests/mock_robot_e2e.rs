@@ -29,6 +29,7 @@ struct SimState {
     linear_velocity: f64,
     angular_velocity: f64,
     throttle_command: f64,
+    drove_backward: bool,
     turn_command: f64,
     max_linear_velocity: f64,
     max_angular_velocity: f64,
@@ -44,6 +45,7 @@ impl SimState {
             linear_velocity: 0.0,
             angular_velocity: 0.0,
             throttle_command: 0.0,
+            drove_backward: false,
             turn_command: 0.0,
             max_linear_velocity,
             max_angular_velocity,
@@ -92,6 +94,7 @@ impl Arcade for MockArcadeModel {
         let mut state = self.state.borrow_mut();
         state.sync();
         state.throttle_command = throttle.clamp(-1.0, 1.0);
+        state.drove_backward |= state.throttle_command < -0.1;
         state.turn_command = steer.clamp(-1.0, 1.0);
         Ok(())
     }
@@ -289,6 +292,28 @@ fn seeking_motion_reaches_multiple_waypoints() {
         "expected robot settled at final point, got {final_velocity}"
     );
     assert!(final_heading.is_finite(), "heading should remain finite");
+}
+
+#[test]
+fn reverse_seeking_drives_backward_to_target() {
+    let mut drivetrain = new_drivetrain();
+    let mut motion = seeking_motion();
+    motion.timeout = Some(Duration::from_secs(5));
+
+    block_on(async {
+        motion
+            .move_to_point(&mut drivetrain, Vec2::new(1.0, 0.0))
+            .reverse()
+            .await;
+    });
+
+    let final_position = drivetrain.tracking.position();
+    let drove_backward = drivetrain.model.state.borrow().drove_backward;
+    assert!(
+        final_position.distance(Vec2::new(1.0, 0.0)) < 0.1,
+        "reverse motion missed target: {final_position:?}"
+    );
+    assert!(drove_backward, "reverse motion never drove backward");
 }
 
 fn wrap_radians(angle: f64) -> f64 {

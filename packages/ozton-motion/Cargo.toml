@@ -6,7 +6,7 @@ authors = ["elijah629"]
 license = "MIT"
 categories = ["science::robotics", "no-std", "mathematics", "embedded"]
 keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]
@@ -18,7 +18,7 @@ ozton-math = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [dev-dependencies]
-vex-sdk-mock = "0.1.0"
+vex-sdk-mock = "0.2.0-rc.1"
 
 [package.metadata.docs.rs]
 targets = ["armv7a-vex-v5"]

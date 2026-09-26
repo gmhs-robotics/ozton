@@ -1,18 +1,39 @@
-use core::{future::Future, pin::Pin};
 use std::{
     cell::RefCell,
     rc::Rc,
     time::{Duration, Instant},
 };
 
-use autons::{
-    Selector,
-    simple::{SimpleSelectTheme, THEME_DARK},
-};
 use vexide::{
+    color::Color,
     display::{Display, Font, FontFamily, FontSize, Line, Rect, Text, TouchState},
     task::{self, Task},
     time::sleep,
+};
+
+#[derive(Debug, Clone, Copy)]
+pub struct SimpleSelectTheme {
+    pub background_default: Color,
+    pub background_active: Color,
+    pub background_selected: Color,
+    pub background_selected_active: Color,
+    pub text_default: Color,
+    pub text_selected: Color,
+    pub text_active: Color,
+    pub text_selected_active: Color,
+    pub border: Color,
+}
+
+pub const THEME_DARK: SimpleSelectTheme = SimpleSelectTheme {
+    background_default: Color::new(25, 25, 25),
+    background_active: Color::new(102, 102, 102),
+    background_selected: Color::new(67, 189, 224),
+    background_selected_active: Color::new(123, 209, 233),
+    text_default: Color::new(187, 187, 187),
+    text_selected: Color::new(255, 255, 255),
+    text_active: Color::new(187, 187, 187),
+    text_selected_active: Color::new(255, 255, 255),
+    border: Color::new(153, 153, 153),
 };
 
 pub trait SelectorItem: Clone {
@@ -54,9 +75,6 @@ impl SelectorItem for PlaybackChoice {
     }
 }
 
-pub type SelectorCallback<R, I> =
-    for<'a> fn(&'a mut R, I) -> Pin<Box<dyn Future<Output = ()> + 'a>>;
-
 #[derive(Debug, Clone)]
 struct StatusMessage {
     text: String,
@@ -68,14 +86,12 @@ struct SelectorState<I: SelectorItem + 'static> {
     options: Vec<I>,
     selection: usize,
     active_row: Option<usize>,
-    dirty_rows: Vec<usize>,
     status: Option<StatusMessage>,
     status_dirty: bool,
 }
 
-pub struct RecorderSelect<R: 'static, I: SelectorItem + 'static> {
+pub struct RecorderSelect<I: SelectorItem + 'static> {
     state: Rc<RefCell<SelectorState<I>>>,
-    callback: SelectorCallback<R, I>,
     _task: Task<()>,
 }
 
@@ -90,33 +106,24 @@ pub struct SelectionController<I: SelectorItem + Clone + 'static> {
     last_selection: Option<usize>,
 }
 
-impl<R, I> RecorderSelect<R, I>
-where
-    R: 'static,
-    I: SelectorItem + 'static,
-{
+impl<I: SelectorItem + 'static> RecorderSelect<I> {
     const STATUS_HEIGHT: i16 = 24;
+    const ROW_HEIGHT: i16 = 36;
+    const PAGE_SIZE: usize = 5;
 
-    pub fn new(
-        display: Display,
-        options: Vec<I>,
-        default_selection: usize,
-        callback: SelectorCallback<R, I>,
-    ) -> Self {
+    pub fn new(display: Display, options: Vec<I>, default_selection: usize) -> Self {
         crate::log!(
             "selector.new: options={} default_selection={}",
             options.len(),
             default_selection
         );
-        Self::new_with_theme(display, options, default_selection, callback, THEME_DARK)
+        Self::new_with_theme(display, options, default_selection, THEME_DARK)
     }
 
-    #[allow(clippy::await_holding_refcell_ref)]
     pub fn new_with_theme(
         mut display: Display,
         options: Vec<I>,
         default_selection: usize,
-        callback: SelectorCallback<R, I>,
         theme: SimpleSelectTheme,
     ) -> Self {
         assert!(
@@ -124,13 +131,10 @@ where
             "RecorderSelect requires at least one option."
         );
 
-        let rows = options.len().max(1);
-        let cell_height = Self::cell_height(rows);
         let selection = default_selection.min(options.len() - 1);
         crate::log!(
-            "selector.new_with_theme: rows={} cell_height={} initial_selection={}",
-            rows,
-            cell_height,
+            "selector.new_with_theme: rows={} initial_selection={}",
+            options.len(),
             selection
         );
 
@@ -138,7 +142,6 @@ where
             options,
             selection,
             active_row: None,
-            dirty_rows: Vec::new(),
             status: None,
             status_dirty: true,
         }));
@@ -147,8 +150,8 @@ where
 
         Self {
             state: state.clone(),
-            callback,
             _task: task::spawn(async move {
+                let mut page = selection / Self::PAGE_SIZE;
                 display.fill(
                     &Rect::new(
                         [0, 0],
@@ -157,71 +160,64 @@ where
                     theme.background_default,
                 );
 
-                Self::draw_borders(&mut display, &theme, cell_height);
+                {
+                    let state = state.borrow();
+                    Self::draw_page(&mut display, &theme, &state, page);
+                }
 
                 {
                     let state = state.borrow();
-                    for row_index in 0..state.options.len() {
-                        Self::draw_item(
-                            &mut display,
-                            &theme,
-                            state.options[row_index].label(),
-                            row_index,
-                            row_index == state.selection,
-                            false,
-                            cell_height,
-                        );
-                    }
+                    Self::draw_status(
+                        &mut display,
+                        &theme,
+                        &format!("Selected: {}", state.options[state.selection].label()),
+                    );
                 }
-
-                Self::draw_status(&mut display, &theme, None);
+                display.render();
+                let mut last_press_count = display.touch_status().press_count;
 
                 loop {
                     let touch = display.touch_status();
-                    let touched_index = match touch.state {
-                        TouchState::Pressed | TouchState::Held
-                            if touch.point.y < Self::list_height() =>
-                        {
-                            let row_index: usize =
-                                (touch.point.y / cell_height).try_into().unwrap_or_default();
-                            Some(row_index)
-                        }
-                        _ => None,
-                    };
-
-                    let (dirty_rows, redraw_status, selection, active_row) = {
+                    let new_press = touch.press_count != last_press_count;
+                    last_press_count = touch.press_count;
+                    let (redraw_page, redraw_status, status_text) = {
                         let mut state = state.borrow_mut();
-
                         let prev_selection = state.selection;
                         let prev_active = state.active_row;
+                        let prev_page = page;
+                        state.active_row = None;
 
-                        if let Some(row_index) = touched_index
-                            && row_index < state.options.len()
+                        if matches!(touch.state, TouchState::Pressed | TouchState::Held)
+                            && (0..Display::HORIZONTAL_RESOLUTION).contains(&touch.point.x)
+                            && (0..Self::list_height()).contains(&touch.point.y)
                         {
-                            state.selection = row_index;
+                            let row = usize::try_from(touch.point.y / Self::ROW_HEIGHT)
+                                .unwrap_or_default();
+                            let page_start = page * Self::PAGE_SIZE;
+                            let option_index = page_start + row;
+                            if row < Self::PAGE_SIZE && option_index < state.options.len() {
+                                state.selection = option_index;
+                                state.active_row = Some(option_index);
+                            } else if new_press
+                                && state.options.len() > Self::PAGE_SIZE
+                                && touch.point.y >= Self::PAGE_SIZE as i16 * Self::ROW_HEIGHT
+                            {
+                                let last_page = (state.options.len() - 1) / Self::PAGE_SIZE;
+                                if touch.point.x < Display::HORIZONTAL_RESOLUTION / 2 {
+                                    page = page.saturating_sub(1);
+                                } else {
+                                    page = (page + 1).min(last_page);
+                                }
+                            }
                         }
 
-                        state.active_row = touched_index.filter(|row| *row < state.options.len());
-
-                        let current_selection = state.selection;
-
-                        if prev_selection != current_selection {
+                        if prev_selection != state.selection {
+                            state.status_dirty = true;
                             crate::log!(
                                 "selector.touch: selection {} -> {}",
                                 prev_selection,
-                                current_selection
+                                state.selection
                             );
-                            state.dirty_rows.extend([prev_selection, current_selection]);
-                        }
-
-                        if prev_active != state.active_row {
-                            if let Some(prev) = prev_active {
-                                state.dirty_rows.push(prev);
-                            }
-
-                            if let Some(current) = state.active_row {
-                                state.dirty_rows.push(current);
-                            }
                         }
 
                         if let Some(status) = &state.status
@@ -232,62 +228,37 @@ where
                             state.status_dirty = true;
                         }
 
-                        let redraw_status = if state.status_dirty {
-                            state.status_dirty = false;
-                            true
-                        } else {
-                            false
-                        };
-
+                        let redraw_status = core::mem::take(&mut state.status_dirty);
+                        let status_text = redraw_status.then(|| {
+                            state
+                                .status
+                                .as_ref()
+                                .map(|status| status.text.clone())
+                                .unwrap_or_else(|| {
+                                    format!("Selected: {}", state.options[state.selection].label())
+                                })
+                        });
                         (
-                            core::mem::take(&mut state.dirty_rows),
+                            prev_selection != state.selection
+                                || prev_active != state.active_row
+                                || prev_page != page,
                             redraw_status,
-                            state.selection,
-                            state.active_row,
+                            status_text,
                         )
                     };
 
-                    let (redraw_items, status_text) = {
+                    if redraw_page {
                         let state = state.borrow();
-                        let redraw_items = dirty_rows
-                            .into_iter()
-                            .filter(|row_index| *row_index < rows)
-                            .filter_map(|row_index| {
-                                state.options.get(row_index).map(|item| {
-                                    (
-                                        row_index,
-                                        item.label().to_owned(),
-                                        row_index == selection,
-                                        active_row == Some(row_index),
-                                    )
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        let status_text = if redraw_status {
-                            state.status.as_ref().map(|status| status.text.clone())
-                        } else {
-                            None
-                        };
-                        (redraw_items, status_text)
-                    };
-
-                    for (row_index, label, selected, active) in redraw_items {
-                        Self::draw_item(
-                            &mut display,
-                            &theme,
-                            &label,
-                            row_index,
-                            selected,
-                            active,
-                            cell_height,
-                        );
+                        Self::draw_page(&mut display, &theme, &state, page);
                     }
 
-                    if redraw_status {
-                        Self::draw_status(&mut display, &theme, status_text.as_deref());
+                    if let Some(status_text) = status_text {
+                        Self::draw_status(&mut display, &theme, &status_text);
                     }
 
-                    display.render();
+                    if redraw_page || redraw_status {
+                        display.render();
+                    }
                     sleep(Display::REFRESH_INTERVAL).await;
                 }
             }),
@@ -300,6 +271,79 @@ where
         }
     }
 
+    fn draw_page(
+        display: &mut Display,
+        theme: &SimpleSelectTheme,
+        state: &SelectorState<I>,
+        page: usize,
+    ) {
+        display.fill(
+            &Rect::from_dimensions(
+                [0, 0],
+                Display::HORIZONTAL_RESOLUTION as u16,
+                Self::list_height() as u16,
+            ),
+            theme.background_default,
+        );
+
+        let start = page * Self::PAGE_SIZE;
+        for row in 0..Self::PAGE_SIZE {
+            let index = start + row;
+            if let Some(item) = state.options.get(index) {
+                Self::draw_item(
+                    display,
+                    theme,
+                    item.label(),
+                    row,
+                    index == state.selection,
+                    state.active_row == Some(index),
+                );
+            }
+        }
+        let visible_rows = state
+            .options
+            .len()
+            .saturating_sub(start)
+            .min(Self::PAGE_SIZE);
+        for row in 1..visible_rows {
+            let y = row as i16 * Self::ROW_HEIGHT - 1;
+            display.fill(
+                &Line::new([0, y], [Display::HORIZONTAL_RESOLUTION, y]),
+                theme.border,
+            );
+        }
+
+        if state.options.len() > Self::PAGE_SIZE {
+            let y = Self::ROW_HEIGHT * Self::PAGE_SIZE as i16;
+            let width = Display::HORIZONTAL_RESOLUTION;
+            display.fill(&Line::new([0, y], [width, y]), theme.border);
+            display.fill(
+                &Line::new([width / 2, y], [width / 2, Self::list_height()]),
+                theme.border,
+            );
+            let last_page = (state.options.len() - 1) / Self::PAGE_SIZE;
+            let navigation = [
+                ("Prev", page > 0, 8),
+                ("Next", page < last_page, width / 2 + 8),
+            ];
+            for (label, enabled, x) in navigation {
+                display.draw_text(
+                    &Text::from_string(
+                        label,
+                        Font::new(FontSize::MEDIUM, FontFamily::Proportional),
+                        [x, y + 6],
+                    ),
+                    if enabled {
+                        theme.text_selected
+                    } else {
+                        theme.text_default
+                    },
+                    None,
+                );
+            }
+        }
+    }
+
     fn draw_item(
         display: &mut Display,
         theme: &SimpleSelectTheme,
@@ -307,7 +351,6 @@ where
         row: usize,
         selected: bool,
         active: bool,
-        cell_height: i16,
     ) {
         let (background_color, text_color) = match (selected, active) {
             (false, false) => (theme.background_default, theme.text_default),
@@ -319,38 +362,39 @@ where
         let width: u16 = (Display::HORIZONTAL_RESOLUTION - 2)
             .try_into()
             .unwrap_or_default();
-        let height: u16 = cell_height.saturating_sub(2).try_into().unwrap_or_default();
+        let height: u16 = Self::ROW_HEIGHT
+            .saturating_sub(2)
+            .try_into()
+            .unwrap_or_default();
+        let y = row as i16 * Self::ROW_HEIGHT;
 
         display.fill(
-            &Rect::from_dimensions([0, row as i16 * cell_height], width, height),
+            &Rect::from_dimensions([0, y], width, height),
             background_color,
         );
 
+        let label = Self::short_label(label, 28);
         display.draw_text(
             &Text::from_string(
-                label,
+                &label,
                 Font::new(FontSize::MEDIUM, FontFamily::Proportional),
-                [8, row as i16 * cell_height + 6],
+                [8, y + 6],
             ),
             text_color,
             None,
         );
     }
 
-    fn draw_borders(display: &mut Display, theme: &SimpleSelectTheme, cell_height: i16) {
-        let rows = Self::list_height() / cell_height;
-        for n in 1..=rows {
-            display.fill(
-                &Line::new(
-                    [0, n * cell_height - 1],
-                    [Display::HORIZONTAL_RESOLUTION, n * cell_height - 1],
-                ),
-                theme.border,
-            );
+    fn short_label(label: &str, max_chars: usize) -> String {
+        let mut chars = label.chars();
+        let mut shortened: String = chars.by_ref().take(max_chars).collect();
+        if chars.next().is_some() {
+            shortened.push('…');
         }
+        shortened
     }
 
-    fn draw_status(display: &mut Display, theme: &SimpleSelectTheme, text: Option<&str>) {
+    fn draw_status(display: &mut Display, theme: &SimpleSelectTheme, text: &str) {
         let y_start = Self::list_height();
         let height: u16 = Self::STATUS_HEIGHT.try_into().unwrap_or_default();
 
@@ -359,55 +403,24 @@ where
             theme.background_default,
         );
 
-        if let Some(text) = text {
-            display.draw_text(
-                &Text::from_string(
-                    text,
-                    Font::new(FontSize::MEDIUM, FontFamily::Proportional),
-                    [8, y_start + 4],
-                ),
-                theme.text_default,
-                None,
-            );
-        }
+        let text = Self::short_label(text, 32);
+        display.draw_text(
+            &Text::from_string(
+                &text,
+                Font::new(FontSize::MEDIUM, FontFamily::Proportional),
+                [8, y_start + 4],
+            ),
+            theme.text_default,
+            None,
+        );
     }
 
     fn list_height() -> i16 {
         Display::VERTICAL_RESOLUTION - Self::STATUS_HEIGHT
     }
 
-    fn cell_height(rows: usize) -> i16 {
-        (Self::list_height() / rows.max(1) as i16).max(1)
-    }
-
     fn status_duration() -> Duration {
         Duration::from_secs(2)
-    }
-}
-
-impl<R, I> Selector<R> for RecorderSelect<R, I>
-where
-    R: 'static,
-    I: SelectorItem + 'static,
-{
-    async fn run(&self, robot: &mut R) {
-        let (callback, selection) = {
-            let state = self.state.borrow();
-            crate::log!(
-                "selector.run: invoking callback for selection={} label={}",
-                state.selection,
-                state.options[state.selection].label()
-            );
-            (self.callback, state.options[state.selection].clone())
-        };
-
-        {
-            let mut state = self.state.borrow_mut();
-            let selection_index = state.selection;
-            state.dirty_rows.push(selection_index);
-        }
-
-        (callback)(robot, selection).await;
     }
 }
 

@@ -4,6 +4,8 @@
 //! systems. These "systems" could be drivetrains, an arm or lift, or any other
 //! mechanism that requires precise motion control.
 
+pub mod drive;
+pub mod lift;
 pub mod loops;
 
 mod tolerances;

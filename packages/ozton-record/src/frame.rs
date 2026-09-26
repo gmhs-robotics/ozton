@@ -65,6 +65,13 @@ pub enum RecordMode {
     Playback,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackOutcome {
+    Completed,
+    TrackingLost,
+    OutputFailed,
+}
+
 /// A robot whose device fields know how to finalize and apply generated frames.
 #[async_trait(?Send)]
 pub trait FrameRobot {
@@ -89,6 +96,16 @@ pub trait Recordable: FrameRobot {
     const UPDATE_INTERVAL: Duration;
 
     async fn get_new_frame(&self) -> Self::Frame;
+
+    /// Whether localization is valid enough to record or replay a corrected route.
+    fn playback_ready(&self) -> bool {
+        true
+    }
+
+    /// Immediate stop when playback loses localization or hardware output fails.
+    async fn on_playback_abort(&mut self) {
+        let _ = self.stop_playback().await;
+    }
 
     /// Runs after a recording and route index entry have been successfully saved.
     async fn on_save(&mut self) {}
@@ -123,7 +140,7 @@ impl<F: Frameable> Recording<F> {
             delta.as_micros()
         );
         self.frames.push(TimedFrame {
-            delta_time_micros: delta.as_micros() as u64,
+            delta_time_micros: u64::try_from(delta.as_micros()).unwrap_or(u64::MAX),
             frame,
         });
     }
@@ -131,7 +148,7 @@ impl<F: Frameable> Recording<F> {
     #[allow(dead_code)]
     pub fn duration(&self) -> Duration {
         self.frames.iter().fold(Duration::ZERO, |duration, frame| {
-            duration + Duration::from_micros(frame.delta_time_micros)
+            duration.saturating_add(Duration::from_micros(frame.delta_time_micros))
         })
     }
 
@@ -151,7 +168,8 @@ impl<F: Frameable> Recording<F> {
         }
 
         for next in self.frames.iter().skip(1) {
-            let next_time = current_time + Duration::from_micros(next.delta_time_micros);
+            let next_time =
+                current_time.saturating_add(Duration::from_micros(next.delta_time_micros));
 
             if elapsed < next_time {
                 crate::log!(
@@ -203,10 +221,15 @@ impl<F: Frameable> Recording<F> {
     }
 
     #[allow(dead_code)]
-    pub async fn playback<R: Recordable<Frame = F>>(self, robot: &mut R) {
+    pub async fn playback<R: Recordable<Frame = F>>(self, robot: &mut R) -> PlaybackOutcome {
         if self.frames.is_empty() {
             crate::log!("recording.playback: skipped empty recording");
-            return;
+            return if robot.stop_playback().await.is_ok() {
+                PlaybackOutcome::Completed
+            } else {
+                robot.on_playback_abort().await;
+                PlaybackOutcome::OutputFailed
+            };
         }
 
         let total_duration = self.duration();
@@ -216,9 +239,14 @@ impl<F: Frameable> Recording<F> {
             total_duration.as_micros()
         );
         let start = Instant::now();
-        let mut deadline = start;
+        let mut outcome = PlaybackOutcome::Completed;
 
         loop {
+            if !robot.playback_ready() {
+                crate::log!("recording.playback: localization unavailable; aborting route");
+                outcome = PlaybackOutcome::TrackingLost;
+                break;
+            }
             let elapsed = start.elapsed().min(total_duration);
 
             if let Some(frame) = self.frame_at(elapsed) {
@@ -228,6 +256,8 @@ impl<F: Frameable> Recording<F> {
                 );
                 if let Err(error) = robot.apply_frame(&frame, RecordMode::Playback).await {
                     crate::log!("recording.playback: apply error: {error:?}");
+                    outcome = PlaybackOutcome::OutputFailed;
+                    break;
                 }
             }
 
@@ -235,24 +265,23 @@ impl<F: Frameable> Recording<F> {
                 break;
             }
 
-            let Some(next_deadline) = deadline.checked_add(R::UPDATE_INTERVAL) else {
+            let interval = R::UPDATE_INTERVAL.max(Duration::from_millis(1));
+            let Some(next_deadline) = Instant::now().checked_add(interval) else {
                 crate::log!("recording.playback: deadline overflow, aborting");
+                outcome = PlaybackOutcome::OutputFailed;
                 break;
             };
-            deadline = next_deadline;
-            sleep_until(deadline).await;
+            sleep_until(next_deadline).await;
         }
 
-        if let Some(last) = self.frames.last() {
-            crate::log!("recording.playback: apply final frame {:?}", last.frame);
-            if let Err(error) = robot.apply_frame(&last.frame, RecordMode::Playback).await {
-                crate::log!("recording.playback: final apply error: {error:?}");
-            }
-        }
-
-        if let Err(error) = robot.stop_playback().await {
+        if outcome != PlaybackOutcome::Completed {
+            robot.on_playback_abort().await;
+        } else if let Err(error) = robot.stop_playback().await {
             crate::log!("recording.playback: stop_playback error: {error:?}");
+            robot.on_playback_abort().await;
+            outcome = PlaybackOutcome::OutputFailed;
         }
         crate::log!("recording.playback: complete");
+        outcome
     }
 }

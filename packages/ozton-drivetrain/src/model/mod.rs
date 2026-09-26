@@ -6,9 +6,11 @@
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
+mod coupled;
 mod differential;
 mod mecanum;
 
+pub use coupled::{CoupledDifferential, DriveMotor};
 pub use differential::Differential;
 pub use mecanum::Mecanum;
 
@@ -46,6 +48,11 @@ pub trait Arcade: DrivetrainModel {
 pub trait Tank: DrivetrainModel {
     /// Drives the robot using left and right wheel powers.
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error>;
+
+    /// Immediately remove drivetrain output on disable or fault.
+    fn stop_now(&mut self) -> Result<(), Self::Error> {
+        self.drive_tank(0.0, 0.0)
+    }
 }
 
 impl<T: Tank> Arcade for T {
