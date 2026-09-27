@@ -9,7 +9,10 @@ use vexide::{
 use super::{
     frame::{Frameable, PlaybackOutcome, RecordMode, Recordable, Recording, RecordingError},
     routes::RouteIndex,
-    selector::{PlaybackChoice, RecordOption, RecordTarget, RecorderSelect, SelectionController},
+    selector::{
+        PlaybackChoice, PlaybackSource, RecordOption, RecordTarget, RecorderSelect,
+        SelectionController,
+    },
 };
 
 const AUTONOMOUS_DURATION: Duration = Duration::from_secs(15);
@@ -86,10 +89,6 @@ impl<F: Frameable> RecordingSession<F> {
             Default::default()
         };
 
-        crate::log!(
-            "runtime.recording_session.push_frame: delta={}us frame={frame:?}",
-            delta.as_micros()
-        );
         current.push_timed(delta, frame);
     }
 
@@ -226,7 +225,7 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
 pub struct PlaybackAutonomous<R: Recordable + 'static> {
     pub robot: R,
     pub index: RouteIndex,
-    active_route: Option<u32>,
+    active_route: PlaybackSource,
     route_played_this_autonomous: bool,
     selection: SelectionController<PlaybackChoice>,
     _selector: RecorderSelect<PlaybackChoice>,
@@ -238,13 +237,21 @@ impl<R: Recordable + 'static> PlaybackAutonomous<R> {
         crate::log!("runtime.playback_autonomous.compete: start");
         let index = RouteIndex::load();
 
-        let selector = RecorderSelect::new(display, playback_choices(&index), 0);
+        let selector = RecorderSelect::new(
+            display,
+            playback_choices(
+                &index,
+                R::PREDETERMINED_ROUTE_NAME,
+                R::ADDITIONAL_PREDETERMINED_ROUTE_NAMES,
+            ),
+            0,
+        );
         let selection = SelectionController::new(selector.status_handle());
 
         Self {
             robot,
             index,
-            active_route: None,
+            active_route: PlaybackSource::Disabled,
             route_played_this_autonomous: false,
             selection,
             _selector: selector,
@@ -255,11 +262,11 @@ impl<R: Recordable + 'static> PlaybackAutonomous<R> {
 
     async fn play_selected(&mut self, choice: PlaybackChoice) {
         crate::log!(
-            "runtime.playback_autonomous.play_selected: label={} route_id={:?}",
+            "runtime.playback_autonomous.play_selected: label={} source={:?}",
             choice.label,
-            choice.route_id
+            choice.source
         );
-        self.active_route = choice.route_id;
+        self.active_route = choice.source;
     }
 
     async fn update_selection(&mut self) {
@@ -277,7 +284,6 @@ impl<R: Recordable + 'static> Compete for RecordingAutonomous<R> {
             self.update_selection().await;
 
             let frame = self.robot.get_new_frame().await;
-            crate::log!("runtime.recording_autonomous.driver: raw frame {frame:?}");
             if self.recorder.is_recording() && !self.robot.playback_ready() {
                 self.recorder.set_target(RecordTarget::Off);
                 self.selection
@@ -286,7 +292,6 @@ impl<R: Recordable + 'static> Compete for RecordingAutonomous<R> {
             }
             if self.recorder.is_recording() {
                 let finalized = self.robot.finalize_frame(&frame).await;
-                crate::log!("runtime.recording_autonomous.driver: finalized frame {finalized:?}");
                 self.recorder.push_frame(finalized);
             }
 
@@ -325,7 +330,6 @@ impl<R: Recordable + 'static> Compete for PlaybackAutonomous<R> {
             self.update_selection().await;
 
             let frame = self.robot.get_new_frame().await;
-            crate::log!("runtime.playback_autonomous.driver: live frame {frame:?}");
 
             if let Err(error) = self.robot.apply_frame(&frame, RecordMode::Live).await {
                 crate::log!("runtime.playback_autonomous.driver: live apply error: {error:?}");
@@ -356,11 +360,48 @@ impl<R: Recordable + 'static> Compete for PlaybackAutonomous<R> {
             return;
         }
 
-        let Some(route_id) = self.active_route else {
-            crate::log!("runtime.playback_autonomous.before_route: playback disabled");
-            self.selection.status().show_status("Playback disabled");
-            sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
-            return;
+        let route_id = match self.active_route {
+            PlaybackSource::Disabled => {
+                crate::log!("runtime.playback_autonomous.before_route: playback disabled");
+                self.selection.status().show_status("Playback disabled");
+                sleep(effective_update_interval(R::UPDATE_INTERVAL)).await;
+                return;
+            }
+            PlaybackSource::Predetermined(index) => {
+                self.route_played_this_autonomous = true;
+                let name = if index == 0 {
+                    R::PREDETERMINED_ROUTE_NAME
+                } else {
+                    R::ADDITIONAL_PREDETERMINED_ROUTE_NAMES
+                        .get(index - 1)
+                        .copied()
+                };
+                if let Some(name) = name {
+                    self.selection
+                        .status()
+                        .show_status(prefixed_status("Playing ", name));
+                    let outcome = if index == 0 {
+                        self.robot.run_predetermined_route().await
+                    } else {
+                        self.robot
+                            .run_additional_predetermined_route(index - 1)
+                            .await
+                    };
+                    match outcome {
+                        PlaybackOutcome::Completed => {}
+                        PlaybackOutcome::TrackingLost => self
+                            .selection
+                            .status()
+                            .show_status("Route stopped: tracking lost"),
+                        PlaybackOutcome::OutputFailed => self
+                            .selection
+                            .status()
+                            .show_status("Route stopped: output failed"),
+                    }
+                }
+                return;
+            }
+            PlaybackSource::Recorded(id) => id,
         };
 
         self.route_played_this_autonomous = true;
@@ -433,16 +474,34 @@ fn record_options(index: &RouteIndex) -> Vec<RecordOption> {
     options
 }
 
-fn playback_choices(index: &RouteIndex) -> Vec<PlaybackChoice> {
-    let mut playback_choices = Vec::with_capacity(index.len() + 1);
+fn playback_choices(
+    index: &RouteIndex,
+    predetermined_name: Option<&str>,
+    additional_names: &[&str],
+) -> Vec<PlaybackChoice> {
+    let mut playback_choices = Vec::with_capacity(index.len() + additional_names.len() + 2);
     playback_choices.push(PlaybackChoice {
         label: "Disable".to_string(),
-        route_id: None,
+        source: PlaybackSource::Disabled,
     });
+
+    if let Some(name) = predetermined_name {
+        playback_choices.push(PlaybackChoice {
+            label: name.to_owned(),
+            source: PlaybackSource::Predetermined(0),
+        });
+    }
+
+    playback_choices.extend(additional_names.iter().enumerate().map(|(index, name)| {
+        PlaybackChoice {
+            label: (*name).to_owned(),
+            source: PlaybackSource::Predetermined(index + 1),
+        }
+    }));
 
     playback_choices.extend(index.iter().map(|(id, display_name)| PlaybackChoice {
         label: display_name.to_owned(),
-        route_id: Some(id),
+        source: PlaybackSource::Recorded(id),
     }));
 
     crate::log!(
@@ -467,4 +526,31 @@ fn prefixed_status(prefix: &str, suffix: &str) -> String {
     text.push_str(prefix);
     text.push_str(suffix);
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RouteIndex, playback_choices};
+    use crate::selector::PlaybackSource;
+
+    #[test]
+    fn predetermined_route_appears_before_saved_routes() {
+        let mut index = RouteIndex::default();
+        index.update(7, "Saved route");
+
+        let choices = playback_choices(
+            &index,
+            Some("Move Off Wall"),
+            &["Red Toggle", "Blue Toggle"],
+        );
+        assert_eq!(choices.len(), 5);
+        assert_eq!(choices[0].source, PlaybackSource::Disabled);
+        assert_eq!(choices[1].label, "Move Off Wall");
+        assert_eq!(choices[1].source, PlaybackSource::Predetermined(0));
+        assert_eq!(choices[2].label, "Red Toggle");
+        assert_eq!(choices[2].source, PlaybackSource::Predetermined(1));
+        assert_eq!(choices[3].label, "Blue Toggle");
+        assert_eq!(choices[3].source, PlaybackSource::Predetermined(2));
+        assert_eq!(choices[4].source, PlaybackSource::Recorded(7));
+    }
 }

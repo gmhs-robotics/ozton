@@ -78,7 +78,8 @@ impl AntiTip {
             );
             return 0.0;
         }
-        (self.polarity * self.pid.update(pitch_radians, 0.0, dt))
+        let excess_tilt = pitch_radians.signum() * (pitch_radians.abs() - self.threshold_radians);
+        (self.polarity * self.pid.update(excess_tilt, 0.0, dt))
             .clamp(-self.maximum_correction, self.maximum_correction)
     }
 }

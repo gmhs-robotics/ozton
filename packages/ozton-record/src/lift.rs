@@ -36,7 +36,7 @@ impl Interpolate for LiftFrame {
     }
 }
 
-/// First motor is reversed in the common lift coordinate; second is forward.
+/// Both motor directions must make positive voltage raise the lift.
 pub struct MirroredLift {
     first: Motor,
     second: Motor,
@@ -56,12 +56,14 @@ impl MirroredLift {
 
     pub fn position_degrees(&self) -> Result<(f64, f64), PortError> {
         Ok((
-            -self.first.position()?.as_degrees(),
+            self.first.position()?.as_degrees(),
             self.second.position()?.as_degrees(),
         ))
     }
 
     pub fn hold(&mut self) -> Result<(), PortError> {
+        self.controller.reset();
+        self.last_update = Instant::now();
         let first = self.first.brake(BrakeMode::Hold);
         let second = self.second.brake(BrakeMode::Hold);
         first.and(second)
@@ -90,20 +92,23 @@ impl RecordField for MirroredLift {
             .saturating_duration_since(self.last_update)
             .min(Duration::from_millis(100));
         self.last_update = now;
-        let (first, second) = self.position_degrees()?;
+        let position = if mode == RecordMode::Playback {
+            let (first, second) = self.position_degrees()?;
+            Some((first + second) / 2.0)
+        } else {
+            self.position_degrees()
+                .ok()
+                .map(|(first, second)| (first + second) / 2.0)
+        };
         let target = (mode == RecordMode::Playback).then_some(frame.position_degrees);
-        let (first_command, second_command) =
-            self.controller
-                .update(frame.direction, target, first, second, dt);
-        if first_command == 0.0 && second_command == 0.0 {
+        let command = self
+            .controller
+            .update(frame.direction, target, position, dt);
+        if command == 0.0 {
             return self.hold();
         }
-        let first_result = self
-            .first
-            .set_voltage(-first_command * self.first.max_voltage());
-        let second_result = self
-            .second
-            .set_voltage(second_command * self.second.max_voltage());
+        let first_result = self.first.set_voltage(command * self.first.max_voltage());
+        let second_result = self.second.set_voltage(command * self.second.max_voltage());
         first_result.and(second_result)
     }
 

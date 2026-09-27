@@ -375,11 +375,6 @@ impl RecordField for Motor {
         _mode: RecordMode,
     ) -> Result<(), PortError> {
         let voltage = frame.clamp(-1.0, 1.0) * self.max_voltage();
-        crate::log!(
-            "frame_types.motor.apply: normalized={:.4} voltage={:.4}",
-            frame,
-            voltage
-        );
         let result = self.set_voltage(voltage);
         if let Err(error) = &result {
             crate::log!("frame_types.motor.apply: error={error:?}");
@@ -406,10 +401,6 @@ impl RecordField for AdiDigitalOut {
         } else {
             LogicLevel::Low
         };
-        crate::log!(
-            "frame_types.adi_digital_out.apply: frame={} level={level:?}",
-            frame
-        );
         let result = self.set_level(level);
         if let Err(error) = &result {
             crate::log!("frame_types.adi_digital_out.apply: error={error:?}");
@@ -638,13 +629,6 @@ where
         let mut out = *frame;
         if let Some(motion) = self.drivetrain.tracking.tracked_motion_frame() {
             out.motion = motion;
-            crate::log!(
-                "frame_types.recordable_drivetrain.finalize: input={frame:?} motion={motion:?} output={out:?}"
-            );
-        } else {
-            crate::log!(
-                "frame_types.recordable_drivetrain.finalize: input={frame:?} no_tracking_motion output={out:?}"
-            );
         }
         out
     }
@@ -654,32 +638,23 @@ where
         frame: &Self::Output,
         mode: RecordMode,
     ) -> Result<(), PortError> {
-        crate::log!(
-            "frame_types.recordable_drivetrain.apply: mode={mode:?} playback={:?} frame={frame:?}",
-            self.differential_playback
-        );
         match mode {
             RecordMode::Live => self.drivetrain.model.drive_tank(frame.left, frame.right),
             RecordMode::Playback => match (
                 self.differential_playback,
-                self.drivetrain.tracking.tracked_motion_frame(),
+                if matches!(self.differential_playback, DifferentialPlayback::RawVoltage) {
+                    None
+                } else {
+                    self.drivetrain.tracking.tracked_motion_frame()
+                },
             ) {
                 (DifferentialPlayback::RawVoltage, _) | (_, None) => {
-                    crate::log!(
-                        "frame_types.recordable_drivetrain.apply: raw voltage path left={:.4} right={:.4}",
-                        frame.left,
-                        frame.right
-                    );
                     self.drivetrain.model.drive_tank(frame.left, frame.right)
                 }
                 (DifferentialPlayback::VoltageCorrection(playback), Some(current)) => {
                     let origin = *self.playback_origin.get_or_insert((frame.motion, current));
                     let mut target = *frame;
                     target.motion = relative_motion(frame.motion, origin.0, origin.1);
-                    crate::log!(
-                        "frame_types.recordable_drivetrain.apply: voltage correction current={current:?} target_motion={:?}",
-                        frame.motion
-                    );
                     apply_tracked_differential_motion(
                         &mut self.drivetrain.model,
                         current,
@@ -692,10 +667,6 @@ where
                     let origin = *self.playback_origin.get_or_insert((frame.motion, current));
                     let mut target = *frame;
                     target.motion = relative_motion(frame.motion, origin.0, origin.1);
-                    crate::log!(
-                        "frame_types.recordable_drivetrain.apply: motion tracking current={current:?} target_motion={:?}",
-                        frame.motion
-                    );
                     apply_tracked_differential_motion(
                         &mut self.drivetrain.model,
                         current,
@@ -710,10 +681,6 @@ where
 
     async fn stop_playback(&mut self) -> Result<(), PortError> {
         self.playback_origin = None;
-        for _ in 0..80 {
-            self.drivetrain.model.drive_tank(0.0, 0.0)?;
-            vexide::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
         self.drivetrain.model.stop_now()
     }
 }
@@ -728,13 +695,10 @@ where
     M: Tank<Error = PortError>,
     T: DifferentialRecording,
 {
-    crate::log!(
-        "frame_types.apply_tracked_differential_frame: playback={playback:?} target={target:?}"
-    );
+    if matches!(playback, DifferentialPlayback::RawVoltage) {
+        return drivetrain.model.drive_tank(target.left, target.right);
+    }
     let Some(current) = drivetrain.tracking.tracked_motion_frame() else {
-        crate::log!(
-            "frame_types.apply_tracked_differential_frame: no tracked motion available, falling back to raw voltage"
-        );
         return drivetrain.model.drive_tank(target.left, target.right);
     };
 
@@ -799,10 +763,6 @@ fn apply_tracked_differential_motion(
         1.0,
     );
 
-    crate::log!(
-        "frame_types.apply_tracked_differential_motion: current={current:?} target={target:?} include_recorded_voltage={} drive_base={drive_base:.4} turn_base={turn_base:.4} drive_correction={drive_correction:.4} turn_correction={turn_correction:.4} left={left:.4} right={right:.4}",
-        include_recorded_voltage
-    );
     model.drive_tank(left, right)
 }
 
@@ -894,12 +854,6 @@ fn tracked_playback_correction(
             playback.max_drive_correction,
         ),
         turn_correction.clamp(-playback.max_turn_correction, playback.max_turn_correction),
-    );
-
-    crate::log!(
-        "frame_types.tracked_playback_correction: current={current:?} target={target:?} dx={dx:.4} dy={dy:.4} local_x={local_x:.4} local_y={local_y:.4} heading_error={heading_error:.4} linear_velocity_error={linear_velocity_error:.4} angular_velocity_error={angular_velocity_error:.4} drive_out={:.4} turn_out={:.4}",
-        output.0,
-        output.1
     );
 
     output

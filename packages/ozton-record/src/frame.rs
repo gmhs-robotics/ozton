@@ -95,7 +95,24 @@ pub trait FrameRobot {
 pub trait Recordable: FrameRobot {
     const UPDATE_INTERVAL: Duration;
 
+    /// Optional built-in autonomous route shown alongside saved recordings.
+    const PREDETERMINED_ROUTE_NAME: Option<&'static str> = None;
+
+    /// Additional built-in routes, listed after `PREDETERMINED_ROUTE_NAME`.
+    const ADDITIONAL_PREDETERMINED_ROUTE_NAMES: &'static [&'static str] = &[];
+
     async fn get_new_frame(&self) -> Self::Frame;
+
+    /// Runs the built-in route when selected. Implement this when setting its name.
+    async fn run_predetermined_route(&mut self) -> PlaybackOutcome {
+        PlaybackOutcome::Completed
+    }
+
+    /// Runs an additional built-in route by its index in
+    /// `ADDITIONAL_PREDETERMINED_ROUTE_NAMES`.
+    async fn run_additional_predetermined_route(&mut self, _index: usize) -> PlaybackOutcome {
+        PlaybackOutcome::Completed
+    }
 
     /// Whether localization is valid enough to record or replay a corrected route.
     fn playback_ready(&self) -> bool {
@@ -125,6 +142,42 @@ where
     <Self as Archive>::Archived:
         for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
 
+/// Keeps playback lookup linear in total frame count as elapsed time advances.
+struct PlaybackCursor<'a, F: Frameable> {
+    frames: &'a [TimedFrame<F>],
+    index: usize,
+    frame_time: Duration,
+}
+
+impl<'a, F: Frameable> PlaybackCursor<'a, F> {
+    fn new(frames: &'a [TimedFrame<F>]) -> Self {
+        Self {
+            frames,
+            index: 0,
+            frame_time: frames.first().map_or(Duration::ZERO, |first| {
+                Duration::from_micros(first.delta_time_micros)
+            }),
+        }
+    }
+
+    fn frame_at(&mut self, elapsed: Duration) -> Option<&'a F> {
+        if self.index == 0 && elapsed <= self.frame_time {
+            return self.frames.first().map(|timed| &timed.frame);
+        }
+        while let Some(next) = self.frames.get(self.index + 1) {
+            let next_time = self
+                .frame_time
+                .saturating_add(Duration::from_micros(next.delta_time_micros));
+            if elapsed < next_time {
+                break;
+            }
+            self.index += 1;
+            self.frame_time = next_time;
+        }
+        self.frames.get(self.index).map(|timed| &timed.frame)
+    }
+}
+
 impl<F: Frameable> Recording<F> {
     #[must_use]
     pub fn with_frame_capacity(frame_capacity: usize) -> Self {
@@ -135,10 +188,6 @@ impl<F: Frameable> Recording<F> {
 
     #[allow(dead_code)]
     pub fn push_timed(&mut self, delta: Duration, frame: F) {
-        crate::log!(
-            "recording.push_timed: delta={}us frame={frame:?}",
-            delta.as_micros()
-        );
         self.frames.push(TimedFrame {
             delta_time_micros: u64::try_from(delta.as_micros()).unwrap_or(u64::MAX),
             frame,
@@ -240,6 +289,7 @@ impl<F: Frameable> Recording<F> {
         );
         let start = Instant::now();
         let mut outcome = PlaybackOutcome::Completed;
+        let mut cursor = PlaybackCursor::new(&self.frames);
 
         loop {
             if !robot.playback_ready() {
@@ -249,12 +299,8 @@ impl<F: Frameable> Recording<F> {
             }
             let elapsed = start.elapsed().min(total_duration);
 
-            if let Some(frame) = self.frame_at(elapsed) {
-                crate::log!(
-                    "recording.playback: apply frame elapsed={}us frame={frame:?}",
-                    elapsed.as_micros(),
-                );
-                if let Err(error) = robot.apply_frame(&frame, RecordMode::Playback).await {
+            if let Some(frame) = cursor.frame_at(elapsed) {
+                if let Err(error) = robot.apply_frame(frame, RecordMode::Playback).await {
                     crate::log!("recording.playback: apply error: {error:?}");
                     outcome = PlaybackOutcome::OutputFailed;
                     break;
@@ -283,5 +329,30 @@ impl<F: Frameable> Recording<F> {
         }
         crate::log!("recording.playback: complete");
         outcome
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{PlaybackCursor, Recording};
+
+    #[test]
+    fn playback_cursor_matches_frame_lookup_across_skipped_frames() {
+        let mut recording = Recording::<f64>::default();
+        recording.push_timed(Duration::ZERO, 1.0);
+        recording.push_timed(Duration::from_millis(10), 2.0);
+        recording.push_timed(Duration::ZERO, 3.0);
+        recording.push_timed(Duration::from_millis(20), 4.0);
+
+        let mut cursor = PlaybackCursor::new(&recording.frames);
+        for millis in [0, 5, 10, 11, 29, 30, 50] {
+            let elapsed = Duration::from_millis(millis);
+            assert_eq!(
+                cursor.frame_at(elapsed).copied(),
+                recording.frame_at(elapsed)
+            );
+        }
     }
 }

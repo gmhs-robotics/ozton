@@ -10,7 +10,7 @@ mod coupled;
 mod differential;
 mod mecanum;
 
-pub use coupled::{CoupledDifferential, DriveMotor};
+pub use coupled::{CoupledDifferential, DriveMotor, TipAngleAxis};
 pub use differential::Differential;
 pub use mecanum::Mecanum;
 

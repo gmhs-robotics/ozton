@@ -66,7 +66,14 @@ impl SelectorItem for RecordOption {
 #[allow(dead_code)]
 pub struct PlaybackChoice {
     pub label: String,
-    pub route_id: Option<u32>,
+    pub source: PlaybackSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackSource {
+    Disabled,
+    Predetermined(usize),
+    Recorded(u32),
 }
 
 impl SelectorItem for PlaybackChoice {
