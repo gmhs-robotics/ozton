@@ -86,6 +86,9 @@ pub trait RecordField {
     }
 
     /// Applies a frame value according to the current recorder mode.
+    ///
+    /// Return device failures to the caller, which decides whether to retry live control or abort
+    /// playback. Diagnostic logging does not count as handling the failure.
     async fn apply_frame_value(
         &mut self,
         frame: &Self::Output,
@@ -375,11 +378,9 @@ impl RecordField for Motor {
         _mode: RecordMode,
     ) -> Result<(), PortError> {
         let voltage = frame.clamp(-1.0, 1.0) * self.max_voltage();
-        let result = self.set_voltage(voltage);
-        if let Err(error) = &result {
+        self.set_voltage(voltage).inspect_err(|error| {
             crate::log!("frame_types.motor.apply: error={error:?}");
-        }
-        result
+        })
     }
 
     async fn stop_playback(&mut self) -> Result<(), PortError> {
@@ -401,11 +402,9 @@ impl RecordField for AdiDigitalOut {
         } else {
             LogicLevel::Low
         };
-        let result = self.set_level(level);
-        if let Err(error) = &result {
+        self.set_level(level).inspect_err(|error| {
             crate::log!("frame_types.adi_digital_out.apply: error={error:?}");
-        }
-        result
+        })
     }
 }
 
@@ -420,11 +419,9 @@ impl RecordField for AdiMotor {
     ) -> Result<(), PortError> {
         let command = frame.clamp(-1.0, 1.0);
         crate::log!("frame_types.adi_motor.apply: normalized={command:.4}");
-        let result = self.set_output(command);
-        if let Err(error) = &result {
+        self.set_output(command).inspect_err(|error| {
             crate::log!("frame_types.adi_motor.apply: error={error:?}");
-        }
-        result
+        })
     }
 }
 
@@ -442,11 +439,9 @@ impl RecordField for AdiServo {
             "frame_types.adi_servo.apply: normalized={:.4} raw={command}",
             frame
         );
-        let result = self.set_raw_target(command);
-        if let Err(error) = &result {
+        self.set_raw_target(command).inspect_err(|error| {
             crate::log!("frame_types.adi_servo.apply: error={error:?}");
-        }
-        result
+        })
     }
 }
 
@@ -460,11 +455,9 @@ impl RecordField for AdiPwmOut {
         _mode: RecordMode,
     ) -> Result<(), PortError> {
         crate::log!("frame_types.adi_pwm.apply: output={}", frame);
-        let result = self.set_output(*frame);
-        if let Err(error) = &result {
+        self.set_output(*frame).inspect_err(|error| {
             crate::log!("frame_types.adi_pwm.apply: error={error:?}");
-        }
-        result
+        })
     }
 }
 

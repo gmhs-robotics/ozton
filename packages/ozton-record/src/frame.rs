@@ -120,8 +120,12 @@ pub trait Recordable: FrameRobot {
     }
 
     /// Immediate stop when playback loses localization or hardware output fails.
+    ///
+    /// This hook cannot return an error, so the default implementation reports a failed stop.
     async fn on_playback_abort(&mut self) {
-        let _ = self.stop_playback().await;
+        if let Err(error) = self.stop_playback().await {
+            crate::log_error!("recording.abort: failed to stop outputs: {error:?}");
+        }
     }
 
     /// Runs after a recording and route index entry have been successfully saved.
@@ -273,11 +277,13 @@ impl<F: Frameable> Recording<F> {
     pub async fn playback<R: Recordable<Frame = F>>(self, robot: &mut R) -> PlaybackOutcome {
         if self.frames.is_empty() {
             crate::log!("recording.playback: skipped empty recording");
-            return if robot.stop_playback().await.is_ok() {
-                PlaybackOutcome::Completed
-            } else {
-                robot.on_playback_abort().await;
-                PlaybackOutcome::OutputFailed
+            return match robot.stop_playback().await {
+                Ok(()) => PlaybackOutcome::Completed,
+                Err(error) => {
+                    crate::log_error!("recording.playback: failed to stop empty route: {error:?}");
+                    robot.on_playback_abort().await;
+                    PlaybackOutcome::OutputFailed
+                }
             };
         }
 
@@ -301,7 +307,9 @@ impl<F: Frameable> Recording<F> {
 
             if let Some(frame) = cursor.frame_at(elapsed) {
                 if let Err(error) = robot.apply_frame(frame, RecordMode::Playback).await {
-                    crate::log!("recording.playback: apply error: {error:?}");
+                    crate::log_error!(
+                        "recording.playback: apply failed; aborting route: {error:?}"
+                    );
                     outcome = PlaybackOutcome::OutputFailed;
                     break;
                 }
@@ -313,7 +321,7 @@ impl<F: Frameable> Recording<F> {
 
             let interval = R::UPDATE_INTERVAL.max(Duration::from_millis(1));
             let Some(next_deadline) = Instant::now().checked_add(interval) else {
-                crate::log!("recording.playback: deadline overflow, aborting");
+                crate::log_error!("recording.playback: deadline overflow; aborting route");
                 outcome = PlaybackOutcome::OutputFailed;
                 break;
             };
@@ -323,11 +331,11 @@ impl<F: Frameable> Recording<F> {
         if outcome != PlaybackOutcome::Completed {
             robot.on_playback_abort().await;
         } else if let Err(error) = robot.stop_playback().await {
-            crate::log!("recording.playback: stop_playback error: {error:?}");
+            crate::log_error!("recording.playback: failed to stop outputs: {error:?}");
             robot.on_playback_abort().await;
             outcome = PlaybackOutcome::OutputFailed;
         }
-        crate::log!("recording.playback: complete");
+        crate::log!("recording.playback: outcome={outcome:?}");
         outcome
     }
 }
@@ -337,6 +345,87 @@ mod tests {
     use std::time::Duration;
 
     use super::{PlaybackCursor, Recording};
+
+    #[derive(Default)]
+    struct FailingRobot {
+        apply_failed: bool,
+        stop_failed: bool,
+        stops: usize,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl super::FrameRobot for FailingRobot {
+        type Frame = f64;
+
+        async fn finalize_frame(&self, frame: &f64) -> f64 {
+            *frame
+        }
+
+        async fn apply_frame(
+            &mut self,
+            _frame: &f64,
+            _mode: super::RecordMode,
+        ) -> Result<(), vexide::smart::PortError> {
+            if self.apply_failed {
+                Err(vexide::smart::PortError::Disconnected { port: 1 })
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn stop_playback(&mut self) -> Result<(), vexide::smart::PortError> {
+            self.stops += 1;
+            if self.stop_failed {
+                Err(vexide::smart::PortError::Disconnected { port: 1 })
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl super::Recordable for FailingRobot {
+        const UPDATE_INTERVAL: Duration = Duration::from_millis(10);
+
+        async fn get_new_frame(&self) -> f64 {
+            0.0
+        }
+    }
+
+    #[test]
+    fn failed_playback_apply_stops_outputs_and_reports_failure() {
+        let mut robot = FailingRobot {
+            apply_failed: true,
+            ..FailingRobot::default()
+        };
+        let mut recording = Recording::default();
+        recording.push_timed(Duration::ZERO, 1.0);
+
+        let outcome = futures::executor::block_on(recording.playback(&mut robot));
+
+        assert_eq!(outcome, super::PlaybackOutcome::OutputFailed);
+        assert_eq!(robot.stops, 1);
+    }
+
+    #[test]
+    fn failed_playback_stop_retries_through_abort_and_reports_failure() {
+        // An empty recording still has to stop outputs. A stop failure must not become success.
+        for empty in [true, false] {
+            let mut robot = FailingRobot {
+                stop_failed: true,
+                ..FailingRobot::default()
+            };
+            let mut recording = Recording::default();
+            if !empty {
+                recording.push_timed(Duration::ZERO, 1.0);
+            }
+
+            let outcome = futures::executor::block_on(recording.playback(&mut robot));
+
+            assert_eq!(outcome, super::PlaybackOutcome::OutputFailed);
+            assert_eq!(robot.stops, 2);
+        }
+    }
 
     #[test]
     fn playback_cursor_matches_frame_lookup_across_skipped_frames() {

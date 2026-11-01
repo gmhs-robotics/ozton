@@ -56,6 +56,7 @@ pub struct CoupledDifferential {
     left: [DriveMotor; 3],
     right: [DriveMotor; 3],
     output: DriveOutput,
+    output_scale: f64,
     left_slew: SlewLimiter,
     right_slew: SlewLimiter,
     direct_response: bool,
@@ -64,6 +65,11 @@ pub struct CoupledDifferential {
 }
 
 impl CoupledDifferential {
+    /// Read-only access to each side's motors and wheel gearing, in constructor order.
+    pub fn motor_sides(&self) -> (&[DriveMotor; 3], &[DriveMotor; 3]) {
+        (&self.left, &self.right)
+    }
+
     pub fn new(
         left: [DriveMotor; 3],
         right: [DriveMotor; 3],
@@ -75,6 +81,7 @@ impl CoupledDifferential {
             left,
             right,
             output: DriveOutput::WheelRpm(maximum_wheel_rpm),
+            output_scale: 1.0,
             left_slew: SlewLimiter::new(rise_per_second, fall_per_second),
             right_slew: SlewLimiter::new(rise_per_second, fall_per_second),
             direct_response: false,
@@ -86,6 +93,25 @@ impl CoupledDifferential {
     pub fn with_anti_tip(mut self, imu: Rc<InertialSensor>, anti_tip: AntiTip) -> Self {
         self.anti_tip = Some((imu, anti_tip, TipAngleAxis::Pitch, Angle::ZERO));
         self
+    }
+
+    /// Scales final motor voltage or wheel RPM, including anti-tip correction.
+    ///
+    /// `1.0` retains full output; `0.25` reduces output by 75%. Values are
+    /// clamped to `[0.0, 1.0]`; non-finite values disable output.
+    /// This limits commands, not measured robot speed.
+    pub fn with_output_scale(mut self, scale: f64) -> Self {
+        self.set_output_scale(scale);
+        self
+    }
+
+    /// Updates the final output scale using the same bounds as [`Self::with_output_scale`].
+    pub fn set_output_scale(&mut self, scale: f64) {
+        self.output_scale = if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
     }
 
     /// Uses a chosen IMU axis and its level reading for tilt correction.
@@ -148,11 +174,20 @@ impl CoupledDifferential {
     }
 
     pub fn coast_now(&mut self) -> Result<(), PortError> {
+        self.brake_now(BrakeMode::Coast)
+    }
+
+    /// Stops every motor with the requested brake mode, even if another motor fails.
+    pub fn brake_now(&mut self, mode: BrakeMode) -> Result<(), PortError> {
         self.left_slew.reset();
         self.right_slew.reset();
-        let left = Self::drive_side(&mut self.left, 0.0);
-        let right = Self::drive_side(&mut self.right, 0.0);
-        left.and(right)
+        let mut result = Ok(());
+        for motor in self.left.iter_mut().chain(self.right.iter_mut()) {
+            if let Err(error) = motor.motor.brake(mode) {
+                result = Err(error);
+            }
+        }
+        result
     }
 
     pub fn is_gliding(&self) -> bool {
@@ -206,6 +241,8 @@ impl Tank for CoupledDifferential {
                 self.right_slew.update(right, dt),
             )
         };
+        let left = scale_output(left, self.output_scale);
+        let right = scale_output(right, self.output_scale);
         let (left_result, right_result) = match self.output {
             DriveOutput::WheelRpm(maximum) => (
                 Self::drive_side(&mut self.left, left * maximum),
@@ -221,5 +258,32 @@ impl Tank for CoupledDifferential {
 
     fn stop_now(&mut self) -> Result<(), PortError> {
         self.coast_now()
+    }
+}
+
+fn scale_output(power: f64, scale: f64) -> f64 {
+    if power.is_finite() {
+        power.clamp(-1.0, 1.0) * scale
+    } else {
+        0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scale_output;
+
+    #[test]
+    fn final_output_including_correction_cannot_exceed_quarter_power() {
+        for driver in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            for correction in [-0.35, 0.0, 0.35] {
+                let output = scale_output(driver + correction, 0.25);
+                assert!(output.abs() <= 0.25);
+            }
+        }
+        assert_eq!(scale_output(1.0, 0.25), 0.25);
+        assert_eq!(scale_output(-1.0, 0.25), -0.25);
+        assert_eq!(scale_output(0.5, 0.25), 0.125);
+        assert_eq!(scale_output(f64::NAN, 0.25), 0.0);
     }
 }

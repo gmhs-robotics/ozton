@@ -96,6 +96,8 @@ impl RecordField for MirroredLift {
             let (first, second) = self.position_degrees()?;
             Some((first + second) / 2.0)
         } else {
+            // Live control permits missing position feedback; playback above requires it.
+            // None tells LiftController that encoder-based limits are unavailable.
             self.position_degrees()
                 .ok()
                 .map(|(first, second)| (first + second) / 2.0)

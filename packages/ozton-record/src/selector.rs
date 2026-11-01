@@ -85,7 +85,7 @@ impl SelectorItem for PlaybackChoice {
 #[derive(Debug, Clone)]
 struct StatusMessage {
     text: String,
-    set_at: Instant,
+    set_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +182,7 @@ impl<I: SelectorItem + 'static> RecorderSelect<I> {
                 }
                 display.render();
                 let mut last_press_count = display.touch_status().press_count;
+                let mut last_mode = vexide::competition::mode();
 
                 loop {
                     let touch = display.touch_status();
@@ -189,6 +190,11 @@ impl<I: SelectorItem + 'static> RecorderSelect<I> {
                     last_press_count = touch.press_count;
                     let (redraw_page, redraw_status, status_text) = {
                         let mut state = state.borrow_mut();
+                        let mode = vexide::competition::mode();
+                        if mode != last_mode {
+                            last_mode = mode;
+                            state.status_dirty = true;
+                        }
                         let prev_selection = state.selection;
                         let prev_active = state.active_row;
                         let prev_page = page;
@@ -219,6 +225,7 @@ impl<I: SelectorItem + 'static> RecorderSelect<I> {
                         }
 
                         if prev_selection != state.selection {
+                            state.status = None;
                             state.status_dirty = true;
                             crate::log!(
                                 "selector.touch: selection {} -> {}",
@@ -228,8 +235,10 @@ impl<I: SelectorItem + 'static> RecorderSelect<I> {
                         }
 
                         if let Some(status) = &state.status
-                            && Instant::now().saturating_duration_since(status.set_at)
-                                >= Self::status_duration()
+                            && status.set_at.is_some_and(|set_at| {
+                                Instant::now().saturating_duration_since(set_at)
+                                    >= Self::status_duration()
+                            })
                         {
                             state.status = None;
                             state.status_dirty = true;
@@ -260,7 +269,11 @@ impl<I: SelectorItem + 'static> RecorderSelect<I> {
                     }
 
                     if let Some(status_text) = status_text {
-                        Self::draw_status(&mut display, &theme, &status_text);
+                        Self::draw_status(
+                            &mut display,
+                            &theme,
+                            &format!("{last_mode:?} | {status_text}"),
+                        );
                     }
 
                     if redraw_page || redraw_status {
@@ -438,7 +451,17 @@ impl<I: SelectorItem + 'static> StatusHandle<I> {
         let mut state = self.state.borrow_mut();
         state.status = Some(StatusMessage {
             text,
-            set_at: Instant::now(),
+            set_at: Some(Instant::now()),
+        });
+        state.status_dirty = true;
+    }
+
+    /// Keeps status visible until another status or route selection replaces it.
+    pub fn show_status_persistent(&self, text: impl Into<String>) {
+        let mut state = self.state.borrow_mut();
+        state.status = Some(StatusMessage {
+            text: text.into(),
+            set_at: None,
         });
         state.status_dirty = true;
     }

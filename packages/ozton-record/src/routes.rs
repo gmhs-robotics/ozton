@@ -10,11 +10,20 @@ impl RouteIndex {
     pub const INDEX_PATH: &'static str = ".routes";
     pub const ROUTE_EXTENSION: &'static str = "route";
 
+    /// Loads the index, skipping malformed rows. A missing file means no saved routes.
+    /// Other read failures are reported before falling back to an empty index.
     pub fn load() -> Self {
         crate::log!("routes.load: reading {}", Self::INDEX_PATH);
-        let Ok(text) = std::fs::read_to_string(Self::INDEX_PATH) else {
-            crate::log!("routes.load: no index file, using default");
-            return Self::default();
+        let text = match std::fs::read_to_string(Self::INDEX_PATH) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                crate::log!("routes.load: no index file, using default");
+                return Self::default();
+            }
+            Err(error) => {
+                crate::log_error!("routes.load: failed to read index; using empty index: {error}");
+                return Self::default();
+            }
         };
 
         let mut out = Self::default();

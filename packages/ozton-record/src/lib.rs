@@ -4,15 +4,25 @@ pub use async_trait::async_trait;
 pub use rkyv;
 pub use vexide::smart::PortError;
 
+/// Emits diagnostic traces in debug builds only.
+///
+/// Arguments are type-checked in every profile, but evaluated only when debug assertions are enabled.
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        {
+        if ::core::cfg!(debug_assertions) {
             ::std::println!("[ozton] {}", ::core::format_args!($($arg)*));
         }
     };
 }
+
+// Failures handled here rather than returned to a caller must remain visible in release builds.
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        ::std::println!("[ozton] error: {}", ::core::format_args!($($arg)*))
+    };
+}
+pub(crate) use log_error;
 
 #[macro_export]
 macro_rules! record_frame {

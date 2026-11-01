@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use ozton_record::{Interpolate, frame::Recording, rkyv::{Archive, Deserialize, Serialize}};
+use ozton_record::{
+    Interpolate,
+    frame::Recording,
+    rkyv::{Archive, Deserialize, Serialize},
+};
 
 #[derive(Archive, Serialize, Deserialize, Default, Clone, Debug)]
 #[rkyv(crate = ::ozton_record::rkyv)]
