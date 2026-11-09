@@ -14,14 +14,14 @@ jobs:
               uses: dtolnay/rust-toolchain@master
               with:
                   profile: minimal
-                  toolchain: nightly
+                  toolchain: nightly-2026-11-07
                   components: rust-src
 
             - name: Check
               uses: actions-rs/cargo@v1
               with:
                   command: check
-                  args: --target=armv7a-vex-v5 -Zbuild-std=std,panic_abort -Zbuild-std-features=compiler-builtins-mem
+                  args: --target=thumbv7a-vex-v5
 
     test:
         name: Test
@@ -34,7 +34,7 @@ jobs:
               uses: dtolnay/rust-toolchain@master
               with:
                   profile: minimal
-                  toolchain: nightly
+                  toolchain: nightly-2026-11-07
                   components: rust-src
 
             - name: Check

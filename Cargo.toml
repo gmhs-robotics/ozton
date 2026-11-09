@@ -12,7 +12,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-vexide = "=0.9.0-alpha.1"
+vexide = "0.9.0-beta.1"
 ozton-control = { version = "0.4.0", path = "packages/ozton-control", default-features = false }
 ozton-derive = { version = "0.4.0", path = "packages/ozton-derive", default-features = false }
 ozton-drivetrain = { version = "0.4.0", path = "packages/ozton-drivetrain", default-features = false }

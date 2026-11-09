@@ -3,4 +3,4 @@ rustflags = ["-Clink-arg=-Tvexide.ld"]
 
 [unstable]
 build-std = ["std", "panic_abort"]
-build-std-features = ["compiler-builtins-mem"]
+build-std-features = ["compiler-builtins-mem", "panic-unwind"]
