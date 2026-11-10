@@ -9,15 +9,11 @@
 
 ## Overview
 
-`ozton` is a vex robotics metaframework centered around:
+`ozton` is a VEX V5 framework with two mutually exclusive competition modes.
+`programmed` is the default. Build with `--no-default-features --features recording`
+for recording and playback. Test each mode separately.
 
-- robot recording/playback (`ozton-record`)
-- drivetrain abstractions (`ozton-drivetrain`)
-- tracking/localization (`ozton-tracking`)
-- math/control/motion primitives ported from `evian`
-
-The repo is organized as a Rust workspace with one crate per responsibility
-under `packages/`.
+Workspace crates live under `packages/`.
 
 ## Workspace Layout
 
@@ -33,18 +29,23 @@ under `packages/`.
     - `#[derive(RecordedRobot)]` on the robot struct
     - `#[record(skip)]` for non-recorded fields like controllers
     - implementing only `get_new_frame`
-  - live-vs-playback behavior belongs in field/device types, not in user robot code
+  - live-vs-playback behavior belongs in field/device types, not in user robot
+    code
 - `packages/ozton-math`
-  - math utilities and lightweight geometry types
+  - hardware-independent geometry, localization, and path math
 - `packages/ozton-control`
   - feedback/feedforward control loops and tolerances
 - `packages/ozton-motion`
   - motion algorithms that act on drivetrain + tracking traits
 - `packages/ozton-tracking`
   - tracking traits and tracking implementations
-  - includes wheeled tracking and GPS-backed tracking
+  - timestamped localization and VEX sensor adapters
 - `packages/ozton-drivetrain`
   - drivetrain wrapper and drivetrain models
+- `packages/ozton-runtime`
+  - shared selector, command clock, and VEX actuator adapters
+- `packages/ozton-diagnostics` and `packages/ozton-tools`
+  - telemetry schema, path conversion, and host calibration
 
 ## Core Design Rules
 
@@ -55,8 +56,8 @@ under `packages/`.
   routines.
   - The `ozton` crate should stay a thin re-export/meta crate.
 - Recording should not force users to hand-write transform/apply boilerplate.
-- Tracking-corrected drivetrain replay is a separate recording workflow from plain
-  open-loop drivetrain replay.
+- Tracking-corrected drivetrain replay is a separate recording workflow from
+  plain open-loop drivetrain replay.
 
 ## Conventions
 
@@ -79,8 +80,8 @@ adding local logic to solve a problem.
 - Current examples:
   - angles come from `vexide-devices`
   - 2D vector math is backed by `glam`
-- Before writing a custom PID, geometry, math, or motion helper, check whether
-  a mature crate already fits the required API, units model, and `no_std`
+- Before writing a custom PID, geometry, math, or motion helper, check whether a
+  mature crate already fits the required API, units model, and `no_std`
   constraints.
 
 ## Documentation

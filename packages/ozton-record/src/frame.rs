@@ -94,25 +94,14 @@ pub trait FrameRobot {
 #[async_trait(?Send)]
 pub trait Recordable: FrameRobot {
     const UPDATE_INTERVAL: Duration;
+    const MAX_CAPTURE_DURATION: Duration = Duration::from_secs(15);
 
-    /// Optional built-in autonomous route shown alongside saved recordings.
-    const PREDETERMINED_ROUTE_NAME: Option<&'static str> = None;
-
-    /// Additional built-in routes, listed after `PREDETERMINED_ROUTE_NAME`.
-    const ADDITIONAL_PREDETERMINED_ROUTE_NAMES: &'static [&'static str] = &[];
+    /// Reject application-specific invalid values before capture or playback.
+    fn valid_frame(_frame: &Self::Frame) -> bool {
+        true
+    }
 
     async fn get_new_frame(&self) -> Self::Frame;
-
-    /// Runs the built-in route when selected. Implement this when setting its name.
-    async fn run_predetermined_route(&mut self) -> PlaybackOutcome {
-        PlaybackOutcome::Completed
-    }
-
-    /// Runs an additional built-in route by its index in
-    /// `ADDITIONAL_PREDETERMINED_ROUTE_NAMES`.
-    async fn run_additional_predetermined_route(&mut self, _index: usize) -> PlaybackOutcome {
-        PlaybackOutcome::Completed
-    }
 
     /// Whether localization is valid enough to record or replay a corrected route.
     fn playback_ready(&self) -> bool {

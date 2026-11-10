@@ -96,9 +96,12 @@ impl Feedforward for MotorFeedforward {
     type Signal = f64;
 
     fn update(&mut self, setpoint: MotorFeedforwardSetpoint, _dt: core::time::Duration) -> f64 {
-        self.ks * setpoint.velocity.signum()
-            + self.kv * setpoint.velocity
-            + self.ka * setpoint.acceleration
+        let static_voltage = if setpoint.velocity == 0.0 {
+            0.0
+        } else {
+            self.ks * setpoint.velocity.signum()
+        };
+        static_voltage + self.kv * setpoint.velocity + self.ka * setpoint.acceleration
     }
 }
 

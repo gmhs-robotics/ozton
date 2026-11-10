@@ -51,6 +51,7 @@ macro_rules! log {
 }
 
 pub mod gps;
+pub mod localizer;
 mod sensor;
 pub mod wheeled;
 

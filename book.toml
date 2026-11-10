@@ -1,0 +1,15 @@
+[book]
+title = "The Ozton Book"
+description = "Build, program, and calibrate an Ozton robot for VEX V5."
+language = "en"
+src = "docs"
+
+[rust]
+edition = "2024"
+
+[build]
+build-dir = "target/book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/gmhs-robotics/ozton"

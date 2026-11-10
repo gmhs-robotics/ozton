@@ -68,14 +68,19 @@ impl AntiTip {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.pid.reset();
+    }
+
     pub fn correction(&mut self, pitch_radians: f64, dt: Duration) -> f64 {
-        if !pitch_radians.is_finite() || pitch_radians.abs() < self.threshold_radians {
-            self.pid = Pid::new(
-                self.pid.kp(),
-                self.pid.ki(),
-                self.pid.kd(),
-                self.pid.integration_range(),
-            );
+        if !pitch_radians.is_finite()
+            || !self.threshold_radians.is_finite()
+            || self.threshold_radians < 0.0
+            || self.polarity.abs() != 1.0
+            || !(0.0..=1.0).contains(&self.maximum_correction)
+            || pitch_radians.abs() <= self.threshold_radians
+        {
+            self.reset();
             return 0.0;
         }
         let excess_tilt = pitch_radians.signum() * (pitch_radians.abs() - self.threshold_radians);

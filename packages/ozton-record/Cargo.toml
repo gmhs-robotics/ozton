@@ -13,6 +13,7 @@ edition = "2024"
 async-trait = "0.1.89"
 ozton-drivetrain = { workspace = true }
 ozton-control = { workspace = true }
+ozton-runtime = { workspace = true }
 ozton-tracking = { workspace = true }
 rkyv = { workspace = true }
 vexide = { workspace = true }

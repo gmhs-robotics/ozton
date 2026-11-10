@@ -355,10 +355,12 @@ version = "0.4.0"
 dependencies = [
  "ozton-control",
  "ozton-derive",
+ "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-math",
  "ozton-motion",
  "ozton-record",
+ "ozton-runtime",
  "ozton-tracking",
  "vexide",
 ]
@@ -381,6 +383,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ozton-diagnostics"
+version = "0.4.0"
+
+[[package]]
 name = "ozton-drivetrain"
 version = "0.4.0"
 dependencies = [
@@ -396,6 +402,7 @@ name = "ozton-math"
 version = "0.4.0"
 dependencies = [
  "glam",
+ "libm",
 ]
 
 [[package]]
@@ -404,8 +411,10 @@ version = "0.4.0"
 dependencies = [
  "glam",
  "ozton-control",
+ "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-math",
+ "ozton-runtime",
  "ozton-tracking",
  "vex-sdk-mock",
  "vexide",
@@ -420,9 +429,26 @@ dependencies = [
  "ozton-control",
  "ozton-derive",
  "ozton-drivetrain",
+ "ozton-runtime",
  "ozton-tracking",
  "rkyv",
  "vexide",
+]
+
+[[package]]
+name = "ozton-runtime"
+version = "0.4.0"
+dependencies = [
+ "ozton-control",
+ "vexide",
+]
+
+[[package]]
+name = "ozton-tools"
+version = "0.4.0"
+dependencies = [
+ "ozton-diagnostics",
+ "ozton-math",
 ]
 
 [[package]]
@@ -430,6 +456,7 @@ name = "ozton-tracking"
 version = "0.4.0"
 dependencies = [
  "glam",
+ "ozton-math",
  "vexide",
 ]
 

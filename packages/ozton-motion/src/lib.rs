@@ -2,6 +2,7 @@
 
 mod curvature;
 
+pub mod auton;
 pub mod basic;
 pub mod pursuit;
 pub mod seeking;

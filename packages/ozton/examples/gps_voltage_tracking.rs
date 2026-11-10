@@ -4,10 +4,7 @@ use ozton::{
     derive::RecordedRobot,
     drivetrain::model::Differential,
     prelude::{Drivetrain, RecordableDrivetrain},
-    record::{
-        self, DifferentialVoltageFrame,
-        runtime::{PlaybackAutonomous, RecordingAutonomous},
-    },
+    record::{self, DifferentialVoltageFrame, runtime::RecordingAutonomous},
     tracking::GpsTracking,
 };
 use vexide::{math::Point2, prelude::*};
@@ -64,9 +61,5 @@ async fn main(peripherals: Peripherals) {
         )),
     };
 
-    if cfg!(feature = "record") {
-        RecordingAutonomous::compete(robot, display).await;
-    } else {
-        PlaybackAutonomous::compete(robot, display).await;
-    }
+    RecordingAutonomous::compete(robot, display).await;
 }

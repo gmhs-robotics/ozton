@@ -51,6 +51,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pkgs.ripgrep
+            pkgs.mdbook
             pkgs.cargo-release
             cargoV5
             (rustToolchain.override {

@@ -138,11 +138,7 @@ impl GpsTracking {
         })
     }
 
-    async fn task(
-        gps: GpsSensor,
-        config: GpsTrackingConfig,
-        data: Rc<RefCell<GpsTrackingData>>,
-    ) {
+    async fn task(gps: GpsSensor, config: GpsTrackingConfig, data: Rc<RefCell<GpsTrackingData>>) {
         if !config.startup_delay.is_zero() {
             log!(
                 "gps.task: waiting {}ms before first sample",

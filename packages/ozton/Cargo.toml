@@ -14,32 +14,40 @@ edition = "2024"
 vexide = { workspace = true, features = ["full", "default-sdk"] }
 
 [dependencies]
-ozton-control = { workspace = true, optional = true }
+ozton-control = { workspace = true }
+ozton-diagnostics = { workspace = true }
+ozton-runtime = { workspace = true }
 ozton-derive = { workspace = true, optional = true }
-ozton-drivetrain = { workspace = true, optional = true }
-ozton-math = { workspace = true, optional = true }
+ozton-drivetrain = { workspace = true }
+ozton-math = { workspace = true }
 ozton-motion = { workspace = true, optional = true }
 ozton-record = { workspace = true, optional = true }
-ozton-tracking = { workspace = true, optional = true }
+ozton-tracking = { workspace = true }
 
 [features]
-default = [
-  "control",
-  "derive",
-  "drivetrain",
-  "math",
-  "motion",
-  "record",
-  "tracking"
-]
+default = ["programmed"]
+programmed = ["dep:ozton-motion"]
+recording = ["dep:ozton-derive", "dep:ozton-record"]
 
-control = ["dep:ozton-control"]
-derive = ["dep:ozton-derive"]
-drivetrain = ["dep:ozton-drivetrain"]
-math = ["dep:ozton-math"]
-motion = ["dep:ozton-motion"]
-record = ["dep:ozton-record"]
-tracking = ["dep:ozton-tracking"]
+[[example]]
+name = "full"
+required-features = ["recording"]
+
+[[example]]
+name = "gps_voltage_tracking"
+required-features = ["recording"]
+
+[[test]]
+name = "recordable_drivetrain_public_usage"
+required-features = ["recording"]
+
+[[test]]
+name = "recorded_robot_public_usage"
+required-features = ["recording"]
 
 [package.metadata.docs.rs]
 targets = ["armv7a-none-eabi"] # Not actually, but this is at least close.
+
+[[example]]
+name = "programmed"
+required-features = ["programmed"]

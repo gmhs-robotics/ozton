@@ -11,6 +11,7 @@ edition = "2024"
 
 [dependencies]
 glam = { workspace = true }
+ozton-math = { workspace = true }
 vexide = { workspace = true }
 
 [package.metadata.docs.rs]

@@ -1,0 +1,11 @@
+[package]
+name = "ozton-tools"
+description = "Host tools for importing Ozton paths and calibrating a robot."
+repository = "https://github.com/gmhs-robotics/ozton/"
+license = "MIT OR Apache-2.0"
+version = "0.4.0"
+edition = "2024"
+
+[dependencies]
+ozton-diagnostics = { workspace = true }
+ozton-math = { workspace = true }

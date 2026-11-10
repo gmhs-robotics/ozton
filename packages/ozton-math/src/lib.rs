@@ -1,8 +1,12 @@
 //! Math utilities & types.
 
 #![no_std]
+extern crate alloc;
 
 pub mod curve;
+pub mod geometry;
+pub mod localization;
+pub mod path;
 
 /// Scales down the values in an array so that none exceed a given maximum magnitude.
 ///

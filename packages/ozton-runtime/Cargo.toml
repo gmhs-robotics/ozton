@@ -1,0 +1,11 @@
+[package]
+name = "ozton-runtime"
+description = "Shared VEX competition runtime utilities for Ozton."
+repository = "https://github.com/gmhs-robotics/ozton/"
+license = "MIT OR Apache-2.0"
+version = "0.4.0"
+edition = "2024"
+
+[dependencies]
+ozton-control = { workspace = true }
+vexide = { workspace = true }

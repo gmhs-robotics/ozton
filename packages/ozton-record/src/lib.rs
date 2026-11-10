@@ -70,6 +70,7 @@ pub mod lift;
 pub mod routes;
 pub mod runtime;
 pub mod selector;
+pub mod store;
 
 pub mod prelude {
     pub use crate::{
@@ -78,7 +79,7 @@ pub mod prelude {
             DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
             DifferentialVoltagePlayback, RecordableDrivetrain,
         },
-        runtime::{PlaybackAutonomous, RecordingAutonomous},
+        runtime::RecordingAutonomous,
     };
 }
 

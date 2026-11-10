@@ -1,27 +1,30 @@
-# ozton
+# Ozton
 
-`ozton` is the Rust way of creating a playback/record auton for any vexide
-robot.
+Ozton is a Rust framework for VEX V5 competition robots. It provides
+differential drive, localization, a Brain selector, path following, and an
+exclusive recording and playback mode.
 
-1. It should record and replay routes fast and iteratively.
-2. It should be assisted by GPS/other sensors.
-3. `RecordableDrivetrain` wraps `Drivetrain`, so the same robot code can be
-   recorded, replayed, or driven manually through motion/instruction code.
-4. The derive-driven frame system should cover whole robots, including motors,
-   pneumatics via `AdiDigitalOut`, and common ADI actuators.
+- [Choose a firmware mode](docs/introduction.md)
+- [Build a programmed robot](docs/programmed.md)
+- [Import PATH.JERRYIO routes and write autonomous](docs/routes.md)
+- [Configure odometry, DSR, EKF and MCL](docs/localization.md)
+- [Record and replay routes](docs/recording.md)
+- [Run calibration trials and fit telemetry](docs/calibration.md)
+- [Build and troubleshoot](docs/development.md)
 
-## Credits
+Render the full manual with `mdbook build`, or open it with `mdbook serve --open`.
 
-Control and tracking code was inspired by vexide/evian. Route selection is
-implemented within ozton and uses vexide's competition runtime directly.
+The [programmed example](packages/ozton/examples/programmed.rs) uses one
+chassis configuration, a named distance sensor, an intake, and an embedded route.
+The [recording example](packages/ozton/examples/full.rs) shows the
+`RecordedRobot` workflow.
+
+Ozton draws on [Evian](https://github.com/vexide/evian),
+[LemLib](https://github.com/LemLib/LemLib),
+[RW-Template](https://richardbwang.github.io/RW-Template/),
+[TitanReset](https://github.com/tubaplayerdis/TitanReset), and
+[HoloLib](https://github.com/calhighrobotics/HoloLib).
 
 ## License
 
-Licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE.md) or
-  https://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT.md) or
-  https://opensource.org/licenses/MIT)
-
-at your option.
+Choose [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).

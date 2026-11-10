@@ -239,12 +239,13 @@ where
 // MARK: Math Functions
 
 fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
-    let delta = end - start;
-    let distance_squared = delta.length_squared();
-    if distance_squared == 0.0 {
-        return 0.0;
-    }
-    2.0 * (start_angle.sin() * delta.x - start_angle.cos() * delta.y) / distance_squared
+    use ozton_math::geometry::{Pose, pursuit_curvature};
+
+    let pose = Pose {
+        position: start,
+        heading: start_angle.as_radians(),
+    };
+    -pursuit_curvature(pose.to_local(end))
 }
 
 #[cfg(test)]
@@ -270,60 +271,7 @@ fn line_segment_circle_intersections(
     start: Vec2,
     end: Vec2,
 ) -> (Option<Vec2>, Option<Vec2>) {
-    // Subtract the circle's center to offset the system to origin.
-    let offset_1 = start - center;
-    let offset_2 = end - center;
-
-    let (dx, dy) = {
-        let delta = offset_2 - offset_1;
-        (delta.x, delta.y)
-    };
-    let dr = offset_1.distance(offset_2);
-    let d = offset_1.perp_dot(offset_2);
-    let discriminant = (radius * radius) * (dr * dr) - (d * d);
-
-    let mut solutions = (None, None);
-
-    // If our discriminant is greater than or equal to 0, the line formed as a slope of
-    // point_1 and point_2 intersects the circle at least once.
-    if discriminant >= 0.0 {
-        // https://mathworld.wolfram.com/Circle-LineIntersection.html
-        let discriminant_sqrt = discriminant.sqrt();
-        let dr_squared = dr * dr;
-
-        let solution_1 = Vec2::new(
-            (d * dy + dy.signum() * dx * discriminant_sqrt) / dr_squared,
-            (-d * dx + dy.abs() * discriminant_sqrt) / dr_squared,
-        ) + center;
-        let solution_2 = Vec2::new(
-            (d * dy - dy.signum() * dx * discriminant_sqrt) / dr_squared,
-            (-d * dx - dy.abs() * discriminant_sqrt) / dr_squared,
-        ) + center;
-
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
-
-        // Find the bounded intersections.
-        // solution_1 and solution_2 are assumed to be true when the line formed as a slope between point_1 and point_2
-        // extends infinitely, however we only want to consider intersections that are part of a line segment *between*
-        // point_1 and point_2.
-
-        // Solution 1 intersects the circle within the bounds of point_1 and point_2
-        if (solution_1.x >= min_x && solution_1.x <= max_x)
-            && (solution_1.y >= min_y && solution_1.y <= max_y)
-        {
-            solutions.0 = Some(solution_1);
-        }
-
-        // Solution 2 intersects the circle within the bounds of point_1 and point_2
-        if (solution_2.x >= min_x && solution_2.x <= max_x)
-            && (solution_2.y >= min_y && solution_2.y <= max_y)
-        {
-            solutions.1 = Some(solution_2);
-        }
-    }
-
-    solutions
+    let [first, last] = ozton_math::geometry::circle_segment_fractions(center, radius, start, end)
+        .map(|fraction| fraction.map(|value| start.lerp(end, value)));
+    (first, last)
 }

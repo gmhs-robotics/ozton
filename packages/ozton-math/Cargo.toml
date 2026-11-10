@@ -11,6 +11,7 @@ edition = "2024"
 
 [dependencies]
 glam = { workspace = true }
+libm = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

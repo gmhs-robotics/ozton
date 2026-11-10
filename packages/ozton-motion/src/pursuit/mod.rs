@@ -12,46 +12,19 @@ use ozton_tracking::{TracksHeading, TracksPosition};
 mod follow;
 pub use follow::PurePursuitFuture;
 
-/// Parses a [LemLib 0.5 path] into a discrete list of [`Waypoint`]s.
-///
-/// [LemLib 0.5 path]: https://docs.path.jerryio.com/docs/formats/LemLibFormatV0_5
-pub fn parse_lemlib_path(buf: &[u8]) -> Vec<Waypoint> {
-    let mut waypoints = Vec::new();
-
-    let strbuf = str::from_utf8(buf).expect("encountered invalid UTF-8 in LemLib path");
-
-    let data = &strbuf[0..strbuf
-        .find("endData")
-        .expect("missing endData delimeter in Lemlib path")];
-
-    for line in data.lines() {
-        let mut split = line.split(',');
-
-        waypoints.push(Waypoint {
-            position: Vec2 {
-                x: split
-                    .next()
-                    .expect("missing x field in LemLib waypoint entry")
-                    .trim()
-                    .parse::<f64>()
-                    .expect("failed to parse LemLib waypoint field `x`"),
-                y: split
-                    .next()
-                    .expect("missing y field in LemLib waypoint entry")
-                    .trim()
-                    .parse::<f64>()
-                    .expect("failed to parse LemLib waypoint field `y`"),
-            },
-            velocity: split
-                .next()
-                .expect("missing x field of LemLib waypoint entry")
-                .trim()
-                .parse::<f64>()
-                .expect("failed to parse LemLib waypoint field `speed`"),
-        });
-    }
-
-    waypoints
+/// Parses a LemLib v0.5 path into positions in meters and normalized speed.
+pub fn parse_lemlib_path(
+    bytes: &[u8],
+) -> Result<Vec<Waypoint>, ozton_math::path::jerryio::ImportError> {
+    ozton_math::path::jerryio::parse(bytes).map(|points| {
+        points
+            .into_iter()
+            .map(|point| Waypoint {
+                position: point.position,
+                velocity: point.speed_fraction,
+            })
+            .collect()
+    })
 }
 
 /// Pure pursuit path waypoint.

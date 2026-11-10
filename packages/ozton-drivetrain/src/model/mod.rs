@@ -6,12 +6,12 @@
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
-mod coupled;
 mod differential;
+mod gearing;
 mod mecanum;
 
-pub use coupled::{CoupledDifferential, DriveMotor, TipAngleAxis};
-pub use differential::Differential;
+pub use differential::{Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback};
+pub use gearing::{DriveMotor, GearRatio};
 pub use mecanum::Mecanum;
 
 /// A collection of motors driving a wheeled mobile robot.

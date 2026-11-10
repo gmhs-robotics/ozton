@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::BTreeMap, path::PathBuf};
 
+use crate::store::{RouteStore, commit_row};
+
 #[derive(Debug, Clone, Default)]
 pub struct RouteIndex {
     /// route id -> display name
@@ -13,52 +15,18 @@ impl RouteIndex {
     /// Loads the index, skipping malformed rows. A missing file means no saved routes.
     /// Other read failures are reported before falling back to an empty index.
     pub fn load() -> Self {
-        crate::log!("routes.load: reading {}", Self::INDEX_PATH);
-        let text = match std::fs::read_to_string(Self::INDEX_PATH) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                crate::log!("routes.load: no index file, using default");
-                return Self::default();
-            }
+        match RouteStore::open(".") {
+            Ok(store) => Self {
+                map: store
+                    .iter()
+                    .map(|(id, name)| (id, name.to_owned()))
+                    .collect(),
+            },
             Err(error) => {
-                crate::log_error!("routes.load: failed to read index; using empty index: {error}");
-                return Self::default();
+                crate::log_error!("failed to read route index: {error:?}");
+                Self::default()
             }
-        };
-
-        let mut out = Self::default();
-
-        for (line_index, line) in text.lines().enumerate() {
-            let (route_id, name) = match line.trim().split_once('\t') {
-                Some((a, b)) => (a.trim(), b.trim()),
-                None => (line, line),
-            };
-
-            if route_id.is_empty() || name.is_empty() {
-                crate::log!("routes.load: skipping empty line {}", line_index + 1);
-                continue;
-            }
-
-            let Ok(route_id) = route_id.parse::<u32>() else {
-                crate::log!(
-                    "routes.load: skipping unparsable route id on line {}: {}",
-                    line_index + 1,
-                    route_id
-                );
-                continue;
-            };
-
-            crate::log!(
-                "routes.load: line {} -> route {} name={}",
-                line_index + 1,
-                route_id,
-                name
-            );
-            out.map.insert(route_id, name.to_string());
         }
-
-        crate::log!("routes.load: loaded {} route entries", out.map.len());
-        out
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
@@ -71,32 +39,19 @@ impl RouteIndex {
 
     #[allow(dead_code)]
     pub fn save(&self) -> std::io::Result<()> {
-        crate::log!(
-            "routes.save: writing {} entries to {}",
-            self.map.len(),
-            Self::INDEX_PATH
-        );
-        let mut out = String::with_capacity(
-            self.map
-                .iter()
-                .map(|(route_id, name)| route_id.to_string().len() + name.len() + 2)
-                .sum(),
-        );
-
-        for (route_id, name) in &self.map {
-            out.push_str(&route_id.to_string());
-            out.push('\t');
-            out.push_str(name);
-            out.push('\n');
+        let store =
+            RouteStore::open(".").map_err(|error| std::io::Error::other(format!("{error:?}")))?;
+        let mut contents = String::new();
+        for (&id, name) in &self.map {
+            if name.contains(['\t', '\n', '\r']) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "invalid route name",
+                ));
+            }
+            contents.push_str(&commit_row(id, name, store.file_id(id).unwrap_or(id)));
         }
-
-        let result = std::fs::write(Self::INDEX_PATH, out);
-        if let Err(error) = &result {
-            crate::log!("routes.save: failed: {error}");
-        } else {
-            crate::log!("routes.save: success");
-        }
-        result
+        std::fs::write(Self::INDEX_PATH, contents)
     }
 
     #[allow(dead_code)]

@@ -3,41 +3,48 @@ name: Rust
 on: [push, pull_request]
 
 jobs:
-    check:
-        name: Check
+    host:
         runs-on: ubuntu-latest
         steps:
-            - name: Setup | Checkout
-              uses: actions/checkout@v2
+            - uses: actions/checkout@v2
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  profile: minimal
+                  toolchain: nightly-2026-11-07
+                  components: rust-src, rustfmt
+            - run: cargo fmt --all --check
+            - run: cargo check --workspace --all-targets --locked
+            - run: cargo test --workspace --all-targets --locked
+            - run: cargo test -p ozton --all-targets --locked --no-default-features --features recording
+            - name: Reject invalid autonomous feature combinations
+              run: |
+                  set -e
+                  if cargo check -p ozton --locked --features recording >both.log 2>&1; then exit 1; fi
+                  grep -F 'Ozton requires exactly one mode' both.log
+                  if cargo check -p ozton --locked --no-default-features >neither.log 2>&1; then exit 1; fi
+                  grep -F 'Ozton requires either the programmed or recording feature' neither.log
 
-            - name: Setup | Toolchain
-              uses: dtolnay/rust-toolchain@master
+    v5:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                mode: [programmed, recording]
+        steps:
+            - uses: actions/checkout@v2
+            - uses: dtolnay/rust-toolchain@master
               with:
                   profile: minimal
                   toolchain: nightly-2026-11-07
                   components: rust-src
+            - run: cargo check -p ozton --examples --locked --target thumbv7a-vex-v5 --no-default-features --features ${{ matrix.mode }}
 
-            - name: Check
-              uses: actions-rs/cargo@v1
-              with:
-                  command: check
-                  args: --target=thumbv7a-vex-v5
-
-    test:
-        name: Test
+    book:
         runs-on: ubuntu-latest
         steps:
-            - name: Setup | Checkout
-              uses: actions/checkout@v2
-
-            - name: Setup | Toolchain
-              uses: dtolnay/rust-toolchain@master
+            - uses: actions/checkout@v2
+            - uses: dtolnay/rust-toolchain@master
               with:
-                  profile: minimal
                   toolchain: nightly-2026-11-07
-                  components: rust-src
-
-            - name: Check
-              uses: actions-rs/cargo@v1
-              with:
-                  command: test
+                  profile: minimal
+            - run: cargo install mdbook --version 0.5.4 --locked
+            - run: mdbook build && mdbook test

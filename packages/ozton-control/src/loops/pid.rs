@@ -11,7 +11,9 @@ struct ScalarPid {
     kd: f64,
     integral: f64,
     output_limit: Option<f64>,
-    prev_error: f64,
+    prev_error: Option<f64>,
+    prev_measurement: Option<f64>,
+    derivative: f64,
 }
 
 impl ScalarPid {
@@ -22,29 +24,49 @@ impl ScalarPid {
             kd,
             integral: 0.0,
             output_limit: None,
-            prev_error: 0.0,
+            prev_error: None,
+            prev_measurement: None,
+            derivative: 0.0,
         }
     }
 
-    fn update(&mut self, error: f64, dt: Duration, should_integrate: bool) -> f64 {
-        let dt_seconds = dt.as_secs_f64().max(f64::EPSILON);
+    fn reset(&mut self) {
+        self.integral = 0.0;
+        self.prev_error = None;
+        self.prev_measurement = None;
+        self.derivative = 0.0;
+    }
 
-        if should_integrate {
-            self.integral += error * dt_seconds;
-        } else {
+    fn update(
+        &mut self,
+        error: f64,
+        derivative: f64,
+        seconds: f64,
+        integrate: bool,
+        bias: f64,
+    ) -> f64 {
+        self.prev_error = Some(error);
+        if !integrate {
             self.integral = 0.0;
         }
-
-        let derivative = (error - self.prev_error) / dt_seconds;
-        self.prev_error = error;
-
-        let mut output = (error * self.kp) + (self.integral * self.ki) + (derivative * self.kd);
-
-        if let Some(range) = self.output_limit {
-            output = output.clamp(-range, range);
+        let base = error * self.kp + derivative * self.kd + bias;
+        let limit = self
+            .output_limit
+            .filter(|limit| limit.is_finite() && *limit >= 0.0)
+            .unwrap_or(f64::MAX);
+        if integrate && self.ki != 0.0 {
+            let candidate = self.integral + error * seconds;
+            let next = base + candidate * self.ki;
+            if next.abs() <= limit || next.signum() != (error * self.ki).signum() {
+                self.integral = candidate;
+            }
         }
+        (base + self.integral * self.ki).clamp(-limit, limit)
+    }
 
-        output
+    fn integrate_at(&self, error: f64) -> bool {
+        self.prev_error
+            .is_some_and(|previous| previous.signum() == error.signum())
     }
 }
 
@@ -132,6 +154,44 @@ pub struct Pid {
 }
 
 impl Pid {
+    pub fn reset(&mut self) {
+        self.controller.reset();
+    }
+
+    /// Adds feedforward and filters derivative-on-measurement. Output limits apply
+    /// to the combined effort, including the conditional integral update.
+    pub fn update_filtered(
+        &mut self,
+        measurement: f64,
+        setpoint: f64,
+        dt: Duration,
+        filter: Duration,
+        feedforward: f64,
+    ) -> f64 {
+        let error = setpoint - measurement;
+        if dt.is_zero() || !error.is_finite() || !feedforward.is_finite() {
+            return 0.0;
+        }
+        let seconds = dt.as_secs_f64();
+        let derivative = self
+            .controller
+            .prev_measurement
+            .map_or(0.0, |last| (last - measurement) / seconds);
+        self.controller.prev_measurement = Some(measurement);
+        self.controller.derivative += (derivative - self.controller.derivative)
+            * (seconds / (seconds + filter.as_secs_f64()));
+        let integrate = self
+            .integration_range
+            .is_none_or(|range| error.abs() < range)
+            && self.controller.integrate_at(error);
+        self.controller.update(
+            error,
+            self.controller.derivative,
+            seconds,
+            integrate,
+            feedforward,
+        )
+    }
     /// Construct a new PID controller from gain constants and an optional integration range.
     #[must_use]
     pub const fn new(kp: f64, ki: f64, kd: f64, integration_range: Option<f64>) -> Self {
@@ -239,15 +299,24 @@ impl Feedback for Pid {
 
     fn update(&mut self, measurement: f64, setpoint: f64, dt: Duration) -> f64 {
         let error = setpoint - measurement;
+        if dt.is_zero() || !error.is_finite() {
+            return 0.0;
+        }
 
         // If an integration range is used and we are within it, add to the integral.
         // If we are outside of the range, or if we have crossed the setpoint, reset integration.
         let should_integrate = self
             .integration_range
             .is_none_or(|range| error.abs() < range)
-            && error.signum() == self.controller.prev_error.signum();
+            && self.controller.integrate_at(error);
 
-        self.controller.update(error, dt, should_integrate)
+        let seconds = dt.as_secs_f64();
+        let derivative = self
+            .controller
+            .prev_error
+            .map_or(0.0, |last| (error - last) / seconds);
+        self.controller
+            .update(error, derivative, seconds, should_integrate, 0.0)
     }
 }
 
@@ -362,14 +431,25 @@ impl Feedback for AngularPid {
 
     fn update(&mut self, measurement: Angle, setpoint: Angle, dt: Duration) -> f64 {
         let error = (setpoint - measurement).wrapped_half().as_radians();
+        if dt.is_zero() || !error.is_finite() {
+            return 0.0;
+        }
 
         // If an integration range is used and we are within it, add to the integral.
         // If we are outside of the range, or if we have crossed the setpoint, reset integration.
         let should_integrate = self
             .integration_range
             .is_none_or(|range| error.abs() < range.as_radians())
-            && error.signum() == self.controller.prev_error.signum();
+            && self.controller.integrate_at(error);
 
-        self.controller.update(error, dt, should_integrate)
+        let seconds = dt.as_secs_f64();
+        let derivative = self.controller.prev_error.map_or(0.0, |last| {
+            Angle::from_radians(error - last)
+                .wrapped_half()
+                .as_radians()
+                / seconds
+        });
+        self.controller
+            .update(error, derivative, seconds, should_integrate, 0.0)
     }
 }
