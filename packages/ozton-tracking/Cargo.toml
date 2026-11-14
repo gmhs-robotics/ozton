@@ -14,6 +14,10 @@ glam = { workspace = true }
 ozton-math = { workspace = true }
 vexide = { workspace = true }
 
+[[bench]]
+name = "localization"
+harness = false
+
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]
 cargo-args = [

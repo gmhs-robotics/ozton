@@ -11,3 +11,8 @@ pub mod loops;
 
 mod tolerances;
 pub use tolerances::Tolerances;
+
+pub mod heading_hold;
+pub mod protection;
+
+pub mod limits;

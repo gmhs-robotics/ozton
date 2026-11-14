@@ -81,14 +81,15 @@ where
         let heading = this.drivetrain.tracking.heading();
 
         let carrot = this.target_point
-            - (Vec2::from_angle(this.target_heading.as_radians())
+            - (ozton_math::geometry::direction(this.target_heading.as_radians())
                 * position.distance(this.target_point)
                 * this.lead);
 
         let local_target = carrot - position;
 
-        let angular_error =
-            (heading - Angle::from_radians(local_target.y.atan2(local_target.x))).wrapped_half();
+        let angular_error = (heading
+            - Angle::from_radians(ozton_math::geometry::bearing(local_target)))
+        .wrapped_half();
         let linear_error = local_target.length();
 
         let close = linear_error < 7.5;

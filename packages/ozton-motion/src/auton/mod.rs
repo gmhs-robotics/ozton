@@ -4,9 +4,11 @@ mod calibration;
 pub mod chassis;
 mod command;
 mod competition;
+mod convenience;
 mod robot;
 mod route;
 mod runner;
+mod sequence;
 mod setup;
 
 pub use calibration::{Calibration, CalibrationTrial};
@@ -18,4 +20,5 @@ pub use route::{
     compete_with_calibration,
 };
 pub use runner::{AutonError, AutonRobot, Runner};
+pub use sequence::{MechanismActions, MechanismRobot};
 pub use setup::{ConfiguredChassis, DifferentialConfig, RangeId, SetupError, TrackingSetup};

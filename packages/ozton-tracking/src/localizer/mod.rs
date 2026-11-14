@@ -22,6 +22,14 @@ pub use ranges::{MAX_RANGES, RangeObservation, RangeReport, RangeSensorConfig};
 use ranges::{ResetResult, ResetWindow, inspect};
 pub use snapshot::{Fault, GpsFix, OdometryConfig, Snapshot};
 
+/// Sensor recovery does not prove that the robot stayed at its old field position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoseTrust {
+    Unregistered,
+    Trusted,
+    NeedsRelocalization,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     pub odometry: OdometryConfig,
@@ -48,7 +56,10 @@ pub struct Update {
     pub candidate: Option<Pose>,
     pub correction: Correction,
     pub distance_reset: bool,
+    /// Independent observed translation constraints: 0, 1 or 2. Heading is never invented.
+    pub distance_reset_axes: u8,
     pub forward_velocity: f64,
+    pub lateral_velocity: f64,
     pub angular_velocity: f64,
     pub ranges: [Option<RangeReport>; MAX_RANGES],
 }
@@ -69,6 +80,8 @@ pub struct Localizer<'a> {
     forward_velocity: f64,
     angular_velocity: f64,
     reset: Option<ResetWindow>,
+    trust: PoseTrust,
+    corrections_enabled: bool,
 }
 
 impl<'a> Localizer<'a> {
@@ -127,7 +140,49 @@ impl<'a> Localizer<'a> {
             forward_velocity: 0.0,
             angular_velocity: 0.0,
             reset: None,
+            trust: PoseTrust::Unregistered,
+            corrections_enabled: true,
         })
+    }
+
+    pub fn pose_trust(&self) -> PoseTrust {
+        self.trust
+    }
+
+    /// Keep live odometry while suspending external observations and filter work.
+    /// Driver control can use this to bound tracking cost. Re-enabling corrections
+    /// re-seeds the filter at the current pose without restoring lost pose trust.
+    pub fn set_corrections_enabled(&mut self, enabled: bool) {
+        if self.corrections_enabled != enabled {
+            self.reset = None;
+            self.filter_pose = self.pose;
+            if enabled {
+                self.filter.reset(self.pose);
+            }
+            self.corrections_enabled = enabled;
+        }
+    }
+
+    /// Explicitly register a surveyed pose with set_pose after an outage.
+    pub fn invalidate_pose(&mut self) {
+        self.trust = PoseTrust::NeedsRelocalization;
+        self.previous = None;
+        self.reset = None;
+        self.forward_velocity = 0.0;
+        self.angular_velocity = 0.0;
+    }
+
+    /// Switch estimator without changing the sensor model or claiming pose recovery.
+    pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
+        let Some(filter) = Filter::new(self.pose, estimator) else {
+            return false;
+        };
+        self.filter = filter;
+        self.filter_pose = self.pose;
+        self.config.estimator = estimator;
+        self.config.shadow = shadow;
+        self.reset = None;
+        true
     }
 
     pub fn pose(&self) -> Pose {
@@ -161,6 +216,7 @@ impl<'a> Localizer<'a> {
             heading: wrap_heading(pose.heading),
             ..pose
         };
+        self.trust = PoseTrust::Trusted;
         self.pose = pose;
         self.odometry = pose;
         self.filter_pose = pose;
@@ -174,10 +230,47 @@ impl<'a> Localizer<'a> {
 
     /// Attempt an immediate geometric DSR on the next fresh sample.
     pub fn request_distance_reset(&mut self) {
-        self.reset.get_or_insert_with(ResetWindow::default);
+        if self.corrections_enabled {
+            self.reset.get_or_insert_with(ResetWindow::default);
+        }
+    }
+
+    /// Request one or two independently observed translation axes. Requiring two
+    /// waits for both, instead of publishing an earlier one-axis partial reset.
+    /// A repeated ordinary reset request does not weaken this requirement.
+    /// Rejected collections retry at rest until accepted or explicitly canceled;
+    /// the caller must enforce a timeout, as the autonomous runner does.
+    pub fn request_distance_reset_axes(&mut self, minimum_axes: u8) -> bool {
+        if !self.corrections_enabled || !(1..=2).contains(&minimum_axes) {
+            return false;
+        }
+        self.reset
+            .get_or_insert_with(|| ResetWindow::new(minimum_axes))
+            .require_axes(minimum_axes);
+        true
+    }
+
+    /// Cancel a pending reset, e.g. after an optional DSR times out.
+    pub fn cancel_distance_reset(&mut self) {
+        self.reset = None;
     }
 
     pub fn update(
+        &mut self,
+        raw: Snapshot,
+        observations: &[Option<RangeObservation>],
+    ) -> Result<Update, Fault> {
+        let result = self.update_inner(raw, observations);
+        if result
+            .as_ref()
+            .is_err_and(|fault| !matches!(fault, Fault::Initializing))
+        {
+            self.invalidate_pose();
+        }
+        result
+    }
+
+    fn update_inner(
         &mut self,
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
@@ -196,26 +289,46 @@ impl<'a> Localizer<'a> {
         };
         let seconds = dt.as_secs_f64();
         let odometry = self.odometry.integrate(movement);
-        let predicted = self.pose.integrate(movement);
-        let filter_prediction = self.filter_pose.integrate(movement);
+        let predicted = if self.pose == self.odometry {
+            odometry
+        } else {
+            self.pose.integrate(movement)
+        };
+        // Odometry and an uncorrected filter share the same pose in the common
+        // path. Reuse integration rather than evaluating the same trig again.
+        let filter_prediction = if !self.corrections_enabled || self.filter_pose == self.pose {
+            predicted
+        } else {
+            self.filter_pose.integrate(movement)
+        };
         if !odometry.is_finite()
             || !predicted.is_finite()
             || !filter_prediction.is_finite()
-            || !self.filter.predict(movement, seconds)
+            || (self.corrections_enabled && !self.filter.predict(movement, seconds))
         {
             return Err(Fault::InvalidEstimate);
         }
         self.odometry = odometry;
-        self.forward_velocity = movement.translation.x / seconds;
+        self.forward_velocity = movement.translation.y / seconds;
         self.angular_velocity = movement.heading / seconds;
-        self.forward_travel += movement.translation.x;
+        self.forward_travel += movement.translation.y;
         let mut reports = [None; MAX_RANGES];
         let checking_pose = if self.reset.is_some() {
             predicted
         } else {
             filter_prediction
         };
-        for (index, sensor) in self.sensors.iter().copied().enumerate() {
+        for (index, sensor) in
+            self.sensors
+                .iter()
+                .copied()
+                .enumerate()
+                .take(if self.corrections_enabled {
+                    self.sensors.len()
+                } else {
+                    0
+                })
+        {
             reports[index] = Some(inspect(
                 checking_pose,
                 movement,
@@ -228,6 +341,9 @@ impl<'a> Localizer<'a> {
             ));
         }
         let gps = raw.gps.filter(|fix| {
+            if !self.corrections_enabled {
+                return false;
+            }
             let fresh = self
                 .gps_time
                 .is_none_or(|previous| fix.timestamp > previous)
@@ -248,6 +364,7 @@ impl<'a> Localizer<'a> {
         let mut correction = Correction::None;
         let mut candidate = None;
         let mut distance_reset = false;
+        let mut distance_reset_axes = 0;
         self.pose = predicted;
         self.filter_pose = filter_prediction;
         if let Some(reset) = &mut self.reset {
@@ -258,9 +375,15 @@ impl<'a> Localizer<'a> {
                 &self.sensors,
                 &reports,
                 self.config.max_correction_meters,
+                [
+                    self.forward_velocity,
+                    movement.translation.x / seconds,
+                    self.angular_velocity,
+                ],
             ) {
                 ResetResult::Waiting => {}
-                ResetResult::Applied(pose) => {
+                ResetResult::Applied(pose, axes) => {
+                    distance_reset_axes = axes;
                     self.reset = None;
                     self.filter.reset(pose);
                     self.pose = pose;
@@ -270,11 +393,14 @@ impl<'a> Localizer<'a> {
                     correction = Correction::Accepted;
                 }
                 ResetResult::Rejected => {
-                    self.reset = None;
+                    // A runner retries until its deadline. Retain the requested
+                    // axis rank across rejected collections; its ordinary repeat
+                    // request must not downgrade a full reset to one axis.
+                    reset.restart();
                     correction = Correction::Rejected;
                 }
             }
-        } else {
+        } else if self.corrections_enabled {
             candidate = self.filter.observe(
                 filter_prediction,
                 gps,
@@ -303,7 +429,9 @@ impl<'a> Localizer<'a> {
             candidate,
             correction,
             distance_reset,
+            distance_reset_axes,
             forward_velocity: self.forward_velocity,
+            lateral_velocity: movement.translation.x / seconds,
             angular_velocity: self.angular_velocity,
             ranges: reports,
         })

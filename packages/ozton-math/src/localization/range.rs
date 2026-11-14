@@ -2,7 +2,7 @@
 
 use glam::DVec2;
 
-use crate::geometry::{Pose, direction};
+use crate::geometry::{Pose, direction, rotation};
 
 /// A finite, stationary reflecting surface in the field plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,7 +24,7 @@ impl Surface {
     }
 }
 
-/// Sensor pose relative to the robot's localization origin.
+/// Horizontal sensor mount from CC: X right, Y forward; CCW bearing from +Y.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Mount {
     pub offset: DVec2,
@@ -40,7 +40,7 @@ impl Mount {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Hit {
     pub surface: usize,
     pub distance: f64,
@@ -50,34 +50,53 @@ pub struct Hit {
 }
 
 pub fn cast(pose: Pose, mount: Mount, surfaces: &[Surface]) -> Option<Hit> {
+    cast_inner(pose, mount, surfaces, None)
+}
+
+/// Casts against eligible surfaces among the first 32 map entries. Hit indices
+/// always refer to the original map, including when nearer surfaces are masked.
+pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u32) -> Option<Hit> {
+    cast_inner(pose, mount, surfaces, Some(mask))
+}
+
+fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>) -> Option<Hit> {
     let origin = pose.transform_point(mount.offset);
     let beam = direction(pose.heading + mount.heading);
-    surfaces
-        .iter()
-        .enumerate()
-        .filter_map(|(index, surface)| {
-            let segment = surface.end - surface.start;
-            let length = segment.length();
-            let denominator = beam.perp_dot(segment);
-            if length <= 1e-6 || denominator.abs() <= length * 1e-9 {
-                return None;
-            }
-            let offset = surface.start - origin;
-            let distance = offset.perp_dot(segment) / denominator;
-            let fraction = offset.perp_dot(beam) / denominator;
-            if distance <= 0.0 || !distance.is_finite() || !(0.0..=1.0).contains(&fraction) {
-                return None;
-            }
-            let normal = segment.perp() / length;
-            Some(Hit {
-                surface: index,
-                distance,
-                edge_distance: fraction.min(1.0 - fraction) * length,
-                normal,
-                incidence: beam.dot(normal),
-            })
-        })
-        .min_by(|left, right| left.distance.total_cmp(&right.distance))
+    let mut nearest = None;
+    let mut nearest_distance = f64::INFINITY;
+    for (index, surface) in surfaces.iter().enumerate() {
+        if mask.is_some_and(|mask| index >= 32 || mask & (1u32 << index) == 0) {
+            continue;
+        }
+        let segment = surface.end - surface.start;
+        let length_squared = segment.length_squared();
+        let denominator = beam.perp_dot(segment);
+        if length_squared <= 1e-12 || denominator * denominator <= length_squared * 1e-18 {
+            continue;
+        }
+        let offset = surface.start - origin;
+        let distance = offset.perp_dot(segment) / denominator;
+        let fraction = offset.perp_dot(beam) / denominator;
+        if distance <= 0.0
+            || !distance.is_finite()
+            || distance >= nearest_distance
+            || !(0.0..=1.0).contains(&fraction)
+        {
+            continue;
+        }
+        nearest_distance = distance;
+        nearest = Some((index, segment, length_squared, fraction));
+    }
+    let (surface, segment, length_squared, fraction) = nearest?;
+    let length = libm::sqrt(length_squared);
+    let normal = segment.perp() / length;
+    Some(Hit {
+        surface,
+        distance: nearest_distance,
+        edge_distance: fraction.min(1.0 - fraction) * length,
+        normal,
+        incidence: beam.dot(normal),
+    })
 }
 
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
@@ -172,7 +191,7 @@ impl RangeReading {
 }
 
 /// A scalar position constraint n·Δp = displacement, without an invented tangential measurement.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Constraint {
     pub hit: Hit,
     pub residual: f64,
@@ -189,6 +208,30 @@ pub fn constrain(
 ) -> Result<Constraint, Rejection> {
     reading.validate(gate)?;
     let hit = cast(pose, mount, surfaces).ok_or(Rejection::NoSurface)?;
+    constrain_hit(hit, reading, gate, expected_surface)
+}
+
+/// Validates a range against the nearest eligible surface with one ray cast.
+pub fn constrain_masked(
+    pose: Pose,
+    mount: Mount,
+    reading: RangeReading,
+    gate: RangeGate,
+    surfaces: &[Surface],
+    expected_surface: Option<usize>,
+    mask: u32,
+) -> Result<Constraint, Rejection> {
+    reading.validate(gate)?;
+    let hit = cast_masked(pose, mount, surfaces, mask).ok_or(Rejection::NoSurface)?;
+    constrain_hit(hit, reading, gate, expected_surface)
+}
+
+fn constrain_hit(
+    hit: Hit,
+    reading: RangeReading,
+    gate: RangeGate,
+    expected_surface: Option<usize>,
+) -> Result<Constraint, Rejection> {
     if expected_surface.is_some_and(|expected| expected != hit.surface) {
         return Err(Rejection::WrongSurface);
     }
@@ -228,9 +271,98 @@ pub fn reset_translation(first: Constraint, second: Option<Constraint>) -> DVec2
     normal * first.displacement
 }
 
+/// Weighted translation fit over every eligible beam. Rejects contradictory beams,
+/// rather than selecting whichever sensor happens to appear first. Noise is in metres
+/// along the wall normal. Rank one preserves the unobserved tangent exactly.
+pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)> {
+    let mut xx = 0.0;
+    let mut xy = 0.0;
+    let mut yy = 0.0;
+    let mut rhs = DVec2::ZERO;
+    for &(constraint, sigma) in constraints {
+        if !sigma.is_finite() || sigma <= 0.0 || !constraint.displacement.is_finite() {
+            return None;
+        }
+        let n = constraint.hit.normal;
+        if !n.is_finite() || (n.length_squared() - 1.0).abs() > 1e-6 {
+            return None;
+        }
+        let w = 1.0 / (sigma * sigma);
+        xx += w * n.x * n.x;
+        xy += w * n.x * n.y;
+        yy += w * n.y * n.y;
+        rhs += w * n * constraint.displacement;
+    }
+    let trace = xx + yy;
+    if !trace.is_finite() || trace <= 0.0 {
+        return None;
+    }
+    let determinant = xx * yy - xy * xy;
+    let (change, axes) = if determinant > 0.05 * trace * trace {
+        (
+            DVec2::new(yy * rhs.x - xy * rhs.y, xx * rhs.y - xy * rhs.x) / determinant,
+            2,
+        )
+    } else {
+        // Principal direction of the symmetric normal matrix; sign does not matter.
+        let angle = 0.5 * libm::atan2(2.0 * xy, xx - yy);
+        let n = rotation(angle);
+        let eigenvalue = xx * n.x * n.x + 2.0 * xy * n.x * n.y + yy * n.y * n.y;
+        (n * (rhs.dot(n) / eigenvalue), 1)
+    };
+    if !change.is_finite()
+        || constraints.iter().any(|(c, sigma)| {
+            (c.hit.normal.dot(change) - c.displacement).abs() > (3.0 * sigma).max(0.025)
+        })
+    {
+        return None;
+    }
+    Some((change, axes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn masked_cast_matches_independent_segment_casts_and_preserves_indices() {
+        let mut map = [Surface::new(0.0, 0.0, 0.0, 0.0); 33];
+        map[0] = Surface::new(-2.0, 0.8, 2.0, 0.8);
+        map[4] = Surface::new(-2.0, 1.0, 2.0, 1.0);
+        map[31] = Surface::new(-2.0, 1.2, 2.0, 1.2);
+        map[32] = Surface::new(-2.0, 0.5, 2.0, 0.5);
+        for yaw in [-0.3, 0.0, 0.3] {
+            for mask in [0, 1, 1 << 4, 1 << 31, (1 << 4) | (1 << 31), u32::MAX] {
+                let pose = Pose::new(0.1, -0.2, yaw);
+                let mount = Mount::new(0.05, -0.03, 0.1);
+                let expected = map
+                    .iter()
+                    .enumerate()
+                    .take(32)
+                    .filter(|(i, _)| mask & (1u32 << i) != 0)
+                    .filter_map(|(i, surface)| {
+                        cast(pose, mount, &[*surface]).map(|mut hit| {
+                            hit.surface = i;
+                            hit
+                        })
+                    })
+                    .min_by(|a, b| a.distance.total_cmp(&b.distance));
+                assert_eq!(cast_masked(pose, mount, &map, mask), expected);
+            }
+        }
+        assert_eq!(
+            cast(Pose::default(), Mount::new(0.0, 0.0, 0.0), &map)
+                .unwrap()
+                .surface,
+            32
+        );
+        assert_eq!(
+            cast_masked(Pose::default(), Mount::new(0.0, 0.0, 0.0), &map, u32::MAX)
+                .unwrap()
+                .surface,
+            0
+        );
+    }
 
     #[test]
     fn oblique_wall_only_constrains_normal() {
@@ -241,7 +373,7 @@ mod tests {
         let pose = Pose::new(0.1, 0.1, 0.3);
         let mount = Mount {
             offset: DVec2::new(0.1, 0.0),
-            heading: 0.0,
+            heading: -core::f64::consts::FRAC_PI_2,
         };
         let true_pose = Pose::new(0.0, 0.1, 0.3);
         let distance = cast(true_pose, mount, &[surface]).unwrap().distance;

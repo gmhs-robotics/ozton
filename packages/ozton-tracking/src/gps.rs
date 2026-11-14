@@ -7,6 +7,7 @@ use std::{
 };
 
 use glam::DVec2 as Vec2;
+use ozton_math::geometry::Pose;
 use vexide::{
     math::Angle,
     smart::{PortError, gps::GpsSensor},
@@ -32,6 +33,8 @@ pub struct GpsTrackingConfig {
     ///
     /// Samples with a larger reported error are ignored for position and forward travel updates.
     pub max_position_error: Option<f64>,
+    /// Route origin and initial facing in the centered GPS survey frame.
+    pub field_origin: Pose,
 }
 
 impl Default for GpsTrackingConfig {
@@ -41,6 +44,7 @@ impl Default for GpsTrackingConfig {
             update_interval: Duration::from_millis(10),
             required_stable_samples: 5,
             max_position_error: None,
+            field_origin: Pose::default(),
         }
     }
 }
@@ -116,14 +120,16 @@ impl GpsTracking {
         self.data.borrow().stable_samples
     }
 
-    fn read_position(gps: &GpsSensor) -> Result<Vec2, PortError> {
+    fn read_position(gps: &GpsSensor, origin: Pose) -> Result<Vec2, PortError> {
         gps.position()
-            .map(|position| Vec2::new(position.x, position.y))
+            .map(|position| origin.to_local(Vec2::new(position.x, position.y)))
     }
 
-    fn read_heading(gps: &GpsSensor) -> Result<Angle, PortError> {
-        gps.heading()
-            .map(|heading| Angle::from_degrees(90.0 - heading.as_degrees()).wrapped_full())
+    fn read_heading(gps: &GpsSensor, origin: Pose) -> Result<Angle, PortError> {
+        gps.heading().map(|heading| {
+            (Angle::from_degrees(-heading.as_degrees()) - Angle::from_radians(origin.heading))
+                .wrapped_full()
+        })
     }
 
     fn read_angular_velocity(gps: &GpsSensor) -> Result<f64, PortError> {
@@ -139,6 +145,10 @@ impl GpsTracking {
     }
 
     async fn task(gps: GpsSensor, config: GpsTrackingConfig, data: Rc<RefCell<GpsTrackingData>>) {
+        if !config.field_origin.is_finite() {
+            log!("gps.task: invalid field origin; tracking remains unavailable");
+            return;
+        }
         if !config.startup_delay.is_zero() {
             log!(
                 "gps.task: waiting {}ms before first sample",
@@ -147,8 +157,8 @@ impl GpsTracking {
             sleep(config.startup_delay).await;
         }
 
-        let mut prev_position = Self::read_position(&gps).unwrap_or_default();
-        let mut prev_heading = Self::read_heading(&gps).unwrap_or_default();
+        let mut prev_position = Self::read_position(&gps, config.field_origin).unwrap_or_default();
+        let mut prev_heading = Self::read_heading(&gps, config.field_origin).unwrap_or_default();
         let mut prev_time = Instant::now();
         {
             let mut data = data.borrow_mut();
@@ -177,7 +187,7 @@ impl GpsTracking {
                 data.status
             );
 
-            let heading_result = Self::read_heading(&gps);
+            let heading_result = Self::read_heading(&gps, config.field_origin);
             let heading = heading_result.unwrap_or(prev_heading);
             let delta_heading = (heading - prev_heading).wrapped_half();
             let dt_seconds = dt.as_secs_f64();
@@ -198,7 +208,7 @@ impl GpsTracking {
 
             let position_is_usable = Self::is_position_usable(config, data.position_error);
             let position_result = if position_is_usable {
-                Self::read_position(&gps).ok()
+                Self::read_position(&gps, config.field_origin).ok()
             } else {
                 None
             };
@@ -211,9 +221,9 @@ impl GpsTracking {
                     Vec2::from_angle(-avg_heading.as_radians()).rotate(delta_position);
 
                 data.position = position;
-                data.forward_travel += local_displacement.x;
+                data.forward_travel += local_displacement.y;
                 data.linear_velocity = if dt_seconds > 0.0 {
-                    local_displacement.x / dt_seconds
+                    local_displacement.y / dt_seconds
                 } else {
                     0.0
                 };

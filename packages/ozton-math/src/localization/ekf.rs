@@ -53,6 +53,30 @@ impl PoseEkf {
     /// Applies a scalar innovation with observation Jacobian H and a squared sigma gate.
     /// A rejected observation leaves both the mean and covariance intact.
     pub fn correct(&mut self, innovation: f64, h: DVec3, variance: f64, gate_squared: f64) -> bool {
+        self.correct_impl(innovation, h, variance, gate_squared, false)
+    }
+
+    /// Position-only Schmidt update: heading remains owned by the odometry/IMU
+    /// prediction. H may include heading uncertainty, but sparse wall/GPS position
+    /// measurements cannot invent a new yaw. Joseph covariance update is retained.
+    pub fn correct_position(
+        &mut self,
+        innovation: f64,
+        h: DVec3,
+        variance: f64,
+        gate_squared: f64,
+    ) -> bool {
+        self.correct_impl(innovation, h, variance, gate_squared, true)
+    }
+
+    fn correct_impl(
+        &mut self,
+        innovation: f64,
+        h: DVec3,
+        variance: f64,
+        gate_squared: f64,
+        preserve_heading: bool,
+    ) -> bool {
         let pht = self.covariance * h;
         let innovation_variance = h.dot(pht) + variance;
         if !innovation.is_finite()
@@ -66,7 +90,10 @@ impl PoseEkf {
         {
             return false;
         }
-        let gain = pht / innovation_variance;
+        let mut gain = pht / innovation_variance;
+        if preserve_heading {
+            gain.z = 0.0;
+        }
         let correction = gain * innovation;
         let residual = DMat3::IDENTITY - outer(gain, h);
         let covariance =
@@ -92,6 +119,27 @@ fn outer(left: DVec3, right: DVec3) -> DMat3 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn position_measurements_preserve_tracked_heading_even_with_cross_covariance() {
+        let mut filter = PoseEkf::new(Pose::default(), DVec3::splat(0.01)).unwrap();
+        filter.predict(
+            BodyDelta {
+                translation: DVec2::new(0.0, 0.2),
+                heading: 0.1,
+            },
+            DVec3::splat(0.001),
+        );
+        assert!(filter.covariance().z_axis.x.abs() > 0.0);
+        let heading = filter.pose().heading;
+        assert!(filter.correct_position(0.01, DVec3::X, 0.0004, 9.0));
+        assert_eq!(filter.pose().heading, heading);
+        assert!(filter.covariance().is_finite());
+        assert!(
+            filter.covariance().x_axis.x > 0.0
+                && filter.covariance().y_axis.y > 0.0
+                && filter.covariance().z_axis.z > 0.0
+        );
+    }
     #[test]
     fn correction_reduces_error_and_rejects_outlier() {
         let mut filter = PoseEkf::new(Pose::new(0.12, 0.2, 0.0), DVec3::splat(0.01)).unwrap();

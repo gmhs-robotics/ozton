@@ -10,7 +10,9 @@ mod differential;
 mod gearing;
 mod mecanum;
 
-pub use differential::{Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback};
+pub use differential::{
+    Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback, WheelSpeedError,
+};
 pub use gearing::{DriveMotor, GearRatio};
 pub use mecanum::Mecanum;
 

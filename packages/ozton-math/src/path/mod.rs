@@ -7,7 +7,7 @@ use glam::DVec2;
 pub mod follower;
 pub mod jerryio;
 
-/// A field coordinate and a fraction of the configured maximum linear speed.
+/// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Waypoint {
     pub position: DVec2,
@@ -153,7 +153,7 @@ impl Path {
             }
             samples.push(PathSample {
                 position: point.position,
-                heading: libm::atan2(chord.y, chord.x),
+                heading: crate::geometry::bearing(chord),
                 curvature,
                 distance,
                 speed,

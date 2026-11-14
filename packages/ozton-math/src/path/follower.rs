@@ -105,8 +105,8 @@ pub fn command(
             let target = virtual_pose.to_local(progress.lookahead(path, pose.position, lookahead));
             let reference = path.at_distance(progress.distance);
             let speed = path.at_time(reference.time + dt).speed;
-            if target.x < 0.0 {
-                (0.0, 2.0 * libm::atan2(target.y, target.x))
+            if target.y < 0.0 {
+                (0.0, 2.0 * crate::geometry::bearing(target))
             } else {
                 (sign * speed, speed * pursuit_curvature(target))
             }
@@ -124,8 +124,8 @@ pub fn command(
                 libm::sin(heading_error) / heading_error
             };
             (
-                velocity * libm::cos(heading_error) + gain * error.x,
-                omega + gain * heading_error + b * velocity * sinc * error.y,
+                velocity * libm::cos(heading_error) + gain * error.y,
+                omega + gain * heading_error + b * velocity * sinc * -error.x,
             )
         }
     };
@@ -140,7 +140,7 @@ pub fn command(
         let heading_error = wrap_heading(end.heading + facing - pose.heading);
         let distance = error.length();
         if distance > position_tolerance {
-            let travel_heading = libm::atan2(error.y, error.x);
+            let travel_heading = crate::geometry::bearing(error);
             let backward = travel_heading.abs() > PI / 2.0;
             let bearing = wrap_heading(travel_heading + if backward { PI } else { 0.0 });
             let terminal_speed = (2.0 * distance).min(limits.linear_speed * 0.4);

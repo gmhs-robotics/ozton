@@ -172,7 +172,7 @@ impl Gyro for GpsSensor {
 
     fn heading(&self) -> Result<Angle, Self::Error> {
         GpsSensor::heading(self)
-            .map(|angle| Angle::from_degrees(90.0 - angle.as_degrees()).wrapped_full())
+            .map(|angle| Angle::from_degrees(-angle.as_degrees()).wrapped_full())
     }
 
     fn angular_velocity(&self) -> Result<f64, Self::Error> {

@@ -29,8 +29,11 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Copy)]
 pub struct OdometryConfig {
+    /// Zero requires IMU heading and both drive encoders; positive enables wheel fallback.
     pub track_width: f64,
+    /// X-right position of a forward wheel from CC.
     pub forward_offset: f64,
+    /// Y-forward position of a right-positive lateral wheel from CC.
     pub lateral_offset: f64,
     /// Require lateral feedback, e.g. on a holonomic drivetrain.
     pub require_lateral: bool,
@@ -41,13 +44,11 @@ pub struct OdometryConfig {
 
 impl OdometryConfig {
     pub fn is_valid(self) -> bool {
-        [
-            self.track_width,
-            self.max_linear_speed,
-            self.max_angular_speed,
-        ]
-        .iter()
-        .all(|value| value.is_finite() && *value > 0.0)
+        [self.max_linear_speed, self.max_angular_speed]
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+            && self.track_width.is_finite()
+            && self.track_width >= 0.0
             && self.forward_offset.is_finite()
             && self.lateral_offset.is_finite()
             && !self.max_gap.is_zero()
@@ -88,6 +89,9 @@ pub(crate) fn delta(
         .map(|(before, after)| wrap_heading(after - before))
         .filter(|angle| angle.abs() <= config.max_angular_speed * seconds)
         .or_else(|| {
+            if config.track_width == 0.0 {
+                return None;
+            }
             Some((right? - left?) / config.track_width)
                 .filter(|angle| angle.abs() <= config.max_angular_speed * seconds)
         })
@@ -101,8 +105,8 @@ pub(crate) fn delta(
     .map(|distance| (distance, config.forward_offset))
     .or_else(|| match (left, right) {
         (Some(left), Some(right)) => Some(((left + right) * 0.5, 0.0)),
-        (Some(left), None) => Some((left, config.track_width * 0.5)),
-        (None, Some(right)) => Some((right, -config.track_width * 0.5)),
+        (Some(left), None) if config.track_width > 0.0 => Some((left, -config.track_width * 0.5)),
+        (None, Some(right)) if config.track_width > 0.0 => Some((right, config.track_width * 0.5)),
         _ => None,
     })
     .ok_or(Fault::Forward)?;

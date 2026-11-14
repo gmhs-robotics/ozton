@@ -19,6 +19,7 @@ const RANGE_PERIOD: Duration = Duration::from_millis(33);
 pub struct Sensors {
     pub imu: Option<Rc<InertialSensor>>,
     pub gps: Option<GpsSensor>,
+    field_origin: Pose,
     forward: Option<Box<dyn Fn() -> Option<f64>>>,
     lateral: Option<Box<dyn Fn() -> Option<f64>>>,
     ranges: Vec<DistanceSensor>,
@@ -27,6 +28,16 @@ pub struct Sensors {
 }
 
 impl Sensors {
+    /// Align centered GPS readings with the same surveyed route origin used by
+    /// walls, targets and the localizer. Default is the centered GPS field frame.
+    pub fn set_field_origin(&mut self, origin: Pose) -> bool {
+        if !origin.is_finite() {
+            return false;
+        }
+        self.field_origin = origin;
+        true
+    }
+
     /// Pass calibrated wheel travel in meters, or None when no valid reading is available.
     pub fn with_forward(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
         self.forward = Some(Box::new(read));
@@ -83,26 +94,34 @@ impl Sensors {
                 sample.occluded |= occluded & (1 << index) != 0;
             }
         }
+        let gps = self.gps.as_ref().and_then(gps_fix).map(|mut fix| {
+            fix.pose = fix.pose.in_frame(self.field_origin);
+            fix
+        });
+        let mut snapshot = self.capture_odometry(drive);
+        snapshot.gps = gps;
+        (snapshot, ranges)
+    }
+
+    /// Read only the travel and heading required for low-latency driver odometry.
+    /// No range or GPS device calls occur on this path.
+    pub fn capture_odometry(&self, drive: [Option<f64>; 2]) -> Snapshot {
         let imu = self.imu.as_deref().and_then(|imu| {
             if imu.is_calibrating().ok()? {
                 return None;
             }
             Some(compass_heading(imu.heading().ok()?.as_degrees()))
         });
-        let gps = self.gps.as_ref().and_then(gps_fix);
         let forward = self.forward.as_ref().and_then(|read| read());
         let lateral = self.lateral.as_ref().and_then(|read| read());
-        (
-            Snapshot {
-                time: stamp(LowResolutionTime::now()),
-                drive,
-                forward,
-                lateral,
-                imu,
-                gps,
-            },
-            ranges,
-        )
+        Snapshot {
+            time: stamp(LowResolutionTime::now()),
+            drive,
+            forward,
+            lateral,
+            imu,
+            gps: None,
+        }
     }
 }
 

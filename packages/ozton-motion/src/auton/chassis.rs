@@ -118,6 +118,7 @@ impl<'a> Chassis<'a> {
         Ok(Some(Feedback {
             pose: update.pose,
             forward_velocity: update.forward_velocity,
+            lateral_velocity: update.lateral_velocity,
             forward_travel: self.drivetrain.tracking.forward_travel(),
             angular_velocity: update.angular_velocity,
             ranges: self.range,

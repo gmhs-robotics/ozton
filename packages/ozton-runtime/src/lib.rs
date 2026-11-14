@@ -1,6 +1,7 @@
 //! Shared hardware and competition utilities.
 
 pub mod clock;
+pub mod device;
 pub mod motor;
 pub mod selector;
 
@@ -23,3 +24,5 @@ impl StartupReference {
         self.initialized
     }
 }
+
+pub mod menu;

@@ -68,7 +68,8 @@ impl SimState {
         }
 
         self.heading_radians = wrap_radians(self.heading_radians + self.angular_velocity * dt);
-        let displacement = Vec2::from_angle(self.heading_radians) * (self.linear_velocity * dt);
+        let displacement =
+            ozton_math::geometry::direction(self.heading_radians) * (self.linear_velocity * dt);
         self.position += displacement;
         self.forward_travel += self.linear_velocity * dt;
     }
@@ -233,7 +234,7 @@ fn basic_motion_reaches_distance_and_heading_goals() {
     block_on(async {
         motion.drive_distance(&mut drivetrain, 1.2).await;
         motion
-            .turn_to_point(&mut drivetrain, Vec2::new(1.2, 1.2))
+            .turn_to_point(&mut drivetrain, Vec2::new(-1.2, 1.2))
             .await;
     });
 
@@ -242,13 +243,13 @@ fn basic_motion_reaches_distance_and_heading_goals() {
     let final_velocity = drivetrain.tracking.linear_velocity();
 
     assert!(
-        (final_position.x - 1.2).abs() < 0.08,
-        "expected x close to 1.2, got {:?}",
+        (final_position.y - 1.2).abs() < 0.08,
+        "expected forward Y close to 1.2, got {:?}",
         final_position
     );
     assert!(
-        final_position.y.abs() < 0.08,
-        "expected y near 0, got {:?}",
+        final_position.x.abs() < 0.08,
+        "expected right X near 0, got {:?}",
         final_position
     );
     assert!(
@@ -268,13 +269,13 @@ fn seeking_motion_reaches_multiple_waypoints() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(1.0, 0.0))
+            .move_to_point(&mut drivetrain, Vec2::new(0.0, 1.0))
             .await;
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(1.0, 1.0))
+            .move_to_point(&mut drivetrain, Vec2::new(-1.0, 1.0))
             .await;
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(0.4, 1.4))
+            .move_to_point(&mut drivetrain, Vec2::new(-1.4, 0.4))
             .await;
     });
 
@@ -283,7 +284,7 @@ fn seeking_motion_reaches_multiple_waypoints() {
     let final_velocity = drivetrain.tracking.linear_velocity();
 
     assert!(
-        final_position.distance(Vec2::new(0.4, 1.4)) < 0.09,
+        final_position.distance(Vec2::new(-1.4, 0.4)) < 0.09,
         "expected final position near target, got {:?}",
         final_position
     );
@@ -302,7 +303,7 @@ fn reverse_seeking_drives_backward_to_target() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(1.0, 0.0))
+            .move_to_point(&mut drivetrain, Vec2::new(0.0, 1.0))
             .reverse()
             .await;
     });
@@ -310,7 +311,7 @@ fn reverse_seeking_drives_backward_to_target() {
     let final_position = drivetrain.tracking.position();
     let drove_backward = drivetrain.model.state.borrow().drove_backward;
     assert!(
-        final_position.distance(Vec2::new(1.0, 0.0)) < 0.1,
+        final_position.distance(Vec2::new(0.0, 1.0)) < 0.1,
         "reverse motion missed target: {final_position:?}"
     );
     assert!(drove_backward, "reverse motion never drove backward");

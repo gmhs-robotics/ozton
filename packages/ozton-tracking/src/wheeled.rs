@@ -29,9 +29,9 @@ pub struct TrackingWheel<T: RotarySensor> {
 
     /// Signed offset from the drivetrain's center of rotation.
     ///
-    /// For a forward wheel, this is its lateral coordinate (positive left).
-    /// For a sideways wheel, this is the negative of its forward coordinate
-    /// (positive behind). Coordinates use X forward, Y left, CCW-positive heading.
+    /// For a forward wheel, this is X right from CC. For a sideways wheel,
+    /// this is Y forward from CC. Forward travel is +Y; sideways travel is +X.
+    /// Heading is CCW from +Y. Both tracking implementations use these conventions.
     pub offset: f64,
 
     /// External gearing of the wheel.
@@ -149,7 +149,7 @@ impl WheeledTracking {
                     if (i_wheel.offset + j_wheel.offset).abs() <= FORWARD_TRACKER_OFFSET_TOLERANCE
                         && (i_wheel.offset - j_wheel.offset).abs() > f64::EPSILON
                     {
-                        parallel_forward_indicies = Some(if i_wheel.offset > j_wheel.offset {
+                        parallel_forward_indicies = Some(if i_wheel.offset < j_wheel.offset {
                             (i, j)
                         } else {
                             (j, i)
@@ -287,7 +287,7 @@ impl WheeledTracking {
             gyro_heading.as_radians()
         } else if let Some((left_wheel, right_wheel)) = parallel_wheels {
             // Distance between the left and right wheels.
-            let track_width = left_wheel.offset - right_wheel.offset;
+            let track_width = right_wheel.offset - left_wheel.offset;
 
             // Nothing we can use if either of these disconnects, so all we can do is wait for them
             // to reconnect. Seriously, fix your wiring!
@@ -442,13 +442,20 @@ impl WheeledTracking {
             prev_raw_heading = data.raw_heading;
 
             let mut local_displacement: Vec2 = Vec2::default();
-            let unit_chord = 2.0 * (delta_heading / 2.0).sin();
+            let yaw = delta_heading.as_radians();
+            // One division per tick, shared by all wheels. Removing the wheel's
+            // rotational travel before scaling also avoids dividing tiny deltas.
+            let chord_scale = if yaw == 0.0 {
+                1.0
+            } else {
+                2.0 * (delta_heading / 2.0).sin() / yaw
+            };
 
             // MARK: Sideways Wheels
 
             // Doing all the stuff with sideways trackers in this block below.
             {
-                let mut local_y_sum = 0.0;
+                let mut right_sum = 0.0;
                 let mut count = 0;
 
                 for (data, prev_data) in sideways_wheel_data.iter().zip(&prev_sideways_wheel_data) {
@@ -458,16 +465,12 @@ impl WheeledTracking {
                         let delta_travel = travel - prev_travel;
                         count += 1;
 
-                        local_y_sum += if delta_heading == Angle::ZERO {
-                            delta_travel
-                        } else {
-                            unit_chord * (delta_travel / delta_heading.as_radians() + offset)
-                        };
+                        right_sum += chord_scale * (delta_travel + offset * yaw);
                     }
                 }
 
                 if count != 0 {
-                    local_displacement.y = local_y_sum / f64::from(count);
+                    local_displacement.x = right_sum / f64::from(count);
                 }
 
                 prev_sideways_wheel_data = sideways_wheel_data;
@@ -477,20 +480,20 @@ impl WheeledTracking {
 
             // Doing all the stuff with forward trackers in this block below.
             {
-                let mut local_x_sum = 0.0;
+                let mut forward_sum = 0.0;
                 let mut travel_sum = 0.0;
 
                 let mut count = 0;
                 let mut prev_count = 0;
 
                 // Sum up all of our wheel values to determine average forward wheel travel and
-                // average local x-axis displacement.
+                // average local forward-axis displacement.
                 for (data, prev_data) in forward_wheel_data.iter().zip(&prev_forward_wheel_data) {
                     if let Ok((travel, _)) = data {
                         travel_sum += travel;
                         count += 1;
 
-                        // For x-axis displacement, we need to calculate a delta of how much our
+                        // For forward displacement, we need to calculate a delta of how much our
                         // wheel travel has changed. To do this, we need to have a record of both
                         // our current and previous wheel travel, meaning we can only consider
                         // wheels that returned `Ok(_)` in both the current AND previous loop
@@ -499,24 +502,15 @@ impl WheeledTracking {
                             let delta_travel = travel - prev_travel;
                             prev_count += 1;
 
-                            // NOTE: I get the feeling that this could be more efficient, since we
-                            // already know if `delta_heading` is zero before the for-loop here,
-                            // meaning it's kinda wasteful to check it each iteration. On the other
-                            // hand, it probably make this code more cancerous than it already is...
-                            local_x_sum += if delta_heading == Angle::ZERO {
-                                delta_travel
-                            } else {
-                                // shoutout to my man nick btw
-                                unit_chord * (delta_travel / delta_heading.as_radians() + offset)
-                            };
+                            forward_sum += chord_scale * (delta_travel - offset * yaw);
                         }
                     }
                 }
 
-                // Average local x-axis displacement (change in forward positioning along the
+                // Average local forward displacement (change in forward positioning along the
                 // robot's reference frame) using all functioning forward tracking wheels.
                 if prev_count != 0 {
-                    local_displacement.x = local_x_sum / f64::from(prev_count);
+                    local_displacement.y = forward_sum / f64::from(prev_count);
                 }
 
                 // Calculate the forward wheel travel.
@@ -539,7 +533,7 @@ impl WheeledTracking {
             // TODO: Any kind of "dx/dt"-style differentiations here are flawed and will return zero
             //       sometimes due to the sample rate of our loop being higher than the sample rate
             //       of our sensor. We should also maybe consider EMA filtering this or something.
-            data.linear_velocity = local_displacement.x / dt.as_secs_f64();
+            data.linear_velocity = local_displacement.y / dt.as_secs_f64();
 
             data.angular_velocity = gyro
                 .as_ref()

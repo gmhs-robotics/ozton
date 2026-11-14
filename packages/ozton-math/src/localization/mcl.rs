@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 
 use glam::{DVec2, DVec3};
 
-use super::range::{Mount, Surface, cast};
-use crate::geometry::{BodyDelta, Pose, direction, wrap_heading};
+use super::range::{Mount, Surface, cast_masked};
+use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
 
 const MAX_PARTICLES: usize = 128;
 
@@ -45,6 +45,8 @@ pub struct Beam {
     pub mount: Mount,
     pub distance: f64,
     pub max_range: f64,
+    /// Eligible surfaces for this beam, including mounting-height eligibility.
+    pub surface_mask: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,6 +60,26 @@ pub struct ParticleFilter {
     particles: Vec<Particle>,
     scratch: Vec<Particle>,
     random: Random,
+}
+
+impl Clone for ParticleFilter {
+    fn clone(&self) -> Self {
+        let mut scratch = Vec::with_capacity(self.config.count);
+        scratch.extend_from_slice(&self.scratch);
+        Self {
+            config: self.config,
+            particles: self.particles.clone(),
+            scratch,
+            random: self.random.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.config = source.config;
+        self.particles.clone_from(&source.particles);
+        self.scratch.clone_from(&source.scratch);
+        self.random.clone_from(&source.random);
+    }
 }
 
 impl ParticleFilter {
@@ -121,6 +143,25 @@ impl ParticleFilter {
         }
     }
 
+    /// Conditions particle yaw on an independently tracked heading before a
+    /// translation-only range update. Position-only output must not use particles
+    /// whose yaw differs from the heading actually published to motion control.
+    pub fn observe_position(
+        &mut self,
+        beams: &[Beam],
+        map: &[Surface],
+        heading: f64,
+    ) -> Option<Estimate> {
+        if !heading.is_finite() {
+            return None;
+        }
+        let heading = wrap_heading(heading);
+        for particle in &mut self.particles {
+            particle.pose.heading = heading;
+        }
+        self.observe(beams, map)
+    }
+
     /// Updates each beam once, returning the estimate before any resampling.
     pub fn observe(&mut self, beams: &[Beam], map: &[Surface]) -> Option<Estimate> {
         if beams.is_empty()
@@ -146,10 +187,11 @@ impl ParticleFilter {
                 .clamp(1e-12, 1e12);
             let mut total = 0.0;
             for particle in &mut self.particles {
-                let matched = cast(particle.pose, beam.mount, map).map_or(0.0, |hit| {
-                    let residual = (beam.distance - hit.distance) / sigma;
-                    libm::exp(-0.5 * residual * residual)
-                });
+                let matched = cast_masked(particle.pose, beam.mount, map, beam.surface_mask)
+                    .map_or(0.0, |hit| {
+                        let residual = (beam.distance - hit.distance) / sigma;
+                        libm::exp(-0.5 * residual * residual)
+                    });
                 particle.weight *= matched + random_likelihood;
                 total += particle.weight;
             }
@@ -177,7 +219,7 @@ impl ParticleFilter {
             position += particle.pose.position * particle.weight;
             headings += direction(particle.pose.heading) * particle.weight;
         }
-        let heading = libm::atan2(headings.y, headings.x);
+        let heading = bearing(headings);
         let mut variance = DVec3::ZERO;
         for particle in &self.particles {
             let error = particle.pose.position - position;
@@ -219,6 +261,7 @@ impl ParticleFilter {
     }
 }
 
+#[derive(Clone)]
 struct Random(u64);
 
 impl Random {
@@ -231,7 +274,7 @@ impl Random {
 
     fn normal_pair(&mut self) -> DVec2 {
         let radius = libm::sqrt(-2.0 * libm::log(self.uniform()));
-        direction(core::f64::consts::TAU * self.uniform()) * radius
+        rotation(core::f64::consts::TAU * self.uniform()) * radius
     }
 
     fn normal3(&mut self) -> DVec3 {
@@ -245,11 +288,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn transaction_copy_reuses_particle_and_resampling_storage() {
+        let map = [Surface::new(-2.0, 1.0, 2.0, 1.0)];
+        let beams = [Beam {
+            mount: Mount::new(0.0, 0.0, 0.0),
+            distance: 1.0,
+            max_range: 2.0,
+            surface_mask: 1,
+        }];
+        let mut source = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
+        let mut candidate = source.clone();
+        let particles = candidate.particles.as_ptr();
+        let scratch = candidate.scratch.as_ptr();
+        for _ in 0..20 {
+            source.predict(BodyDelta {
+                translation: DVec2::new(0.001, 0.002),
+                heading: 0.001,
+            });
+            source.observe(&beams, &map).unwrap();
+            candidate.clone_from(&source);
+            assert_eq!(candidate.particles.as_ptr(), particles);
+            assert_eq!(candidate.scratch.as_ptr(), scratch);
+            assert_eq!(candidate.estimate().pose, source.estimate().pose);
+            let expected = source.observe(&beams, &map).unwrap();
+            let actual = candidate.observe(&beams, &map).unwrap();
+            assert_eq!(actual.pose, expected.pose);
+            assert_eq!(actual.standard_deviation, expected.standard_deviation);
+            // Resampling swaps buffers; both allocations must remain in use.
+            assert!([particles, scratch].contains(&candidate.particles.as_ptr()));
+            assert!([particles, scratch].contains(&candidate.scratch.as_ptr()));
+            // Restore buffer orientation before checking the next copy.
+            if candidate.particles.as_ptr() != particles {
+                core::mem::swap(&mut candidate.particles, &mut candidate.scratch);
+            }
+        }
+    }
+
+    #[test]
     fn orthogonal_beams_reduce_seeded_initial_error() {
         let map = [
             Surface {
-                start: DVec2::new(1.0, -1.0),
-                end: DVec2::ONE,
+                start: DVec2::new(-1.0, -1.0),
+                end: DVec2::new(-1.0, 1.0),
             },
             Surface {
                 start: DVec2::ONE,
@@ -263,6 +343,7 @@ mod tests {
             },
             distance: 1.0,
             max_range: 2.0,
+            surface_mask: u32::MAX,
         });
         let start = Pose::new(0.09, 0.08, 0.0);
         let mut filter = ParticleFilter::new(start, ParticleConfig::default()).unwrap();

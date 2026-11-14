@@ -60,7 +60,9 @@ cargo run -p ozton-tools -- calibrate auton.csv front_range
 - **Track width and pod offsets.** Run in-place rotations and record measured
   heading change, signed side travel, and each pod's travel. Use calibrated
   wheel diameters and independently measured heading. Include clockwise and
-  counterclockwise trials.
+  counterclockwise trials. Forward-wheel offsets are X right and lateral-wheel
+  offsets are Y forward. Record lateral travel positive right. During pure rotation,
+  forward travel is `X * yaw` and lateral travel is `-Y * yaw`.
 - **Distance sensors.** Measure from the sensor face to a flat target at known
   distances. Collect at least three readings. Keep sensors in separate groups.
   Apply the fitted bias and noise as `RangeSensorConfig::bias` and `sigma`.

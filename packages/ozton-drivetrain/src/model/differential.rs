@@ -48,16 +48,27 @@ impl Side {
         }
     }
 
-    fn feedback(&self) -> Option<WheelFeedback> {
+    fn feedback(
+        &self,
+        consensus: &RefCell<crate::feedback::EncoderConsensus>,
+        dt: std::time::Duration,
+    ) -> Option<WheelFeedback> {
         let Self::Geared(motors) = self else {
             return None;
         };
-        // Stable reference even if a different motor joins or leaves the group.
-        let motor = motors.first()?;
-        Some(WheelFeedback {
-            position: motor.motor.position().ok()?.as_turns() * motor.meters_per_turn,
-            velocity: motor.motor.velocity().ok()? / motor.rpm_per_meter_per_second,
-        })
+        let mut samples = [None; crate::feedback::MAX_SIDE_MOTORS];
+        for (slot, motor) in samples.iter_mut().zip(motors) {
+            *slot = motor
+                .motor
+                .position()
+                .ok()
+                .zip(motor.motor.velocity().ok())
+                .map(|(position, velocity)| WheelFeedback {
+                    position: position.as_turns() * motor.meters_per_turn,
+                    velocity: velocity / motor.rpm_per_meter_per_second,
+                });
+        }
+        consensus.borrow_mut().sample(&samples[..motors.len()], dt)
     }
 
     fn voltage_feedback(&self) -> Option<f64> {
@@ -87,11 +98,19 @@ fn each<M>(
     result
 }
 
-/// Per-side travel and velocity, measured at the first configured geared motor.
+/// Continuous per-side travel and velocity from all configured geared motors.
 #[derive(Debug, Clone, Copy)]
 pub struct WheelFeedback {
     pub position: f64,
     pub velocity: f64,
+}
+
+/// Wheel-speed command validation or a device write failure.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WheelSpeedError {
+    InvalidCommand,
+    NotGeared,
+    Port(PortError),
 }
 
 /// Measured fore-aft tilt axis.
@@ -125,6 +144,8 @@ pub struct Differential {
     anti_tip: Option<TipControl>,
     previous: Instant,
     brake: BrakeMode,
+    feedback: [RefCell<crate::feedback::EncoderConsensus>; 2],
+    feedback_time: std::cell::Cell<Instant>,
 }
 
 impl Differential {
@@ -153,6 +174,8 @@ impl Differential {
         let right: Vec<_> = right.into_iter().collect();
         if left.is_empty()
             || right.is_empty()
+            || left.len() > crate::feedback::MAX_SIDE_MOTORS
+            || right.len() > crate::feedback::MAX_SIDE_MOTORS
             || wheel_speed_limit.is_some_and(|limit| !limit.is_finite() || limit <= 0.0)
         {
             return None;
@@ -172,6 +195,10 @@ impl Differential {
             anti_tip: None,
             previous: Instant::now(),
             brake: BrakeMode::Brake,
+            feedback: core::array::from_fn(|_| {
+                RefCell::new(crate::feedback::EncoderConsensus::default())
+            }),
+            feedback_time: std::cell::Cell::new(Instant::now()),
         }
     }
 
@@ -220,7 +247,9 @@ impl Differential {
     }
 
     pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
-        [self.sides[0].feedback(), self.sides[1].feedback()]
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(self.feedback_time.replace(now));
+        [0, 1].map(|i| self.sides[i].feedback(&self.feedback[i], dt))
     }
 
     pub fn measured_voltage(&self) -> [Option<f64>; 2] {
@@ -252,6 +281,30 @@ impl Differential {
     pub fn drive_volts(&mut self, left: f64, right: f64) -> Result<(), PortError> {
         let maximum = Motor::V5_MAX_VOLTAGE;
         self.apply([left / maximum, right / maximum], None, true)
+    }
+
+    /// SI wheel-speed control without changing the driver's voltage-control mode.
+    /// Requires geared sides. Scaling, slew and anti-tip remain active.
+    pub fn drive_wheel_speeds(
+        &mut self,
+        left: f64,
+        right: f64,
+        maximum: f64,
+    ) -> Result<(), WheelSpeedError> {
+        if !maximum.is_finite() || maximum <= 0.0 || !left.is_finite() || !right.is_finite() {
+            let _ = self.brake_now(self.brake);
+            return Err(WheelSpeedError::InvalidCommand);
+        }
+        if !self
+            .sides
+            .iter()
+            .all(|side| matches!(side, Side::Geared(_)))
+        {
+            let _ = self.brake_now(self.brake);
+            return Err(WheelSpeedError::NotGeared);
+        }
+        self.apply([left / maximum, right / maximum], Some(maximum), false)
+            .map_err(WheelSpeedError::Port)
     }
 
     pub fn drive_driver_arcade(

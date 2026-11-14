@@ -29,3 +29,7 @@ impl<M: DrivetrainModel, T: Tracking> Drivetrain<M, T> {
         Self { model, tracking }
     }
 }
+
+pub mod resilient;
+
+pub mod feedback;

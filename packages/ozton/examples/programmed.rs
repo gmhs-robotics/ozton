@@ -19,7 +19,8 @@ use vexide::{
     smart::{PortError, motor::BrakeMode},
 };
 
-const START: Pose = Pose::new(0.0, 0.0, 0.0);
+// Embedded path moves right (+X), so begin facing right (-90 degrees).
+const START: Pose = Pose::new(0.0, 0.0, -core::f64::consts::FRAC_PI_2);
 const GEARED: GearRatio = GearRatio::from_teeth(36, 48);
 
 struct Intake {
@@ -45,7 +46,11 @@ async fn straight(mut auton: Auton<'_, Intake>) -> RouteResult {
     let front = auton.range("front")?;
     // This alignment is optional. The route can continue after a clean timeout.
     auton
-        .try_align(front, AlignTarget::front(1.10, 0.0), Duration::from_secs(2))
+        .try_align(
+            front,
+            AlignTarget::front(1.10, START.heading),
+            Duration::from_secs(2),
+        )
         .await?;
     Ok(())
 }
@@ -68,7 +73,7 @@ async fn main(p: Peripherals) {
         .with_range(
             "front",
             DistanceSensor::new(p.port_8),
-            RangeSensorConfig::new(Mount::new(0.15, 0.0, 0.0)),
+            RangeSensorConfig::new(Mount::new(0.0, 0.15, 0.0)),
         );
     let drive = config
         .build(left, right, tracking)

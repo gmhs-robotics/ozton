@@ -144,7 +144,7 @@ impl Interpolate for Vec2Frame {
     }
 }
 
-/// Tracked robot motion snapshot used to correct recorded drivetrain commands.
+/// Tracked CC motion: X right, Y forward, CCW radians from +Y; positions in metres.
 #[derive(Archive, Serialize, Deserialize, Default, Clone, Copy, Debug, PartialEq)]
 #[rkyv(crate = ::rkyv)]
 pub struct TrackedMotionFrame {
@@ -833,13 +833,13 @@ fn tracked_playback_correction(
     let linear_velocity_error = target.linear_velocity - current.linear_velocity;
     let angular_velocity_error = target.angular_velocity - current.angular_velocity;
 
-    let mut drive_correction = playback.longitudinal_gain * local_x
+    let mut drive_correction = playback.longitudinal_gain * local_y
         + playback.linear_velocity_gain * linear_velocity_error;
     drive_correction *= heading_error.cos().max(0.0);
 
-    let turn_correction = playback.lateral_gain * local_y
-        + playback.heading_gain * heading_error
-        + playback.angular_velocity_gain * angular_velocity_error;
+    let turn_correction = playback.lateral_gain * local_x
+        - playback.heading_gain * heading_error
+        - playback.angular_velocity_gain * angular_velocity_error;
 
     let output = (
         drive_correction.clamp(
@@ -899,4 +899,36 @@ fn normalized_motor_output(motor: &Motor) -> f64 {
     };
 
     (commanded / max_voltage).clamp(-1.0, 1.0)
+}
+
+#[cfg(test)]
+mod coordinate_tests {
+    use super::*;
+    #[test]
+    fn playback_corrections_drive_forward_and_turn_toward_right_in_canonical_axes() {
+        let current = TrackedMotionFrame::default();
+        let tuning = DifferentialVoltagePlayback::default();
+        let mut target = current;
+        target.position = Vec2Frame::new(0.0, 0.1);
+        let (drive, steer) = tracked_playback_correction(&current, &target, tuning);
+        assert!(drive > 0.0 && steer.abs() < 1e-12);
+        target.position = Vec2Frame::new(0.1, 0.0);
+        let (drive, steer) = tracked_playback_correction(&current, &target, tuning);
+        assert!(
+            drive.abs() < 1e-12 && steer > 0.0,
+            "positive tank differential turns right"
+        );
+        target.position = Vec2Frame::new(0.0, 0.0);
+        target.heading_radians = 0.1;
+        assert!(
+            tracked_playback_correction(&current, &target, tuning).1 < 0.0,
+            "positive yaw requires left turn"
+        );
+        let mut turned = current;
+        turned.heading_radians = core::f64::consts::FRAC_PI_2;
+        target = turned;
+        target.position = Vec2Frame::new(-0.1, 0.0);
+        let (drive, steer) = tracked_playback_correction(&turned, &target, tuning);
+        assert!(drive > 0.0 && steer.abs() < 1e-12);
+    }
 }

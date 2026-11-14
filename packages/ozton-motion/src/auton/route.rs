@@ -240,8 +240,54 @@ impl<M: Mechanisms> Auton<'_, M> {
             .await
     }
 
+    pub async fn drive_to_point(
+        &mut self,
+        target: [f64; 2],
+        maximum_speed: f64,
+        reverse: bool,
+        timeout: Duration,
+    ) -> RouteResult {
+        self.runner
+            .drive_to_point(target, maximum_speed, reverse, timeout)
+            .await
+    }
+    pub async fn drive_distance(
+        &mut self,
+        meters: f64,
+        heading: f64,
+        maximum_speed: f64,
+        timeout: Duration,
+    ) -> RouteResult {
+        self.runner
+            .drive_distance(meters, heading, maximum_speed, timeout)
+            .await
+    }
+    pub async fn turn_to(&mut self, heading: f64, timeout: Duration) -> RouteResult {
+        self.runner.turn_to(heading, timeout).await
+    }
+    pub async fn wait(&mut self, duration: Duration, timeout: Duration) -> RouteResult {
+        self.runner.wait(duration, timeout).await
+    }
+    pub async fn try_run(
+        &mut self,
+        command: Command<'_, Robot<M>>,
+        timeout: Duration,
+    ) -> RouteResult<bool> {
+        self.runner.try_run(command, timeout).await
+    }
     pub async fn run(&mut self, command: Command<'_, Robot<M>>, timeout: Duration) -> RouteResult {
         self.runner.run(command, timeout).await
+    }
+}
+
+impl<M: super::MechanismActions> Auton<'_, M> {
+    pub async fn perform(
+        &mut self,
+        target: M::Target,
+        action_for: Duration,
+        timeout: Duration,
+    ) -> RouteResult {
+        self.runner.perform(target, action_for, timeout).await
     }
 }
 

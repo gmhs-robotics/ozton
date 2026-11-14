@@ -5,8 +5,8 @@ use std::time::Duration;
 use ozton_math::{
     geometry::{BodyDelta, Pose, wrap_heading},
     localization::range::{
-        Constraint, Mount, RangeGate, RangeReading, Rejection, Surface, constrain,
-        reset_translation,
+        Constraint, Mount, RangeGate, RangeReading, Rejection, Surface, constrain_masked,
+        fit_translation,
     },
 };
 
@@ -19,6 +19,8 @@ pub struct RangeSensorConfig {
     pub bias: f64,
     pub sigma: f64,
     pub surface: Option<usize>,
+    /// Eligible map surfaces, e.g. walls reaching this sensor's mounting height.
+    pub surface_mask: u32,
 }
 
 impl RangeSensorConfig {
@@ -30,6 +32,7 @@ impl RangeSensorConfig {
             bias: 0.0,
             sigma: 0.025,
             surface: None,
+            surface_mask: u32::MAX,
         }
     }
 
@@ -128,29 +131,56 @@ fn constrain_sample(
     sample: RangeObservation,
     age: f64,
 ) -> Result<Constraint, Rejection> {
-    constrain(
+    let reading = sensor.reading(sample, age);
+    constrain_masked(
         pose,
         sensor.mount,
-        sensor.reading(sample, age),
+        reading,
         sensor.gate,
         map,
         sensor.surface,
+        sensor.surface_mask,
     )
 }
 
-#[derive(Default)]
 pub(super) struct ResetWindow {
     anchor: Option<(Duration, Pose)>,
     samples: [Option<RangeObservation>; MAX_RANGES],
+    collecting: Option<Duration>,
+    minimum_axes: u8,
+}
+
+impl Default for ResetWindow {
+    fn default() -> Self {
+        Self::new(1)
+    }
 }
 
 pub(super) enum ResetResult {
     Waiting,
-    Applied(Pose),
+    Applied(Pose, u8),
     Rejected,
 }
 
 impl ResetWindow {
+    pub(super) fn new(minimum_axes: u8) -> Self {
+        Self {
+            anchor: None,
+            samples: [None; MAX_RANGES],
+            collecting: None,
+            minimum_axes,
+        }
+    }
+
+    pub(super) fn require_axes(&mut self, minimum_axes: u8) {
+        if minimum_axes > self.minimum_axes {
+            *self = Self::new(minimum_axes);
+        }
+    }
+
+    pub(super) fn restart(&mut self) {
+        *self = Self::new(self.minimum_axes);
+    }
     /// Distance sensors publish independently. Collect fresh, nearby samples while stopped.
     pub(super) fn update(
         &mut self,
@@ -160,47 +190,74 @@ impl ResetWindow {
         sensors: &[RangeSensorConfig],
         reports: &[Option<RangeReport>; MAX_RANGES],
         maximum: f64,
+        velocity: [f64; 3],
     ) -> ResetResult {
+        if !velocity.iter().all(|v| v.is_finite())
+            || velocity[0].hypot(velocity[1]) > 0.025
+            || velocity[2].abs() > 0.06
+        {
+            self.restart();
+            return ResetResult::Waiting;
+        }
         if self.anchor.is_some_and(|(_, anchor)| {
             pose.position.distance(anchor.position) > 0.012
                 || wrap_heading(pose.heading - anchor.heading).abs() > 0.02
         }) {
-            *self = Self::default();
+            self.restart();
         }
         let (started, _) = *self.anchor.get_or_insert((now, pose));
+        // Require 120 ms of measured rest before collecting any packets.
+        if now - started < Duration::from_millis(120) {
+            return ResetResult::Waiting;
+        }
+        let collection_start = *self.collecting.get_or_insert(now);
         for (stored, report) in self.samples.iter_mut().zip(reports) {
             if let Some(report) = report {
                 match report.constraint {
-                    Ok(_) => *stored = report.observation,
+                    Ok(_) => {
+                        *stored = report
+                            .observation
+                            .filter(|v| v.timestamp >= collection_start)
+                    }
                     Err(Rejection::Duplicate)
                         if report.observation.is_some_and(|sample| !sample.occluded) => {}
                     Err(_) => *stored = None,
                 }
             }
         }
-        let mut constraints = sensors
+        if now - collection_start < Duration::from_millis(45) {
+            return ResetResult::Waiting;
+        }
+        let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
+        let mut count = 0;
+        for constraint in sensors
             .iter()
             .zip(self.samples)
             .filter_map(|(&sensor, sample)| {
                 let sample = sample?;
                 let age = now.checked_sub(sample.timestamp)?.as_secs_f64();
-                constrain_sample(pose, map, sensor, sample, age).ok()
-            });
-        let first = constraints.next();
-        let second = first.and_then(|first| {
-            constraints
-                .find(|candidate| first.hit.normal.perp_dot(candidate.hit.normal).abs() >= 0.5)
-        });
-        if second.is_none() && sensors.len() > 1 && now - started < Duration::from_millis(45) {
+                let c = constrain_sample(pose, map, sensor, sample, age).ok()?;
+                Some((c, sensor.sigma * c.hit.incidence.abs()))
+            })
+        {
+            constraints[count] = constraint;
+            count += 1;
+        }
+        if count == 0 {
             return ResetResult::Waiting;
         }
-        if let Some(first) = first {
-            let change = reset_translation(first, second);
+        if let Some((change, axes)) = fit_translation(&constraints[..count]) {
+            if axes < self.minimum_axes {
+                return ResetResult::Waiting;
+            }
             if change.length() <= maximum {
-                return ResetResult::Applied(Pose {
-                    position: pose.position + change,
-                    ..pose
-                });
+                return ResetResult::Applied(
+                    Pose {
+                        position: pose.position + change,
+                        ..pose
+                    },
+                    axes,
+                );
             }
         }
         ResetResult::Rejected

@@ -54,6 +54,7 @@ struct SelectorState<I: SelectorItem + 'static> {
     status: Option<StatusMessage>,
     status_dirty: bool,
     options_dirty: bool,
+    selection_enabled: bool,
 }
 
 pub struct Selector<I: SelectorItem + 'static> {
@@ -101,6 +102,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
             status: None,
             status_dirty: true,
             options_dirty: false,
+            selection_enabled: true,
         }));
 
         display.set_render_mode(vexide::display::RenderMode::DoubleBuffered);
@@ -154,7 +156,8 @@ impl<I: SelectorItem + 'static> Selector<I> {
                         }
                         state.active_row = None;
 
-                        if matches!(touch.state, TouchState::Pressed | TouchState::Held)
+                        if state.selection_enabled
+                            && matches!(touch.state, TouchState::Pressed | TouchState::Held)
                             && (0..Display::HORIZONTAL_RESOLUTION).contains(&touch.point.x)
                             && (0..Self::list_height()).contains(&touch.point.y)
                         {
@@ -396,6 +399,11 @@ impl<I: SelectorItem + 'static> Selector<I> {
 
 impl<I: SelectorItem + 'static> StatusHandle<I> {
     /// Replaces menu options after a route is added or a save can be retried.
+    /// Lock touch selection without stopping drawing or persistent status updates.
+    pub fn set_selection_enabled(&self, enabled: bool) {
+        self.state.borrow_mut().selection_enabled = enabled;
+    }
+
     pub fn replace_options(&self, options: Vec<I>, selected: usize) {
         if options.is_empty() {
             return;

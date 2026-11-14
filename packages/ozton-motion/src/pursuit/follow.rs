@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn curvature_at_quarter_turn_is_finite() {
         let curvature =
-            signed_arc_curvature(DVec2::ZERO, Angle::from_degrees(90.0), DVec2::new(1.0, 0.0));
+            signed_arc_curvature(DVec2::ZERO, Angle::from_degrees(90.0), DVec2::new(0.0, 1.0));
         assert!(curvature.is_finite());
         assert!((curvature - 2.0).abs() < 1e-10);
     }

@@ -67,13 +67,13 @@ pub fn report(data: Dataset, mut writer: impl Write) -> Result<(), Box<dyn Error
         (
             &data.lateral,
             "LATERAL_WHEEL_OFFSET_M",
-            |[angle, travel, _]| (angle, travel),
+            |[angle, travel, _]| (-angle, travel),
             false,
         ),
         (
             &data.forward,
             "FORWARD_WHEEL_OFFSET_M",
-            |[angle, travel, _]| (-angle, travel),
+            |[angle, travel, _]| (angle, travel),
             false,
         ),
     ] {

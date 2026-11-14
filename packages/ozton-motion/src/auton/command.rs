@@ -18,12 +18,14 @@ pub struct RangeFeedback {
     pub timestamp: Duration,
 }
 
-/// All feedback available to autonomous on one tick.
+/// One tick of CC pose in X-right/Y-forward metres and CCW radians from +Y.
 #[derive(Debug, Clone, Copy)]
 pub struct Feedback {
     pub pose: Pose,
     pub forward_travel: f64,
     pub forward_velocity: f64,
+    /// Positive toward robot +X (right), metres per second.
+    pub lateral_velocity: f64,
     pub angular_velocity: f64,
     pub ranges: [Option<RangeFeedback>; MAX_RANGES],
     pub reset_accepted: bool,
@@ -107,6 +109,12 @@ pub enum Command<'a, R> {
     Turn {
         heading: f64,
     },
+    /// Closed-loop field-point navigation using full planar pose, including lateral drift.
+    DriveToPoint {
+        target: [f64; 2],
+        reverse: bool,
+        maximum_speed: f64,
+    },
     DriveDistance {
         meters: f64,
         heading: f64,
@@ -117,9 +125,23 @@ pub enum Command<'a, R> {
     DistanceReset,
     Wait(Duration),
     WaitUntil(fn(&R) -> bool),
+    /// A captured predicate, continuously true while stopped for `stable`.
+    WaitFor {
+        ready: &'a mut dyn FnMut(&R) -> bool,
+        stable: Duration,
+    },
 }
 
 impl<R> Command<'_, R> {
+    pub(super) fn requires_field_pose(&self) -> bool {
+        matches!(
+            self,
+            Self::DriveToPoint { .. }
+                | Self::Follow { .. }
+                | Self::FollowMarked { .. }
+                | Self::DistanceReset
+        )
+    }
     pub(super) fn path_start(&self) -> Option<(&Path, bool)> {
         match self {
             Self::Follow { path, reverse, .. } | Self::FollowMarked { path, reverse, .. } => {
@@ -157,6 +179,16 @@ impl<R> Command<'_, R> {
                     && markers.windows(2).all(|pair| pair[0].0 <= pair[1].0)
             }
             Self::Turn { heading } => heading.is_finite(),
+            Self::DriveToPoint {
+                target,
+                maximum_speed,
+                ..
+            } => {
+                target.iter().all(|v| v.is_finite())
+                    && maximum_speed.is_finite()
+                    && *maximum_speed > 0.0
+                    && *maximum_speed <= options.maximum_wheel_speed
+            }
             Self::DriveDistance {
                 meters,
                 heading,
@@ -182,7 +214,7 @@ impl<R> Command<'_, R> {
                     && contact.speed.abs() <= options.maximum_wheel_speed
                     && contact.speed != 0.0
             }
-            Self::Wait(_) | Self::WaitUntil(_) | Self::DistanceReset => true,
+            Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } | Self::DistanceReset => true,
         }
     }
 }
@@ -214,7 +246,8 @@ impl State {
         dt: Duration,
         options: DriveOptions,
     ) -> Step {
-        let slow = feedback.forward_velocity.abs() <= options.speed_tolerance
+        let slow = feedback.forward_velocity.hypot(feedback.lateral_velocity)
+            <= options.speed_tolerance
             && feedback.angular_velocity.abs() <= options.angular_speed_tolerance;
         let error_at = |heading| wrap_heading(heading - feedback.pose.heading);
         let drive = |linear, angular| {
@@ -289,6 +322,30 @@ impl State {
                     options.settle,
                 )
             }
+            Command::DriveToPoint {
+                target,
+                reverse,
+                maximum_speed,
+            } => {
+                let delta = ozton_math::geometry::Pose::new(target[0], target[1], 0.0).position
+                    - feedback.pose.position;
+                let distance = delta.length();
+                let reached = distance <= options.position_tolerance;
+                let heading = error_at(
+                    ozton_math::geometry::bearing(delta)
+                        + if *reverse { core::f64::consts::PI } else { 0.0 },
+                );
+                let linear = if reached || heading.abs() > 0.7 {
+                    0.0
+                } else {
+                    (2.5 * distance).min(*maximum_speed) * if *reverse { -1.0 } else { 1.0 }
+                };
+                (
+                    drive(linear, if reached { 0.0 } else { 3.0 * heading }),
+                    reached && slow,
+                    options.settle,
+                )
+            }
             Command::DriveDistance {
                 meters,
                 heading,
@@ -360,7 +417,8 @@ impl State {
             }
             Command::DistanceReset => ([0.0; 2], feedback.reset_accepted, Duration::ZERO),
             Command::Wait(duration) => ([0.0; 2], elapsed >= *duration, Duration::ZERO),
-            Command::WaitUntil(ready) => ([0.0; 2], ready(robot), Duration::ZERO),
+            Command::WaitUntil(ready) => ([0.0; 2], ready(robot) && slow, options.settle),
+            Command::WaitFor { ready, stable } => ([0.0; 2], ready(robot) && slow, *stable),
         };
         self.settled = if ready {
             self.settled.saturating_add(dt)
@@ -411,5 +469,85 @@ impl State {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod settling_tests {
+    use super::*;
+    #[test]
+    fn captured_load_condition_requires_continuous_resistance_and_rest() {
+        let threshold = 0.3;
+        let mut ready = |torque: &f64| torque.is_finite() && *torque >= threshold;
+        let mut command = Command::WaitFor {
+            ready: &mut ready,
+            stable: Duration::from_millis(30),
+        };
+        let options = DriveOptions::differential(0.3, 1.0);
+        let mut state = State::default();
+        let mut feedback = Feedback {
+            pose: Pose::default(),
+            forward_travel: 0.0,
+            forward_velocity: 0.0,
+            lateral_velocity: 0.0,
+            angular_velocity: 0.0,
+            ranges: [None; MAX_RANGES],
+            reset_accepted: false,
+        };
+        let tick = Duration::from_millis(10);
+        // Startup spikes and missing/low feedback do not complete a load wait.
+        for mut sample in [0.4, 0.4, f64::NAN, 0.4, 0.1] {
+            let step = state.step(&mut command, &mut sample, feedback, tick, tick, options);
+            assert!(!step.complete);
+            assert_eq!(step.wheels, [0.0; 2]);
+        }
+        feedback.angular_velocity = 0.5;
+        for _ in 0..5 {
+            assert!(
+                !state
+                    .step(&mut command, &mut 0.4, feedback, tick, tick, options)
+                    .complete
+            );
+        }
+        feedback.angular_velocity = 0.0;
+        for expected in [false, false, true] {
+            assert_eq!(
+                state
+                    .step(&mut command, &mut 0.4, feedback, tick, tick, options)
+                    .complete,
+                expected
+            );
+        }
+    }
+    #[test]
+    fn sideways_motion_prevents_arrival_even_with_correct_position_and_heading() {
+        let mut state = State::default();
+        let mut command = Command::WaitUntil(|_: &()| true);
+        let options = DriveOptions::differential(0.3, 1.0);
+        let mut feedback = Feedback {
+            pose: Pose::default(),
+            forward_travel: 0.0,
+            forward_velocity: 0.0,
+            lateral_velocity: 0.2,
+            angular_velocity: 0.0,
+            ranges: [None; MAX_RANGES],
+            reset_accepted: false,
+        };
+        let tick = Duration::from_millis(10);
+        for _ in 0..30 {
+            assert!(
+                !state
+                    .step(&mut command, &mut (), feedback, tick, tick, options)
+                    .complete
+            );
+        }
+        feedback.lateral_velocity = 0.0;
+        let mut completed = false;
+        for _ in 0..12 {
+            completed = state
+                .step(&mut command, &mut (), feedback, tick, tick, options)
+                .complete;
+        }
+        assert!(completed);
     }
 }

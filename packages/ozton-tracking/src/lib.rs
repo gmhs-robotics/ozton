@@ -26,20 +26,10 @@
 //! Additionally, a reference implementation of a tracking system that performs wheeled odometry is
 //! provided by the [`wheeled`] module.
 //!
-//! # A quick note about units!
+//! # Units
 //!
-//! `ozton` made the intentional choice to be primarily unitless, mainly because stable Rust
-//! currently lacks many of the features needed to provide a good developer experience using
-//! typed units. Although several widely-used libraries exist in stable Rust (such as
-//! [`uom`](http://crates.io/crates/uom)), there is no single obvious choice to be made here and
-//! this region of the Rust ecosystem seems to be in a fairly volatile state that would make it
-//! dangerous to fully commit to a single library this early on.
-//!
-//! As such, ozton made the decision to forego requiring specific units of measure where possible,
-//! particular in measures of *length*. Instead, length is typically provided in **wheel units**,
-//! which is defined as "whatever the user measured their wheels with". This gives users a choice
-//! of what units to use and keeps everything generally stable while the Rust ecosystem tries to
-//! figure out what typed units library to go with.
+//! Use metres, radians, seconds and SI derivatives for new code. Historical wheeled
+//! APIs retain the caller's wheel-diameter unit; use metres there for interoperability.
 
 macro_rules! log {
     ($($arg:tt)*) => {
@@ -85,12 +75,11 @@ impl Tracking for () {}
 ///
 /// # Coordinate System
 ///
-/// Implementors of this trait MUST provide their position estimate in the [*cartesian coordinate
-/// system*](https://en.wikipedia.org/wiki/Cartesian_coordinate_system). Units are expected to be
-/// in *wheel units* — the same units that were used to measure the robot's wheel diameter.
+/// Report current CC in a fixed surveyed field frame with +X right and +Y forward.
+/// Body-mounted points use the same axes with current CC at (0, 0, 0), +Z up.
+/// Use metres for interoperability with localization, paths and autonomous commands.
 pub trait TracksPosition: Tracking {
-    /// Return's the robot's position on a 2D cartesian coordinate plane measured
-    /// in wheel units.
+    /// Returns current CC field position: X right, Y forward, in metres.
     fn position(&self) -> Vec2;
 }
 
@@ -102,9 +91,8 @@ pub trait TracksPosition: Tracking {
 ///
 /// # Angle System
 ///
-/// Implementors of this trait MUST provide their angles in a system compatible with cartesian
-/// coordinates in *standard position*. This means that anticlockwise motion is considered a
-/// positive rotation, and a rotation of zero degrees is inline with the x-axis.
+/// Heading zero faces +Y forward. Positive yaw turns left (CCW about +Z).
+/// A +90-degree heading faces -X; -90 degrees faces +X.
 pub trait TracksHeading: Tracking {
     /// Returns the robot's orientation bounded from [0, 2π] radians.
     fn heading(&self) -> Angle;
@@ -160,3 +148,5 @@ macro_rules! shared_motors {
         }
     };
 }
+
+pub mod mount;

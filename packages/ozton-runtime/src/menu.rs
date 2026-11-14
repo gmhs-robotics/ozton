@@ -1,0 +1,74 @@
+//! Competition-loop adapter around the shared selector, with Disable first.
+use vexide::display::Display;
+
+use crate::selector::{Selector, SelectorItem, StatusHandle};
+
+#[derive(Clone)]
+struct Choice<A> {
+    label: String,
+    action: A,
+}
+impl<A: Copy> SelectorItem for Choice<A> {
+    fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+/// Reuses the same rendering and status handling as recording and programmed menus.
+/// Call `poll` every tick to lock selection while enabled. No routine is registered
+/// implicitly; construction provides only the caller's disabled action.
+pub struct RouteMenu<A: Copy + 'static> {
+    _selector: Selector<Choice<A>>,
+    status: StatusHandle<Choice<A>>,
+    choices: Vec<Choice<A>>,
+    last_selection: usize,
+    last_status: String,
+}
+impl<A: Copy + 'static> RouteMenu<A> {
+    pub fn new(display: Display, disabled: A) -> Self {
+        let choices = vec![Choice {
+            label: "Disable".into(),
+            action: disabled,
+        }];
+        let selector = Selector::new(display, choices.clone(), 0);
+        let status = selector.status_handle();
+        status.set_selection_enabled(
+            vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,
+        );
+        Self {
+            _selector: selector,
+            status,
+            choices,
+            last_selection: 0,
+            last_status: String::new(),
+        }
+    }
+    pub fn add(&mut self, label: impl Into<String>, action: A) {
+        self.choices.push(Choice {
+            label: label.into(),
+            action,
+        });
+        self.status
+            .replace_options(self.choices.clone(), self.status.selection_index());
+    }
+    pub fn action(&self) -> A {
+        self.status.with_selection(|choice| choice.action)
+    }
+    pub fn poll(&mut self, disabled: bool) -> Option<A> {
+        self.status.set_selection_enabled(disabled);
+        let selected = self.status.selection_index();
+        if disabled && selected != self.last_selection {
+            self.last_selection = selected;
+            self.last_status.clear();
+            Some(self.action())
+        } else {
+            None
+        }
+    }
+    pub fn status(&mut self, message: &str) {
+        if self.last_status != message {
+            self.last_status = message.to_owned();
+            self.status.show_status_persistent(message);
+        }
+    }
+}

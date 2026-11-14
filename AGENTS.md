@@ -2,6 +2,10 @@
 
 ## Task Completion Requirements
 
+- Hard rule: Whenever you change any file in this repository, you must create a
+  git commit containing the changes before finishing the task. Do not leave
+  changes uncommitted unless the user explicitly instructs you to do so. If a
+  commit is blocked, report the blocker explicitly.
 - `cargo check --workspace --all-targets` and
   `cargo test --workspace --all-targets` must be completed before considering
   tasks completed.
