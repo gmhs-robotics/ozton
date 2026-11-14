@@ -71,6 +71,14 @@ impl Sensors {
         (self.ranges.len() <= MAX_RANGES).then_some(self)
     }
 
+    /// Count initialized, responsive range devices, including those that see no object.
+    pub fn ready_range_count(&self) -> usize {
+        self.ranges
+            .iter()
+            .filter(|sensor| sensor.object().is_ok())
+            .count()
+    }
+
     /// Sample motor positions separately through the drivetrain. Mask sensors obscured
     /// by the robot's mechanisms or a known game object.
     pub fn capture(
