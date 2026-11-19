@@ -33,6 +33,9 @@ them as one continuous path. The junctions must meet within 2 mm and have
 matching travel tangents. Use separate commands to change direction or stop
 for a mechanism action.
 
+When supplying custom path limits, use `Limits::from_units` to pass track width,
+linear and wheel speed caps, and longitudinal and lateral acceleration limits.
+
 ## Compose motions and mechanism actions
 
 Create one `Runner` per route and call `confirm_start` with the surveyed pose.
@@ -77,11 +80,13 @@ Absolute point, path, and DSR commands check pose trust every tick.
 `AutonomousControls::pose_trusted` and `AutonRobot::pose_trusted` default to
 false. Supply evidence of trust from the tracker.
 
-`Command::DriveToPoint { target: [x, y], reverse, maximum_speed }` closes the
-loop on field position, including lateral displacement. Use a subsequent
-`Command::Turn` when a final heading is required. `Runner::try_distance_reset`
-returns false on a clean DSR timeout and cancels the pending request before
-allowing a fallback command.
+Build point commands with `Command::drive_to_point([right, forward], maximum_speed, reverse)`.
+The coordinates are `Length` values and the cap is a `Speed`. The command
+closes the loop on full field position, including lateral displacement. Use
+`Command::drive_distance(distance, heading, maximum_speed)` for signed
+encoder-based travel, and `Command::Turn` when a final heading is required.
+`Runner::try_distance_reset` returns false on a clean DSR timeout and cancels
+the pending request before allowing a fallback command.
 
 Use `Command::ApproachContact` for a bounded approach with an
 application-supplied contact predicate and settling time. The predicate can
