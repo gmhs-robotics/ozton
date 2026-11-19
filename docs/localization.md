@@ -17,8 +17,8 @@ and both sides remain observable.
 
 ## Add field references
 
-Register stationary reflecting segments with `with_map` and name the devices
-with `with_range`. A mount uses X right, Y forward, and a CCW beam bearing from +Y.
+Pass stationary reflecting segments as the map and pair each range device
+with its mount. A mount uses X right, Y forward, and a CCW beam bearing from +Y.
 Use `RobotPoint::new(right, forward, up)` for the installed position and
 `horizontal_range_mount(bearing)` to create its planar beam mount.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
@@ -36,9 +36,25 @@ Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
 - **Contact** sets a known pose after the contact condition and heading settle.
   Use contact geometry that constrains the pose you set.
 
-Choose the estimator on `TrackingSetup`. Begin with odometry and run EKF or MCL
-with `shadow = true` to compare its candidate pose against the odometry baseline.
-Verify repeated runs on the actual field before enabling corrections.
+Use `ozton::tracking::localizer::Tracking` to compose a localizer with the
+estimator and any range devices used outside localization. Construct an
+`Ekf` or `Mcl` independently and attach it at assembly.
+
+```rust,ignore
+let tracking = Tracking::new(localizer)
+    .with_distances(Distances::new([front, left]).expect("supported range count"))
+    .with_mcl(Mcl::new(start_pose, particle_config).expect("valid particle config"));
+```
+
+Use `tracking.distances.latest(index)` to inspect the same packet used by
+localization. Calibration uses this path without polling the device again.
+If only the localizer needs the readings, omit `with_distances` and pass
+observations to `tracking.localizer.update(snapshot, observations)` from the
+owner of the sensors. Map geometry and wheel offsets are constructor inputs.
+
+Begin with odometry and run EKF or MCL with `shadow = true` to compare its
+candidate pose against odometry. Use the legacy `Estimator` selection only
+when the running application needs to change algorithms.
 
 ## Height-aware DSR and horizontal odometry
 

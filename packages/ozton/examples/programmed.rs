@@ -165,7 +165,14 @@ impl AutonomousControls<CompetitionBot> for Controls {
     }
 
     fn pose_trusted(robot: &CompetitionBot) -> bool {
-        robot.drivetrain.chassis.drivetrain.tracking.pose_trust() == PoseTrust::Trusted
+        robot
+            .drivetrain
+            .chassis
+            .drivetrain
+            .tracking
+            .localizer
+            .pose_trust()
+            == PoseTrust::Trusted
     }
 
     fn request_distance_reset(robot: &mut CompetitionBot) {
@@ -178,6 +185,7 @@ impl AutonomousControls<CompetitionBot> for Controls {
             .chassis
             .drivetrain
             .tracking
+            .localizer
             .cancel_distance_reset();
     }
 
@@ -258,10 +266,10 @@ async fn main(p: Peripherals) {
     };
     let left = side(p.port_1, p.port_2, Direction::Reverse);
     let right = side(p.port_3, p.port_4, Direction::Forward);
-    let tracking = TrackingSetup::default()
-        .with_imu(InertialSensor::new(p.port_7))
-        .with_map([Surface::new(1.8, -1.8, 1.8, 1.8)])
-        .with_range(
+    let tracking = TrackingSetup {
+        imu: Some(InertialSensor::new(p.port_7)),
+        map: vec![Surface::new(1.8, -1.8, 1.8, 1.8)],
+        ranges: vec![(
             "front",
             DistanceSensor::new(p.port_8),
             RangeSensorConfig::new(
@@ -269,7 +277,9 @@ async fn main(p: Peripherals) {
                     .horizontal_range_mount(Angle::ZERO)
                     .expect("valid range mount"),
             ),
-        );
+        )],
+        ..TrackingSetup::default()
+    };
     let drive = CONFIG
         .build(left, right, tracking)
         .await

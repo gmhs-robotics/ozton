@@ -106,7 +106,12 @@ impl<M: Mechanisms> AutonRobot for Robot<M> {
     type Error = ChassisError;
 
     fn pose_trusted(&self) -> bool {
-        self.drive.chassis.drivetrain.tracking.pose_trust()
+        self.drive
+            .chassis
+            .drivetrain
+            .tracking
+            .localizer
+            .pose_trust()
             == ozton_tracking::localizer::PoseTrust::Trusted
     }
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
@@ -139,6 +144,7 @@ impl<M: Mechanisms> AutonRobot for Robot<M> {
             .chassis
             .drivetrain
             .tracking
+            .localizer
             .cancel_distance_reset();
     }
 

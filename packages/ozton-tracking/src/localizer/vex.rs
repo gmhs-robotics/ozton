@@ -52,18 +52,70 @@ impl WheelSource for TravelCallback {
     }
 }
 
+/// Distance devices polled once per packet window and shared by higher-level
+/// consumers through the cached observations.
+#[derive(Default)]
+pub struct Distances {
+    devices: ArrayVec<DistanceSensor, MAX_RANGES>,
+    last_poll: Option<Duration>,
+    last_occluded: u8,
+    cached: [Option<RangeObservation>; MAX_RANGES],
+}
+
+impl Distances {
+    /// Keep devices in the same order as the localizer's range configurations.
+    pub fn new(devices: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
+        let mut distances = Self::default();
+        for device in devices {
+            distances.devices.try_push(device).ok()?;
+        }
+        Some(distances)
+    }
+
+    /// Count responsive devices, including those that see no object.
+    pub fn ready_count(&self) -> usize {
+        self.devices
+            .iter()
+            .filter(|sensor| sensor.object().is_ok())
+            .count()
+    }
+
+    /// Return the most recent packet without another device read.
+    pub fn latest(&self, index: usize) -> Option<RangeObservation> {
+        let mut observation = self.cached.get(index).copied().flatten()?;
+        observation.occluded |= self.last_occluded & (1 << index) != 0;
+        Some(observation)
+    }
+
+    fn capture(&mut self, occluded: u8) -> [Option<RangeObservation>; MAX_RANGES] {
+        let time = stamp(LowResolutionTime::now());
+        if self
+            .last_poll
+            .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
+        {
+            for (index, sensor) in self.devices.iter().enumerate() {
+                self.cached[index] = distance(sensor, occluded & (1 << index) != 0);
+            }
+            self.last_poll = Some(time);
+        }
+        self.last_occluded = occluded;
+        core::array::from_fn(|index| self.latest(index))
+    }
+}
+
 /// VEX sensor ownership and polling. Use [`Self::with_wheel_sources`] for
 /// concrete wheel sources held inline and read through static dispatch.
-pub struct Sensors<F = TravelCallback, L = TravelCallback> {
+pub struct Sensors<F = TravelCallback, L = TravelCallback, D = Distances> {
     pub imu: Option<Rc<InertialSensor>>,
     pub gps: Option<GpsSensor>,
     field_origin: Pose,
     forward: F,
     lateral: L,
-    ranges: ArrayVec<DistanceSensor, MAX_RANGES>,
-    last_range_poll: Option<Duration>,
-    cached_ranges: [Option<RangeObservation>; MAX_RANGES],
+    distances: D,
 }
+
+/// Wheel, heading and GPS reader paired with a separately owned distance bank.
+pub type SharedSensors<F = TravelCallback, L = TravelCallback> = Sensors<F, L, ()>;
 
 impl Default for Sensors {
     fn default() -> Self {
@@ -79,9 +131,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
             field_origin: Pose::default(),
             forward,
             lateral,
-            ranges: ArrayVec::new(),
-            last_range_poll: None,
-            cached_ranges: [None; MAX_RANGES],
+            distances: Distances::default(),
         }
     }
 
@@ -90,6 +140,49 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
         (forward.valid() && lateral.valid()).then(|| Self::from_sources(forward, lateral))
     }
 
+    /// Give this reader its own distance devices when no other component uses them.
+    pub fn with_ranges(mut self, ranges: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
+        self.distances = Distances::new(ranges)?;
+        Some(self)
+    }
+
+    pub fn ready_range_count(&self) -> usize {
+        self.distances.ready_count()
+    }
+
+    /// Sample the locally owned distance devices along with wheel, IMU and GPS data.
+    pub fn capture(
+        &mut self,
+        drive: [Option<f64>; 2],
+        occluded: u8,
+    ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
+        let ranges = self.distances.capture(occluded);
+        (self.capture_snapshot(drive), ranges)
+    }
+
+    /// Prepare this reader for distances owned on the parent tracking structure.
+    /// Existing distance devices must be managed by the caller before conversion.
+    pub fn into_shared_reader(self) -> SharedSensors<F, L> {
+        let Self {
+            imu,
+            gps,
+            field_origin,
+            forward,
+            lateral,
+            ..
+        } = self;
+        Sensors {
+            imu,
+            gps,
+            field_origin,
+            forward,
+            lateral,
+            distances: (),
+        }
+    }
+}
+
+impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
     /// Align centered GPS readings with the same surveyed route origin used by
     /// walls, targets and the localizer. Default is the centered GPS field frame.
     pub fn set_field_origin(&mut self, origin: Pose) -> bool {
@@ -100,55 +193,14 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
         true
     }
 
-    /// Order must match the localizer's range configurations. Returns None above MAX_RANGES.
-    pub fn with_ranges(mut self, ranges: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
-        self.ranges.clear();
-        for sensor in ranges {
-            self.ranges.try_push(sensor).ok()?;
-        }
-        self.last_range_poll = None;
-        self.cached_ranges.fill(None);
-        Some(self)
-    }
-
-    /// Count initialized, responsive range devices, including those that see no object.
-    pub fn ready_range_count(&self) -> usize {
-        self.ranges
-            .iter()
-            .filter(|sensor| sensor.object().is_ok())
-            .count()
-    }
-
-    /// Sample motor positions separately through the drivetrain. Mask sensors obscured
-    /// by the robot's mechanisms or a known game object.
-    pub fn capture(
-        &mut self,
-        drive: [Option<f64>; 2],
-        occluded: u8,
-    ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
-        let time = stamp(LowResolutionTime::now());
-        if self
-            .last_range_poll
-            .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
-        {
-            for (index, sensor) in self.ranges.iter().enumerate() {
-                self.cached_ranges[index] = distance(sensor, occluded & (1 << index) != 0);
-            }
-            self.last_range_poll = Some(time);
-        }
-        let mut ranges = self.cached_ranges;
-        for (index, sample) in ranges.iter_mut().enumerate() {
-            if let Some(sample) = sample {
-                sample.occluded |= occluded & (1 << index) != 0;
-            }
-        }
+    fn capture_snapshot(&self, drive: [Option<f64>; 2]) -> Snapshot {
         let gps = self.gps.as_ref().and_then(gps_fix).map(|mut fix| {
             fix.pose = fix.pose.in_frame(self.field_origin);
             fix
         });
         let mut snapshot = self.capture_odometry(drive);
         snapshot.gps = gps;
-        (snapshot, ranges)
+        snapshot
     }
 
     /// Read only the travel and heading required for low-latency driver odometry.
@@ -170,6 +222,19 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
             imu,
             gps: None,
         }
+    }
+}
+
+impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
+    /// Sample shared distance devices and the other sensors in a single tick.
+    pub fn capture_with_distances(
+        &self,
+        distances: &mut Distances,
+        drive: [Option<f64>; 2],
+        occluded: u8,
+    ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
+        let ranges = distances.capture(occluded);
+        (self.capture_snapshot(drive), ranges)
     }
 }
 

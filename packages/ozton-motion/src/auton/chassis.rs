@@ -12,7 +12,8 @@ use ozton_math::geometry::Pose;
 use ozton_tracking::{
     TracksForwardTravel,
     localizer::{
-        Correction, Fault, Localizer, MAX_RANGES, RangeObservation, Snapshot, Update, vex::Sensors,
+        Correction, Fault, Filter, MAX_RANGES, PoseEstimator, Snapshot, Tracking, Update,
+        vex::{Distances, SharedSensors},
     },
 };
 use vexide::smart::PortError;
@@ -34,9 +35,9 @@ pub enum WheelControl {
     Voltage([AxisController; 2]),
 }
 
-pub struct Chassis<'a> {
-    pub drivetrain: Drivetrain<Differential, Localizer<'a>>,
-    pub sensors: Sensors,
+pub struct Chassis<'a, E: PoseEstimator = Filter> {
+    pub drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
+    pub sensors: SharedSensors,
     pub journal: Journal,
     control: WheelControl,
     wheels: [Option<WheelFeedback>; 2],
@@ -46,13 +47,12 @@ pub struct Chassis<'a> {
     tracking_status: &'static str,
     calibration_velocity: [Option<(f64, Duration)>; 2],
     pub(super) last_snapshot: Option<Snapshot>,
-    pub(super) raw_ranges: [Option<RangeObservation>; MAX_RANGES],
 }
 
-impl<'a> Chassis<'a> {
+impl<'a, E: PoseEstimator> Chassis<'a, E> {
     pub fn new(
-        drivetrain: Drivetrain<Differential, Localizer<'a>>,
-        sensors: Sensors,
+        drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
+        sensors: SharedSensors,
         control: WheelControl,
         journal_capacity: usize,
     ) -> Option<Self> {
@@ -72,21 +72,20 @@ impl<'a> Chassis<'a> {
             tracking_status: "Tracking initializing",
             calibration_velocity: [None; 2],
             last_snapshot: None,
-            raw_ranges: [None; MAX_RANGES],
         })
     }
 
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
         self.wheels = self.drivetrain.model.feedback();
-        let (snapshot, ranges) = self.sensors.capture(
+        let (snapshot, ranges) = self.sensors.capture_with_distances(
+            &mut self.drivetrain.tracking.distances,
             self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),
             occluded,
         );
         self.time = snapshot.time;
         self.last_snapshot = Some(snapshot);
-        self.raw_ranges = ranges;
-        let update = match self.drivetrain.tracking.update(snapshot, &ranges) {
+        let update = match self.drivetrain.tracking.localizer.update(snapshot, &ranges) {
             Ok(update) => update,
             Err(Fault::Initializing) => return Ok(None),
             Err(fault) => {
@@ -98,11 +97,11 @@ impl<'a> Chassis<'a> {
         self.tracking_status = if update.distance_reset {
             "Distance reset accepted"
         } else {
-            self.drivetrain.tracking.estimator_name()
+            self.drivetrain.tracking.localizer.estimator_name()
         };
         for (index, latest) in self.range.iter_mut().enumerate() {
             let candidate = ranges[index].and_then(|reading| {
-                let config = self.drivetrain.tracking.range_config(index)?;
+                let config = self.drivetrain.tracking.localizer.range_config(index)?;
                 let distance = config.relative_distance(reading, self.time).ok()?;
                 Some(RangeFeedback {
                     distance,
@@ -119,7 +118,7 @@ impl<'a> Chassis<'a> {
             pose: update.pose,
             forward_velocity: update.forward_velocity,
             lateral_velocity: update.lateral_velocity,
-            forward_travel: self.drivetrain.tracking.forward_travel(),
+            forward_travel: self.drivetrain.tracking.localizer.forward_travel(),
             angular_velocity: update.angular_velocity,
             ranges: self.range,
             reset_accepted: update.distance_reset,
@@ -204,6 +203,7 @@ impl<'a> Chassis<'a> {
         self.range.fill(None);
         self.drivetrain
             .tracking
+            .localizer
             .set_pose(pose)
             .then_some(())
             .ok_or(ChassisError::InvalidCommand)
@@ -258,7 +258,7 @@ impl<'a> Chassis<'a> {
     }
 
     pub fn request_distance_reset(&mut self) {
-        self.drivetrain.tracking.request_distance_reset();
+        self.drivetrain.tracking.localizer.request_distance_reset();
     }
 
     pub fn log_step(&mut self, elapsed: Duration, dt: Duration, progress: f64, wheels: [f64; 2]) {

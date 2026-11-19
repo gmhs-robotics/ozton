@@ -36,10 +36,10 @@ wheel speed limit.
 For a custom chassis, `DriveOptions::from_dimensions(track_width, wheel_speed)`
 builds runner options from `Length` and `Velocity` values.
 
-`DifferentialConfig::build` calibrates the IMU supplied through
-`TrackingSetup::with_imu`. Keep the robot still during startup. Register a
-distance device and its mount together with `with_range`, and add `with_map`
-for [field-surface corrections](localization.md#add-field-references).
+`DifferentialConfig::build` calibrates the IMU supplied in `TrackingSetup`.
+Keep the robot still during startup. Pass map surfaces and named device/mount
+pairs in the same setup. The chassis exposes shared range devices through
+its tracking structure for localization and calibration.
 
 The wheel controller defaults to native VEX velocity control. With
 `WheelControl::Voltage`, PID and feedforward use actual volts capped at each

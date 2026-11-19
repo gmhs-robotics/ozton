@@ -9,15 +9,18 @@ use ozton_math::{
 };
 use vexide::math::Angle;
 
-use crate::{Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
+use crate::{
+    Tracking as TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+};
 
 mod estimate;
 mod ranges;
 mod snapshot;
+mod tracking;
+pub use tracking::Tracking;
 pub mod vex;
 
-use estimate::Filter;
-pub use estimate::{EkfConfig, Estimator};
+pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ranges::{MAX_RANGES, RangeObservation, RangeReport, RangeSensorConfig};
 use ranges::{ResetResult, ResetWindow, inspect};
 pub use snapshot::{Fault, GpsFix, OdometryConfig, Snapshot};
@@ -82,11 +85,11 @@ pub struct Update {
 }
 
 /// Composes independent sensors without observing the same packet twice.
-pub struct Localizer<'a> {
+pub struct Localizer<'a, E = Filter> {
     config: Config,
     map: Cow<'a, [Surface]>,
     sensors: Cow<'a, [RangeSensorConfig]>,
-    filter: Filter,
+    filter: E,
     pose: Pose,
     odometry: Pose,
     filter_pose: Pose,
@@ -161,6 +164,46 @@ impl<'a> Localizer<'a> {
             corrections_enabled: true,
         })
     }
+}
+
+impl<'a, E: PoseEstimator> Localizer<'a, E> {
+    fn with_filter<N: PoseEstimator>(self, mut filter: N) -> Localizer<'a, N> {
+        filter.reset(self.pose);
+        let Self {
+            config,
+            map,
+            sensors,
+            pose,
+            odometry,
+            previous,
+            range_times,
+            gps_time,
+            forward_travel,
+            forward_velocity,
+            angular_velocity,
+            trust,
+            corrections_enabled,
+            ..
+        } = self;
+        Localizer {
+            config,
+            map,
+            sensors,
+            filter,
+            pose,
+            odometry,
+            filter_pose: pose,
+            previous,
+            range_times,
+            gps_time,
+            forward_travel,
+            forward_velocity,
+            angular_velocity,
+            reset: None,
+            trust,
+            corrections_enabled,
+        }
+    }
 
     pub fn pose_trust(&self) -> PoseTrust {
         self.trust
@@ -189,31 +232,12 @@ impl<'a> Localizer<'a> {
         self.angular_velocity = 0.0;
     }
 
-    /// Switch estimator without changing the sensor model or claiming pose recovery.
-    pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
-        let Some(filter) = Filter::new(self.pose, estimator) else {
-            return false;
-        };
-        self.filter = filter;
-        self.filter_pose = self.pose;
-        self.config.estimator = estimator;
-        self.config.shadow = shadow;
-        self.reset = None;
-        true
-    }
-
     pub fn pose(&self) -> Pose {
         self.pose
     }
 
     pub fn estimator_name(&self) -> &'static str {
-        match (self.config.estimator, self.config.shadow) {
-            (Estimator::Odometry, _) => "Odometry",
-            (Estimator::Ekf(_), true) => "Odometry / EKF shadow",
-            (Estimator::Mcl(_), true) => "Odometry / MCL shadow",
-            (Estimator::Ekf(_), false) => "EKF",
-            (Estimator::Mcl(_), false) => "MCL",
-        }
+        self.filter.name(self.config.shadow)
     }
 
     pub fn range_max_age(&self, index: usize) -> Option<f64> {
@@ -418,14 +442,14 @@ impl<'a> Localizer<'a> {
                 }
             }
         } else if self.corrections_enabled {
-            candidate = self.filter.observe(
-                filter_prediction,
+            candidate = self.filter.observe(Observations {
+                predicted: filter_prediction,
                 gps,
-                &self.sensors,
-                &reports,
-                &self.map,
-                self.config.max_correction_meters,
-            );
+                sensors: &self.sensors,
+                reports: &reports,
+                map: &self.map,
+                maximum_correction: self.config.max_correction_meters,
+            });
             if let Some(estimate) = candidate {
                 self.filter_pose = estimate;
                 if self.config.shadow {
@@ -434,7 +458,7 @@ impl<'a> Localizer<'a> {
                     self.pose = estimate;
                     correction = Correction::Accepted;
                 }
-            } else if external && !matches!(self.config.estimator, Estimator::Odometry) {
+            } else if external && self.filter.corrects_pose() {
                 correction = Correction::Rejected;
             }
         }
@@ -455,23 +479,38 @@ impl<'a> Localizer<'a> {
     }
 }
 
-impl Tracking for Localizer<'_> {}
-impl TracksPosition for Localizer<'_> {
+impl Localizer<'_> {
+    /// Switch estimator without changing the sensor model or claiming pose recovery.
+    pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
+        let Some(filter) = Filter::new(self.pose, estimator) else {
+            return false;
+        };
+        self.filter = filter;
+        self.filter_pose = self.pose;
+        self.config.estimator = estimator;
+        self.config.shadow = shadow;
+        self.reset = None;
+        true
+    }
+}
+
+impl<E: PoseEstimator> TrackingSystem for Localizer<'_, E> {}
+impl<E: PoseEstimator> TracksPosition for Localizer<'_, E> {
     fn position(&self) -> DVec2 {
         self.pose.position
     }
 }
-impl TracksHeading for Localizer<'_> {
+impl<E: PoseEstimator> TracksHeading for Localizer<'_, E> {
     fn heading(&self) -> Angle {
         Angle::from_radians(self.pose.heading)
     }
 }
-impl TracksForwardTravel for Localizer<'_> {
+impl<E: PoseEstimator> TracksForwardTravel for Localizer<'_, E> {
     fn forward_travel(&self) -> f64 {
         self.forward_travel
     }
 }
-impl TracksVelocity for Localizer<'_> {
+impl<E: PoseEstimator> TracksVelocity for Localizer<'_, E> {
     fn linear_velocity(&self) -> f64 {
         self.forward_velocity
     }

@@ -175,12 +175,13 @@ impl CalibrationRun {
         }
         let [left, right] = match case.trial {
             Trial::Range(id, reference, name) => {
-                if let Some(raw) = drive.chassis.raw_ranges[id.0]
+                if let Some(raw) = drive.chassis.drivetrain.tracking.distances.latest(id.0)
                     && self.last_range.is_none_or(|last| raw.timestamp > last)
                     && drive
                         .chassis
                         .drivetrain
                         .tracking
+                        .localizer
                         .range_config(id.0)
                         .is_some_and(|config| config.relative_distance(raw, sample.time).is_ok())
                 {

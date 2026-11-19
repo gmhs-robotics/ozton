@@ -9,7 +9,8 @@ use ozton_drivetrain::{
 };
 use ozton_math::{geometry::Pose, localization::range::Surface, path::Limits};
 use ozton_tracking::localizer::{
-    Config, Estimator, Localizer, MAX_RANGES, OdometryConfig, RangeSensorConfig, vex::Sensors,
+    Config, Estimator, Localizer, MAX_RANGES, OdometryConfig, RangeSensorConfig, Tracking,
+    vex::{Distances, Sensors},
 };
 use vexide::{
     math::Angle,
@@ -120,7 +121,7 @@ impl DifferentialConfig {
         if names.len() > MAX_RANGES {
             return Err(SetupError::Tracking);
         }
-        sensors = sensors.with_ranges(ports).ok_or(SetupError::Tracking)?;
+        let distances = Distances::new(ports).ok_or(SetupError::Tracking)?;
         let localizer = Localizer::new_owned(
             Config {
                 odometry: OdometryConfig {
@@ -150,8 +151,8 @@ impl DifferentialConfig {
             model = model.with_anti_tip(imu, controller, axis, level);
         }
         let chassis = Chassis::new(
-            Drivetrain::new(model, localizer),
-            sensors,
+            Drivetrain::new(model, Tracking::new(localizer).with_distances(distances)),
+            sensors.into_shared_reader(),
             self.wheel_control,
             self.journal_capacity,
         )
@@ -186,9 +187,9 @@ pub struct TrackingSetup {
     pub lateral_offset: f64,
     pub require_lateral: bool,
     pub max_correction_meters: f64,
-    imu: Option<InertialSensor>,
-    map: Vec<Surface>,
-    ranges: Vec<(&'static str, DistanceSensor, RangeSensorConfig)>,
+    pub imu: Option<InertialSensor>,
+    pub map: Vec<Surface>,
+    pub ranges: Vec<(&'static str, DistanceSensor, RangeSensorConfig)>,
 }
 
 impl Default for TrackingSetup {
@@ -205,30 +206,6 @@ impl Default for TrackingSetup {
             map: Vec::new(),
             ranges: Vec::new(),
         }
-    }
-}
-
-impl TrackingSetup {
-    /// The builder calibrates this IMU before returning the chassis.
-    pub fn with_imu(mut self, imu: InertialSensor) -> Self {
-        self.imu = Some(imu);
-        self
-    }
-
-    pub fn with_map(mut self, surfaces: impl IntoIterator<Item = Surface>) -> Self {
-        self.map = surfaces.into_iter().collect();
-        self
-    }
-
-    /// Register a named device and its mount together.
-    pub fn with_range(
-        mut self,
-        name: &'static str,
-        sensor: DistanceSensor,
-        config: RangeSensorConfig,
-    ) -> Self {
-        self.ranges.push((name, sensor, config));
-        self
     }
 }
 

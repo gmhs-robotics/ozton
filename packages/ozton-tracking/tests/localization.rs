@@ -569,3 +569,47 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
         ozton_tracking::localizer::PoseTrust::Unregistered
     );
 }
+
+#[test]
+fn typed_estimators_compose_with_shared_or_private_ranges() {
+    use ozton_tracking::localizer::{Ekf, Mcl, PoseTrust, Tracking};
+
+    let base = localizer(Estimator::Odometry, false);
+    let pose = base.pose();
+    let mut tracker = Tracking::new(base)
+        .with_distances("shared front and left range source")
+        .with_mcl(Mcl::new(pose, ParticleConfig::default()).unwrap());
+    assert_eq!(tracker.distances, "shared front and left range source");
+    assert_eq!(tracker.localizer.estimator_name(), "MCL");
+    assert!(tracker.localizer.set_pose(pose));
+    assert_eq!(
+        tracker.localizer.update(snapshot(10), &[]).unwrap_err(),
+        Fault::Initializing
+    );
+    assert!(tracker.localizer.update(snapshot(20), &[]).is_ok());
+    assert_eq!(tracker.localizer.pose_trust(), PoseTrust::Trusted);
+
+    let mut tracker = tracker.with_ekf(Ekf::new(pose, EkfConfig::default()).unwrap());
+    assert_eq!(tracker.distances, "shared front and left range source");
+    assert_eq!(tracker.localizer.estimator_name(), "EKF");
+    assert_eq!(tracker.localizer.pose_trust(), PoseTrust::Trusted);
+    assert!(tracker.localizer.update(snapshot(30), &[]).is_ok());
+
+    // A sole consumer may own its source directly and feed the observations.
+    let mut tracker = Tracking::new(localizer(Estimator::Odometry, false))
+        .with_ekf(Ekf::new(pose, EkfConfig::default()).unwrap());
+    let () = tracker.distances;
+    assert!(tracker.localizer.set_pose(pose));
+    assert!(
+        tracker
+            .localizer
+            .update(snapshot(10), &[reading(10, false)])
+            .is_err()
+    );
+    assert!(
+        tracker
+            .localizer
+            .update(snapshot(20), &[reading(20, false)])
+            .is_ok()
+    );
+}
