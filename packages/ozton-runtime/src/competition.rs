@@ -9,7 +9,7 @@ use vexide::{
 };
 
 use crate::{
-    Robot,
+    CustomList, Robot,
     clock::CONTROL_PERIOD,
     diagnostics::{Report, Sample, Sampler, Telemetry},
     menu::RouteMenu,
@@ -34,9 +34,9 @@ pub trait Routes<R, E>: RouteSet {
 ///
 /// ```
 /// use ozton_runtime::{Robot, autonomous_routes};
-/// type PracticeBot = Robot<(), (), (), (), usize>;
+/// type PracticeBot = Robot<(), (), (), ((), usize)>;
 /// async fn practice(robot: &mut PracticeBot) -> Result<(), ()> {
-///     robot.custom += 1;
+///     robot.custom.1 += 1;
 ///     Ok(())
 /// }
 /// autonomous_routes! {
@@ -122,22 +122,22 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
     }
 }
 
-impl<R: RouteSet, D, C, T, M, X, P> Telemetry<Robot<D, C, T, M, X, P, Self>> for Autonomous<R> {
-    fn record(_: &mut Robot<D, C, T, M, X, P, Self>, _: Sample) {}
+impl<R: RouteSet, D, C, T, X, P> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R> {
+    fn record(_: &mut Robot<D, C, T, X, P, Self>, _: Sample) {}
 }
 
-impl<R, D, C, T, M, X, P, S> Telemetry<Robot<D, C, T, M, X, P, Self>> for Autonomous<R, Sampler<S>>
+impl<R, D, C, T, X, P, S> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R, Sampler<S>>
 where
     R: RouteSet,
-    S: Report<Robot<D, C, T, M, X, P, Self>>,
+    S: Report<Robot<D, C, T, X, P, Self>>,
 {
-    fn record(robot: &mut Robot<D, C, T, M, X, P, Self>, sample: Sample) {
+    fn record(robot: &mut Robot<D, C, T, X, P, Self>, sample: Sample) {
         if let Some(frame) = robot.autonomous.sampler.frame(sample) {
             S::collect(robot, frame, sample);
         }
     }
 
-    fn driver_output(robot: &mut Robot<D, C, T, M, X, P, Self>, elapsed: Duration) {
+    fn driver_output(robot: &mut Robot<D, C, T, X, P, Self>, elapsed: Duration) {
         robot.autonomous.sampler.driver_output(elapsed);
     }
 }
@@ -147,10 +147,16 @@ where
 /// assembled robot and can borrow its concrete parts and controls independently.
 pub trait CompetitionControls<R> {
     type Error: std::fmt::Display;
+    type CustomInput;
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
+    /// Stop application-controlled outputs and clear application state.
     fn stop(robot: &mut R) -> Result<(), Self::Error>;
-    fn driver_tick(robot: &mut R, tick: Tick);
+    /// Write driver outputs and supply this tick's shared custom input.
+    /// Return None to skip the custom chain for this tick.
+    fn driver_tick(robot: &mut R, tick: Tick) -> Option<Self::CustomInput>;
+
+    fn after_custom_update(_robot: &mut R) {}
     fn mode_changed(_robot: &mut R, _mode: CompetitionMode) {}
     fn after_tick(_robot: &mut R, _mode: CompetitionMode, _tick: Tick) {}
     fn autonomous_error(
@@ -162,9 +168,10 @@ pub trait CompetitionControls<R> {
     }
 }
 
-impl<D, C, T, M, X, P, R, S> CompetitionRobot for Robot<D, C, T, M, X, P, Autonomous<R, S>>
+impl<D, C, T, X, P, R, S> CompetitionRobot for Robot<D, C, T, X, P, Autonomous<R, S>>
 where
     P: CompetitionControls<Self>,
+    X: CustomList<P::CustomInput, P::Error>,
     R: Routes<Self, P::Error>,
     Autonomous<R, S>: Telemetry<Self>,
 {
@@ -177,11 +184,18 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        P::stop(self)
+        P::stop(self).and(self.custom.stop_all())
     }
 
     fn driver_tick(&mut self, tick: Tick) {
-        P::driver_tick(self, tick);
+        if let Some(mut input) = P::driver_tick(self, tick) {
+            match self.custom.update_all(&mut input) {
+                Ok(()) => P::after_custom_update(self),
+                Err(_) => {
+                    let _ = self.stop();
+                }
+            }
+        }
     }
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
@@ -307,7 +321,7 @@ mod tests {
 
     use super::*;
 
-    type TestRobot = Robot<(), (), (), (), (), i32>;
+    type TestRobot = Robot<(), (), (), (), i32>;
 
     async fn add(robot: &mut TestRobot) -> Result<(), &'static str> {
         robot.controls += 2;

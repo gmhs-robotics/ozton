@@ -30,4 +30,4 @@ impl StartupReference {
 
 pub mod menu;
 
-pub use robot::{DriveControl, Robot};
+pub use robot::{Custom, CustomAt, CustomList, Latest, Previous, Robot};

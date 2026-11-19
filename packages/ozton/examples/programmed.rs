@@ -16,9 +16,9 @@ use ozton::{
         Feedback, Runner, TrackingSetup, chassis::ChassisError,
     },
     runtime::{
-        Robot,
+        Custom, Robot,
         clock::CONTROL_PERIOD,
-        competition::{Autonomous, CompetitionControls, Tick},
+        competition::{Autonomous, CompetitionControls, CompetitionRobot, Tick},
         diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
     },
     tracking::{
@@ -26,7 +26,10 @@ use ozton::{
         mount::RobotPoint,
     },
 };
-use vexide::{competition::CompetitionMode, math::Angle, prelude::*, smart::motor::BrakeMode};
+use vexide::{
+    competition::CompetitionMode, controller::ControllerState, math::Angle, prelude::*,
+    smart::motor::BrakeMode,
+};
 
 // Embedded path moves right (+X), so begin facing right (-90 degrees).
 const START: Pose = Pose::from_lengths(si(0.0), si(0.0), -core::f64::consts::FRAC_PI_2);
@@ -45,6 +48,38 @@ struct Intake {
     on: bool,
 }
 
+impl<Earlier> Custom<(), ChassisError, Earlier> for Intake {
+    fn update(&mut self, _: &mut (), _: &mut Earlier) -> Result<(), ChassisError> {
+        self.motor
+            .set_voltage(if self.on { 5.0 } else { 0.0 })
+            .map_err(ChassisError::Output)
+    }
+
+    fn stop(&mut self) -> Result<(), ChassisError> {
+        self.on = false;
+        self.motor
+            .brake(BrakeMode::Brake)
+            .map_err(ChassisError::Output)
+    }
+}
+
+impl<Earlier> Custom<ControllerState, RouteError, Earlier> for Intake {
+    fn update(
+        &mut self,
+        state: &mut ControllerState,
+        earlier: &mut Earlier,
+    ) -> Result<(), RouteError> {
+        self.on = state.button_r1.is_pressed();
+        self.update(&mut (), earlier)
+            .map_err(|error| RouteError(AutonError::Robot(error)))
+    }
+
+    fn stop(&mut self) -> Result<(), RouteError> {
+        <Self as Custom<(), ChassisError, Earlier>>::stop(self)
+            .map_err(|error| RouteError(AutonError::StopFailed(error)))
+    }
+}
+
 struct Controls {
     straight_path: Rc<Path>,
 }
@@ -53,8 +88,7 @@ type CompetitionBot = Robot<
     ConfiguredChassis,
     Controller,
     (),
-    Intake,
-    (),
+    ((), Intake),
     Controls,
     Autonomous<Route, Sampler<IntakeReport>>,
 >;
@@ -63,7 +97,7 @@ struct IntakeReport;
 
 impl Report<CompetitionBot> for IntakeReport {
     fn collect(robot: &CompetitionBot, frame: Frame, _: Sample) {
-        MotorSample::read(&robot.mechanisms.motor).write(frame, "intake");
+        MotorSample::read(&robot.custom.1.motor).write(frame, "intake");
     }
 }
 
@@ -85,18 +119,18 @@ impl From<AutonError<ChassisError>> for RouteError {
 
 impl CompetitionControls<CompetitionBot> for Controls {
     type Error = RouteError;
+    type CustomInput = ControllerState;
 
     fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
         <Self as AutonomousControls<_>>::stop(robot)
             .map_err(|error| RouteError(AutonError::StopFailed(error)))
     }
 
-    fn driver_tick(robot: &mut CompetitionBot, tick: Tick) {
+    fn driver_tick(robot: &mut CompetitionBot, tick: Tick) -> Option<ControllerState> {
         let Ok(state) = robot.controller.state() else {
-            let _ = <Self as CompetitionControls<_>>::stop(robot);
-            return;
+            let _ = CompetitionRobot::stop(robot);
+            return None;
         };
-        robot.mechanisms.on = state.button_r1.is_pressed();
         let drive = robot
             .drivetrain
             .chassis
@@ -108,11 +142,11 @@ impl CompetitionControls<CompetitionBot> for Controls {
                 DRIVER_FAULT_POLICY,
             );
         robot.mark_driver_output(tick);
-        if (drive.is_err() && matches!(DRIVER_FAULT_POLICY, DriverFaultPolicy::Stop))
-            || Self::update_mechanisms(robot, tick.elapsed).is_err()
-        {
-            let _ = <Self as CompetitionControls<_>>::stop(robot);
+        if drive.is_err() && matches!(DRIVER_FAULT_POLICY, DriverFaultPolicy::Stop) {
+            let _ = CompetitionRobot::stop(robot);
+            return None;
         }
+        Some(state)
     }
 
     fn mode_changed(robot: &mut CompetitionBot, mode: CompetitionMode) {
@@ -128,17 +162,14 @@ impl CompetitionControls<CompetitionBot> for Controls {
 
 impl AutonomousControls<CompetitionBot> for Controls {
     type Error = ChassisError;
+    type CustomInput = ();
 
     fn sample(robot: &mut CompetitionBot) -> Result<Option<Feedback>, Self::Error> {
         robot.drivetrain.chassis.sample(0)
     }
 
-    fn update_mechanisms(robot: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
-        let intake = &mut robot.mechanisms;
-        intake
-            .motor
-            .set_voltage(if intake.on { 5.0 } else { 0.0 })
-            .map_err(ChassisError::Output)
+    fn custom_input(_: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
+        Ok(())
     }
 
     fn drive(
@@ -154,10 +185,7 @@ impl AutonomousControls<CompetitionBot> for Controls {
     }
 
     fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
-        let drive = Self::stop_drive(robot);
-        robot.mechanisms.on = false;
-        let intake = robot.mechanisms.motor.brake(BrakeMode::Brake);
-        drive.and(intake.map_err(ChassisError::Output))
+        Self::stop_drive(robot)
     }
 
     fn set_pose(robot: &mut CompetitionBot, pose: Pose) -> Result<(), Self::Error> {
@@ -221,7 +249,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
         CONFIG.route_timeout,
     )?;
     auton.confirm_start(START)?;
-    auton.robot().mechanisms.on = true;
+    auton.robot().custom.1.on = true;
     auton
         .run(
             Command::Follow {
@@ -233,7 +261,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
             Duration::from_secs(5),
         )
         .await?;
-    auton.robot().mechanisms.on = false;
+    auton.robot().custom.1.on = false;
     // This alignment is optional. The route can continue after a clean timeout.
     auton
         .try_align(
@@ -292,7 +320,7 @@ async fn main(p: Peripherals) {
     Robot::new()
         .with_controller(p.primary_controller)
         .with_drivetrain(drive)
-        .with_mechanisms(intake)
+        .with_custom(intake)
         .with_controls(Controls { straight_path })
         .with_autonomous::<Route>(p.display)
         .with_diagnostics::<IntakeReport>(Duration::from_millis(250))

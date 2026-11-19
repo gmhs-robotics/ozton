@@ -114,7 +114,7 @@ impl AutonRobot for Sim {
         }))
     }
 
-    fn update_mechanisms(&mut self, _: Duration) -> Result<(), Self::Error> {
+    fn update_custom(&mut self, _: Duration) -> Result<(), Self::Error> {
         if self.score_goal {
             self.scoring_ticks += 1;
         }

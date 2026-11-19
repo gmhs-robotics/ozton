@@ -14,7 +14,7 @@ pub trait AutonRobot {
 
     /// Capture tracking once. None is a stopped initialization/rebaseline tick.
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error>;
-    fn update_mechanisms(&mut self, dt: Duration) -> Result<(), Self::Error>;
+    fn update_custom(&mut self, dt: Duration) -> Result<(), Self::Error>;
     fn drive(&mut self, meters_per_second: [f64; 2], dt: Duration) -> Result<(), Self::Error>;
     fn stop_drive(&mut self) -> Result<(), Self::Error>;
     /// Stop every output, even when an individual device fails.
@@ -60,7 +60,7 @@ pub enum AutonError<E> {
 }
 
 /// Reuse one runner across all commands to enforce an overall route deadline.
-/// Dropping it stops drive and mechanisms, including when vexide cancels autonomous.
+/// Dropping it stops drive and registered subsystems, including when vexide cancels autonomous.
 pub struct Runner<'a, R: AutonRobot> {
     robot: &'a mut R,
     clock: CommandClock,
@@ -383,7 +383,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             if step.lost {
                 return Err(AutonError::PathLost);
             }
-            if let Err(error) = active.robot.update_mechanisms(dt) {
+            if let Err(error) = active.robot.update_custom(dt) {
                 if active.robot.recoverable(&error) {
                     let since = *mechanism_retry_since.get_or_insert(Instant::now());
                     active.robot.pause().map_err(AutonError::StopFailed)?;

@@ -1,7 +1,7 @@
 # Build a programmed robot
 
 Use `ozton::runtime::Robot` to assemble your drivetrain, controller, tracking,
-mechanisms, and control state. The builder stores each component in a typed
+custom subsystems, and control state. The builder stores each component in a typed
 field. Unused slots default to `()`. In the example below, the
 `ConfiguredChassis` already owns the localizer, so the separate tracking slot
 is unused.
@@ -54,19 +54,45 @@ is `runtime::competition::Autonomous<Route>` with just a menu, or
 `Autonomous<Route, Sampler<MyReport>>` when serial diagnostics are installed.
 
 - Implement `runtime::competition::CompetitionControls<CompetitionBot>` to
-  supply the driver tick and stop all outputs. The example reads the controller,
-  uses `drive_driver_arcade`, and stops the chassis and intake when the controller
-  or an actuator command fails. Set `DRIVER_FAULT_POLICY` to
-  `DriverFaultPolicy::KeepAvailableMotors` if healthy drive motors should continue
-  after a drive-port fault in driver mode.
-- Implement `motion::auton::AutonomousControls<CompetitionBot>` to give
-  `Runner` access to tracking, wheel commands, and mechanism goals. Report pose
-  trust from the localizer and clear retained goals on stop. Use one runner for
+  read the controller, drive the chassis, and return the input for this tick's
+  customs. Set `DRIVER_FAULT_POLICY` to `DriverFaultPolicy::KeepAvailableMotors`
+  if healthy drive motors should continue after a drive-port fault.
+- Implement `motion::auton::AutonomousControls<CompetitionBot>` to provide
+  tracking, wheel commands, and autonomous custom input. Use one runner for
   each route so every command shares its deadline. See [writing routes](routes.md).
-- For composable driver policies, implement `runtime::DriveControl<Drive, Input>`.
-  Register the first policy with `with_custom` and append others with
-  `with_control`. Call `robot.apply_custom(&input)` before sending wheel commands.
-  Policies run in registration order against the concrete drivetrain.
+
+## Register subsystems
+
+Implement `runtime::Custom<Input, Error, Earlier>` on each subsystem and add it
+with `.with_custom(Intake { … })`. The driver loop and autonomous runner update
+the registered customs in order using the input supplied by their control hooks.
+Implement `Custom::stop` to brake any outputs the subsystem owns.
+
+A custom can use controller state or targets supplied as tick input. If a
+feeder also needs the intake itself, register the intake before the feeder and
+borrow it by compile-time index:
+
+```rust,ignore
+impl<Earlier> Custom<DriverInput, RobotError, Earlier> for Feeder
+where
+    Earlier: CustomAt<Latest, Value = Intake>,
+{
+    fn update(
+        &mut self,
+        input: &mut DriverInput,
+        earlier: &mut Earlier,
+    ) -> Result<(), RobotError> {
+        self.feed(input, earlier.get())
+    }
+}
+
+// Robot::new().with_custom(intake).with_custom(feeder)
+```
+
+`Latest` selects the immediately preceding custom. `Previous<Latest>` skips
+one more. The compiler checks that the index exists and selects the expected
+type when you run the robot. These indices resolve to tuple field accesses.
+An independent custom can leave its `Earlier` type parameter unconstrained.
 
 ## Complete example
 

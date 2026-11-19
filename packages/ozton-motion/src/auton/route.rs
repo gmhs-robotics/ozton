@@ -6,12 +6,12 @@ use ozton_math::{
     geometry::Pose,
     path::{Limits, Path, PathError, follower::Follower, jerryio},
 };
-use ozton_runtime::clock::CONTROL_PERIOD;
-use vexide::{display::Display, prelude::Controller};
+use ozton_runtime::{CustomList, clock::CONTROL_PERIOD};
+use vexide::{display::Display, prelude::Controller, smart::PortError};
 
 use super::{
-    Alignment, AutonError, AutonRobot, Calibration, Command, Mechanisms, PathMarker, RangeId,
-    Robot, Runner,
+    Alignment, AutonError, AutonRobot, Calibration, Command, PathMarker, RangeId, Robot, Runner,
+    StockTick,
     calibration::{CalibrationRun, PreparedCalibration},
     chassis::ChassisError,
     competition::{CompetitionApp, compete_app},
@@ -20,11 +20,15 @@ use super::{
 pub type RouteResult<T = ()> = Result<T, AutonError<ChassisError>>;
 type RouteFuture<'a> = Pin<Box<dyn Future<Output = RouteResult> + 'a>>;
 
-trait RunRoute<M: Mechanisms> {
+trait RunRoute<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     fn run<'a>(&'a self, auton: Auton<'a, M>) -> RouteFuture<'a>;
 }
 
-impl<M: Mechanisms, F: for<'a> AsyncFn(Auton<'a, M>) -> RouteResult> RunRoute<M> for F {
+impl<
+    M: for<'tick> CustomList<StockTick<'tick>, PortError>,
+    F: for<'a> AsyncFn(Auton<'a, M>) -> RouteResult,
+> RunRoute<M> for F
+{
     fn run<'a>(&'a self, auton: Auton<'a, M>) -> RouteFuture<'a> {
         Box::pin(self(auton))
     }
@@ -37,14 +41,14 @@ enum Asset {
 }
 
 /// A menu label, starting pose, optional path asset and ordinary Rust route function.
-pub struct Route<M: Mechanisms> {
+pub struct Route<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     name: &'static str,
     start: Pose,
     asset: Asset,
     run: Box<dyn RunRoute<M>>,
 }
 
-impl<M: Mechanisms> Route<M> {
+impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Route<M> {
     pub fn new(
         name: &'static str,
         start: Pose,
@@ -153,7 +157,7 @@ impl AlignTarget {
     }
 }
 
-struct Prepared<M: Mechanisms> {
+struct Prepared<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     name: &'static str,
     start: Pose,
     path: Option<Path>,
@@ -161,14 +165,14 @@ struct Prepared<M: Mechanisms> {
 }
 
 /// Route-local commands with a shared deadline and a prepared primary path.
-pub struct Auton<'a, M: Mechanisms> {
+pub struct Auton<'a, M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     runner: Runner<'a, Robot<M>>,
     path: Option<&'a Path>,
 }
 
-impl<M: Mechanisms> Auton<'_, M> {
-    pub fn mechanisms(&mut self) -> &mut M {
-        &mut self.runner.robot().mechanisms
+impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
+    pub fn customs(&mut self) -> &mut M {
+        &mut self.runner.robot().custom
     }
     pub fn range(&mut self, name: &str) -> RouteResult<RangeId> {
         self.runner
@@ -280,7 +284,10 @@ impl<M: Mechanisms> Auton<'_, M> {
     }
 }
 
-impl<M: super::MechanismActions> Auton<'_, M> {
+impl<A, M: super::MechanismActions> Auton<'_, (A, M)>
+where
+    (A, M): for<'tick> CustomList<StockTick<'tick>, PortError>,
+{
     pub async fn perform(
         &mut self,
         target: M::Target,
@@ -292,7 +299,7 @@ impl<M: super::MechanismActions> Auton<'_, M> {
 }
 
 /// Prepare all assets before competition starts and show the named routes on the Brain.
-pub async fn compete_routes<M: Mechanisms + 'static>(
+pub async fn compete_routes<M: for<'tick> CustomList<StockTick<'tick>, PortError> + 'static>(
     robot: Robot<M>,
     display: Display,
     controller: Controller,
@@ -302,7 +309,9 @@ pub async fn compete_routes<M: Mechanisms + 'static>(
 }
 
 /// Add supervised driver-mode calibration entries to the Brain selector.
-pub async fn compete_with_calibration<M: Mechanisms + 'static>(
+pub async fn compete_with_calibration<
+    M: for<'tick> CustomList<StockTick<'tick>, PortError> + 'static,
+>(
     robot: Robot<M>,
     display: Display,
     controller: Controller,
@@ -367,7 +376,7 @@ enum Menu {
     Calibration(usize),
 }
 
-struct Registered<M: Mechanisms> {
+struct Registered<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     robot: Robot<M>,
     controller: Controller,
     prepared: Vec<Prepared<M>>,
@@ -375,7 +384,7 @@ struct Registered<M: Mechanisms> {
     sampling: Option<CalibrationRun>,
 }
 
-impl<M: Mechanisms> CompetitionApp for Registered<M> {
+impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> CompetitionApp for Registered<M> {
     type Route = Menu;
     type Error = ChassisError;
 

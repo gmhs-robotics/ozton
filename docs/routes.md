@@ -57,8 +57,8 @@ Set `reverse: true` for reverse travel and start with the robot facing against
 the travel direction.
 
 Set retained mechanism goals through `runner.robot()` or from a marker.
-The runner calls `AutonomousControls::update_mechanisms` during movement
-and waits. Use `wait_until(predicate, stable, timeout)` for a measured condition
+During movement and waits, the runner gets tick input from
+`AutonomousControls::custom_input` and updates the registered subsystems. Use `wait_until(predicate, stable, timeout)` for a measured condition
 such as a lift staying within tolerance for a settling interval. The predicate
 can capture thresholds, reads robot state, and should complete quickly.
 

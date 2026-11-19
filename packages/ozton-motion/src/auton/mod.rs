@@ -16,7 +16,7 @@ pub use calibration::{Calibration, CalibrationTrial};
 pub use command::{Alignment, Command, Contact, DriveOptions, Feedback, PathMarker, RangeFeedback};
 pub use competition::{ProgrammedRobot, compete};
 pub use controls::{AutonomousControls, ScoringControls};
-pub use robot::{Mechanisms, Robot};
+pub use robot::{Robot, StockTick};
 pub use route::{
     AlignTarget, Auton, RegistrationError, RegistrationProblem, Route, RouteResult, compete_routes,
     compete_with_calibration,
