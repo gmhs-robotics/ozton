@@ -280,6 +280,24 @@ impl Differential {
         [0, 1].map(|i| self.sides[i].feedback(&self.feedback[i], dt))
     }
 
+    /// Visit motors in left/right order without sampling or advancing odometry.
+    pub fn visit_motors(&self, mut visit: impl FnMut(usize, usize, &Motor)) {
+        for (side, motors) in self.sides.iter().enumerate() {
+            match motors {
+                Side::Geared(motors) => {
+                    for (index, motor) in motors.iter().enumerate() {
+                        visit(side, index, &motor.motor);
+                    }
+                }
+                Side::Shared(motors) => {
+                    for (index, motor) in motors.borrow_mut().as_mut().iter().enumerate() {
+                        visit(side, index, motor);
+                    }
+                }
+            }
+        }
+    }
+
     /// Read each motor once for load detection without advancing odometry.
     /// A side reports None if any of its motor feedback is unavailable.
     pub fn wheel_load(&self) -> [Option<WheelLoad>; 2] {

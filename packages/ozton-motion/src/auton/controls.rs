@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use ozton_math::geometry::Pose;
-use ozton_runtime::Robot;
+use ozton_runtime::{
+    Robot,
+    diagnostics::{MotionSample, Sample, Telemetry},
+};
 
 use super::{AutonRobot, Feedback, MechanismRobot};
 
@@ -49,6 +52,7 @@ pub trait AutonomousControls<R> {
 impl<D, C, T, M, X, P, A> AutonRobot for Robot<D, C, T, M, X, P, A>
 where
     P: AutonomousControls<Self>,
+    A: Telemetry<Self>,
 {
     type Error = P::Error;
 
@@ -90,6 +94,15 @@ where
     }
     fn log_step(&mut self, elapsed: Duration, dt: Duration, progress: f64, wheels: [f64; 2]) {
         P::log_step(self, elapsed, dt, progress, wheels);
+        self.record_diagnostics(Sample {
+            mode: vexide::competition::CompetitionMode::Autonomous,
+            dt,
+            motion: Some(MotionSample {
+                elapsed,
+                progress,
+                wheel_targets: wheels,
+            }),
+        });
     }
 }
 
@@ -104,6 +117,7 @@ pub trait ScoringControls<R>: AutonomousControls<R> {
 impl<D, C, T, M, X, P, A> MechanismRobot for Robot<D, C, T, M, X, P, A>
 where
     P: ScoringControls<Self>,
+    A: Telemetry<Self>,
 {
     type Target = P::Target;
 

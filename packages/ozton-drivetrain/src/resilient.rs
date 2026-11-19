@@ -2,6 +2,7 @@
 
 use std::{cell::Cell, rc::Rc};
 
+use ozton_diagnostics::serial::FaultLog;
 use vexide::smart::PortError;
 
 use crate::model::{Differential, DrivetrainModel, Tank};
@@ -40,8 +41,9 @@ pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     geometry: DriveGeometry,
     #[cfg(debug_assertions)]
     debug_command: (f64, f64, f64),
-    debug_faults: u64,
-    debug_failed: bool,
+    #[cfg(debug_assertions)]
+    last_positions: Cell<[Option<f64>; 2]>,
+    status: FaultLog,
 }
 
 impl<M: AdjustableDrive> ResilientDrive<M> {
@@ -68,8 +70,9 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             geometry,
             #[cfg(debug_assertions)]
             debug_command: (0.0, 0.0, normal_scale),
-            debug_faults: 0,
-            debug_failed: false,
+            #[cfg(debug_assertions)]
+            last_positions: Cell::new([None; 2]),
+            status: FaultLog::new("drive", vexide::time::user_uptime),
         }
     }
 
@@ -101,24 +104,13 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
         };
     }
 
-    fn debug_result<E: core::fmt::Debug>(&mut self, result: &Result<(), E>) {
-        if result.is_err() {
-            self.debug_faults += 1;
-            if !self.debug_failed {
-                println!(
-                    "DBG,FAULT,t_ms={},source=drive,count={},error={result:?}",
-                    vexide::time::user_uptime().as_millis(),
-                    self.debug_faults
-                );
-            }
-        } else if self.debug_failed {
-            println!(
-                "DBG,RECOVERED,t_ms={},source=drive,count={}",
-                vexide::time::user_uptime().as_millis(),
-                self.debug_faults
-            );
+    fn record_result<E: core::fmt::Debug>(&mut self, result: &Result<(), E>) {
+        match result {
+            Ok(()) => self.status.recovered(),
+            Err(error) => self
+                .status
+                .fail("write_failed", format_args!(",error={error:?}")),
         }
-        self.debug_failed = result.is_err();
     }
     fn send_tank(&mut self, left: f64, right: f64, scale: f64) -> Result<(), PortError> {
         self.model.set_output_scale(scale);
@@ -127,7 +119,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             self.debug_command = (left, right, scale);
         }
         let result = self.model.drive_tank(left, right);
-        self.debug_result(&result);
+        self.record_result(&result);
         result
     }
     fn send_brake(&mut self) -> Result<(), PortError> {
@@ -136,7 +128,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             self.debug_command = (0.0, 0.0, self.normal_scale);
         }
         let result = AdjustableDrive::brake_now(&mut self.model);
-        self.debug_result(&result);
+        self.record_result(&result);
         result
     }
 
@@ -198,9 +190,13 @@ impl ResilientDrive {
     }
 
     pub fn tracking_positions(&self) -> [Option<f64>; 2] {
-        self.model
+        let positions = self
+            .model
             .feedback()
-            .map(|sample| sample.map(|sample| sample.position))
+            .map(|sample| sample.map(|sample| sample.position));
+        #[cfg(debug_assertions)]
+        self.last_positions.set(positions);
+        positions
     }
     pub fn autonomous_wheel_speeds(
         &mut self,
@@ -216,28 +212,32 @@ impl ResilientDrive {
             self.debug_command = (
                 speeds[0] / self.geometry.maximum_wheel_speed,
                 speeds[1] / self.geometry.maximum_wheel_speed,
-                1.0,
+                self.speed_scale,
             );
         }
-        self.debug_result(&result);
+        self.record_result(&result);
         result
     }
+    pub fn visit_motors(&self, visit: impl FnMut(usize, usize, &vexide::prelude::Motor)) {
+        self.model.visit_motors(visit);
+    }
+
+    /// Snapshot from the preceding control tick. Reading it does not touch encoders.
     #[cfg(debug_assertions)]
-    pub fn debug_sample(&self, seq: u64, ms: u128) {
-        let wheels = self.wheel_positions().unwrap_or((f64::NAN, f64::NAN));
+    pub fn snapshot(&self) -> DriveSnapshot {
+        let wheel_meters = self
+            .last_positions
+            .get()
+            .map(|position| position.unwrap_or(f64::NAN));
         let circumference = core::f64::consts::PI * self.geometry.wheel_diameter;
-        println!(
-            "DBG,DRIVE,seq={seq},t_ms={ms},left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={:.6},right_rev={:.6},left_m={:.5},right_m={:.5},write_failed={},fault_count={}",
-            self.debug_command.0,
-            self.debug_command.1,
-            self.debug_command.2,
-            wheels.0,
-            wheels.1,
-            wheels.0 * circumference,
-            wheels.1 * circumference,
-            u8::from(self.debug_failed),
-            self.debug_faults
-        );
+        DriveSnapshot {
+            command: [self.debug_command.0, self.debug_command.1],
+            scale: self.debug_command.2,
+            wheel_meters,
+            wheel_revolutions: wheel_meters.map(|meters| meters / circumference),
+            write_failed: self.status.code().is_some(),
+            fault_count: self.status.count(),
+        }
     }
 
     /// Consensus side feedback, converted to wheel revolutions.
@@ -252,6 +252,17 @@ impl ResilientDrive {
             right.position / circumference,
         ))
     }
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone, Copy)]
+pub struct DriveSnapshot {
+    pub command: [f64; 2],
+    pub scale: f64,
+    pub wheel_meters: [f64; 2],
+    pub wheel_revolutions: [f64; 2],
+    pub write_failed: bool,
+    pub fault_count: u64,
 }
 
 impl<M: AdjustableDrive> Tank for ResilientDrive<M> {
@@ -337,13 +348,13 @@ mod tests {
         let mut drive = ResilientDrive::new(FakeDrive::default(), boost, 0.7, geometry());
         assert!(drive.live_drive(0.2, -0.3).is_err());
         assert_eq!(drive.debug_command, (0.2, -0.3, 1.0));
-        assert_eq!(drive.debug_faults, 1);
+        assert_eq!(drive.status.count(), 1);
         assert!(drive.autonomous_drive(0.35, 0.35).is_err());
         assert_eq!(drive.debug_command, (0.35, 0.35, 0.7));
-        assert_eq!(drive.debug_faults, 2);
+        assert_eq!(drive.status.count(), 2);
         drive.brake_now().unwrap();
         assert_eq!(drive.debug_command, (0.0, 0.0, 0.7));
-        assert_eq!(drive.debug_faults, 3);
+        assert_eq!(drive.status.count(), 3);
     }
 
     #[test]

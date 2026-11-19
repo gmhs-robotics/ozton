@@ -14,6 +14,7 @@ glam = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
 ozton-control = { workspace = true }
+ozton-diagnostics = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [package.metadata.docs.rs]

@@ -128,6 +128,54 @@ impl<D, C, T, M, X, P, A> Robot<D, C, T, M, X, P, A> {
     }
 }
 
+impl<D, C, T, M, X, P, R: crate::competition::RouteSet, S>
+    Robot<D, C, T, M, X, P, crate::competition::Autonomous<R, S>>
+{
+    /// Attach a typed diagnostic report to the Brain runtime. Periodic serial
+    /// output is active in debug builds and samples after control outputs.
+    pub fn with_diagnostics<L>(
+        self,
+        interval: std::time::Duration,
+    ) -> Robot<D, C, T, M, X, P, crate::competition::Autonomous<R, crate::diagnostics::Sampler<L>>>
+    {
+        let Self {
+            drivetrain,
+            controller,
+            tracking,
+            mechanisms,
+            custom,
+            controls,
+            autonomous,
+        } = self;
+        Robot {
+            drivetrain,
+            controller,
+            tracking,
+            mechanisms,
+            custom,
+            controls,
+            autonomous: autonomous.with_diagnostics(interval),
+        }
+    }
+}
+
+impl<D, C, T, M, X, P, A> Robot<D, C, T, M, X, P, A>
+where
+    A: crate::diagnostics::Telemetry<Self>,
+{
+    pub fn record_diagnostics(&mut self, sample: crate::diagnostics::Sample) {
+        A::record(self, sample);
+    }
+
+    /// Time from the driver tick start to the end of the wheel write.
+    pub fn mark_driver_output(&mut self, tick: crate::competition::Tick) {
+        #[cfg(debug_assertions)]
+        A::driver_output(self, tick.work());
+        #[cfg(not(debug_assertions))]
+        let _ = tick;
+    }
+}
+
 impl<D, C, T, M, X, P, A> Robot<D, C, T, M, X, P, A>
 where
     Self: crate::competition::CompetitionRobot,

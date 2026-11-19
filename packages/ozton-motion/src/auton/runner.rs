@@ -411,21 +411,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 progress_pose = None;
                 progress_elapsed = Duration::ZERO;
             }
-            active
-                .robot
-                .log_step(self.started.elapsed(), dt, step.progress, step.wheels);
-            if step.complete {
-                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
-                if let Command::Contact(contact) = command {
-                    active
-                        .robot
-                        .set_pose(contact.known_pose)
-                        .map_err(AutonError::Robot)?;
-                }
-                active.completed = true;
-                return Ok(true);
-            }
-            if step.wheels == [0.0; 2] {
+            if step.complete || step.wheels == [0.0; 2] {
                 active.robot.stop_drive().map_err(AutonError::StopFailed)?;
             } else {
                 match active.robot.drive(step.wheels, dt) {
@@ -439,6 +425,21 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                     }
                     Err(error) => return Err(AutonError::Robot(error)),
                 }
+            }
+            // Serial diagnostics can be slower than feedback. Publish the
+            // actuator command before offering this sample to a reporter.
+            active
+                .robot
+                .log_step(self.started.elapsed(), dt, step.progress, step.wheels);
+            if step.complete {
+                if let Command::Contact(contact) = command {
+                    active
+                        .robot
+                        .set_pose(contact.known_pose)
+                        .map_err(AutonError::Robot)?;
+                }
+                active.completed = true;
+                return Ok(true);
             }
         }
     }

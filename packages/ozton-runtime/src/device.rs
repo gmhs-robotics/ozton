@@ -12,11 +12,6 @@ pub trait MotorDevice {
     fn set_position(&mut self, position: Angle) -> Result<(), PortError>;
     fn brake(&mut self, mode: BrakeMode) -> Result<(), PortError>;
     fn max_voltage(&self) -> f64;
-    /// Voltage, amperes, Celsius, RPM, and newton-metres; unavailable samples are NaN.
-    #[cfg(debug_assertions)]
-    fn debug_measurements(&self) -> (f64, f64, f64, f64, f64) {
-        (f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN)
-    }
     fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError>;
 }
 
@@ -32,16 +27,6 @@ impl MotorDevice for Motor {
     }
     fn max_voltage(&self) -> f64 {
         Motor::max_voltage(self)
-    }
-    #[cfg(debug_assertions)]
-    fn debug_measurements(&self) -> (f64, f64, f64, f64, f64) {
-        (
-            self.voltage().unwrap_or(f64::NAN),
-            self.current().unwrap_or(f64::NAN),
-            self.temperature().unwrap_or(f64::NAN),
-            self.velocity().unwrap_or(f64::NAN),
-            self.torque().unwrap_or(f64::NAN),
-        )
     }
     fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
         Motor::set_voltage(self, voltage)

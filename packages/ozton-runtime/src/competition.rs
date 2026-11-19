@@ -8,7 +8,12 @@ use vexide::{
     time::sleep,
 };
 
-use crate::{Robot, clock::CONTROL_PERIOD, menu::RouteMenu};
+use crate::{
+    Robot,
+    clock::CONTROL_PERIOD,
+    diagnostics::{Report, Sample, Sampler, Telemetry},
+    menu::RouteMenu,
+};
 
 /// The available choices, shared by the Brain selector and route dispatch.
 pub trait RouteSet: Copy + 'static {
@@ -99,7 +104,43 @@ pub trait CompetitionRobot: Sized {
 }
 
 /// Brain selection and status for an assembled robot.
-pub type Autonomous<R> = RouteMenu<Option<R>>;
+pub struct Autonomous<R: Copy + 'static, S = ()> {
+    menu: RouteMenu<Option<R>>,
+    sampler: S,
+}
+
+impl<R: Copy + 'static, S> Autonomous<R, S> {
+    pub fn status(&mut self, message: &str) {
+        self.menu.status(message);
+    }
+
+    pub(crate) fn with_diagnostics<L>(self, interval: Duration) -> Autonomous<R, Sampler<L>> {
+        Autonomous {
+            menu: self.menu,
+            sampler: Sampler::new(interval),
+        }
+    }
+}
+
+impl<R: RouteSet, D, C, T, M, X, P> Telemetry<Robot<D, C, T, M, X, P, Self>> for Autonomous<R> {
+    fn record(_: &mut Robot<D, C, T, M, X, P, Self>, _: Sample) {}
+}
+
+impl<R, D, C, T, M, X, P, S> Telemetry<Robot<D, C, T, M, X, P, Self>> for Autonomous<R, Sampler<S>>
+where
+    R: RouteSet,
+    S: Report<Robot<D, C, T, M, X, P, Self>>,
+{
+    fn record(robot: &mut Robot<D, C, T, M, X, P, Self>, sample: Sample) {
+        if let Some(frame) = robot.autonomous.sampler.frame(sample) {
+            S::collect(robot, frame, sample);
+        }
+    }
+
+    fn driver_output(robot: &mut Robot<D, C, T, M, X, P, Self>, elapsed: Duration) {
+        robot.autonomous.sampler.driver_output(elapsed);
+    }
+}
 
 /// Application-specific competition behavior for an Ozton [`Robot`].
 /// Install its state with `Robot::with_controls`. The hooks receive the
@@ -121,17 +162,18 @@ pub trait CompetitionControls<R> {
     }
 }
 
-impl<D, C, T, M, X, P, R> CompetitionRobot for Robot<D, C, T, M, X, P, Autonomous<R>>
+impl<D, C, T, M, X, P, R, S> CompetitionRobot for Robot<D, C, T, M, X, P, Autonomous<R, S>>
 where
     P: CompetitionControls<Self>,
     R: Routes<Self, P::Error>,
+    Autonomous<R, S>: Telemetry<Self>,
 {
     type Error = P::Error;
     type Route = R;
     const CONTROL_PERIOD: Duration = P::CONTROL_PERIOD;
 
-    fn menu(&mut self) -> &mut Autonomous<R> {
-        &mut self.autonomous
+    fn menu(&mut self) -> &mut RouteMenu<Option<R>> {
+        &mut self.autonomous.menu
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
@@ -148,6 +190,11 @@ where
 
     fn after_tick(&mut self, mode: CompetitionMode, tick: Tick) {
         P::after_tick(self, mode, tick);
+        self.record_diagnostics(Sample {
+            mode,
+            dt: tick.elapsed,
+            motion: None,
+        });
     }
 
     fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
@@ -162,18 +209,21 @@ where
 
 /// Build the Brain menu once, with Disable selected before any user route.
 pub fn autonomous_menu<R: RouteSet>(display: Display) -> Autonomous<R> {
-    RouteMenu::with_choices(
-        display,
-        None,
-        R::CHOICES
-            .iter()
-            .map(|&(label, route)| (label, Some(route))),
-    )
+    Autonomous {
+        menu: RouteMenu::with_choices(
+            display,
+            None,
+            R::CHOICES
+                .iter()
+                .map(|&(label, route)| (label, Some(route))),
+        ),
+        sampler: (),
+    }
 }
 
 /// Menu construction for a custom robot using [`CompetitionRobot`] directly.
-pub fn route_menu<R: CompetitionRobot>(display: Display) -> Autonomous<R::Route> {
-    autonomous_menu(display)
+pub fn route_menu<R: CompetitionRobot>(display: Display) -> RouteMenu<Option<R::Route>> {
+    autonomous_menu(display).menu
 }
 
 /// Run the common mode loop. Route code that drives over multiple ticks should
