@@ -9,6 +9,7 @@ use ozton_math::{
         Path,
         follower::{self, Follower, Progress},
     },
+    units::{Length, Speed},
 };
 use ozton_tracking::localizer::MAX_RANGES;
 
@@ -43,6 +44,31 @@ pub struct DriveOptions {
 }
 
 impl DriveOptions {
+    /// Supply arrival tolerances, velocity tolerances, and required settle time.
+    pub const fn with_settling(
+        mut self,
+        position: Length,
+        heading: vexide::math::Angle,
+        speed: Speed,
+        angular_speed: ozton_math::units::AngularSpeed,
+        settle: Duration,
+    ) -> Self {
+        self.position_tolerance = position.as_meters();
+        self.heading_tolerance = heading.as_radians();
+        self.speed_tolerance = speed.as_meters_per_second();
+        self.angular_speed_tolerance = angular_speed.as_radians_per_second();
+        self.settle = settle;
+        self
+    }
+
+    /// Settling defaults for a differential robot with unit-bearing geometry and speed.
+    pub const fn from_dimensions(track_width: Length, maximum_wheel_speed: Speed) -> Self {
+        Self::differential(
+            track_width.as_meters(),
+            maximum_wheel_speed.as_meters_per_second(),
+        )
+    }
+
     /// Settling defaults for a differential robot, in meters and radians.
     pub const fn differential(track_width: f64, maximum_wheel_speed: f64) -> Self {
         Self {
@@ -144,6 +170,28 @@ pub enum Command<'a, R> {
 }
 
 impl<R> Command<'_, R> {
+    /// Encoder-based travel along a heading in CCW radians.
+    pub const fn drive_distance(distance: Length, heading: f64, maximum_speed: Speed) -> Self {
+        Self::DriveDistance {
+            meters: distance.as_meters(),
+            heading,
+            maximum_speed: maximum_speed.as_meters_per_second(),
+        }
+    }
+
+    /// Field target in right/forward order.
+    pub const fn drive_to_point(
+        [right, forward]: [Length; 2],
+        maximum_speed: Speed,
+        reverse: bool,
+    ) -> Self {
+        Self::DriveToPoint {
+            target: [right.as_meters(), forward.as_meters()],
+            maximum_speed: maximum_speed.as_meters_per_second(),
+            reverse,
+        }
+    }
+
     pub(super) fn requires_field_pose(&self) -> bool {
         matches!(
             self,

@@ -1,5 +1,5 @@
 //! Explicit right/forward/up installation coordinates and planar conversions.
-use ozton_math::localization::range::Mount;
+use ozton_math::{localization::range::Mount, units::Length};
 use vexide::math::Angle;
 
 /// A sensor or wheel position relative to CC, preserving its mounting height.
@@ -17,6 +17,20 @@ impl RobotPoint {
         y_forward_m: 0.0,
         z_up_m: 0.0,
     };
+
+    /// Creates a right/forward/up point relative to CC from physical lengths.
+    pub const fn new(right: Length, forward: Length, up: Length) -> Self {
+        Self {
+            x_right_m: right.as_meters(),
+            y_forward_m: forward.as_meters(),
+            z_up_m: up.as_meters(),
+        }
+    }
+
+    /// Validates coordinates before a static mount is used.
+    pub const fn is_finite(self) -> bool {
+        self.x_right_m.is_finite() && self.y_forward_m.is_finite() && self.z_up_m.is_finite()
+    }
 
     /// Coordinates locate the device from CC, rather than CC from the device.
     pub fn from_meters(x_right_m: f64, y_forward_m: f64, z_up_m: f64) -> Option<Self> {

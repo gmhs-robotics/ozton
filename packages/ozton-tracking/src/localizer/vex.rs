@@ -2,7 +2,10 @@
 
 use std::{rc::Rc, time::Duration};
 
-use ozton_math::geometry::{Pose, compass_heading};
+use ozton_math::{
+    geometry::{Pose, compass_heading},
+    units::Length,
+};
 use vexide::{
     prelude::{DistanceSensor, GpsSensor, InertialSensor},
     smart::SmartDevice,
@@ -154,7 +157,7 @@ fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation>
     }
     Some(RangeObservation {
         timestamp: stamp(after),
-        distance: f64::from(reading.distance) * 0.001,
+        distance: Length::millimeters(f64::from(reading.distance)).as_meters(),
         confidence: reading.confidence,
         occluded,
     })

@@ -214,6 +214,28 @@ impl Differential {
         ))
     }
 
+    /// Builds voltage-controlled geared sides from fixed wiring arrays.
+    /// Empty sides and those exceeding encoder consensus capacity fail at compile time.
+    pub fn geared_arrays<const L: usize, const R: usize>(
+        left: [DriveMotor; L],
+        right: [DriveMotor; R],
+    ) -> Self {
+        const {
+            assert!(L > 0 && R > 0, "geared drivetrain requires both sides");
+            assert!(
+                L <= crate::feedback::MAX_SIDE_MOTORS && R <= crate::feedback::MAX_SIDE_MOTORS,
+                "too many geared motors for encoder consensus"
+            );
+        }
+        Self::from_sides(
+            [
+                Side::Geared(Vec::from(left)),
+                Side::Geared(Vec::from(right)),
+            ],
+            None,
+        )
+    }
+
     fn from_sides(sides: [Side; 2], wheel_speed_limit: Option<f64>) -> Self {
         Self {
             sides,

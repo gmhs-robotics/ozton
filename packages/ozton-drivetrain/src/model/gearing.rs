@@ -2,6 +2,7 @@
 
 use core::f64::consts::PI;
 
+use ozton_math::units::Length;
 use vexide::prelude::Motor;
 
 /// Wheel turns per motor output turn. Motor direction handles gear polarity.
@@ -35,6 +36,31 @@ impl GearRatio {
     }
 }
 
+/// Precomputed wheel conversions for one motor's gearing and wheel diameter.
+#[derive(Debug, Clone, Copy)]
+pub struct DriveMotorCalibration {
+    meters_per_turn: f64,
+    rpm_per_meter_per_second: f64,
+}
+
+impl DriveMotorCalibration {
+    /// Validates wheel conversions. Use in a constant to check static drivetrain settings.
+    pub const fn new(ratio: GearRatio, wheel_diameter: Length) -> Option<Self> {
+        let meters_per_turn = ratio.0 * wheel_diameter.as_meters() * PI;
+        let rpm_per_meter_per_second = 60.0 / meters_per_turn;
+        if !meters_per_turn.is_finite()
+            || meters_per_turn <= 0.0
+            || !rpm_per_meter_per_second.is_finite()
+        {
+            return None;
+        }
+        Some(Self {
+            meters_per_turn,
+            rpm_per_meter_per_second,
+        })
+    }
+}
+
 /// A motor and the effective diameter of the wheels it drives.
 pub struct DriveMotor {
     pub(crate) motor: Motor,
@@ -44,19 +70,19 @@ pub struct DriveMotor {
 
 impl DriveMotor {
     pub fn new(motor: Motor, ratio: GearRatio, wheel_diameter: f64) -> Option<Self> {
-        let meters_per_turn = ratio.0 * wheel_diameter * PI;
-        let rpm_per_meter_per_second = 60.0 / meters_per_turn;
-        if !meters_per_turn.is_finite()
-            || meters_per_turn <= 0.0
-            || !rpm_per_meter_per_second.is_finite()
-        {
-            return None;
-        }
-        Some(Self {
+        Some(Self::calibrated(
             motor,
-            meters_per_turn,
-            rpm_per_meter_per_second,
-        })
+            DriveMotorCalibration::new(ratio, Length::meters(wheel_diameter))?,
+        ))
+    }
+
+    /// Attach a motor to previously validated wheel conversions.
+    pub const fn calibrated(motor: Motor, calibration: DriveMotorCalibration) -> Self {
+        Self {
+            motor,
+            meters_per_turn: calibration.meters_per_turn,
+            rpm_per_meter_per_second: calibration.rpm_per_meter_per_second,
+        }
     }
 }
 

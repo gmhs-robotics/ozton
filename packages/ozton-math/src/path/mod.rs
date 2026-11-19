@@ -4,6 +4,8 @@ use alloc::vec::Vec;
 
 use glam::DVec2;
 
+use crate::units::{Acceleration, Length, Speed};
+
 pub mod follower;
 pub mod jerryio;
 
@@ -15,6 +17,11 @@ pub struct Waypoint {
 }
 
 impl Waypoint {
+    /// Creates a waypoint from right/forward field lengths.
+    pub const fn from_lengths(right: Length, forward: Length, speed_fraction: f64) -> Self {
+        Self::new(right.as_meters(), forward.as_meters(), speed_fraction)
+    }
+
     pub const fn new(x: f64, y: f64, speed_fraction: f64) -> Self {
         Self {
             position: DVec2::new(x, y),
@@ -35,6 +42,25 @@ pub struct Limits {
 }
 
 impl Limits {
+    /// Creates path limits from physical quantities in any supported units.
+    pub const fn from_units(
+        track_width: Length,
+        linear_speed: Speed,
+        wheel_speed: Speed,
+        acceleration: Acceleration,
+        deceleration: Acceleration,
+        lateral_acceleration: Acceleration,
+    ) -> Self {
+        Self {
+            track_width: track_width.as_meters(),
+            linear_speed: linear_speed.as_meters_per_second(),
+            wheel_speed: wheel_speed.as_meters_per_second(),
+            acceleration: acceleration.as_meters_per_second_squared(),
+            deceleration: deceleration.as_meters_per_second_squared(),
+            lateral_acceleration: lateral_acceleration.as_meters_per_second_squared(),
+        }
+    }
+
     pub fn is_valid(self) -> bool {
         [
             self.track_width,

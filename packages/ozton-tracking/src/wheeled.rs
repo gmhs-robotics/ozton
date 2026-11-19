@@ -3,6 +3,7 @@
 use std::{cell::RefCell, f64::consts::PI, rc::Rc, time::Instant};
 
 use glam::DVec2 as Vec2;
+use ozton_math::units::Length;
 use vexide::{
     math::Angle,
     smart::motor::Motor,
@@ -41,6 +42,16 @@ pub struct TrackingWheel<T: RotarySensor> {
 }
 
 impl<T: RotarySensor> TrackingWheel<T> {
+    /// Creates a tracking wheel from physical diameter and signed offset.
+    pub const fn from_dimensions(
+        sensor: T,
+        diameter: Length,
+        offset: Length,
+        gearing: Option<f64>,
+    ) -> Self {
+        Self::new(sensor, diameter.as_meters(), offset.as_meters(), gearing)
+    }
+
     /// Creates a new tracking wheel with the given parameters.
     ///
     /// # Parameters

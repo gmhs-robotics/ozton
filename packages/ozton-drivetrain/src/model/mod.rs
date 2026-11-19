@@ -13,7 +13,7 @@ mod mecanum;
 pub use differential::{
     Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback, WheelLoad, WheelSpeedError,
 };
-pub use gearing::{DriveMotor, GearRatio};
+pub use gearing::{DriveMotor, DriveMotorCalibration, GearRatio};
 pub use mecanum::Mecanum;
 
 /// A collection of motors driving a wheeled mobile robot.

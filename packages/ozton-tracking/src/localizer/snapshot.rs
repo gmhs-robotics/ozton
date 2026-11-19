@@ -43,6 +43,27 @@ pub struct OdometryConfig {
 }
 
 impl OdometryConfig {
+    /// Creates odometry settings from physical lengths, speeds, and the sample gap.
+    pub const fn from_units(
+        track_width: ozton_math::units::Length,
+        forward_offset: ozton_math::units::Length,
+        lateral_offset: ozton_math::units::Length,
+        require_lateral: bool,
+        max_linear_speed: ozton_math::units::Speed,
+        max_angular_speed: ozton_math::units::AngularSpeed,
+        max_gap: Duration,
+    ) -> Self {
+        Self {
+            track_width: track_width.as_meters(),
+            forward_offset: forward_offset.as_meters(),
+            lateral_offset: lateral_offset.as_meters(),
+            require_lateral,
+            max_linear_speed: max_linear_speed.as_meters_per_second(),
+            max_angular_speed: max_angular_speed.as_radians_per_second(),
+            max_gap,
+        }
+    }
+
     pub fn is_valid(self) -> bool {
         [self.max_linear_speed, self.max_angular_speed]
             .iter()

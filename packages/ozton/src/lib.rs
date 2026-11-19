@@ -13,6 +13,7 @@ pub use ozton_derive as derive;
 pub use ozton_diagnostics as diagnostics;
 pub use ozton_drivetrain as drivetrain;
 pub use ozton_math as math;
+pub use ozton_math::units;
 #[cfg(feature = "programmed")]
 pub use ozton_motion as motion;
 #[cfg(feature = "recording")]

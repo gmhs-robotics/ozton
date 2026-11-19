@@ -39,6 +39,23 @@ pub struct Config {
     pub max_correction_meters: f64,
 }
 
+impl Config {
+    /// Creates localizer settings with a unit-bearing correction limit.
+    pub const fn new(
+        odometry: OdometryConfig,
+        estimator: Estimator,
+        shadow: bool,
+        max_correction: ozton_math::units::Length,
+    ) -> Self {
+        Self {
+            odometry,
+            estimator,
+            shadow,
+            max_correction_meters: max_correction.as_meters(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Correction {
     None,

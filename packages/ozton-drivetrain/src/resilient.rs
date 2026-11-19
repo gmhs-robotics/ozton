@@ -14,6 +14,19 @@ pub struct DriveGeometry {
     pub wheel_diameter: f64,
 }
 
+impl DriveGeometry {
+    /// Geometry and maximum wheel speed in physical units.
+    pub const fn from_units(
+        maximum_wheel_speed: ozton_math::units::Speed,
+        wheel_diameter: ozton_math::units::Length,
+    ) -> Self {
+        Self {
+            maximum_wheel_speed: maximum_wheel_speed.as_meters_per_second(),
+            wheel_diameter: wheel_diameter.as_meters(),
+        }
+    }
+}
+
 pub trait AdjustableDrive: Tank<Error = PortError> {
     fn set_output_scale(&mut self, scale: f64);
     fn brake_now(&mut self) -> Result<(), PortError> {
