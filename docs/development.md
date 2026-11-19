@@ -25,7 +25,7 @@ its full examples.
 ## Publish the book
 
 The **Publish the Ozton Book** workflow builds the book and deploys its static
-output to [docs.eli.best](https://docs.eli.best/) on Vercel. It runs on relevant
+output to [ozton.eli.best](https://ozton.eli.best/) on Vercel. It runs on relevant
 pushes to `main` and can also be dispatched from the Actions tab.
 
 In the GitHub `docs-production` environment, set `VERCEL_TOKEN` as a secret

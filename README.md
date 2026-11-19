@@ -8,7 +8,7 @@ selector for autonomous routines.
 
 ## Get started
 
-Read [The Ozton Book](https://docs.eli.best/) for setup, examples, and calibration.
+Read [The Ozton Book](https://ozton.eli.best/) for setup, examples, and calibration.
 Use the `programmed` feature (enabled by default) for routines written in Rust.
 Use `recording` with default features disabled to capture and replay routes.
 Choose one mode per firmware build.
