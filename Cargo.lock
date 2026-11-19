@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ab387a0c4143b4fd3804e193946e78c8ab16cf26c5fde2048e4ac3d618c3b64"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "async-lock"
 version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -405,6 +411,7 @@ version = "0.4.0"
 name = "ozton-drivetrain"
 version = "0.4.0"
 dependencies = [
+ "arrayvec",
  "glam",
  "ozton-control",
  "ozton-diagnostics",
@@ -473,6 +480,7 @@ dependencies = [
 name = "ozton-tracking"
 version = "0.4.0"
 dependencies = [
+ "arrayvec",
  "glam",
  "ozton-math",
  "vexide",

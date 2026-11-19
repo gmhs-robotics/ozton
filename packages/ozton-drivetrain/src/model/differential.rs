@@ -2,6 +2,7 @@
 
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
+use arrayvec::ArrayVec;
 use ozton_control::drive::{AntiTip, SlewLimiter};
 use ozton_math::desaturate;
 use vexide::{
@@ -11,12 +12,19 @@ use vexide::{
 };
 
 use super::{Arcade, DriveMotor, DrivetrainModel, Tank};
+use crate::feedback::MAX_SIDE_MOTORS;
+
+type GearedSide = ArrayVec<DriveMotor, MAX_SIDE_MOTORS>;
 
 type SharedSide = Rc<RefCell<dyn AsMut<[Motor]>>>;
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "geared motor storage is deliberately inline"
+)]
 enum Side {
     Shared(SharedSide),
-    Geared(Vec<DriveMotor>),
+    Geared(GearedSide),
 }
 
 impl Side {
@@ -56,7 +64,7 @@ impl Side {
         let Self::Geared(motors) = self else {
             return None;
         };
-        let mut samples = [None; crate::feedback::MAX_SIDE_MOTORS];
+        let mut samples = [None; MAX_SIDE_MOTORS];
         for (slot, motor) in samples.iter_mut().zip(motors) {
             *slot = motor
                 .motor
@@ -98,6 +106,14 @@ impl Side {
             Self::Shared(motors) => motors.borrow_mut().as_mut().first()?.voltage().ok(),
         }
     }
+}
+
+fn collect_geared_side(motors: impl IntoIterator<Item = DriveMotor>) -> Option<GearedSide> {
+    let mut side = GearedSide::new();
+    for motor in motors {
+        side.try_push(motor).ok()?;
+    }
+    (!side.is_empty()).then_some(side)
 }
 
 fn motor_voltage(output: f64, maximum: f64, absolute: bool) -> f64 {
@@ -193,21 +209,17 @@ impl Differential {
 
     /// Builds geared sides with normalized voltage output, or normalized wheel speed
     /// output when a positive speed limit in meters per second is given.
+    /// Each side owns up to `MAX_SIDE_MOTORS` inline and must contain at least one motor.
     pub fn geared(
         left: impl IntoIterator<Item = DriveMotor>,
         right: impl IntoIterator<Item = DriveMotor>,
         wheel_speed_limit: Option<f64>,
     ) -> Option<Self> {
-        let left: Vec<_> = left.into_iter().collect();
-        let right: Vec<_> = right.into_iter().collect();
-        if left.is_empty()
-            || right.is_empty()
-            || left.len() > crate::feedback::MAX_SIDE_MOTORS
-            || right.len() > crate::feedback::MAX_SIDE_MOTORS
-            || wheel_speed_limit.is_some_and(|limit| !limit.is_finite() || limit <= 0.0)
-        {
+        if wheel_speed_limit.is_some_and(|limit| !limit.is_finite() || limit <= 0.0) {
             return None;
         }
+        let left = collect_geared_side(left)?;
+        let right = collect_geared_side(right)?;
         Some(Self::from_sides(
             [Side::Geared(left), Side::Geared(right)],
             wheel_speed_limit,
@@ -223,14 +235,14 @@ impl Differential {
         const {
             assert!(L > 0 && R > 0, "geared drivetrain requires both sides");
             assert!(
-                L <= crate::feedback::MAX_SIDE_MOTORS && R <= crate::feedback::MAX_SIDE_MOTORS,
+                L <= MAX_SIDE_MOTORS && R <= MAX_SIDE_MOTORS,
                 "too many geared motors for encoder consensus"
             );
         }
         Self::from_sides(
             [
-                Side::Geared(Vec::from(left)),
-                Side::Geared(Vec::from(right)),
+                Side::Geared(left.into_iter().collect()),
+                Side::Geared(right.into_iter().collect()),
             ],
             None,
         )

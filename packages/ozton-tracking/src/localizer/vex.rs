@@ -2,6 +2,7 @@
 
 use std::{rc::Rc, time::Duration};
 
+use arrayvec::ArrayVec;
 use ozton_math::{
     geometry::{Pose, compass_heading},
     units::millimeters,
@@ -17,20 +18,80 @@ use crate::{RotarySensor, wheeled::TrackingWheel};
 
 const RANGE_PERIOD: Duration = Duration::from_millis(33);
 
-/// Sensor ownership for a typical differential chassis.
+/// A wheel-travel source in meters. A missing observation returns None.
+pub trait WheelSource {
+    fn read_travel(&self) -> Option<f64>;
+
+    /// Performs any configuration checks before the source is installed.
+    fn valid(&self) -> bool {
+        true
+    }
+}
+
+impl WheelSource for () {
+    fn read_travel(&self) -> Option<f64> {
+        None
+    }
+}
+
+impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
+    fn read_travel(&self) -> Option<f64> {
+        self.travel().ok()
+    }
+
+    fn valid(&self) -> bool {
+        calibrated(self)
+    }
+}
+
+/// Optional, type-erased source used by the callback builders.
 #[derive(Default)]
-pub struct Sensors {
+pub struct CallbackWheel(Option<Box<dyn Fn() -> Option<f64>>>);
+
+impl WheelSource for CallbackWheel {
+    fn read_travel(&self) -> Option<f64> {
+        self.0.as_ref().and_then(|read| read())
+    }
+}
+
+/// VEX sensor ownership and polling. Use [`Self::with_wheel_sources`] for
+/// concrete wheel sources held inline and read through static dispatch.
+pub struct Sensors<F = CallbackWheel, L = CallbackWheel> {
     pub imu: Option<Rc<InertialSensor>>,
     pub gps: Option<GpsSensor>,
     field_origin: Pose,
-    forward: Option<Box<dyn Fn() -> Option<f64>>>,
-    lateral: Option<Box<dyn Fn() -> Option<f64>>>,
-    ranges: Vec<DistanceSensor>,
+    forward: F,
+    lateral: L,
+    ranges: ArrayVec<DistanceSensor, MAX_RANGES>,
     last_range_poll: Option<Duration>,
     cached_ranges: [Option<RangeObservation>; MAX_RANGES],
 }
 
-impl Sensors {
+impl Default for Sensors {
+    fn default() -> Self {
+        Self::from_sources(CallbackWheel::default(), CallbackWheel::default())
+    }
+}
+
+impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
+    fn from_sources(forward: F, lateral: L) -> Self {
+        Self {
+            imu: None,
+            gps: None,
+            field_origin: Pose::default(),
+            forward,
+            lateral,
+            ranges: ArrayVec::new(),
+            last_range_poll: None,
+            cached_ranges: [None; MAX_RANGES],
+        }
+    }
+
+    /// Starts with concrete wheel sources. Pass `()` for an unused axis.
+    pub fn with_wheel_sources(forward: F, lateral: L) -> Option<Self> {
+        (forward.valid() && lateral.valid()).then(|| Self::from_sources(forward, lateral))
+    }
+
     /// Align centered GPS readings with the same surveyed route origin used by
     /// walls, targets and the localizer. Default is the centered GPS field frame.
     pub fn set_field_origin(&mut self, origin: Pose) -> bool {
@@ -41,37 +102,15 @@ impl Sensors {
         true
     }
 
-    /// Pass calibrated wheel travel in meters, or None when no valid reading is available.
-    pub fn with_forward(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
-        self.forward = Some(Box::new(read));
-        self
-    }
-
-    pub fn with_lateral(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
-        self.lateral = Some(Box::new(read));
-        self
-    }
-
-    pub fn with_forward_wheel<T: RotarySensor + 'static>(
-        self,
-        wheel: TrackingWheel<T>,
-    ) -> Option<Self> {
-        calibrated(&wheel).then(|| self.with_forward(move || wheel.travel().ok()))
-    }
-
-    pub fn with_lateral_wheel<T: RotarySensor + 'static>(
-        self,
-        wheel: TrackingWheel<T>,
-    ) -> Option<Self> {
-        calibrated(&wheel).then(|| self.with_lateral(move || wheel.travel().ok()))
-    }
-
-    /// Order must match the localizer's range configurations.
+    /// Order must match the localizer's range configurations. Returns None above MAX_RANGES.
     pub fn with_ranges(mut self, ranges: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
-        self.ranges = ranges.into_iter().take(MAX_RANGES + 1).collect();
+        self.ranges.clear();
+        for sensor in ranges {
+            self.ranges.try_push(sensor).ok()?;
+        }
         self.last_range_poll = None;
         self.cached_ranges.fill(None);
-        (self.ranges.len() <= MAX_RANGES).then_some(self)
+        Some(self)
     }
 
     /// Count initialized, responsive range devices, including those that see no object.
@@ -123,8 +162,8 @@ impl Sensors {
             }
             Some(compass_heading(imu.heading().ok()?.as_degrees()))
         });
-        let forward = self.forward.as_ref().and_then(|read| read());
-        let lateral = self.lateral.as_ref().and_then(|read| read());
+        let forward = self.forward.read_travel();
+        let lateral = self.lateral.read_travel();
         Snapshot {
             time: stamp(LowResolutionTime::now()),
             drive,
@@ -133,6 +172,33 @@ impl Sensors {
             imu,
             gps: None,
         }
+    }
+}
+
+impl Sensors {
+    /// Pass calibrated wheel travel in meters, or None when no valid reading is available.
+    pub fn with_forward(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
+        self.forward.0 = Some(Box::new(read));
+        self
+    }
+
+    pub fn with_lateral(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
+        self.lateral.0 = Some(Box::new(read));
+        self
+    }
+
+    pub fn with_forward_wheel<T: RotarySensor + 'static>(
+        self,
+        wheel: TrackingWheel<T>,
+    ) -> Option<Self> {
+        calibrated(&wheel).then(|| self.with_forward(move || wheel.travel().ok()))
+    }
+
+    pub fn with_lateral_wheel<T: RotarySensor + 'static>(
+        self,
+        wheel: TrackingWheel<T>,
+    ) -> Option<Self> {
+        calibrated(&wheel).then(|| self.with_lateral(move || wheel.travel().ok()))
     }
 }
 
@@ -177,4 +243,46 @@ fn gps_fix(sensor: &GpsSensor) -> Option<GpsFix> {
         position_error,
         timestamp: stamp(after),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use vexide::math::Angle;
+
+    use super::*;
+
+    struct Encoder(f64);
+
+    impl RotarySensor for Encoder {
+        type Error = core::convert::Infallible;
+
+        fn position(&self) -> Result<Angle, Self::Error> {
+            Ok(Angle::from_turns(self.0))
+        }
+    }
+
+    #[test]
+    fn concrete_wheels_sample_each_axis_without_callbacks() {
+        let wheel = TrackingWheel::new(Encoder(-2.0), 0.1, 0.0, Some(0.5));
+        let sensors = Sensors::with_wheel_sources((), wheel).unwrap();
+        let sample = sensors.capture_odometry([Some(0.1), None]);
+        assert_eq!(sample.drive, [Some(0.1), None]);
+        assert_eq!(sample.forward, None);
+        assert!((sample.lateral.unwrap() + 0.1 * core::f64::consts::PI).abs() < 1e-12);
+
+        for diameter in [0.0, -0.1, f64::NAN] {
+            let wheel = TrackingWheel::new(Encoder(1.0), diameter, 0.0, None);
+            assert!(Sensors::with_wheel_sources(wheel, ()).is_none());
+        }
+    }
+
+    #[test]
+    fn existing_callback_sources_can_still_be_replaced() {
+        let sensors = Sensors::default()
+            .with_forward(|| Some(1.0))
+            .with_forward(|| Some(2.0))
+            .with_lateral(|| Some(-3.0));
+        let sample = sensors.capture_odometry([None; 2]);
+        assert_eq!((sample.forward, sample.lateral), (Some(2.0), Some(-3.0)));
+    }
 }
