@@ -8,16 +8,18 @@ exclusive recording and playback mode.
 - [Build a programmed robot](docs/programmed.md)
 - [Import PATH.JERRYIO routes and write autonomous](docs/routes.md)
 - [Configure odometry, DSR, EKF and MCL](docs/localization.md)
+- [Build mechanisms](docs/mechanisms.md)
 - [Record and replay routes](docs/recording.md)
 - [Run calibration trials and fit telemetry](docs/calibration.md)
 - [Build and troubleshoot](docs/development.md)
 
 Render the full manual with `mdbook build`, or open it with `mdbook serve --open`.
 
-The [programmed example](packages/ozton/examples/programmed.rs) uses one
-chassis configuration, a named distance sensor, an intake, and an embedded route.
-The [recording example](packages/ozton/examples/full.rs) shows the
-`RecordedRobot` workflow.
+The [programmed example](packages/ozton/examples/programmed.rs) assembles a
+`runtime::Robot`, registers a named route with `autonomous_routes!`, and uses
+`Runner` for path following and range alignment. The recording examples derive
+`RecordedRobot` for [open-loop playback](packages/ozton/examples/full.rs) and
+[GPS-corrected playback](packages/ozton/examples/gps_voltage_tracking.rs).
 
 Ozton draws on [Evian](https://github.com/vexide/evian),
 [LemLib](https://github.com/LemLib/LemLib),

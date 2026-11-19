@@ -21,6 +21,10 @@ The optional position tolerance produces zero volts for stationary targets insid
 its deadband. The caller chooses how to brake at zero. Timing gaps, nonfinite raw
 targets, and invalid feedback return `None` and reset controller state. Measured
 limits block outward commands while allowing travel back inside the limits.
+For application-owned travel and arrival settings, `control::limits::PositionLimits`
+stores both in the chosen position unit. Validate static settings with
+`const { assert!(LIMITS.valid()) }`, use `target()` to clamp a requested position,
+and use `ready(position, target)` to check arrival within tolerance.
 
 `PidMotor` adapts a motor to this controller. Its builder defaults to a 1:1 ratio
 and Hold on stop. Set output revolutions per motor revolution for external gearing.
@@ -67,6 +71,8 @@ baseline only for an explicit reference procedure or a known test-fixture telepo
 `StartupReference` preserves an established zero on reconnect. Its initializer is a
 mechanism for assigning a reference, not evidence that physical home was reached.
 Call it only after a limit/absolute sensor or operator confirmation proves home.
-The generic autonomous `MechanismRobot` trait coordinates a typed application goal,
-arrival predicate and timed action callback. Concrete scoring sequences, targets,
-geometry, gear ratios and collision policies remain in the robot application.
+For an assembled robot, implement `ScoringControls<CompetitionBot>` on the
+installed controls to supply a typed goal, arrival predicate, and timed action
+callback to `Runner::perform`. A standalone adapter can implement
+`MechanismRobot` directly. Define scoring sequences, targets, geometry, gear
+ratios, and collision policies in the robot application.

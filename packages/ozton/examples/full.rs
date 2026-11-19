@@ -1,10 +1,12 @@
+//! Open-loop recording and playback with a differential drive and an intake.
+
 use std::time::Duration;
 
 use ozton::{
     derive::RecordedRobot,
     drivetrain::model::Differential,
     prelude::{Drivetrain, NoTracking, RecordableDrivetrain},
-    record::{self, runtime::RecordingAutonomous},
+    record::{self, DifferentialVoltageFrame, runtime::RecordingAutonomous},
 };
 use vexide::prelude::*;
 
@@ -30,7 +32,7 @@ impl record::Recordable for Robot {
         };
 
         Self::Frame {
-            drivetrain: ozton::record::DifferentialVoltageFrame::arcade(
+            drivetrain: DifferentialVoltageFrame::arcade(
                 state.left_stick.y(),
                 state.right_stick.x(),
             ),
@@ -45,7 +47,7 @@ async fn main(peripherals: Peripherals) {
 
     let robot = Robot {
         controller: peripherals.primary_controller,
-        drivetrain: RecordableDrivetrain::new(Drivetrain::new(
+        drivetrain: RecordableDrivetrain::raw(Drivetrain::new(
             Differential::new(
                 [
                     Motor::new(peripherals.port_1, Gearset::Green, Direction::Reverse),

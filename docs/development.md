@@ -6,7 +6,8 @@ Run these commands from the Ozton repository with its pinned Rust nightly and
 ```sh
 cargo check --workspace --all-targets
 cargo test --workspace --all-targets
-cargo test -p ozton --all-targets --no-default-features --features recording
+cargo check --workspace --all-targets --no-default-features --features ozton/recording
+cargo test --workspace --all-targets --no-default-features --features ozton/recording
 cargo build -p ozton --example programmed --target thumbv7a-vex-v5
 cargo build -p ozton --examples --target thumbv7a-vex-v5 --no-default-features --features recording
 ```
@@ -24,7 +25,7 @@ its full examples.
 | Symptom | Check |
 | --- | --- |
 | Build says to choose one mode | Disable default features when selecting `recording`. |
-| Route rejected at startup | Check the reported route name, export format, and physical limits. |
+| Path import or profiling fails at startup | Check the export format and chassis limits passed to `Path::new`. |
 | Route starts with `PathStart` | Check the declared start position, field convention and heading for the travel direction. |
 | Pose jumps or stops updating | Check encoder direction, IMU calibration, sensor health and localizer rejection logs. |
 | Alignment never settles | Verify sensor orientation, clear line of sight, the selected range and the command deadline. |
@@ -33,3 +34,9 @@ its full examples.
 Older robot projects should replace `record` and the separate `derive` feature
 with `recording`, and migrate `CoupledDifferential` to `Differential::geared`
 or `DifferentialConfig`.
+
+To move a programmed robot from manual menu and competition setup to the
+assembled API, install application state with `with_controls`, register
+routes with `autonomous_routes!`, and call
+`.with_autonomous::<Route>(display).compete().await`. See the
+[programmed example](programmed.md#complete-example) for the hook signatures.

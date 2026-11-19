@@ -1,102 +1,84 @@
 # Build a programmed robot
 
-Give `DifferentialConfig` the effective wheel diameter, track width and maximum
-wheel speed once. Ozton uses that configuration for motor output, odometry,
-path constraints and command settling. Choose a speed that every linked motor
-can reach. Use the [calibration trials](calibration.md) to refine your measurements.
+Use `ozton::runtime::Robot` to assemble your drivetrain, controller, tracking,
+mechanisms, and control state. The builder stores each component in a typed
+field. Unused slots default to `()`. In the example below, the
+`ConfiguredChassis` already owns the localizer, so the separate tracking slot
+is unused.
 
-A gear ratio is wheel turns per motor output turn. A 36-tooth motor gear driving
-a 48-tooth wheel gear is `GearRatio::from_teeth(36, 48)`. A direct-drive motor is
-`GearRatio::DIRECT`. Use the motor's direction setting for polarity. All configured geared motors contribute to wheel feedback through encoder consensus.
+```rust,ignore
+{{#include ../packages/ozton/examples/programmed.rs:assemble}}
+```
 
-## Add hardware and mechanisms
+`with_autonomous::<Route>(display)` creates the Brain menu with **Disable**
+selected. `compete()` runs driver ticks, stops outputs on mode transitions, and
+dispatches the selected route once on entry to autonomous. Select routes while
+disabled.
 
-`TrackingSetup::with_imu` calibrates the supplied IMU while the builder runs.
-Keep the robot still. Register a distance device and its mount together with
-`with_range`. Add `with_map` when using field-surface corrections.
+## Configure the differential chassis
 
-The stock `ozton::motion::auton::Robot::new(drive, ())` works for a chassis-only robot. For a robot with
-mechanisms, implement `Mechanisms::update` and `Mechanisms::stop`. Keep goals
-in the mechanism state and clear them on stop. The stock driver loop supplies
-arcade drive. Use `with_driver` to set mechanism goals from controller inputs.
+Give `DifferentialConfig` the effective wheel diameter, track width, and maximum
+wheel speed. Ozton uses those measurements for motor output, odometry, and
+command settling. Use `config.path_limits()` to apply the same limits when
+profiling routes. Choose a speed every linked motor can reach and refine the
+measurements with [calibration trials](calibration.md).
 
-The default driver fault policy stops the robot on a drive-port error.
-`DriverFaultPolicy::KeepAvailableMotors` allows the healthy drive motors to
-continue in driver mode. A drive fault in autonomous stops the route.
+A gear ratio is wheel turns per motor output turn. A 36-tooth motor gear
+driving a 48-tooth wheel gear is `GearRatio::from_teeth(36, 48)`. Use
+`GearRatio::DIRECT` for direct drive and the motor's direction setting for
+polarity. All configured geared motors contribute to encoder consensus.
+For an application that constructs motors individually, use
+`DriveMotorCalibration::new(ratio, wheel_diameter)` to validate conversions
+in a const setting. Attach each device with `DriveMotor::calibrated`.
+`Differential::geared_arrays(left, right)` checks fixed motor counts at compile
+time. Use `Differential::geared` when supplying an iterator or a model-level
+wheel speed limit.
 
-`DifferentialConfig::anti_tip` can share the configured IMU. Supply the axis,
-level reading, polarity and gain measured on your chassis. The wheel controller
-defaults to native VEX velocity control. With `WheelControl::Voltage`, PID and
-feedforward use actual volts, capped at each motor's rating. Tune each side's
-controller voltage limit for the hardware it controls.
+`DifferentialConfig::build` calibrates the IMU supplied through
+`TrackingSetup::with_imu`. Keep the robot still during startup. Register a
+distance device and its mount together with `with_range`, and add `with_map`
+for field-surface corrections.
+
+The wheel controller defaults to native VEX velocity control. With
+`WheelControl::Voltage`, PID and feedforward use actual volts capped at each
+motor's rating. `DifferentialConfig::anti_tip` can share the configured IMU.
+Set its axis, level reading, polarity, and gain for your chassis.
+
+## Implement control hooks
+
+Use a type alias for the assembled robot in the hook and route signatures.
+Install your application control state with `with_controls`. The last slot
+is `runtime::competition::Autonomous<Route>` with just a menu, or
+`Autonomous<Route, Sampler<MyReport>>` when serial diagnostics are installed.
+
+- Implement `runtime::competition::CompetitionControls<CompetitionBot>` to
+  supply the driver tick and stop all outputs. The example reads the controller,
+  uses `drive_driver_arcade`, and stops the chassis and intake when the controller
+  or an actuator command fails. Set `DRIVER_FAULT_POLICY` to
+  `DriverFaultPolicy::KeepAvailableMotors` if healthy drive motors should continue
+  after a drive-port fault in driver mode.
+- Implement `motion::auton::AutonomousControls<CompetitionBot>` to give
+  `Runner` access to tracking, wheel commands, and mechanism goals. Report pose
+  trust from the localizer and clear retained goals on stop. Use one runner for
+  each route so every command shares its deadline. See [writing routes](routes.md).
+- For composable driver policies, implement `runtime::DriveControl<Drive, Input>`.
+  Register the first policy with `with_custom` and append others with
+  `with_control`. Call `robot.apply_custom(&input)` before sending wheel commands.
+  Policies run in registration order against the concrete drivetrain.
+
+The stock differential adapter also exposes
+`ozton::motion::auton::Robot::new(drive, mechanisms)` and `compete_routes`. It
+provides arcade driving and prepares registered paths from the chassis limits.
+Use `()` for a chassis-only robot or implement `Mechanisms` for your mechanism
+state. Use `with_driver` to map controller buttons to goals. The
+[calibration guide](calibration.md) shows how to add built-in Brain trials to
+this adapter.
 
 ## Complete example
 
-This source is also built as the repository's `programmed` example. Adapt the
-ports, measured limits, starting pose and route before running it on a robot.
+Adapt the ports, chassis limits, field map, starting pose, and route before
+running this example on a robot.
 
 ```rust,ignore
 {{#include ../packages/ozton/examples/programmed.rs}}
-```
-
-See [writing routes](routes.md) for mechanism markers and optional alignment.
-For custom hardware and simulation, implement the lower-level `AutonRobot` seam
-and drive it with `Runner`.
-
-
-## Build a robot with custom controls
-
-Start with Ozton's `Robot::new()`. Install the concrete hardware, driver
-policies, robot controls and Brain route set in the same chain.
-
-```rust,ignore
-use ozton::runtime::Robot;
-
-Robot::new()
-    .with_controller(controller)
-    .with_drivetrain(drive)
-    .with_tracking(tracking)
-    .with_mechanisms(mechanisms)
-    .with_custom(DriveBoost)
-    .with_controls(Controls::new(imu))
-    .with_autonomous::<Route>(display)
-    .compete()
-    .await;
-```
-
-`with_autonomous::<Route>(display)` builds the menu and starts with **Disable**
-selected. `compete()` owns mode transitions, stopping on transitions, route
-dispatch and the driver tick budget. Each optional hardware slot defaults to
-`()` and the builder stores the concrete parts directly.
-
-Use a type alias for the builder's result in route and hook signatures.
-`Controls` holds application state, such as an IMU reference or mechanism goals.
-Implement `runtime::competition::CompetitionControls` for that state to supply
-your driver tick and output stop. Add `motion::auton::AutonomousControls` when
-using `Runner` with custom tracking and output. The runner handles deadlines,
-retries and field disable.
-
-A driver policy implements `DriveControl<Drive, Input>`. Call
-`robot.apply_custom(&input)` before sending wheel commands to let the policy
-modify the concrete drivetrain. Add further policies with `with_control`.
-Policies run in registration order. Direct hardware access is available through
-the assembled robot's fields.
-
-Declare each route as an ordinary async function and register it with
-`autonomous_routes!`. The macro supplies menu labels and a static route match.
-
-```rust
-use ozton::{autonomous_routes, runtime::Robot};
-
-type PracticeBot = Robot<(), (), (), (), usize>;
-async fn practice(robot: &mut PracticeBot) -> Result<(), &'static str> {
-    robot.custom += 1;
-    Ok(())
-}
-
-autonomous_routes! {
-    enum Route for PracticeBot => &'static str {
-        Practice("Practice") => practice,
-    }
-}
 ```

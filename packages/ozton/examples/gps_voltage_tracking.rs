@@ -1,11 +1,13 @@
+//! Differential voltage playback with GPS-based drift correction.
+
 use std::time::Duration;
 
 use ozton::{
     derive::RecordedRobot,
     drivetrain::model::Differential,
     prelude::{Drivetrain, RecordableDrivetrain},
-    record::{self, DifferentialVoltageFrame, runtime::RecordingAutonomous},
-    tracking::GpsTracking,
+    record::{self, DifferentialPlayback, DifferentialVoltageFrame, runtime::RecordingAutonomous},
+    tracking::{GpsTracking, gps::GpsTrackingConfig},
 };
 use vexide::{math::Point2, prelude::*};
 
@@ -44,21 +46,27 @@ async fn main(peripherals: Peripherals) {
         0.0,
     );
 
+    // The default route origin is the center of the GPS field survey.
+    let tracking = GpsTracking::with_config(gps, GpsTrackingConfig::default());
+    let drivetrain = Drivetrain::new(
+        Differential::new(
+            [
+                Motor::new(peripherals.port_1, Gearset::Green, Direction::Reverse),
+                Motor::new(peripherals.port_2, Gearset::Green, Direction::Reverse),
+            ],
+            [
+                Motor::new(peripherals.port_3, Gearset::Green, Direction::Forward),
+                Motor::new(peripherals.port_4, Gearset::Green, Direction::Forward),
+            ],
+        ),
+        tracking,
+    );
     let robot = Robot {
         controller: peripherals.primary_controller,
-        drivetrain: RecordableDrivetrain::new(Drivetrain::new(
-            Differential::new(
-                [
-                    Motor::new(peripherals.port_1, Gearset::Green, Direction::Reverse),
-                    Motor::new(peripherals.port_2, Gearset::Green, Direction::Reverse),
-                ],
-                [
-                    Motor::new(peripherals.port_3, Gearset::Green, Direction::Forward),
-                    Motor::new(peripherals.port_4, Gearset::Green, Direction::Forward),
-                ],
-            ),
-            GpsTracking::new(gps),
-        )),
+        drivetrain: RecordableDrivetrain::with_differential_playback(
+            drivetrain,
+            DifferentialPlayback::VoltageCorrection(Default::default()),
+        ),
     };
 
     RecordingAutonomous::compete(robot, display).await;

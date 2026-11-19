@@ -76,19 +76,22 @@ impl CurvatureDrive {
     /// Runs the Curvature Drive algorithm, updates the internal state, and powers the drivetrain.
     ///
     /// # Examples
-    /// ```ignore
-    /// struct Robot {
-    ///     controller: Controller,
-    ///     drivetrain: Drivetrain<Differential, ()>,
-    ///     curvature_drive: CurvatureDrive,
-    /// }
+    /// ```no_run
+    /// use ozton_drivetrain::{Drivetrain, model::{Differential, Tank}};
+    /// use ozton_motion::CurvatureDrive;
+    /// use ozton_tracking::NoTracking;
+    /// use vexide::{prelude::Controller, smart::PortError};
     ///
-    /// let state = self.controller.state().unwrap();
-    /// self.curvature.update(
-    ///     &mut self.drivetrain,
-    ///     state.left_stick.y(),
-    ///     state.right_stick.x(),
-    /// ).expect("couldn't set drivetrain voltages");
+    /// fn drive_tick(
+    ///     curvature: &mut CurvatureDrive,
+    ///     drivetrain: &mut Drivetrain<Differential, NoTracking>,
+    ///     controller: &Controller,
+    /// ) -> Result<(), PortError> {
+    ///     let Ok(state) = controller.state() else {
+    ///         return drivetrain.model.stop_now();
+    ///     };
+    ///     curvature.update(drivetrain, state.left_stick.y(), state.right_stick.x())
+    /// }
     /// ```
     pub fn update<M: Arcade>(
         &mut self,

@@ -7,11 +7,13 @@ tests in both directions.
 
 ## Run a Brain calibration trial
 
-Call `compete_with_calibration` in place of `compete_routes` and register
-the trials your hardware supports. Each trial has a label and a dedicated
-CSV path on the SD card.
+Use `compete_with_calibration` with the stock `motion::auton::Robot<M>`.
+Pass the regular `Route<M>` entries and the trials your hardware supports.
+Each trial has a label and a dedicated CSV path on the SD card.
 
 ```rust,ignore
+use ozton::motion::auton::{Calibration, CalibrationTrial, compete_with_calibration};
+
 let trials = [
     Calibration::new("Straight 1 m", "straight.csv",
         CalibrationTrial::Straight { meters: 1.0 }),
@@ -38,10 +40,21 @@ compete_with_calibration(robot, display, controller, routes, trials).await?;
 
 ## Collect reference samples
 
-The programmed example saves a bounded journal to `auton.csv` on disable.
+The programmed example saves a bounded journal to `auton.csv` in its
+`CompetitionControls::mode_changed` hook on disable. The stock differential
+adapter provides `Robot::with_log_file` for the same workflow.
 `Journal::write_csv` also accepts a serial or file writer. A capacity of zero
 disables logging. A full buffer overwrites its oldest records and reports how
 many it dropped. Size the buffer for the sample frequency and experiment length.
+
+For live serial diagnostics, call `with_diagnostics::<MyReport>(interval)`
+after `with_autonomous`. Implement `runtime::diagnostics::Report<CompetitionBot>`
+to select the data to emit. Ozton schedules the report in debug builds after
+competition ticks and during runner steps. Use `Frame::row` to give related
+rows a common sequence and timestamp. The programmed example uses
+`MotorSample::read` to report the intake, and `mark_driver_output(tick)`
+after the drive write to populate `max_driver_output_us` in `DBG,LOOP`.
+Use the SD journal or typed trial CSV for `ozton-tools calibrate`.
 
 Add typed calibration rows with `diagnostics::calibration::CalibrationSample`.
 The ordinary telemetry shows commands and measurements. Calibration rows also

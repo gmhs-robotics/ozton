@@ -6,6 +6,8 @@ travel in meters with `Sensors::with_forward_wheel` or
 `Sensors::with_lateral_wheel`. Set the corresponding offset in `TrackingSetup`.
 A forward pod's offset is its X-right position from CC. A lateral pod's offset is
 its Y-forward position from CC. Lateral travel is positive right (+X). Set `require_lateral` for robots that rely on measured sideways travel.
+Use `TrackingWheel::from_dimensions` to pass the diameter and signed offset
+as `Length` values.
 
 Each tick uses one sensor snapshot. A recovered source needs a fresh baseline
 before it contributes increments. Differential odometry can fall back to drive
@@ -15,9 +17,13 @@ and both sides remain observable.
 ## Add field references
 
 Register stationary reflecting segments with `with_map` and name the devices
-with `with_range`. A mount uses X right, Y forward, and a CCW beam bearing from +Y. Use a stable wall or fixture, and pass occlusion bits through
-`Mechanisms::occluded_ranges` when a mechanism blocks a beam. A sensor's
-`RangeId::mask` produces its bit.
+with `with_range`. A mount uses X right, Y forward, and a CCW beam bearing from +Y.
+Use `RobotPoint::new(right, forward, up)` for the installed position and
+`horizontal_range_mount(bearing)` to create its planar beam mount.
+Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
+`AutonomousControls::sample` when a mechanism blocks a beam. With the stock
+adapter, supply those bits through `Mechanisms::occluded_ranges`. Use
+`ConfiguredChassis::range(name)` and `RangeId::mask` to get a sensor's bit.
 
 - **DSR** uses one wall to correct its normal axis, or two independent wall
   observations to correct both. Use `Command::DistanceReset` when the robot
