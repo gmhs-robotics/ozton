@@ -51,7 +51,7 @@ impl Config {
             odometry,
             estimator,
             shadow,
-            max_correction_meters: max_correction.as_meters(),
+            max_correction_meters: max_correction.value,
         }
     }
 }

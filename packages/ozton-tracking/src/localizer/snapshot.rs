@@ -49,17 +49,17 @@ impl OdometryConfig {
         forward_offset: ozton_math::units::Length,
         lateral_offset: ozton_math::units::Length,
         require_lateral: bool,
-        max_linear_speed: ozton_math::units::Speed,
-        max_angular_speed: ozton_math::units::AngularSpeed,
+        max_linear_speed: ozton_math::units::Velocity,
+        max_angular_speed: ozton_math::units::AngularVelocity,
         max_gap: Duration,
     ) -> Self {
         Self {
-            track_width: track_width.as_meters(),
-            forward_offset: forward_offset.as_meters(),
-            lateral_offset: lateral_offset.as_meters(),
+            track_width: track_width.value,
+            forward_offset: forward_offset.value,
+            lateral_offset: lateral_offset.value,
             require_lateral,
-            max_linear_speed: max_linear_speed.as_meters_per_second(),
-            max_angular_speed: max_angular_speed.as_radians_per_second(),
+            max_linear_speed: max_linear_speed.value,
+            max_angular_speed: max_angular_speed.value,
             max_gap,
         }
     }

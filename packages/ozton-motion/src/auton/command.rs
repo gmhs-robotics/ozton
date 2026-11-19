@@ -9,7 +9,7 @@ use ozton_math::{
         Path,
         follower::{self, Follower, Progress},
     },
-    units::{Length, Speed},
+    units::{Length, Velocity},
 };
 use ozton_tracking::localizer::MAX_RANGES;
 
@@ -49,24 +49,21 @@ impl DriveOptions {
         mut self,
         position: Length,
         heading: vexide::math::Angle,
-        speed: Speed,
-        angular_speed: ozton_math::units::AngularSpeed,
+        speed: Velocity,
+        angular_speed: ozton_math::units::AngularVelocity,
         settle: Duration,
     ) -> Self {
-        self.position_tolerance = position.as_meters();
+        self.position_tolerance = position.value;
         self.heading_tolerance = heading.as_radians();
-        self.speed_tolerance = speed.as_meters_per_second();
-        self.angular_speed_tolerance = angular_speed.as_radians_per_second();
+        self.speed_tolerance = speed.value;
+        self.angular_speed_tolerance = angular_speed.value;
         self.settle = settle;
         self
     }
 
     /// Settling defaults for a differential robot with unit-bearing geometry and speed.
-    pub const fn from_dimensions(track_width: Length, maximum_wheel_speed: Speed) -> Self {
-        Self::differential(
-            track_width.as_meters(),
-            maximum_wheel_speed.as_meters_per_second(),
-        )
+    pub const fn from_dimensions(track_width: Length, maximum_wheel_speed: Velocity) -> Self {
+        Self::differential(track_width.value, maximum_wheel_speed.value)
     }
 
     /// Settling defaults for a differential robot, in meters and radians.
@@ -171,23 +168,23 @@ pub enum Command<'a, R> {
 
 impl<R> Command<'_, R> {
     /// Encoder-based travel along a heading in CCW radians.
-    pub const fn drive_distance(distance: Length, heading: f64, maximum_speed: Speed) -> Self {
+    pub const fn drive_distance(distance: Length, heading: f64, maximum_speed: Velocity) -> Self {
         Self::DriveDistance {
-            meters: distance.as_meters(),
+            meters: distance.value,
             heading,
-            maximum_speed: maximum_speed.as_meters_per_second(),
+            maximum_speed: maximum_speed.value,
         }
     }
 
     /// Field target in right/forward order.
     pub const fn drive_to_point(
         [right, forward]: [Length; 2],
-        maximum_speed: Speed,
+        maximum_speed: Velocity,
         reverse: bool,
     ) -> Self {
         Self::DriveToPoint {
-            target: [right.as_meters(), forward.as_meters()],
-            maximum_speed: maximum_speed.as_meters_per_second(),
+            target: [right.value, forward.value],
+            maximum_speed: maximum_speed.value,
             reverse,
         }
     }

@@ -4,9 +4,9 @@ use core::f64::consts::{PI, TAU};
 
 use glam::DVec2;
 
-use crate::units::Length;
+use crate::units::{Length, inches};
 
-pub const INCH: f64 = Length::inches(1.0).as_meters();
+pub const INCH: f64 = inches(1.0).value;
 
 /// Counterclockwise heading from +Y forward, wrapped to [-π, π).
 pub fn wrap_heading(radians: f64) -> f64 {
@@ -55,7 +55,7 @@ pub struct Pose {
 impl Pose {
     /// Creates a pose from unit-bearing coordinates and a CCW heading in radians.
     pub const fn from_lengths(x: Length, y: Length, heading_radians: f64) -> Self {
-        Self::new(x.as_meters(), y.as_meters(), heading_radians)
+        Self::new(x.value, y.value, heading_radians)
     }
 
     pub const fn new(x: f64, y: f64, heading: f64) -> Self {

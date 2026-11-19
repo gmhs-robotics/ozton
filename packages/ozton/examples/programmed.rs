@@ -24,24 +24,23 @@ use ozton::{
         localizer::{PoseTrust, RangeSensorConfig},
         mount::RobotPoint,
     },
-    units::{Length, Speed},
+    units::{centimeters, inches, meters, meters_per_second},
 };
 use vexide::{competition::CompetitionMode, math::Angle, prelude::*, smart::motor::BrakeMode};
 
 // Embedded path moves right (+X), so begin facing right (-90 degrees).
-const START: Pose = Pose::from_lengths(Length::ZERO, Length::ZERO, -core::f64::consts::FRAC_PI_2);
+const START: Pose = Pose::from_lengths(meters(0.0), meters(0.0), -core::f64::consts::FRAC_PI_2);
 const GEARED: GearRatio = GearRatio::from_teeth(36, 48);
 const DRIVER_FAULT_POLICY: DriverFaultPolicy = DriverFaultPolicy::Stop;
 const CONFIG: DifferentialConfig = DifferentialConfig {
     journal_capacity: 2048,
     ..DifferentialConfig::new(
-        Length::inches(2.25).as_meters(),
-        Length::centimeters(30.0).as_meters(),
-        Speed::meters_per_second(0.50).as_meters_per_second(),
+        inches(2.25).value,
+        centimeters(30.0).value,
+        meters_per_second(0.50).value,
     )
 };
-const FRONT_MOUNT: RobotPoint =
-    RobotPoint::new(Length::ZERO, Length::centimeters(15.0), Length::ZERO);
+const FRONT_MOUNT: RobotPoint = RobotPoint::new(meters(0.0), centimeters(15.0), meters(0.0));
 // `front` is the first (and only) range registered with `TrackingSetup` below.
 const FRONT_RANGE_INDEX: usize = 0;
 

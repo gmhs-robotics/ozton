@@ -21,9 +21,9 @@ impl RobotPoint {
     /// Creates a right/forward/up point relative to CC from physical lengths.
     pub const fn new(right: Length, forward: Length, up: Length) -> Self {
         Self {
-            x_right_m: right.as_meters(),
-            y_forward_m: forward.as_meters(),
-            z_up_m: up.as_meters(),
+            x_right_m: right.value,
+            y_forward_m: forward.value,
+            z_up_m: up.value,
         }
     }
 

@@ -31,11 +31,12 @@ All robot-mounted coordinates originate at CC: `(0, 0, 0)` is CC, `+X` is right,
 tracking-wheel positions, maps, paths, MCL/EKF states, GPS and telemetry use these axes.
 Heading zero faces +Y; positive angles turn left (CCW about +Z). A +90-degree heading
 faces -X. `compass_heading` negates VEX clockwise degrees into this convention.
-Use metres, radians, seconds, and volts. For measured settings, use `Length`,
-`Speed`, and `Acceleration` from `ozton::units`. These store SI values and
-offer const constructors such as `Length::inches(2.25)`. Use
-`Pose::from_lengths` and `RobotPoint::new` for typed coordinates. At interfaces
-that take scalar SI values, convert with accessors such as `as_meters()`.
+Use `uom` quantities such as `Length`, `Velocity`, and `Acceleration` for
+physical settings. Ozton re-exports the types and crate through `ozton::units`.
+For constants, use helpers such as `ozton::units::inches(2.25)`. In runtime code,
+standard `Length::new::<inch>(2.25)` creates the same type. Pass typed coordinates
+to `Pose::from_lengths` and `RobotPoint::new`. Use `get::<meter>()` at
+interfaces that take a scalar in meters.
 
 A field map needs a fixed surveyed origin, normally CC at the confirmed starting
 placement, with axes aligned to that placement. Current CC's field pose changes as

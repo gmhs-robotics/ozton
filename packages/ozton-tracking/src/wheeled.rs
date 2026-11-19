@@ -49,7 +49,7 @@ impl<T: RotarySensor> TrackingWheel<T> {
         offset: Length,
         gearing: Option<f64>,
     ) -> Self {
-        Self::new(sensor, diameter.as_meters(), offset.as_meters(), gearing)
+        Self::new(sensor, diameter.value, offset.value, gearing)
     }
 
     /// Creates a new tracking wheel with the given parameters.

@@ -2,7 +2,7 @@
 
 use core::f64::consts::PI;
 
-use ozton_math::units::Length;
+use ozton_math::units::{Length, meters};
 use vexide::prelude::Motor;
 
 /// Wheel turns per motor output turn. Motor direction handles gear polarity.
@@ -46,7 +46,7 @@ pub struct DriveMotorCalibration {
 impl DriveMotorCalibration {
     /// Validates wheel conversions. Use in a constant to check static drivetrain settings.
     pub const fn new(ratio: GearRatio, wheel_diameter: Length) -> Option<Self> {
-        let meters_per_turn = ratio.0 * wheel_diameter.as_meters() * PI;
+        let meters_per_turn = ratio.0 * wheel_diameter.value * PI;
         let rpm_per_meter_per_second = 60.0 / meters_per_turn;
         if !meters_per_turn.is_finite()
             || meters_per_turn <= 0.0
@@ -72,7 +72,7 @@ impl DriveMotor {
     pub fn new(motor: Motor, ratio: GearRatio, wheel_diameter: f64) -> Option<Self> {
         Some(Self::calibrated(
             motor,
-            DriveMotorCalibration::new(ratio, Length::meters(wheel_diameter))?,
+            DriveMotorCalibration::new(ratio, meters(wheel_diameter))?,
         ))
     }
 
