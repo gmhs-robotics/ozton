@@ -30,6 +30,7 @@ struct Sim {
     intake: bool,
     intake_moving_ticks: usize,
     stopped: bool,
+    stop_failures: usize,
     cancelled_resets: usize,
     trusted: bool,
     jammed: bool,
@@ -49,6 +50,7 @@ impl Sim {
             intake: false,
             intake_moving_ticks: 0,
             stopped: false,
+            stop_failures: 0,
             cancelled_resets: 0,
             trusted: true,
             jammed: false,
@@ -70,6 +72,9 @@ impl AutonRobot for Sim {
         self.trusted
     }
     fn recoverable(&self, _: &Self::Error) -> bool {
+        true
+    }
+    fn can_skip_failure(&self, _: &Self::Error) -> bool {
         true
     }
     type Error = SimError;
@@ -135,6 +140,10 @@ impl AutonRobot for Sim {
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
+        if self.stop_failures > 0 {
+            self.stop_failures -= 1;
+            return Err(SimError::Transient);
+        }
         self.stopped = true;
         self.intake = false;
         self.stop_drive()
@@ -443,6 +452,17 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
             .unwrap();
         assert!(!completed);
         assert_eq!(runner.robot().wheels, [0.0; 2]);
+        runner.robot().intake = true;
+        let completed = runner
+            .try_run_while(
+                Command::Wait(Duration::from_secs(1)),
+                Duration::from_millis(30),
+                || true,
+            )
+            .await
+            .unwrap();
+        assert!(!completed);
+        assert!(!runner.robot().intake);
         runner
             .run_while(
                 Command::Wait(Duration::from_millis(20)),
@@ -451,6 +471,51 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
             )
             .await
             .unwrap();
+    });
+}
+
+#[test]
+fn a_failed_retry_stop_cancels_only_the_current_runner() {
+    block_on(async {
+        let mut robot = Sim::new(false);
+        robot.transient_samples = 1;
+        robot.stop_failures = 1;
+        let wait = || Command::Wait(Duration::from_millis(10));
+        let mut runner = Runner::new(
+            &mut robot,
+            OPTIONS,
+            Duration::from_millis(5),
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert!(matches!(
+            runner
+                .try_run_while(wait(), Duration::from_millis(100), || true)
+                .await,
+            Err(AutonError::StopFailed(SimError::Transient)),
+        ));
+        assert!(runner.robot().stopped);
+        assert!(matches!(
+            runner
+                .run_while(wait(), Duration::from_millis(100), || true)
+                .await,
+            Err(AutonError::Cancelled),
+        ));
+        drop(runner);
+
+        // A later competition period starts with a fresh runner.
+        Runner::new(
+            &mut robot,
+            OPTIONS,
+            Duration::from_millis(5),
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        )
+        .unwrap()
+        .run_while(wait(), Duration::from_millis(100), || true)
+        .await
+        .unwrap();
     });
 }
 

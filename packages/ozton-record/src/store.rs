@@ -19,6 +19,7 @@ const MAX_RECORDING_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ROUTE_ID: u32 = 4096;
 const MAX_ROUTES: usize = 32;
 pub(crate) const MAX_FRAMES: usize = 6001;
+pub(crate) const MAX_FRAME_GAP: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -148,6 +149,12 @@ impl RouteStore {
         valid: impl Fn(&F) -> bool,
     ) -> Result<u32, StoreError> {
         validate(&pending.recording, max_duration, &valid)?;
+        let index_path = self.root.join(RouteIndex::INDEX_PATH);
+        let index_length = match File::open(&index_path) {
+            Ok(index) => index.metadata()?.len(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(error.into()),
+        };
         if pending.prepared.is_none() {
             let (id, label) = match pending.target {
                 RecordTarget::Off => return Err(StoreError::InvalidRecording),
@@ -177,7 +184,7 @@ impl RouteStore {
             if bytes.len() as u64 > MAX_RECORDING_BYTES {
                 return Err(StoreError::InvalidRecording);
             }
-            let (file_id, path, mut file) = self.reserve()?;
+            let (file_id, path, mut file) = self.reserve(id, &label, index_length)?;
             file.write_all(&bytes)?;
             file.sync_all()?;
             drop(file);
@@ -201,17 +208,7 @@ impl RouteStore {
         {
             return Ok(*id);
         }
-        // A leading newline isolates an interrupted previous append.
-        let row = format!("\n{}", commit_row(*id, &entry.label, entry.file));
-        let index_path = self.root.join(RouteIndex::INDEX_PATH);
-        let length = match File::open(&index_path) {
-            Ok(index) => index.metadata()?.len(),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-            Err(error) => return Err(error.into()),
-        };
-        if length.saturating_add(row.len() as u64) > MAX_INDEX_BYTES {
-            return Err(StoreError::StorageFull);
-        }
+        let row = journal_append(*id, &entry.label, entry.file, index_length)?;
         let mut index = OpenOptions::new()
             .append(true)
             .create(true)
@@ -222,13 +219,24 @@ impl RouteStore {
         Ok(*id)
     }
 
-    fn reserve(&mut self) -> Result<(u32, PathBuf, File), StoreError> {
-        for id in self.next_file..=MAX_ROUTE_ID {
-            let path = self.root.join(RouteIndex::path_for(id));
-            match OpenOptions::new().write(true).create_new(true).open(&path) {
+    fn reserve(
+        &mut self,
+        route: u32,
+        label: &str,
+        index_length: u64,
+    ) -> Result<(u32, PathBuf, File), StoreError> {
+        for file_id in self.next_file..=MAX_ROUTE_ID {
+            journal_append(route, label, file_id, index_length)?;
+            let path = self.root.join(RouteIndex::path_for(file_id));
+            match OpenOptions::new()
+                .write(true)
+                .create(true)
+                .create_new(true)
+                .open(&path)
+            {
                 Ok(file) => {
-                    self.next_file = id + 1;
-                    return Ok((id, path, file));
+                    self.next_file = file_id + 1;
+                    return Ok((file_id, path, file));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(error) => return Err(error.into()),
@@ -236,6 +244,15 @@ impl RouteStore {
         }
         Err(StoreError::StorageFull)
     }
+}
+
+fn journal_append(id: u32, label: &str, file: u32, length: u64) -> Result<String, StoreError> {
+    // The tab invalidates an unterminated row, even if its COMMIT marker was fully written.
+    let row = format!("\t\n{}", commit_row(id, label, file));
+    if length.saturating_add(row.len() as u64) > MAX_INDEX_BYTES {
+        return Err(StoreError::StorageFull);
+    }
+    Ok(row)
 }
 
 pub(crate) fn commit_row(id: u32, label: &str, file: u32) -> String {
@@ -308,7 +325,9 @@ fn validate<F: Frameable>(
     if recording.frames.is_empty()
         || recording.frames.len() > MAX_FRAMES
         || recording.duration() > max_duration
-        || recording.frames.iter().any(|timed| !valid(&timed.frame))
+        || recording.frames.iter().any(|timed| {
+            timed.delta_time_micros > MAX_FRAME_GAP.as_micros() as u64 || !valid(&timed.frame)
+        })
     {
         return Err(StoreError::InvalidRecording);
     }

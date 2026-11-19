@@ -88,3 +88,32 @@ fn reads_legacy_route_and_recovers_an_interrupted_overwrite() {
         0.75
     );
 }
+
+#[test]
+fn saving_another_route_does_not_commit_an_unterminated_overwrite() {
+    let directory = Directory::new();
+    let root = &directory.0;
+    let index_path = root.join(RouteIndex::INDEX_PATH);
+    fs::write(&index_path, "1\tOriginal\nV1\t1\t2\tOriginal\tCOMMIT").unwrap();
+    recording(0.25)
+        .save(root.join(RouteIndex::path_for(1)))
+        .unwrap();
+    recording(0.75)
+        .save(root.join(RouteIndex::path_for(2)))
+        .unwrap();
+    let maximum = Duration::from_secs(15);
+    let check = |value: &f64| value.is_finite();
+    let mut recovered = RouteStore::open(root).unwrap();
+    let mut pending = Pending::new(RecordTarget::New, recording(0.5));
+    let new = recovered.save(&mut pending, maximum, check).unwrap();
+
+    let reopened = RouteStore::open(root).unwrap();
+    assert_eq!(
+        reopened.load::<f64>(1, maximum, check).unwrap().frames[0].frame,
+        0.25
+    );
+    assert_eq!(
+        reopened.load::<f64>(new, maximum, check).unwrap().frames[0].frame,
+        0.5
+    );
+}

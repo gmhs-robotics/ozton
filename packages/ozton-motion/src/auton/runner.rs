@@ -55,6 +55,8 @@ pub enum AutonError<E> {
     UntrustedPose,
     NoProgress,
     Robot(E),
+    /// An output could not be stopped. Even optional commands cannot recover from this.
+    StopFailed(E),
 }
 
 /// Reuse one runner across all commands to enforce an overall route deadline.
@@ -189,29 +191,28 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
         timeout: Duration,
         enabled: impl FnMut() -> bool,
     ) -> Result<bool, AutonError<R::Error>> {
-        let result = self.execute(command, timeout, enabled, true).await;
-        match result {
-            Err(
-                AutonError::CommandTimeout
-                | AutonError::NoProgress
-                | AutonError::PathLost
-                | AutonError::UntrustedPose,
-            ) => {
-                self.robot.cancel_distance_reset();
-                self.robot.stop().map_err(AutonError::Robot)?;
-                Ok(false)
-            }
-            Err(AutonError::Robot(error)) if self.robot.can_skip_failure(&error) => {
-                self.robot.cancel_distance_reset();
-                self.robot.stop().map_err(AutonError::Robot)?;
-                Ok(false)
-            }
-            Err(error) => {
-                self.failed = true;
-                let _ = self.robot.stop();
-                Err(error)
-            }
-            ok => ok,
+        let result = self.execute(command, timeout, enabled, false).await;
+        let error = match result {
+            Ok(completed) => return Ok(completed),
+            Err(error) => error,
+        };
+        let can_skip = match &error {
+            AutonError::CommandTimeout
+            | AutonError::NoProgress
+            | AutonError::PathLost
+            | AutonError::UntrustedPose => true,
+            AutonError::Robot(error) => self.robot.can_skip_failure(error),
+            _ => false,
+        };
+        self.robot.cancel_distance_reset();
+        let stopped = self.robot.stop();
+        if can_skip && stopped.is_ok() {
+            return Ok(false);
+        }
+        self.failed = true;
+        match stopped {
+            Err(stop_error) if can_skip => Err(AutonError::StopFailed(stop_error)),
+            _ => Err(error),
         }
     }
 
@@ -316,7 +317,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                     if matches!(command, Command::DistanceReset) {
                         active.robot.cancel_distance_reset();
                     }
-                    active.robot.stop_drive().map_err(AutonError::Robot)?;
+                    active.robot.stop_drive().map_err(AutonError::StopFailed)?;
                     active.completed = true;
                     return Ok(false);
                 }
@@ -332,7 +333,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 }
                 Err(error) if active.robot.recoverable(&error) => {
                     let since = *retry_since.get_or_insert(Instant::now());
-                    active.robot.pause().map_err(AutonError::Robot)?;
+                    active.robot.pause().map_err(AutonError::StopFailed)?;
                     if since.elapsed() >= Duration::from_millis(300) {
                         return Err(AutonError::Robot(error));
                     }
@@ -341,7 +342,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 Err(error) => return Err(AutonError::Robot(error)),
             };
             let Some(feedback) = feedback else {
-                active.robot.stop_drive().map_err(AutonError::Robot)?;
+                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
                 continue;
             };
             if !feedback.pose.is_finite()
@@ -385,7 +386,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             if let Err(error) = active.robot.update_mechanisms(dt) {
                 if active.robot.recoverable(&error) {
                     let since = *mechanism_retry_since.get_or_insert(Instant::now());
-                    active.robot.pause().map_err(AutonError::Robot)?;
+                    active.robot.pause().map_err(AutonError::StopFailed)?;
                     if since.elapsed() < Duration::from_millis(300) {
                         continue;
                     }
@@ -414,7 +415,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 .robot
                 .log_step(self.started.elapsed(), dt, step.progress, step.wheels);
             if step.complete {
-                active.robot.stop_drive().map_err(AutonError::Robot)?;
+                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
                 if let Command::Contact(contact) = command {
                     active
                         .robot
@@ -425,13 +426,13 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 return Ok(true);
             }
             if step.wheels == [0.0; 2] {
-                active.robot.stop_drive().map_err(AutonError::Robot)?;
+                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
             } else {
                 match active.robot.drive(step.wheels, dt) {
                     Ok(()) => output_retry_since = None,
                     Err(error) if active.robot.recoverable(&error) => {
                         let since = *output_retry_since.get_or_insert(Instant::now());
-                        active.robot.pause().map_err(AutonError::Robot)?;
+                        active.robot.pause().map_err(AutonError::StopFailed)?;
                         if since.elapsed() >= Duration::from_millis(300) {
                             return Err(AutonError::Robot(error));
                         }

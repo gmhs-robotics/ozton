@@ -423,6 +423,10 @@ impl RecordField for AdiMotor {
             crate::log!("frame_types.adi_motor.apply: error={error:?}");
         })
     }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        self.set_output(0.0)
+    }
 }
 
 #[async_trait(?Send)]
@@ -551,6 +555,14 @@ impl<const N: usize> RecordField for [AdiMotor; N] {
             }
         }
 
+        result
+    }
+
+    async fn stop_playback(&mut self) -> Result<(), PortError> {
+        let mut result = Ok(());
+        for motor in self {
+            result = result.and(motor.set_output(0.0));
+        }
         result
     }
 }

@@ -18,10 +18,8 @@ use vexide::{
 use crate::{
     frame::{Frameable, PlaybackOutcome, RecordMode, Recordable, Recording},
     selector::RecordTarget,
-    store::{MAX_FRAMES, Pending, RouteStore, StoreError},
+    store::{MAX_FRAME_GAP, MAX_FRAMES, Pending, RouteStore, StoreError},
 };
-
-const MAX_GAP: Duration = Duration::from_millis(100);
 
 /// Bounded capture. On a capacity limit, finish capture and keep driving.
 pub struct RecordingSession<F: Frameable> {
@@ -49,7 +47,7 @@ impl<F: Frameable> RecordingSession<F> {
         let delta = self
             .previous
             .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
-        if delta > MAX_GAP {
+        if delta > MAX_FRAME_GAP {
             return Err(());
         }
         let elapsed = self.elapsed.saturating_add(delta);
@@ -119,7 +117,7 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
     }
 
     fn interval() -> Duration {
-        R::UPDATE_INTERVAL.clamp(Duration::from_millis(1), MAX_GAP)
+        R::UPDATE_INTERVAL.clamp(Duration::from_millis(1), MAX_FRAME_GAP)
     }
 
     fn maximum() -> Duration {
