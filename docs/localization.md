@@ -4,8 +4,9 @@ Start with geared drive encoders and a calibrated IMU. Add a forward tracking
 pod or lateral pod where wheel slip is significant. Supply calibrated pod
 travel in meters with `Sensors::with_forward_wheel` or
 `Sensors::with_lateral_wheel`. Set the corresponding offset in `TrackingSetup`.
-A forward pod's offset is its X-right position from CC. A lateral pod's offset is
-its Y-forward position from CC. Lateral travel is positive right (+X). Set `require_lateral` for robots that rely on measured sideways travel.
+Measure from [The Origin](coordinates.md). A forward pod uses its X offset,
+and a lateral pod uses its Y offset. Lateral travel is positive to the right.
+Set `require_lateral` for robots that rely on measured sideways travel.
 Use `TrackingWheel::from_dimensions` to pass the diameter and signed offset
 as `Length` values.
 
@@ -21,16 +22,15 @@ with `with_range`. A mount uses X right, Y forward, and a CCW beam bearing from 
 Use `RobotPoint::new(right, forward, up)` for the installed position and
 `horizontal_range_mount(bearing)` to create its planar beam mount.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
-`AutonomousControls::sample` when a mechanism blocks a beam. With the stock
-adapter, supply those bits through `Mechanisms::occluded_ranges`. Use
+`AutonomousControls::sample` when a mechanism blocks a beam. Use
 `ConfiguredChassis::range(name)` and `RangeId::mask` to get a sensor's bit.
 
-- **DSR** uses one wall to correct its normal axis, or two independent wall
+- **Distance sensor reset (DSR)** uses one wall to correct its normal axis, or two independent wall
   observations to correct both. Use `Command::DistanceReset` when the robot
   can see the intended surfaces.
-- **EKF** uses wheel and IMU prediction with gated GPS position or wall
+- **Extended Kalman filter (EKF)** uses wheel and IMU prediction with gated GPS position or wall
   measurements. Supply noise values that match the robot and field.
-- **MCL** uses a bounded particle cloud around the known starting pose and
+- **Monte Carlo localization (MCL)** uses a bounded particle cloud around the known starting pose and
   gated wall ranges. It publishes bounded position corrections while heading
   follows the odometry sources.
 - **Contact** sets a known pose after the contact condition and heading settle.
@@ -54,10 +54,10 @@ For a differential drive with one horizontal tracking wheel, use drive encoders
 for forward travel and the wheel for `Snapshot::lateral`, positive right. Both the
 localizer and `wheeled::TrackingWheel` use the same Y-forward lateral offset.
 Forward wheels use their X-right offset. Pure CCW rotation produces forward travel
-`offset_x * yaw` and lateral travel `-offset_y * yaw`; odometry subtracts these
-lever-arm terms before integrating CC travel. An IMU supplies angular changes. A zero configured
-track width explicitly disables wheel-heading and single-side fallback when that
-geometry is unknown; it requires valid IMU and both drive encoder readings.
+`offset_x * yaw` and lateral travel `-offset_y * yaw`. Odometry subtracts these
+lever-arm terms before integrating travel at The Origin. An IMU supplies angular
+changes. A zero track width disables wheel-heading and single-side fallback.
+With that setting, odometry needs valid IMU and both drive encoder readings.
 
 ## Rest, consistency and pose trust
 
@@ -80,10 +80,10 @@ All available motors in a geared side contribute normalized wheel increments.
 nonfinite data. A new/rejoined motor receives its own baseline. Common-mode wheel
 slip remains unobservable without an independent pod or valid external references.
 
-All filter positions and innovations are X-right/Y-forward; there is no hidden
-axis swap at the robot boundary. The geometry
-helper returns `direction(0) = (0, 1)`. Field poses transform body mounts by an ordinary CCW
-rotation about CC. The geometric rotation operator is separate from a forward vector.
+All filter positions and innovations use X right and Y forward. The geometry
+helper returns `direction(0) = (0, 1)`. A field pose transforms a body mount by
+rotating its offset counterclockwise about The Origin and translating it to
+the robot's field position.
 
 The localizer's external updates are translational. EKF position updates preserve
 IMU/odometry yaw using a position-only gain and a Joseph covariance update. MCL
@@ -91,8 +91,9 @@ conditions particle yaw on the independently tracked heading before weighting be
 so it cannot explain position errors with a yaw different from the published pose.
 Sparse beams still correct only their observed translation axes.
 
+## Register GPS
+
 When GPS is enabled, set `Sensors::set_field_origin` to the same surveyed origin
 and initial orientation used for maps/targets. `GpsTrackingConfig::field_origin`
 provides the same registration for standalone GPS tracking. Raw GPS uses the centered
 field survey; pose `in_frame(origin)` performs the explicit translation and rotation.
-Override configures this registration automatically when a field/map is registered.

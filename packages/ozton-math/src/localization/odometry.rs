@@ -1,10 +1,10 @@
-//! CC-based tracking-wheel correction in the canonical right/forward frame.
+//! Tracking-wheel correction relative to The Origin in the right/forward frame.
 use glam::DVec2;
 
 use crate::geometry::BodyDelta;
 
-/// Forward wheel: (forward-positive travel, X-right position from CC).
-/// Lateral wheel: (right-positive travel, Y-forward position from CC).
+/// Forward wheel: (forward-positive travel, X-right position from The Origin).
+/// Lateral wheel: (right-positive travel, Y-forward position from The Origin).
 /// Pure CCW rotation produces forward travel X·yaw and right travel -Y·yaw.
 pub fn body_delta(forward: (f64, f64), lateral: Option<(f64, f64)>, heading: f64) -> BodyDelta {
     BodyDelta {

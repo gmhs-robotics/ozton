@@ -19,7 +19,7 @@ pub struct RangeFeedback {
     pub timestamp: Duration,
 }
 
-/// One tick of CC pose in X-right/Y-forward metres and CCW radians from +Y.
+/// One tick of pose at The Origin in X-right/Y-forward metres and CCW radians from +Y.
 #[derive(Debug, Clone, Copy)]
 pub struct Feedback {
     pub pose: Pose,

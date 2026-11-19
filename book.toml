@@ -13,3 +13,4 @@ create-missing = false
 
 [output.html]
 git-repository-url = "https://github.com/gmhs-robotics/ozton"
+edit-url-template = "https://github.com/gmhs-robotics/ozton/edit/main/{path}"

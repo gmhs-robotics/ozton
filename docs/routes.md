@@ -1,5 +1,9 @@
 # Write autonomous routes
 
+Start with an [assembled programmed robot](programmed.md). Use the same
+[field frame](coordinates.md#place-the-robot-in-the-field-frame) for the
+robot's starting pose, field map, and route points.
+
 ## Import a PATH.JERRYIO route
 
 1. In [PATH.JERRYIO](https://path.jerryio.com/), use **LemLib v0.5** export
@@ -81,7 +85,7 @@ Absolute point, path, and DSR commands check pose trust every tick.
 false. Supply evidence of trust from the tracker.
 
 Build point commands with `Command::drive_to_point([right, forward], maximum_speed, reverse)`.
-The coordinates are `Length` values and the cap is a `Speed`. The command
+The coordinates are `Length` values and the cap is a `Velocity`. The command
 closes the loop on full field position, including lateral displacement. Use
 `Command::drive_distance(distance, heading, maximum_speed)` for signed
 encoder-based travel, and `Command::Turn` when a final heading is required.
@@ -113,16 +117,3 @@ It defaults to false. A skipped failure must clear retained unsafe goals.
 
 Apply lift-height speed and turn limits and acceleration limits in the drive
 adapter so they apply to every motion.
-
-## Register routes with the stock differential adapter
-
-With `motion::auton::Robot<M>` and `compete_routes`, build routes with
-`Route::jerryio`, `Route::jerryio_chain`, or `Route::new` for a routine with
-no embedded path. Each takes a menu label, a surveyed start pose, and an
-async function receiving `Auton<'_, M>`. The stock runtime prepares embedded
-paths at startup and registers the surveyed pose before the function runs.
-
-Use `auton.follow(timeout)` for the registered path or `follow_with` to
-supply a follower, reverse flag, and markers. `auton.range("front")?` resolves
-a named sensor for `auton.try_align(sensor, target, timeout)`. Implement
-`MechanismActions` on `M` to use `auton.perform(target, action_for, timeout)`.

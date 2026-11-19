@@ -24,7 +24,7 @@ impl Surface {
     }
 }
 
-/// Horizontal sensor mount from CC: X right, Y forward; CCW bearing from +Y.
+/// Horizontal sensor mount relative to The Origin: X right, Y forward; CCW bearing from +Y.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Mount {
     pub offset: DVec2,

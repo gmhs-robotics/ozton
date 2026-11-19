@@ -30,8 +30,8 @@ pub struct TrackingWheel<T: RotarySensor> {
 
     /// Signed offset from the drivetrain's center of rotation.
     ///
-    /// For a forward wheel, this is X right from CC. For a sideways wheel,
-    /// this is Y forward from CC. Forward travel is +Y; sideways travel is +X.
+    /// For a forward wheel, this is X right from The Origin. For a sideways wheel,
+    /// this is Y forward from The Origin. Forward travel is +Y; sideways travel is +X.
     /// Heading is CCW from +Y. Both tracking implementations use these conventions.
     pub offset: f64,
 

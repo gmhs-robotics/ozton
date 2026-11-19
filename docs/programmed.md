@@ -21,7 +21,7 @@ Give `DifferentialConfig` the effective wheel diameter, track width, and maximum
 wheel speed. Ozton uses those measurements for motor output, odometry, and
 command settling. Use `config.path_limits()` to apply the same limits when
 profiling routes. Choose a speed every linked motor can reach and refine the
-measurements with [calibration trials](calibration.md).
+measurements with [calibration trials](calibration.md#run-a-brain-calibration-trial).
 
 A gear ratio is wheel turns per motor output turn. A 36-tooth motor gear
 driving a 48-tooth wheel gear is `GearRatio::from_teeth(36, 48)`. Use
@@ -34,12 +34,12 @@ in a const setting. Attach each device with `DriveMotor::calibrated`.
 time. Use `Differential::geared` when supplying an iterator or a model-level
 wheel speed limit.
 For a custom chassis, `DriveOptions::from_dimensions(track_width, wheel_speed)`
-builds runner options from `Length` and `Speed` values.
+builds runner options from `Length` and `Velocity` values.
 
 `DifferentialConfig::build` calibrates the IMU supplied through
 `TrackingSetup::with_imu`. Keep the robot still during startup. Register a
 distance device and its mount together with `with_range`, and add `with_map`
-for field-surface corrections.
+for [field-surface corrections](localization.md#add-field-references).
 
 The wheel controller defaults to native VEX velocity control. With
 `WheelControl::Voltage`, PID and feedforward use actual volts capped at each
@@ -67,14 +67,6 @@ is `runtime::competition::Autonomous<Route>` with just a menu, or
   Register the first policy with `with_custom` and append others with
   `with_control`. Call `robot.apply_custom(&input)` before sending wheel commands.
   Policies run in registration order against the concrete drivetrain.
-
-The stock differential adapter also exposes
-`ozton::motion::auton::Robot::new(drive, mechanisms)` and `compete_routes`. It
-provides arcade driving and prepares registered paths from the chassis limits.
-Use `()` for a chassis-only robot or implement `Mechanisms` for your mechanism
-state. Use `with_driver` to map controller buttons to goals. The
-[calibration guide](calibration.md) shows how to add built-in Brain trials to
-this adapter.
 
 ## Complete example
 

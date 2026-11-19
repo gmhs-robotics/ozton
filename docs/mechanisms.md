@@ -56,9 +56,7 @@ RPM; controllers receive converted SI values. Device ownership stays concrete,
 without trait objects or shared ownership requirements.
 
 Keep mechanism geometry, coordinated lift/pivot motion, scoring sequences, and
-competition policy in the robot application. Builders configure reusable parts;
-they do not replace the application state machine. Existing positional
-constructors remain available for compatibility.
+competition policy in the robot application.
 
 ## Progress and reference protection
 
@@ -73,6 +71,6 @@ mechanism for assigning a reference, not evidence that physical home was reached
 Call it only after a limit/absolute sensor or operator confirmation proves home.
 For an assembled robot, implement `ScoringControls<CompetitionBot>` on the
 installed controls to supply a typed goal, arrival predicate, and timed action
-callback to `Runner::perform`. A standalone adapter can implement
-`MechanismRobot` directly. Define scoring sequences, targets, geometry, gear
+callback to [`Runner::perform`](routes.md#short-commands-scoring-and-bounded-fallback).
+A standalone adapter can implement `MechanismRobot` directly. Define scoring sequences, targets, geometry, gear
 ratios, and collision policies in the robot application.

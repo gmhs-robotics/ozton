@@ -180,9 +180,9 @@ pub struct TrackingSetup {
     pub sensors: Sensors,
     pub estimator: Estimator,
     pub shadow: bool,
-    /// Forward tracking wheel X-right position from CC, metres.
+    /// Forward tracking wheel X-right position from The Origin, metres.
     pub forward_offset: f64,
-    /// Right-positive lateral wheel Y-forward position from CC, metres.
+    /// Right-positive lateral wheel Y-forward position from The Origin, metres.
     pub lateral_offset: f64,
     pub require_lateral: bool,
     pub max_correction_meters: f64,

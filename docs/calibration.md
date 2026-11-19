@@ -7,7 +7,7 @@ tests in both directions.
 
 ## Run a Brain calibration trial
 
-Use `compete_with_calibration` with the stock `motion::auton::Robot<M>`.
+Use `compete_with_calibration` with a trial fixture built from `motion::auton::Robot<M>`.
 Pass the regular `Route<M>` entries and the trials your hardware supports.
 Each trial has a label and a dedicated CSV path on the SD card.
 
@@ -40,9 +40,8 @@ compete_with_calibration(robot, display, controller, routes, trials).await?;
 
 ## Collect reference samples
 
-The programmed example saves a bounded journal to `auton.csv` in its
-`CompetitionControls::mode_changed` hook on disable. The stock differential
-adapter provides `Robot::with_log_file` for the same workflow.
+The [programmed example](programmed.md#complete-example) saves a bounded journal
+to `auton.csv` in its `CompetitionControls::mode_changed` hook on disable.
 `Journal::write_csv` also accepts a serial or file writer. A capacity of zero
 disables logging. A full buffer overwrites its oldest records and reports how
 many it dropped. Size the buffer for the sample frequency and experiment length.
@@ -73,9 +72,8 @@ cargo run -p ozton-tools -- calibrate auton.csv front_range
 - **Track width and pod offsets.** Run in-place rotations and record measured
   heading change, signed side travel, and each pod's travel. Use calibrated
   wheel diameters and independently measured heading. Include clockwise and
-  counterclockwise trials. Forward-wheel offsets are X right and lateral-wheel
-  offsets are Y forward. Record lateral travel positive right. During pure rotation,
-  forward travel is `X * yaw` and lateral travel is `-Y * yaw`.
+  counterclockwise trials. Use [tracking-wheel offsets](localization.md#height-aware-dsr-and-horizontal-odometry)
+  measured from The Origin.
 - **Distance sensors.** Measure from the sensor face to a flat target at known
   distances. Collect at least three readings. Keep sensors in separate groups.
   Apply the fitted bias and noise as `RangeSensorConfig::bias` and `sigma`.

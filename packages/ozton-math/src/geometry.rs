@@ -43,8 +43,8 @@ pub fn rotation(angle: f64) -> DVec2 {
     DVec2::new(cos, sin)
 }
 
-/// CC pose in a fixed surveyed field frame: +X right, +Y forward, +Z up.
-/// Body points use the same axes relative to current CC. Heading zero faces +Y;
+/// Pose of The Origin in a fixed surveyed field frame: +X right, +Y forward, +Z up.
+/// Body points use the same axes relative to The Origin. Heading zero faces +Y;
 /// positive yaw turns left about +Z. Length is metres, heading radians.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Pose {
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn field_pose_registration_uses_initial_cc_right_forward_axes() {
+    fn field_pose_registration_uses_initial_origin_right_forward_axes() {
         let origin = Pose::new(2.0, 3.0, PI / 2.0);
         assert!(origin.in_frame(origin).position.length() < 1e-12);
         assert_eq!(origin.in_frame(origin).heading, 0.0);

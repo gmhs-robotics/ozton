@@ -31,9 +31,9 @@ pub struct Snapshot {
 pub struct OdometryConfig {
     /// Zero requires IMU heading and both drive encoders; positive enables wheel fallback.
     pub track_width: f64,
-    /// X-right position of a forward wheel from CC.
+    /// X-right position of a forward wheel from The Origin.
     pub forward_offset: f64,
-    /// Y-forward position of a right-positive lateral wheel from CC.
+    /// Y-forward position of a right-positive lateral wheel from The Origin.
     pub lateral_offset: f64,
     /// Require lateral feedback, e.g. on a holonomic drivetrain.
     pub require_lateral: bool,

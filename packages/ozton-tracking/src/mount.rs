@@ -2,7 +2,7 @@
 use ozton_math::{localization::range::Mount, units::Length};
 use vexide::math::Angle;
 
-/// A sensor or wheel position relative to CC, preserving its mounting height.
+/// A sensor or wheel position relative to The Origin, preserving its mounting height.
 /// This is a location, not an IMU attitude or an inferred odometry measurement.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RobotPoint {
@@ -12,13 +12,14 @@ pub struct RobotPoint {
 }
 
 impl RobotPoint {
-    pub const CC: Self = Self {
+    /// The Origin, the zero mounting point in the robot frame.
+    pub const ORIGIN: Self = Self {
         x_right_m: 0.0,
         y_forward_m: 0.0,
         z_up_m: 0.0,
     };
 
-    /// Creates a right/forward/up point relative to CC from physical lengths.
+    /// Creates a right/forward/up point relative to The Origin from physical lengths.
     pub const fn new(right: Length, forward: Length, up: Length) -> Self {
         Self {
             x_right_m: right.value,
@@ -32,7 +33,7 @@ impl RobotPoint {
         self.x_right_m.is_finite() && self.y_forward_m.is_finite() && self.z_up_m.is_finite()
     }
 
-    /// Coordinates locate the device from CC, rather than CC from the device.
+    /// Coordinates give the device position relative to The Origin.
     pub fn from_meters(x_right_m: f64, y_forward_m: f64, z_up_m: f64) -> Option<Self> {
         [x_right_m, y_forward_m, z_up_m]
             .iter()
@@ -66,12 +67,12 @@ impl RobotPoint {
         ))
     }
 
-    /// A forward wheel offset is its X-right coordinate from CC.
+    /// A forward wheel offset is its X-right coordinate from The Origin.
     pub const fn forward_wheel_offset_m(self) -> f64 {
         self.x_right_m
     }
 
-    /// A lateral wheel offset is its Y-forward coordinate from CC.
+    /// A lateral wheel offset is its Y-forward coordinate from The Origin.
     pub const fn lateral_wheel_offset_m(self) -> f64 {
         self.y_forward_m
     }
@@ -95,12 +96,12 @@ mod tests {
         assert_eq!(point.z_up_m, 0.3);
         assert_eq!(point.forward_wheel_offset_m(), -0.1);
         assert_eq!(point.lateral_wheel_offset_m(), 0.2);
-        assert_eq!(RobotPoint::CC.forward_wheel_offset_m(), 0.0);
+        assert_eq!(RobotPoint::ORIGIN.forward_wheel_offset_m(), 0.0);
     }
 
     #[test]
     fn beam_bearings_and_invalid_coordinates_keep_explicit_semantics() {
-        let point = RobotPoint::CC;
+        let point = RobotPoint::ORIGIN;
         assert_eq!(
             point
                 .horizontal_range_mount(Angle::from_degrees(-90.0))

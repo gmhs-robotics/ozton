@@ -75,11 +75,11 @@ impl Tracking for () {}
 ///
 /// # Coordinate System
 ///
-/// Report current CC in a fixed surveyed field frame with +X right and +Y forward.
-/// Body-mounted points use the same axes with current CC at (0, 0, 0), +Z up.
+/// Report The Origin's position in a fixed surveyed field frame with +X right and +Y forward.
+/// Body-mounted points use the same axes with The Origin at (0, 0, 0) and +Z up.
 /// Use metres for interoperability with localization, paths and autonomous commands.
 pub trait TracksPosition: Tracking {
-    /// Returns current CC field position: X right, Y forward, in metres.
+    /// Returns The Origin's field position: X right, Y forward, in metres.
     fn position(&self) -> Vec2;
 }
 

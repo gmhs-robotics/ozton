@@ -144,7 +144,7 @@ impl Interpolate for Vec2Frame {
     }
 }
 
-/// Tracked CC motion: X right, Y forward, CCW radians from +Y; positions in metres.
+/// Tracked motion of The Origin: X right, Y forward, CCW radians from +Y; positions in metres.
 #[derive(Archive, Serialize, Deserialize, Default, Clone, Copy, Debug, PartialEq)]
 #[rkyv(crate = ::rkyv)]
 pub struct TrackedMotionFrame {

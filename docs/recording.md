@@ -7,6 +7,8 @@ commands. The generated frame owns how those commands are applied and how
 supported outputs are stopped. Use `DifferentialVoltageFrame::arcade` to
 convert throttle and turn inputs into a recorded differential command.
 
+## Save and replay a route
+
 Start the runtime with `RecordingAutonomous::compete(robot, display)`.
 
 1. On the Brain, select **Record new route** or **Record over** before driver
@@ -17,8 +19,8 @@ Start the runtime with `RecordingAutonomous::compete(robot, display)`.
 
 The capture defaults to 15 seconds. A robot can set `MAX_CAPTURE_DURATION` up
 to the runtime's 60-second limit, subject to the frame and storage bounds.
-An incomplete overwrite keeps the previous indexed route available. Existing
-`.route` files load when their frame type matches the robot.
+If an overwrite is interrupted, the indexed route remains available. Replay
+requires a `.route` file with the robot's frame type.
 
 ## Open-loop playback
 
@@ -35,9 +37,8 @@ the drivetrain.
 Use `RecordableDrivetrain::with_differential_playback` and
 `DifferentialPlayback::VoltageCorrection` to correct drift using GPS tracking.
 Measure the GPS mounting offsets and tune `DifferentialVoltagePlayback` gains
-for the chassis. To use a surveyed route origin, set
-`GpsTrackingConfig::field_origin` when constructing the tracker. The example
-uses the centered GPS field frame.
+for the chassis. To use a surveyed route origin, [register the GPS field frame](localization.md#register-gps)
+when constructing the tracker. The example uses the centered GPS field frame.
 
 ```rust,ignore
 {{#include ../packages/ozton/examples/gps_voltage_tracking.rs}}
