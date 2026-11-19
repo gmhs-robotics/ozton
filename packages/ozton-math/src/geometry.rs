@@ -42,8 +42,8 @@ pub fn rotation(angle: f64) -> DVec2 {
     DVec2::new(cos, sin)
 }
 
-/// Pose of The Origin in a fixed surveyed field frame: +X right, +Y forward, +Z up.
-/// Body points use the same axes relative to The Origin. Heading zero faces +Y;
+/// Pose of the chassis center of rotation in a fixed surveyed field frame.
+/// The Origin is that point in the chassis frame. Heading zero faces field +Y;
 /// positive yaw turns left about +Z. Length is metres, heading radians.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Pose {

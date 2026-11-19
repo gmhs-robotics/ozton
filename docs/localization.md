@@ -4,8 +4,9 @@ Start with geared drive encoders and a calibrated IMU. Add a forward tracking
 pod or lateral pod where wheel slip is significant. Supply calibrated pod
 travel in meters with `Sensors::with_forward_wheel` or
 `Sensors::with_lateral_wheel`. Set the corresponding offset in `TrackingSetup`.
-Measure from [The Origin](coordinates.md). A forward pod uses its X offset,
-and a lateral pod uses its Y offset. Lateral travel is positive to the right.
+Measure from [The Origin](coordinates.md). A forward pod uses
+`RobotPoint::forward_wheel_offset_m` (right), and a lateral pod uses
+`RobotPoint::lateral_wheel_offset_m` (forward). Lateral travel is positive to the right.
 Set `require_lateral` for robots that rely on measured sideways travel.
 Use `TrackingWheel::from_dimensions` to pass the diameter and signed offset
 as `Length` values.
