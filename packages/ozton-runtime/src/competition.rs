@@ -8,15 +8,19 @@ use vexide::{
     time::sleep,
 };
 
-use crate::{clock::CONTROL_PERIOD, menu::RouteMenu};
+use crate::{Robot, clock::CONTROL_PERIOD, menu::RouteMenu};
 
-/// A route table with statically dispatched async routines. Use
-/// [`crate::autonomous_routes`] to define one alongside the route functions.
-#[allow(async_fn_in_trait)]
-pub trait Routes<R, E>: Copy + 'static {
+/// The available choices, shared by the Brain selector and route dispatch.
+pub trait RouteSet: Copy + 'static {
     const CHOICES: &'static [(&'static str, Self)];
 
     fn label(self) -> &'static str;
+}
+
+/// The async routines for a route set. Define both traits with
+/// [`crate::autonomous_routes`] alongside the routine functions.
+#[allow(async_fn_in_trait)]
+pub trait Routes<R, E>: RouteSet {
     async fn run(self, robot: &mut R) -> Result<(), E>;
 }
 
@@ -24,14 +28,14 @@ pub trait Routes<R, E>: Copy + 'static {
 /// route future types are compiled into one enum dispatch, with no boxed futures.
 ///
 /// ```
-/// use ozton_runtime::autonomous_routes;
-/// struct Robot { runs: usize }
-/// async fn practice(robot: &mut Robot) -> Result<(), ()> {
-///     robot.runs += 1;
+/// use ozton_runtime::{Robot, autonomous_routes};
+/// type PracticeBot = Robot<(), (), (), (), usize>;
+/// async fn practice(robot: &mut PracticeBot) -> Result<(), ()> {
+///     robot.custom += 1;
 ///     Ok(())
 /// }
 /// autonomous_routes! {
-///     enum Route for Robot => () {
+///     enum Route for PracticeBot => () {
 ///         Practice("Practice") => practice,
 ///     }
 /// }
@@ -44,13 +48,16 @@ macro_rules! autonomous_routes {
         #[derive(Clone, Copy)]
         $visibility enum $name { $($variant),* }
 
-        impl $crate::competition::Routes<$robot, $error> for $name {
+        impl $crate::competition::RouteSet for $name {
             const CHOICES: &'static [(&'static str, Self)] = &[$(($label, Self::$variant)),*];
 
             fn label(self) -> &'static str {
                 match self { $(Self::$variant => $label),* }
             }
 
+        }
+
+        impl $crate::competition::Routes<$robot, $error> for $name {
             #[allow(unused_variables)]
             async fn run(self, robot: &mut $robot) -> Result<(), $error> {
                 match self { $(Self::$variant => $route(robot).await),* }
@@ -91,15 +98,82 @@ pub trait CompetitionRobot: Sized {
     }
 }
 
+/// Brain selection and status for an assembled robot.
+pub type Autonomous<R> = RouteMenu<Option<R>>;
+
+/// Application-specific competition behavior for an Ozton [`Robot`].
+/// Install its state with `Robot::with_controls`. The hooks receive the
+/// assembled robot and can borrow its concrete parts and controls independently.
+pub trait CompetitionControls<R> {
+    type Error: std::fmt::Display;
+    const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
+
+    fn stop(robot: &mut R) -> Result<(), Self::Error>;
+    fn driver_tick(robot: &mut R, tick: Tick);
+    fn mode_changed(_robot: &mut R, _mode: CompetitionMode) {}
+    fn after_tick(_robot: &mut R, _mode: CompetitionMode, _tick: Tick) {}
+    fn autonomous_error(
+        _robot: &mut R,
+        _name: &'static str,
+        _error: &Self::Error,
+    ) -> Option<&'static str> {
+        None
+    }
+}
+
+impl<D, C, T, M, X, P, R> CompetitionRobot for Robot<D, C, T, M, X, P, Autonomous<R>>
+where
+    P: CompetitionControls<Self>,
+    R: Routes<Self, P::Error>,
+{
+    type Error = P::Error;
+    type Route = R;
+    const CONTROL_PERIOD: Duration = P::CONTROL_PERIOD;
+
+    fn menu(&mut self) -> &mut Autonomous<R> {
+        &mut self.autonomous
+    }
+
+    fn stop(&mut self) -> Result<(), Self::Error> {
+        P::stop(self)
+    }
+
+    fn driver_tick(&mut self, tick: Tick) {
+        P::driver_tick(self, tick);
+    }
+
+    fn mode_changed(&mut self, mode: CompetitionMode) {
+        P::mode_changed(self, mode);
+    }
+
+    fn after_tick(&mut self, mode: CompetitionMode, tick: Tick) {
+        P::after_tick(self, mode, tick);
+    }
+
+    fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
+        if let Some(status) = P::autonomous_error(self, route.label(), &error) {
+            self.autonomous.status(status);
+        } else {
+            self.autonomous
+                .status(&format!("Autonomous stopped: {error}"));
+        }
+    }
+}
+
 /// Build the Brain menu once, with Disable selected before any user route.
-pub fn route_menu<R: CompetitionRobot>(display: Display) -> RouteMenu<Option<R::Route>> {
+pub fn autonomous_menu<R: RouteSet>(display: Display) -> Autonomous<R> {
     RouteMenu::with_choices(
         display,
         None,
-        R::Route::CHOICES
+        R::CHOICES
             .iter()
             .map(|&(label, route)| (label, Some(route))),
     )
+}
+
+/// Menu construction for a custom robot using [`CompetitionRobot`] directly.
+pub fn route_menu<R: CompetitionRobot>(display: Display) -> Autonomous<R::Route> {
+    autonomous_menu(display)
 }
 
 /// Run the common mode loop. Route code that drives over multiple ticks should
@@ -183,15 +257,15 @@ mod tests {
 
     use super::*;
 
-    struct TestRobot(i32);
+    type TestRobot = Robot<(), (), (), (), (), i32>;
 
     async fn add(robot: &mut TestRobot) -> Result<(), &'static str> {
-        robot.0 += 2;
+        robot.controls += 2;
         Ok(())
     }
 
     async fn multiply(robot: &mut TestRobot) -> Result<(), &'static str> {
-        robot.0 *= 3;
+        robot.controls *= 3;
         Err("test fault")
     }
 
@@ -204,7 +278,7 @@ mod tests {
 
     #[test]
     fn macro_registers_and_dispatches_distinct_route_futures() {
-        let mut robot = TestRobot(1);
+        let mut robot = Robot::new().with_controls(1);
         let mut context = Context::from_waker(Waker::noop());
         assert_eq!(TestRoute::CHOICES[0].0, "Add");
         assert_eq!(TestRoute::CHOICES[1].1.label(), "Multiply");
@@ -216,7 +290,7 @@ mod tests {
             pin!(TestRoute::Multiply.run(&mut robot)).poll(&mut context),
             Poll::Ready(Err("test fault"))
         );
-        assert_eq!(robot.0, 9);
+        assert_eq!(robot.controls, 9);
     }
 
     #[test]

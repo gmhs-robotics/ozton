@@ -22,12 +22,14 @@ impl<D, I, A: DriveControl<D, I>, B: DriveControl<D, I>> DriveControl<D, I> for 
 /// method changes only the type of the field it replaces. An omitted component
 /// is unit, and the assembly adds no allocation or dynamic dispatch.
 #[must_use]
-pub struct Robot<D = (), C = (), T = (), M = (), X = ()> {
+pub struct Robot<D = (), C = (), T = (), M = (), X = (), P = (), A = ()> {
     pub drivetrain: D,
     pub controller: C,
     pub tracking: T,
     pub mechanisms: M,
     pub custom: X,
+    pub controls: P,
+    pub autonomous: A,
 }
 
 impl Robot {
@@ -38,6 +40,8 @@ impl Robot {
             tracking: (),
             mechanisms: (),
             custom: (),
+            controls: (),
+            autonomous: (),
         }
     }
 }
@@ -59,21 +63,49 @@ macro_rules! with_component {
     };
 }
 
-impl<D, C, T, M, X> Robot<D, C, T, M, X> {
-    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, Robot<N, C, T, M, X>, controller, tracking, mechanisms, custom);
-    with_component!("Install the owned controller value.", with_controller, controller, Robot<D, N, T, M, X>, drivetrain, tracking, mechanisms, custom);
-    with_component!("Install the owned tracking value.", with_tracking, tracking, Robot<D, C, N, M, X>, drivetrain, controller, mechanisms, custom);
-    with_component!("Install the owned mechanisms value.", with_mechanisms, mechanisms, Robot<D, C, T, N, X>, drivetrain, controller, tracking, custom);
-    with_component!("Install the owned custom value.", with_custom, custom, Robot<D, C, T, M, N>, drivetrain, controller, tracking, mechanisms);
+impl<D, C, T, M, X, P, A> Robot<D, C, T, M, X, P, A> {
+    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, Robot<N, C, T, M, X, P, A>, controller, tracking, mechanisms, custom, controls, autonomous);
+    with_component!("Install the owned controller value.", with_controller, controller, Robot<D, N, T, M, X, P, A>, drivetrain, tracking, mechanisms, custom, controls, autonomous);
+    with_component!("Install the owned tracking value.", with_tracking, tracking, Robot<D, C, N, M, X, P, A>, drivetrain, controller, mechanisms, custom, controls, autonomous);
+    with_component!("Install the owned mechanisms value.", with_mechanisms, mechanisms, Robot<D, C, T, N, X, P, A>, drivetrain, controller, tracking, custom, controls, autonomous);
+    with_component!("Install a driver policy or custom state.", with_custom, custom, Robot<D, C, T, M, N, P, A>, drivetrain, controller, tracking, mechanisms, controls, autonomous);
+    with_component!("Install application-wide control state and behavior.", with_controls, controls, Robot<D, C, T, M, X, N, A>, drivetrain, controller, tracking, mechanisms, custom, autonomous);
 
-    /// Append a driver control. When applied, controls run in registration order.
-    pub fn with_control<N>(self, control: N) -> Robot<D, C, T, M, (X, N)> {
+    /// Install the Brain menu and a statically dispatched route set.
+    pub fn with_autonomous<R: crate::competition::RouteSet>(
+        self,
+        display: vexide::display::Display,
+    ) -> Robot<D, C, T, M, X, P, crate::competition::Autonomous<R>> {
         let Self {
             drivetrain,
             controller,
             tracking,
             mechanisms,
             custom,
+            controls,
+            ..
+        } = self;
+        Robot {
+            drivetrain,
+            controller,
+            tracking,
+            mechanisms,
+            custom,
+            controls,
+            autonomous: crate::competition::autonomous_menu(display),
+        }
+    }
+
+    /// Append a driver control. When applied, controls run in registration order.
+    pub fn with_control<N>(self, control: N) -> Robot<D, C, T, M, (X, N), P, A> {
+        let Self {
+            drivetrain,
+            controller,
+            tracking,
+            mechanisms,
+            custom,
+            controls,
+            autonomous,
         } = self;
         Robot {
             drivetrain,
@@ -81,6 +113,8 @@ impl<D, C, T, M, X> Robot<D, C, T, M, X> {
             tracking,
             mechanisms,
             custom: (custom, control),
+            controls,
+            autonomous,
         }
     }
 
@@ -91,6 +125,16 @@ impl<D, C, T, M, X> Robot<D, C, T, M, X> {
         X: DriveControl<D, I>,
     {
         self.custom.update(input, &mut self.drivetrain);
+    }
+}
+
+impl<D, C, T, M, X, P, A> Robot<D, C, T, M, X, P, A>
+where
+    Self: crate::competition::CompetitionRobot,
+{
+    /// Run driver and autonomous competition modes for the assembled robot.
+    pub async fn compete(self) -> ! {
+        crate::competition::compete(self).await
     }
 }
 
@@ -120,9 +164,11 @@ mod tests {
             .with_tracking(true)
             .with_mechanisms([0; 2])
             .with_custom(Scale)
+            .with_controls("application")
             .with_control(Add);
         robot.apply_custom(&3);
         assert_eq!(robot.drivetrain, 9);
+        assert_eq!(robot.controls, "application");
         assert_eq!(
             (robot.controller, robot.tracking, robot.mechanisms),
             ("controller", true, [0; 2])

@@ -4,6 +4,7 @@ mod calibration;
 pub mod chassis;
 mod command;
 mod competition;
+mod controls;
 mod convenience;
 mod robot;
 mod route;
@@ -14,6 +15,7 @@ mod setup;
 pub use calibration::{Calibration, CalibrationTrial};
 pub use command::{Alignment, Command, Contact, DriveOptions, Feedback, PathMarker, RangeFeedback};
 pub use competition::{ProgrammedRobot, compete};
+pub use controls::{AutonomousControls, ScoringControls};
 pub use robot::{Mechanisms, Robot};
 pub use route::{
     AlignTarget, Auton, RegistrationError, RegistrationProblem, Route, RouteResult, compete_routes,

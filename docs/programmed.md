@@ -44,70 +44,59 @@ For custom hardware and simulation, implement the lower-level `AutonRobot` seam
 and drive it with `Runner`.
 
 
-## Compose a custom robot
+## Build a robot with custom controls
 
-Use `ozton::runtime::Robot` for typed hardware assembly when your application has
-its own driver, tracking or mechanism policy. The builder owns the concrete
-values passed to it. Unused slots default to `()` and all fields remain accessible.
-There is no boxed device, boxed route future or dynamic driver dispatch.
+Start with Ozton's `Robot::new()`. Install the concrete hardware, driver
+policies, robot controls and Brain route set in the same chain.
 
-```rust
-use ozton::runtime::{DriveControl, Robot};
+```rust,ignore
+use ozton::runtime::Robot;
 
-struct DriveBoost;
-
-impl DriveControl<ozton::drivetrain::resilient::ResilientDrive, bool> for DriveBoost {
-    fn update(
-        &mut self,
-        boost_pressed: &bool,
-        drive: &mut ozton::drivetrain::resilient::ResilientDrive,
-    ) {
-        drive.set_driver_scale(if *boost_pressed { 1.0 } else { 0.75 });
-    }
-}
-
-fn assemble(
-    controller: vexide::controller::Controller,
-    drive: ozton::drivetrain::resilient::ResilientDrive,
-) -> Robot<ozton::drivetrain::resilient::ResilientDrive,
-           vexide::controller::Controller, (), (), DriveBoost> {
-    Robot::new()
-        .with_controller(controller)
-        .with_drivetrain(drive)
-        .with_custom(DriveBoost)
-}
+Robot::new()
+    .with_controller(controller)
+    .with_drivetrain(drive)
+    .with_tracking(tracking)
+    .with_mechanisms(mechanisms)
+    .with_custom(DriveBoost)
+    .with_controls(Controls::new(imu))
+    .with_autonomous::<Route>(display)
+    .compete()
+    .await;
 ```
 
-Call `apply_custom(&input)` during the driver tick before sending outputs. The
-input and drivetrain in `DriveControl` are your concrete types. A custom control
-can use any method the drivetrain exposes. Append another policy with
-`with_control`. Policies run in registration order, before the application
-sends wheel commands. Use `with_tracking` and
-`with_mechanisms` for additional device state. You can also write motor outputs
-directly and omit the custom-control hook.
+`with_autonomous::<Route>(display)` builds the menu and starts with **Disable**
+selected. `compete()` owns mode transitions, stopping on transitions, route
+dispatch and the driver tick budget. Each optional hardware slot defaults to
+`()` and the builder stores the concrete parts directly.
 
-To reuse the competition loop with a custom application, implement
-`runtime::competition::CompetitionRobot` on your application type. Keep your
-driver tick and stop policy there. The runtime handles the Brain menu, mode
-transitions and tick budget. Call `route_menu::<YourRobot>(display)` during
-assembly and `runtime::competition::compete(robot).await`.
+Use a type alias for the builder's result in route and hook signatures.
+`Controls` holds application state, such as an IMU reference or mechanism goals.
+Implement `runtime::competition::CompetitionControls` for that state to supply
+your driver tick and output stop. Add `motion::auton::AutonomousControls` when
+using `Runner` with custom tracking and output. The runner handles deadlines,
+retries and field disable.
 
-Register named async functions with `ozton::autonomous_routes!`. Each line adds
-one Brain choice and a statically compiled route branch.
+A driver policy implements `DriveControl<Drive, Input>`. Call
+`robot.apply_custom(&input)` before sending wheel commands to let the policy
+modify the concrete drivetrain. Add further policies with `with_control`.
+Policies run in registration order. Direct hardware access is available through
+the assembled robot's fields.
+
+Declare each route as an ordinary async function and register it with
+`autonomous_routes!`. The macro supplies menu labels and a static route match.
 
 ```rust
-use ozton::autonomous_routes;
+use ozton::{autonomous_routes, runtime::Robot};
 
-struct PracticeRobot;
-async fn left(_robot: &mut PracticeRobot) -> Result<(), &'static str> { Ok(()) }
+type PracticeBot = Robot<(), (), (), (), usize>;
+async fn practice(robot: &mut PracticeBot) -> Result<(), &'static str> {
+    robot.custom += 1;
+    Ok(())
+}
 
 autonomous_routes! {
-    enum Route for PracticeRobot => &'static str {
-        Left("Left") => left,
+    enum Route for PracticeBot => &'static str {
+        Practice("Practice") => practice,
     }
 }
 ```
-
-Use `Runner` for multi-tick autonomous commands so field disable cancels motion.
-Override uses this composition with its own lift, pivot, tracking and Y-button
-boost policies.
