@@ -14,6 +14,10 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+repository = "https://github.com/gmhs-robotics/ozton"
+license = "MIT OR Apache-2.0"
+
 [workspace.dependencies]
 vexide = "0.9.0-beta.1"
 ozton-control = { version = "0.4.0", path = "packages/ozton-control", default-features = false }

@@ -22,6 +22,17 @@ mdbook serve --open
 The HTML build goes to `target/book`. This manual uses live source includes for
 its full examples.
 
+## Publish the book
+
+The **Publish the Ozton Book** workflow builds the book and deploys its static
+output to [docs.eli.best](https://docs.eli.best/) on Vercel. It runs on relevant
+pushes to `main` and can also be dispatched from the Actions tab.
+
+In the GitHub `docs-production` environment, set `VERCEL_TOKEN` as a secret
+and set `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` as variables for the `ozton-docs`
+Vercel project. Use a token scoped to the project's Vercel team. The workflow
+passes the token to Vercel and uploads the rendered book from `target/book`.
+
 | Symptom | Check |
 | --- | --- |
 | Build says to choose one mode | Disable default features when selecting `recording`. |

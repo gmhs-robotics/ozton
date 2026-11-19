@@ -1,11 +1,11 @@
 [package]
 name = "ozton"
-description = "A meta-framework for building compeition robots with vexide."
-repository = "https://github.com/gmhs-robotics/ozton/"
+description = "Programmed autonomous, recording, and robot control for VEX V5 with vexide."
+repository.workspace = true
 authors = ["elijah629"]
-license = "MIT"
+license.workspace = true
 readme = "../../README.md"
-categories = ["science::robotics", "no-std", "mathematics", "embedded"]
+categories = ["science::robotics", "embedded"]
 keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
 version = "0.4.0"
 edition = "2024"
@@ -44,9 +44,6 @@ required-features = ["recording"]
 [[test]]
 name = "recorded_robot_public_usage"
 required-features = ["recording"]
-
-[package.metadata.docs.rs]
-targets = ["armv7a-none-eabi"] # Not actually, but this is at least close.
 
 [[example]]
 name = "programmed"

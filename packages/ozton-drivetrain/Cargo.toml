@@ -1,10 +1,10 @@
 [package]
 name = "ozton-drivetrain"
 description = "Drivetrain models for ozton."
-repository = "https://github.com/gmhs-robotics/ozton/"
+repository.workspace = true
 authors = ["elijah629"]
-license = "MIT"
-categories = ["science::robotics", "no-std", "mathematics", "embedded"]
+license.workspace = true
+categories = ["science::robotics", "embedded"]
 keywords = ["vex", "vexide", "vex-robotics", "robotics", "autonomous"]
 version = "0.4.0"
 edition = "2024"

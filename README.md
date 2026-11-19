@@ -1,8 +1,27 @@
 # Ozton
 
-Ozton is a Rust framework for VEX V5 competition robots. It provides
-differential drive, localization, a Brain selector, path following, and an
-exclusive recording and playback mode.
+[![Rust CI](https://github.com/gmhs-robotics/ozton/actions/workflows/rust.yml/badge.svg)](https://github.com/gmhs-robotics/ozton/actions/workflows/rust.yml)
+
+Ozton is a Rust library for VEX V5 competition robots built with vexide.
+It provides differential drive, localization, path following, and a Brain
+selector for autonomous routines.
+
+## Get started
+
+Read [The Ozton Book](https://docs.eli.best/) for setup, examples, and calibration.
+Use the `programmed` feature (enabled by default) for routines written in Rust.
+Use `recording` with default features disabled to capture and replay routes.
+Choose one mode per firmware build.
+
+To work from source, clone this repository and use its pinned Rust nightly with
+`rust-src`. Build one of the complete V5 examples from the repository root.
+
+```sh
+cargo build -p ozton --example programmed --target thumbv7a-vex-v5 --locked
+cargo build -p ozton --example full --target thumbv7a-vex-v5 --locked --no-default-features --features recording
+```
+
+## Guides
 
 - [Choose a firmware mode](docs/introduction.md)
 - [Build a programmed robot](docs/programmed.md)
@@ -14,6 +33,7 @@ exclusive recording and playback mode.
 - [Build and troubleshoot](docs/development.md)
 
 Render the full manual with `mdbook build`, or open it with `mdbook serve --open`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks to run before opening a pull request.
 
 The [programmed example](packages/ozton/examples/programmed.rs) assembles a
 `runtime::Robot`, registers a named route with `autonomous_routes!`, and uses
