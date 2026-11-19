@@ -3,7 +3,7 @@
 use std::{cell::RefCell, f64::consts::PI, rc::Rc, time::Instant};
 
 use glam::DVec2 as Vec2;
-use ozton_math::units::Length;
+use ozton_math::uom::si::f64::Length;
 use vexide::{
     math::Angle,
     smart::motor::Motor,

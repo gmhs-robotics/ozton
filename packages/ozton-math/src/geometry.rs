@@ -3,10 +3,9 @@
 use core::f64::consts::{PI, TAU};
 
 use glam::DVec2;
+use uom::si::f64::Length;
 
-use crate::units::{Length, inches};
-
-pub const INCH: f64 = inches(1.0).value;
+pub const INCH: f64 = 0.0254;
 
 /// Counterclockwise heading from +Y forward, wrapped to [-π, π).
 pub fn wrap_heading(radians: f64) -> f64 {

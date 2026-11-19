@@ -30,8 +30,8 @@ and [registering GPS](localization.md#register-gps).
 
 ## Use physical units
 
-Use `uom` quantities such as `Length`, `Velocity`, and `Acceleration` for
-physical settings. For example, `Length::new::<inch>(2.25)` represents a wheel
-diameter. Pass lengths to `Pose::from_lengths` and `RobotPoint::new`. For
-scalar APIs, use metres, radians, seconds, and volts. Convert quantities at
-the boundary with accessors such as `get::<meter>()`.
+Use native `uom` types such as `ozton::uom::si::f64::Length` for physical
+settings. Use `Length::new::<inch>(2.25)` for runtime conversion and
+`ozton::math::si` for SI quantities in constants. Pass typed coordinates to
+`Pose::from_lengths` and `RobotPoint::new`. Use `get::<meter>()` when an
+interface takes a scalar in meters.

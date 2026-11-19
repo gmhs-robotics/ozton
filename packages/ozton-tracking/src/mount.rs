@@ -1,5 +1,5 @@
 //! Explicit right/forward/up installation coordinates and planar conversions.
-use ozton_math::{localization::range::Mount, units::Length};
+use ozton_math::{localization::range::Mount, uom::si::f64::Length};
 use vexide::math::Angle;
 
 /// A sensor or wheel position relative to The Origin, preserving its mounting height.
@@ -74,10 +74,6 @@ impl RobotPoint {
 
     /// A lateral wheel offset is its Y-forward coordinate from The Origin.
     pub const fn lateral_wheel_offset_m(self) -> f64 {
-        self.y_forward_m
-    }
-    /// The localizer and wheeled tracker share the same Y-forward lateral offset.
-    pub const fn localizer_lateral_offset_m(self) -> f64 {
         self.y_forward_m
     }
 }

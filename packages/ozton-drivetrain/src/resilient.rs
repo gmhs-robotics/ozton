@@ -17,8 +17,8 @@ pub struct DriveGeometry {
 impl DriveGeometry {
     /// Geometry and maximum wheel speed in physical units.
     pub const fn from_units(
-        maximum_wheel_speed: ozton_math::units::Velocity,
-        wheel_diameter: ozton_math::units::Length,
+        maximum_wheel_speed: ozton_math::uom::si::f64::Velocity,
+        wheel_diameter: ozton_math::uom::si::f64::Length,
     ) -> Self {
         Self {
             maximum_wheel_speed: maximum_wheel_speed.value,

@@ -9,7 +9,7 @@ use ozton_math::{
         Path,
         follower::{self, Follower, Progress},
     },
-    units::{Length, Velocity},
+    uom::si::f64::{Length, Velocity},
 };
 use ozton_tracking::localizer::MAX_RANGES;
 
@@ -50,7 +50,7 @@ impl DriveOptions {
         position: Length,
         heading: vexide::math::Angle,
         speed: Velocity,
-        angular_speed: ozton_math::units::AngularVelocity,
+        angular_speed: ozton_math::uom::si::f64::AngularVelocity,
         settle: Duration,
     ) -> Self {
         self.position_tolerance = position.value;

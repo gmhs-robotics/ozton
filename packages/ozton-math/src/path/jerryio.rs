@@ -2,8 +2,9 @@
 
 use alloc::vec::Vec;
 
+use uom::si::{f64::Length, length::inch};
+
 use super::{MAX_POINTS, Waypoint};
-use crate::units::inches;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImportError {
@@ -45,7 +46,11 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
         if fields.next().is_some() || !(0.0..=127.0).contains(&speed) {
             return Err(ImportError::InvalidRow(line_number));
         }
-        points.push(Waypoint::from_lengths(inches(x), inches(y), speed / 127.0));
+        points.push(Waypoint::from_lengths(
+            Length::new::<inch>(x),
+            Length::new::<inch>(y),
+            speed / 127.0,
+        ));
     }
     if !terminated {
         return Err(ImportError::MissingEndData);
@@ -53,7 +58,8 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
     if let [.., previous, end, ghost] = points.as_slice() {
         let ghost_distance = ghost.position.distance(end.position);
         if ghost.speed_fraction == 0.0
-            && (ghost_distance - inches(20.0).value).abs() <= inches(0.002).value
+            && (ghost_distance - Length::new::<inch>(20.0).value).abs()
+                <= Length::new::<inch>(0.002).value
             && (previous.position == end.position
                 || (end.speed_fraction == 0.0
                     && (end.position - previous.position)
@@ -93,7 +99,10 @@ mod tests {
         .unwrap();
         assert_eq!(points.len(), 3);
         assert_eq!(points[0].speed_fraction, 1.0);
-        assert_eq!(points[2], Waypoint::new(0.0, inches(12.0).value, 0.0));
+        assert_eq!(
+            points[2],
+            Waypoint::new(0.0, Length::new::<inch>(12.0).value, 0.0)
+        );
         assert_eq!(parse(b"0,0,NaN\nendData"), Err(ImportError::InvalidRow(1)));
     }
 }

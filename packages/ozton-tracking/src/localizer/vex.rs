@@ -5,7 +5,7 @@ use std::{rc::Rc, time::Duration};
 use arrayvec::ArrayVec;
 use ozton_math::{
     geometry::{Pose, compass_heading},
-    units::millimeters,
+    uom::si::{f64::Length, length::millimeter},
 };
 use vexide::{
     prelude::{DistanceSensor, GpsSensor, InertialSensor},
@@ -44,19 +44,17 @@ impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
     }
 }
 
-/// Optional, type-erased source used by the callback builders.
-#[derive(Default)]
-pub struct CallbackWheel(Option<Box<dyn Fn() -> Option<f64>>>);
+type TravelCallback = Option<Box<dyn Fn() -> Option<f64>>>;
 
-impl WheelSource for CallbackWheel {
+impl WheelSource for TravelCallback {
     fn read_travel(&self) -> Option<f64> {
-        self.0.as_ref().and_then(|read| read())
+        self.as_ref().and_then(|read| read())
     }
 }
 
 /// VEX sensor ownership and polling. Use [`Self::with_wheel_sources`] for
 /// concrete wheel sources held inline and read through static dispatch.
-pub struct Sensors<F = CallbackWheel, L = CallbackWheel> {
+pub struct Sensors<F = TravelCallback, L = TravelCallback> {
     pub imu: Option<Rc<InertialSensor>>,
     pub gps: Option<GpsSensor>,
     field_origin: Pose,
@@ -69,7 +67,7 @@ pub struct Sensors<F = CallbackWheel, L = CallbackWheel> {
 
 impl Default for Sensors {
     fn default() -> Self {
-        Self::from_sources(CallbackWheel::default(), CallbackWheel::default())
+        Self::from_sources(None, None)
     }
 }
 
@@ -178,12 +176,12 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
 impl Sensors {
     /// Pass calibrated wheel travel in meters, or None when no valid reading is available.
     pub fn with_forward(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
-        self.forward.0 = Some(Box::new(read));
+        self.forward = Some(Box::new(read));
         self
     }
 
     pub fn with_lateral(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
-        self.lateral.0 = Some(Box::new(read));
+        self.lateral = Some(Box::new(read));
         self
     }
 
@@ -223,7 +221,7 @@ fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation>
     }
     Some(RangeObservation {
         timestamp: stamp(after),
-        distance: millimeters(f64::from(reading.distance)).value,
+        distance: Length::new::<millimeter>(f64::from(reading.distance)).value,
         confidence: reading.confidence,
         occluded,
     })

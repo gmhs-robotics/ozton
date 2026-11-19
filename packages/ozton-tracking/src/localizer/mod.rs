@@ -45,7 +45,7 @@ impl Config {
         odometry: OdometryConfig,
         estimator: Estimator,
         shadow: bool,
-        max_correction: ozton_math::units::Length,
+        max_correction: ozton_math::uom::si::f64::Length,
     ) -> Self {
         Self {
             odometry,

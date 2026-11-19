@@ -3,8 +3,7 @@
 use alloc::vec::Vec;
 
 use glam::DVec2;
-
-use crate::units::{Acceleration, Length, Velocity};
+use uom::si::f64::{Acceleration, Length, Velocity};
 
 pub mod follower;
 pub mod jerryio;
