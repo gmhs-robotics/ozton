@@ -594,3 +594,46 @@ fn captured_loading_wait_services_mechanisms_and_obeys_original_route_deadline()
         assert!(runner.robot().stopped);
     });
 }
+
+#[test]
+fn contact_approach_brakes_without_changing_the_field_reference() {
+    block_on(async {
+        let mut robot = Sim::new(false);
+        let creep_speed = 0.1;
+        let contact_at = 0.02;
+        let mut runner = Runner::new(
+            &mut robot,
+            OPTIONS,
+            Duration::from_millis(5),
+            Duration::from_millis(100),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        let mut touched = |robot: &Sim, sample: Feedback, _elapsed: Duration| {
+            assert!(
+                robot
+                    .wheels
+                    .iter()
+                    .all(|speed| speed.abs() <= creep_speed + 1e-9)
+            );
+            sample.pose.position.y >= contact_at
+        };
+        runner
+            .run_while(
+                Command::ApproachContact {
+                    heading: 0.0,
+                    speed: creep_speed,
+                    settle: Duration::from_millis(60),
+                    touched: &mut touched,
+                },
+                Duration::from_secs(1),
+                || true,
+            )
+            .await
+            .unwrap();
+        let robot = runner.robot();
+        assert_eq!(robot.wheels, [0.0; 2]);
+        assert!(robot.pose.position.y >= contact_at);
+        assert_eq!(robot.travel, robot.pose.position.y);
+    });
+}

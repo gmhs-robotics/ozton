@@ -71,6 +71,27 @@ impl Side {
         consensus.borrow_mut().sample(&samples[..motors.len()], dt)
     }
 
+    fn wheel_load(&self) -> Option<WheelLoad> {
+        let Self::Geared(motors) = self else {
+            return None;
+        };
+        let mut current = 0.0;
+        let mut fastest_wheel: f64 = 0.0;
+        for motor in motors {
+            let amps = motor.motor.current().ok()?;
+            let speed = motor.motor.velocity().ok()? / motor.rpm_per_meter_per_second;
+            if !amps.is_finite() || !speed.is_finite() {
+                return None;
+            }
+            current += amps.abs();
+            fastest_wheel = fastest_wheel.max(speed.abs());
+        }
+        Some(WheelLoad {
+            mean_current_amps: current / motors.len() as f64,
+            fastest_wheel_mps: fastest_wheel,
+        })
+    }
+
     fn voltage_feedback(&self) -> Option<f64> {
         match self {
             Self::Geared(motors) => motors.first()?.motor.voltage().ok(),
@@ -103,6 +124,13 @@ fn each<M>(
 pub struct WheelFeedback {
     pub position: f64,
     pub velocity: f64,
+}
+
+/// Electrical load and fastest absolute wheel speed on one geared drive side.
+#[derive(Debug, Clone, Copy)]
+pub struct WheelLoad {
+    pub mean_current_amps: f64,
+    pub fastest_wheel_mps: f64,
 }
 
 /// Wheel-speed command validation or a device write failure.
@@ -250,6 +278,12 @@ impl Differential {
         let now = Instant::now();
         let dt = now.saturating_duration_since(self.feedback_time.replace(now));
         [0, 1].map(|i| self.sides[i].feedback(&self.feedback[i], dt))
+    }
+
+    /// Read each motor once for load detection without advancing odometry.
+    /// A side reports None if any of its motor feedback is unavailable.
+    pub fn wheel_load(&self) -> [Option<WheelLoad>; 2] {
+        [self.sides[0].wheel_load(), self.sides[1].wheel_load()]
     }
 
     pub fn measured_voltage(&self) -> [Option<f64>; 2] {

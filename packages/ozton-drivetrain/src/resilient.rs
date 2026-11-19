@@ -165,6 +165,11 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
 }
 
 impl ResilientDrive {
+    /// Read geared-side load telemetry without advancing odometry.
+    pub fn wheel_load(&self) -> [Option<crate::model::WheelLoad>; 2] {
+        self.model.wheel_load()
+    }
+
     pub fn tracking_positions(&self) -> [Option<f64>; 2] {
         self.model
             .feedback()

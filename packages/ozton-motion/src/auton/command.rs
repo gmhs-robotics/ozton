@@ -91,6 +91,9 @@ pub struct Contact<R> {
 /// A mechanism action at a distance along a path, in meters.
 pub type PathMarker<R> = (f64, fn(&mut R));
 
+/// Evaluates contact evidence using the current pose and elapsed command time.
+pub type ContactCondition<'a, R> = &'a mut dyn FnMut(&R, Feedback, Duration) -> bool;
+
 pub enum Command<'a, R> {
     Follow {
         path: &'a Path,
@@ -122,6 +125,14 @@ pub enum Command<'a, R> {
     },
     Align(Alignment),
     Contact(Contact<R>),
+    /// Approach until the caller confirms contact, then brake and settle.
+    /// The caller decides whether and how to correct field pose afterward.
+    ApproachContact {
+        heading: f64,
+        speed: f64,
+        settle: Duration,
+        touched: ContactCondition<'a, R>,
+    },
     DistanceReset,
     Wait(Duration),
     WaitUntil(fn(&R) -> bool),
@@ -139,6 +150,7 @@ impl<R> Command<'_, R> {
             Self::DriveToPoint { .. }
                 | Self::Follow { .. }
                 | Self::FollowMarked { .. }
+                | Self::ApproachContact { .. }
                 | Self::DistanceReset
         )
     }
@@ -214,6 +226,18 @@ impl<R> Command<'_, R> {
                     && contact.speed.abs() <= options.maximum_wheel_speed
                     && contact.speed != 0.0
             }
+            Self::ApproachContact {
+                heading,
+                speed,
+                settle,
+                ..
+            } => {
+                heading.is_finite()
+                    && speed.is_finite()
+                    && speed.abs() <= options.maximum_wheel_speed
+                    && *speed != 0.0
+                    && !settle.is_zero()
+            }
             Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } | Self::DistanceReset => true,
         }
     }
@@ -255,6 +279,19 @@ impl State {
                 wheel_speeds(linear, angular, options.track_width),
                 options.maximum_wheel_speed,
             )
+        };
+        let contact_motion = |touched, heading: f64, speed, limit, settle: Duration| {
+            let error = error_at(heading);
+            if touched {
+                (
+                    [0.0; 2],
+                    slow && error.abs() <= options.heading_tolerance,
+                    settle.max(Duration::from_millis(30)),
+                )
+            } else {
+                let linear = if error.abs() < 0.2 { speed } else { 0.0 };
+                (desaturate(drive(linear, 3.0 * error), limit), false, settle)
+            }
         };
         let mut fresh_alignment_range = false;
         let mut lost = false;
@@ -397,24 +434,25 @@ impl State {
                     ([0.0; 2], false, options.settle)
                 }
             }
-            Command::Contact(contact) => {
-                let touched = (contact.touched)(robot);
-                let heading = error_at(contact.known_pose.heading);
-                if touched {
-                    (
-                        [0.0; 2],
-                        slow && heading.abs() <= options.heading_tolerance,
-                        options.settle.max(Duration::from_millis(30)),
-                    )
-                } else {
-                    let linear = if heading.abs() < 0.2 {
-                        contact.speed
-                    } else {
-                        0.0
-                    };
-                    (drive(linear, 3.0 * heading), false, options.settle)
-                }
-            }
+            Command::Contact(contact) => contact_motion(
+                (contact.touched)(robot),
+                contact.known_pose.heading,
+                contact.speed,
+                options.maximum_wheel_speed,
+                options.settle,
+            ),
+            Command::ApproachContact {
+                heading,
+                speed,
+                settle,
+                touched,
+            } => contact_motion(
+                touched(robot, feedback, elapsed),
+                *heading,
+                *speed,
+                speed.abs(),
+                *settle,
+            ),
             Command::DistanceReset => ([0.0; 2], feedback.reset_accepted, Duration::ZERO),
             Command::Wait(duration) => ([0.0; 2], elapsed >= *duration, Duration::ZERO),
             Command::WaitUntil(ready) => ([0.0; 2], ready(robot) && slow, options.settle),
