@@ -7,7 +7,7 @@ use std::{
 };
 
 use glam::DVec2 as Vec2;
-use ozton_math::geometry::Pose;
+use ozton_math::{geometry::Pose, si, uom::si::f64::Length};
 use vexide::{
     math::Angle,
     smart::{PortError, gps::GpsSensor},
@@ -32,7 +32,7 @@ pub struct GpsTrackingConfig {
     /// Maximum acceptable GPS RMS position error in meters.
     ///
     /// Samples with a larger reported error are ignored for position and forward travel updates.
-    pub max_position_error: Option<f64>,
+    pub max_position_error: Option<Length>,
     /// Route origin and initial facing in the centered GPS survey frame.
     pub field_origin: Pose,
 }
@@ -56,7 +56,7 @@ struct GpsTrackingData {
     forward_travel: f64,
     linear_velocity: f64,
     angular_velocity: f64,
-    position_error: Option<f64>,
+    position_error: Option<Length>,
     status: Option<u32>,
     stable_samples: usize,
     ready: bool,
@@ -101,7 +101,7 @@ impl GpsTracking {
     }
 
     /// Returns the most recent GPS-reported RMS position error in meters.
-    pub fn position_error(&self) -> Option<f64> {
+    pub fn position_error(&self) -> Option<Length> {
         self.data.borrow().position_error
     }
 
@@ -136,7 +136,7 @@ impl GpsTracking {
         gps.gyro_rate().map(|rate| (-rate.z).to_radians())
     }
 
-    fn is_position_usable(config: GpsTrackingConfig, position_error: Option<f64>) -> bool {
+    fn is_position_usable(config: GpsTrackingConfig, position_error: Option<Length>) -> bool {
         position_error.is_some_and(|error| {
             config
                 .max_position_error
@@ -164,7 +164,7 @@ impl GpsTracking {
             let mut data = data.borrow_mut();
             data.position = prev_position;
             data.heading = prev_heading;
-            data.position_error = gps.error().ok();
+            data.position_error = gps.error().ok().map(si);
             data.status = gps.status().ok();
             data.stable_samples = 0;
             data.ready = false;
@@ -178,7 +178,7 @@ impl GpsTracking {
             prev_time = Instant::now();
 
             let mut data = data.borrow_mut();
-            data.position_error = gps.error().ok();
+            data.position_error = gps.error().ok().map(si);
             data.status = gps.status().ok();
             log!(
                 "gps.task: dt={}us raw_error={:?} raw_status={:?}",

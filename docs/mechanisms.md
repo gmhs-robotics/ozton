@@ -1,28 +1,35 @@
 # Build mechanisms
 
-Use `AxisConfig` for position or velocity control. Angles are output radians,
-angular velocities are radians per second, and commands are volts. Construction
-validates gains, voltage caps, and optional position limits.
+Use `AxisConfig::new()` for a rotary axis and `AxisConfig::linear()` for a
+linear axis. Targets, feedback, and position limits use quantities for the
+selected axis. Construction validates gains, voltage caps, and optional
+position limits.
 
-```rust,ignore
+```rust
+# extern crate ozton;
 use ozton::control::{axis::AxisConfig, loops::Pid};
+use ozton::uom::si::{
+    angle::degree,
+    electric_potential::volt,
+    f64::{Angle, ElectricPotential},
+};
 use std::time::Duration;
 
 let controller = AxisConfig::new()
     .with_pid(Pid::new(2.0, 0.0, 0.0, None))
-    .with_maximum_voltage(4.0)
-    .with_position_limits(0.0, core::f64::consts::FRAC_PI_2)
-    .build()?
-    .with_position_tolerance(0.01)
+    .with_maximum_voltage(ElectricPotential::new::<volt>(4.0))
+    .with_position_limits(Angle::new::<degree>(0.0), Angle::new::<degree>(90.0))
+    .build()
+    .expect("valid axis settings")
+    .with_position_tolerance(Angle::new::<degree>(0.5))
     .with_maximum_gap(Duration::from_millis(100));
 ```
 
 The optional position tolerance produces zero volts for stationary targets inside
-its deadband. The caller chooses how to brake at zero. Timing gaps, nonfinite raw
-targets, and invalid feedback return `None` and reset controller state. Measured
+its deadband. The caller chooses how to brake at zero. Timing gaps and nonfinite targets or feedback return `None` and reset controller state. Measured
 limits block outward commands while allowing travel back inside the limits.
 For application-owned travel and arrival settings, `control::limits::PositionLimits`
-stores both in the chosen position unit. Validate static settings with
+stores both as quantities of the axis dimension. Validate static settings with
 `const { assert!(LIMITS.valid()) }`, use `target()` to clamp a requested position,
 and use `ready(position, target)` to check arrival within tolerance.
 
@@ -42,8 +49,8 @@ let mut pivot = PidMotor::builder(motor, controller)
 
 `update(target, dt)` samples integrated position and velocity and converts motor
 RPM into output radians per second. `apply(sample, target, dt)` accepts an external
-sensor sample already converted into output SI units. Both cap commands to the
-motor's rated voltage and attempt to stop after feedback or output failures.
+typed sensor sample describing motion at the output shaft. Both cap commands
+to the motor's rated voltage and attempt to stop after feedback or output failures.
 `stop()` resets the controller and applies the configured brake mode. Coast avoids
 active holding torque against a stowed mechanical stop; loaded mechanisms may
 require Hold while extended.
@@ -51,9 +58,8 @@ require Hold while extended.
 Implement `runtime::device::MotorDevice` for alternative or simulated motors.
 Implement `VelocityMotor` only when integrated velocity feedback is available.
 `PositionSensor` provides accumulated angular feedback and reference assignment;
-`RotationSensor` implements it directly. Vexide-facing traits expose `Angle` and
-RPM; controllers receive converted SI values. Device ownership stays concrete,
-without trait objects or shared ownership requirements.
+`RotationSensor` implements it directly. Device traits expose `uom` angles,
+angular velocities, and voltages.
 
 Keep mechanism geometry, coordinated lift/pivot motion, scoring sequences, and
 competition policy in the robot application.
@@ -61,7 +67,7 @@ competition policy in the robot application.
 ## Progress and reference protection
 
 `ProgressGuard` checks signed progress, maximum encoder speed and finite feedback.
-Use consistent units for position, minimum progress and maximum speed. No-progress
+Choose a rotary or linear guard to match the monitored axis. No-progress
 faults can rearm after neutral command; encoder jumps require explicit acknowledgment.
 Do not reset the guard every tick or after a command failure. Establish a new monitor
 baseline only for an explicit reference procedure or a known test-fixture teleport.

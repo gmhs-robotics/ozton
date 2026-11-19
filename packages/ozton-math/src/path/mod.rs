@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use glam::DVec2;
-use uom::si::f64::{Acceleration, Length, Velocity};
+use uom::si::f64::{Acceleration, Length, Time, Velocity};
 
 pub mod follower;
 pub mod jerryio;
@@ -17,13 +17,9 @@ pub struct Waypoint {
 
 impl Waypoint {
     /// Creates a waypoint from right/forward field lengths.
-    pub const fn from_lengths(right: Length, forward: Length, speed_fraction: f64) -> Self {
-        Self::new(right.value, forward.value, speed_fraction)
-    }
-
-    pub const fn new(x: f64, y: f64, speed_fraction: f64) -> Self {
+    pub const fn new(x: Length, y: Length, speed_fraction: f64) -> Self {
         Self {
-            position: DVec2::new(x, y),
+            position: DVec2::new(x.value, y.value),
             speed_fraction,
         }
     }
@@ -32,12 +28,12 @@ impl Waypoint {
 /// Physical constraints in SI units.
 #[derive(Debug, Clone, Copy)]
 pub struct Limits {
-    pub track_width: f64,
-    pub linear_speed: f64,
-    pub wheel_speed: f64,
-    pub acceleration: f64,
-    pub deceleration: f64,
-    pub lateral_acceleration: f64,
+    pub track_width: Length,
+    pub linear_speed: Velocity,
+    pub wheel_speed: Velocity,
+    pub acceleration: Acceleration,
+    pub deceleration: Acceleration,
+    pub lateral_acceleration: Acceleration,
 }
 
 impl Limits {
@@ -51,23 +47,23 @@ impl Limits {
         lateral_acceleration: Acceleration,
     ) -> Self {
         Self {
-            track_width: track_width.value,
-            linear_speed: linear_speed.value,
-            wheel_speed: wheel_speed.value,
-            acceleration: acceleration.value,
-            deceleration: deceleration.value,
-            lateral_acceleration: lateral_acceleration.value,
+            track_width,
+            linear_speed,
+            wheel_speed,
+            acceleration,
+            deceleration,
+            lateral_acceleration,
         }
     }
 
     pub fn is_valid(self) -> bool {
         [
-            self.track_width,
-            self.linear_speed,
-            self.wheel_speed,
-            self.acceleration,
-            self.deceleration,
-            self.lateral_acceleration,
+            self.track_width.value,
+            self.linear_speed.value,
+            self.wheel_speed.value,
+            self.acceleration.value,
+            self.deceleration.value,
+            self.lateral_acceleration.value,
         ]
         .iter()
         .all(|value| value.is_finite() && *value > 0.0)
@@ -158,10 +154,13 @@ impl Path {
             let distance = samples
                 .last()
                 .map_or(0.0, |sample| sample.distance + incoming.length());
-            let mut speed = (point.speed_fraction * limits.linear_speed)
-                .min(limits.wheel_speed / (1.0 + curvature.abs() * limits.track_width / 2.0));
+            let mut speed = (point.speed_fraction * limits.linear_speed.value).min(
+                limits.wheel_speed.value / (1.0 + curvature.abs() * limits.track_width.value / 2.0),
+            );
             if curvature != 0.0 {
-                speed = speed.min(libm::sqrt(limits.lateral_acceleration / curvature.abs()));
+                speed = speed.min(libm::sqrt(
+                    limits.lateral_acceleration.value / curvature.abs(),
+                ));
             }
             if index == 0 || index == last {
                 speed = 0.0;
@@ -169,7 +168,7 @@ impl Path {
             if let Some(previous) = samples.last() {
                 speed = speed.min(reachable(
                     previous.speed,
-                    limits.acceleration,
+                    limits.acceleration.value,
                     incoming.length(),
                 ));
             }
@@ -190,7 +189,7 @@ impl Path {
             let current = &mut samples[index];
             current.speed = current.speed.min(reachable(
                 next.speed,
-                limits.deceleration,
+                limits.deceleration.value,
                 next.distance - current.distance,
             ));
         }
@@ -218,7 +217,8 @@ impl Path {
     pub fn end(&self) -> PathSample {
         self.samples[self.samples.len() - 1]
     }
-    pub fn at_distance(&self, distance: f64) -> PathSample {
+    pub fn at_distance(&self, distance: Length) -> PathSample {
+        let distance = distance.value;
         let Some((a, b)) = self.bracket(distance, |sample| sample.distance) else {
             return if distance > 0.0 {
                 self.end()
@@ -232,7 +232,8 @@ impl Path {
         let time = a.time + 2.0 * travel / (a.speed + speed);
         blend(a, b, distance, time, speed)
     }
-    pub fn at_time(&self, time: f64) -> PathSample {
+    pub fn at_time(&self, time: Time) -> PathSample {
+        let time = time.value;
         let Some((a, b)) = self.bracket(time, |sample| sample.time) else {
             return if time > 0.0 { self.end() } else { self.start() };
         };
@@ -257,9 +258,9 @@ fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> 
     let fraction = (distance - a.distance) / (b.distance - a.distance);
     PathSample {
         position: a.position.lerp(b.position, fraction),
-        heading: crate::geometry::wrap_heading(
-            a.heading + crate::geometry::wrap_heading(b.heading - a.heading) * fraction,
-        ),
+        heading: crate::geometry::wrap_heading(crate::si(
+            a.heading + crate::geometry::wrap_heading(crate::si(b.heading - a.heading)) * fraction,
+        )),
         curvature: a.curvature + (b.curvature - a.curvature) * fraction,
         speed,
         distance,

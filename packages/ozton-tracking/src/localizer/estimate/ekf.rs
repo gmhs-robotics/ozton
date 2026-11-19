@@ -13,7 +13,7 @@ pub struct EkfConfig {
     pub initial_variance: DVec3,
     pub process_variance_per_second: DVec3,
     pub gate_squared: f64,
-    pub gps_max_error: f64,
+    pub gps_max_error: ozton_math::uom::si::f64::Length,
 }
 
 impl Default for EkfConfig {
@@ -22,7 +22,7 @@ impl Default for EkfConfig {
             initial_variance: DVec3::splat(0.01),
             process_variance_per_second: DVec3::new(0.002, 0.002, 0.001),
             gate_squared: 9.0,
-            gps_max_error: 0.06,
+            gps_max_error: ozton_math::si(0.06),
         }
     }
 }
@@ -39,8 +39,8 @@ impl Ekf {
             || config.process_variance_per_second.min_element() < 0.0
             || !config.gate_squared.is_finite()
             || config.gate_squared <= 0.0
-            || !config.gps_max_error.is_finite()
-            || config.gps_max_error <= 0.0
+            || !config.gps_max_error.value.is_finite()
+            || config.gps_max_error.value <= 0.0
         {
             return None;
         }
@@ -80,9 +80,10 @@ impl PoseEstimator for Ekf {
         let mut candidate = self.filter;
         let mut changed = false;
         if let Some(gps) = gps.filter(|fix| {
-            fix.pose.is_finite() && (0.001..=config.gps_max_error).contains(&fix.position_error)
+            fix.pose.is_finite()
+                && (0.001..=config.gps_max_error.value).contains(&fix.position_error.value)
         }) {
-            let variance = gps.position_error * gps.position_error;
+            let variance = gps.position_error.value * gps.position_error.value;
             changed |= candidate.correct_position(
                 gps.pose.position.x - candidate.pose().position.x,
                 DVec3::X,
@@ -99,7 +100,7 @@ impl PoseEstimator for Ekf {
         for (sensor, constraint, distance) in observations.measurements() {
             let normal = constraint.hit.normal;
             let pose = candidate.pose();
-            let beam = direction(pose.heading + sensor.mount.heading);
+            let beam = direction(ozton_math::si(pose.heading + sensor.mount.heading));
             let endpoint = pose.transform_point(sensor.mount.offset) + beam * distance;
             let surface = map[constraint.hit.surface];
             // The published orientation is independently tracked. Condition
@@ -107,7 +108,7 @@ impl PoseEstimator for Ekf {
             // translation beams as an observation of all three pose states.
             let h = DVec3::new(normal.x, normal.y, 0.0);
             let error = normal.dot(surface.start - endpoint);
-            let sigma = sensor.sigma * constraint.hit.incidence.abs();
+            let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
             changed |= candidate.correct_position(error, h, sigma * sigma, config.gate_squared);
         }
         if changed && bounded(predicted, candidate.pose(), maximum_correction) {
@@ -122,5 +123,5 @@ impl PoseEstimator for Ekf {
 fn bounded(from: Pose, to: Pose, maximum: f64) -> bool {
     to.is_finite()
         && from.position.distance(to.position) <= maximum
-        && wrap_heading(to.heading - from.heading).abs() <= 0.12
+        && wrap_heading(ozton_math::si(to.heading - from.heading)).abs() <= 0.12
 }

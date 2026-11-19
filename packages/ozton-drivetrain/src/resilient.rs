@@ -3,6 +3,7 @@
 use std::{cell::Cell, rc::Rc};
 
 use ozton_diagnostics::serial::FaultLog;
+use ozton_math::uom::si::f64::{Length, Velocity};
 use vexide::smart::PortError;
 
 use crate::model::{Differential, DrivetrainModel, Tank};
@@ -10,8 +11,8 @@ use crate::model::{Differential, DrivetrainModel, Tank};
 /// Chassis geometry for converting wheel commands and feedback; SI units.
 #[derive(Debug, Clone, Copy)]
 pub struct DriveGeometry {
-    pub maximum_wheel_speed: f64,
-    pub wheel_diameter: f64,
+    pub maximum_wheel_speed: Velocity,
+    pub wheel_diameter: Length,
 }
 
 impl DriveGeometry {
@@ -21,8 +22,8 @@ impl DriveGeometry {
         wheel_diameter: ozton_math::uom::si::f64::Length,
     ) -> Self {
         Self {
-            maximum_wheel_speed: maximum_wheel_speed.value,
-            wheel_diameter: wheel_diameter.value,
+            maximum_wheel_speed,
+            wheel_diameter,
         }
     }
 }
@@ -202,18 +203,19 @@ impl ResilientDrive {
         self.model.wheel_load()
     }
 
-    pub fn tracking_positions(&self) -> [Option<f64>; 2] {
+    pub fn tracking_positions(&self) -> [Option<Length>; 2] {
         let positions = self
             .model
             .feedback()
             .map(|sample| sample.map(|sample| sample.position));
         #[cfg(debug_assertions)]
-        self.last_positions.set(positions);
+        self.last_positions
+            .set(positions.map(|position| position.map(|position| position.value)));
         positions
     }
     pub fn autonomous_wheel_speeds(
         &mut self,
-        speeds: [f64; 2],
+        speeds: [Velocity; 2],
     ) -> Result<(), crate::model::WheelSpeedError> {
         self.reset_driver_scale();
         self.model.set_output_scale(self.speed_scale);
@@ -223,8 +225,8 @@ impl ResilientDrive {
         #[cfg(debug_assertions)]
         {
             self.debug_command = (
-                speeds[0] / self.geometry.maximum_wheel_speed,
-                speeds[1] / self.geometry.maximum_wheel_speed,
+                (speeds[0] / self.geometry.maximum_wheel_speed).value,
+                (speeds[1] / self.geometry.maximum_wheel_speed).value,
                 self.speed_scale,
             );
         }
@@ -242,7 +244,7 @@ impl ResilientDrive {
             .last_positions
             .get()
             .map(|position| position.unwrap_or(f64::NAN));
-        let circumference = core::f64::consts::PI * self.geometry.wheel_diameter;
+        let circumference = core::f64::consts::PI * self.geometry.wheel_diameter.value;
         DriveSnapshot {
             command: [self.debug_command.0, self.debug_command.1],
             scale: self.debug_command.2,
@@ -259,10 +261,10 @@ impl ResilientDrive {
         let [Some(left), Some(right)] = self.model.feedback() else {
             return None;
         };
-        let circumference = core::f64::consts::PI * self.geometry.wheel_diameter;
+        let circumference = core::f64::consts::PI * self.geometry.wheel_diameter.value;
         Some((
-            left.position / circumference,
-            right.position / circumference,
+            left.position.value / circumference,
+            right.position.value / circumference,
         ))
     }
 }
@@ -295,8 +297,8 @@ mod tests {
 
     fn geometry() -> DriveGeometry {
         DriveGeometry {
-            maximum_wheel_speed: 1.0,
-            wheel_diameter: 0.1,
+            maximum_wheel_speed: ozton_math::si(1.0),
+            wheel_diameter: ozton_math::si(0.1),
         }
     }
     #[derive(Default)]

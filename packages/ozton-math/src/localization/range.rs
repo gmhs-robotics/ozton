@@ -1,8 +1,12 @@
 //! Ray casting and distance-sensor resets against known field surfaces.
 
 use glam::DVec2;
+use uom::si::f64::{Angle, Length, Time};
 
-use crate::geometry::{Pose, direction, rotation};
+use crate::{
+    geometry::{Pose, direction, rotation},
+    si,
+};
 
 /// A finite, stationary reflecting surface in the field plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -12,10 +16,10 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub const fn new(start_x: f64, start_y: f64, end_x: f64, end_y: f64) -> Self {
+    pub const fn new(start_x: Length, start_y: Length, end_x: Length, end_y: Length) -> Self {
         Self {
-            start: DVec2::new(start_x, start_y),
-            end: DVec2::new(end_x, end_y),
+            start: DVec2::new(start_x.value, start_y.value),
+            end: DVec2::new(end_x.value, end_y.value),
         }
     }
 
@@ -32,10 +36,10 @@ pub struct Mount {
 }
 
 impl Mount {
-    pub const fn new(x: f64, y: f64, heading: f64) -> Self {
+    pub const fn new(x: Length, y: Length, heading: Angle) -> Self {
         Self {
-            offset: DVec2::new(x, y),
-            heading,
+            offset: DVec2::new(x.value, y.value),
+            heading: heading.value,
         }
     }
 }
@@ -61,7 +65,7 @@ pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u32) ->
 
 fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>) -> Option<Hit> {
     let origin = pose.transform_point(mount.offset);
-    let beam = direction(pose.heading + mount.heading);
+    let beam = direction(crate::si(pose.heading + mount.heading));
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
     for (index, surface) in surfaces.iter().enumerate() {
@@ -102,13 +106,13 @@ fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>)
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
 #[derive(Debug, Clone, Copy)]
 pub struct RangeGate {
-    pub min_range: f64,
-    pub max_range: f64,
+    pub min_range: Length,
+    pub max_range: Length,
     pub min_confidence: f64,
-    pub max_age: f64,
+    pub max_age: Time,
     pub min_incidence: f64,
-    pub edge_margin: f64,
-    pub max_residual: f64,
+    pub edge_margin: Length,
+    pub max_residual: Length,
 }
 
 impl Default for RangeGate {
@@ -119,32 +123,32 @@ impl Default for RangeGate {
 
 impl RangeGate {
     pub const DEFAULT: Self = Self {
-        min_range: 0.05,
-        max_range: 2.0,
+        min_range: si(0.05),
+        max_range: si(2.0),
         min_confidence: 0.5,
-        max_age: 0.08,
+        max_age: si(0.08),
         min_incidence: 0.6,
-        edge_margin: 0.1,
-        max_residual: 0.18,
+        edge_margin: si(0.1),
+        max_residual: si(0.18),
     };
 
     pub fn is_valid(self) -> bool {
         [
-            self.min_range,
-            self.max_range,
+            self.min_range.value,
+            self.max_range.value,
             self.min_confidence,
-            self.max_age,
+            self.max_age.value,
             self.min_incidence,
-            self.edge_margin,
-            self.max_residual,
+            self.edge_margin.value,
+            self.max_residual.value,
         ]
         .iter()
         .all(|value| value.is_finite() && *value >= 0.0)
             && self.min_range < self.max_range
-            && self.max_age > 0.0
+            && self.max_age.value > 0.0
             && self.min_confidence <= 1.0
             && (0.001..=1.0).contains(&self.min_incidence)
-            && self.max_residual > 0.0
+            && self.max_residual.value > 0.0
     }
 }
 
@@ -166,9 +170,9 @@ pub enum Rejection {
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeReading {
-    pub distance: f64,
+    pub distance: Length,
     pub confidence: f64,
-    pub age: f64,
+    pub age: Time,
     pub occluded: bool,
 }
 
@@ -183,7 +187,7 @@ impl RangeReading {
         if !(gate.min_confidence..=1.0).contains(&self.confidence) {
             return Err(Rejection::LowConfidence);
         }
-        if !(0.0..=gate.max_age).contains(&self.age) {
+        if !(0.0..=gate.max_age.value).contains(&self.age.value) {
             return Err(Rejection::Stale);
         }
         Ok(())
@@ -235,19 +239,19 @@ fn constrain_hit(
     if expected_surface.is_some_and(|expected| expected != hit.surface) {
         return Err(Rejection::WrongSurface);
     }
-    if hit.edge_distance < gate.edge_margin {
+    if hit.edge_distance < gate.edge_margin.value {
         return Err(Rejection::NearEdge);
     }
     if hit.incidence.abs() < gate.min_incidence {
         return Err(Rejection::Grazing);
     }
-    let residual = reading.distance - hit.distance;
-    if residual.abs() > gate.max_residual {
+    let residual = reading.distance.value - hit.distance;
+    if residual.abs() > gate.max_residual.value {
         return Err(Rejection::Residual);
     }
     let lateral_uncertainty =
         residual.abs() * libm::sqrt((1.0 - hit.incidence * hit.incidence).max(0.0));
-    if hit.edge_distance < gate.edge_margin + lateral_uncertainty {
+    if hit.edge_distance < gate.edge_margin.value + lateral_uncertainty {
         return Err(Rejection::NearEdge);
     }
     Ok(Constraint {
@@ -306,7 +310,7 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
     } else {
         // Principal direction of the symmetric normal matrix; sign does not matter.
         let angle = 0.5 * libm::atan2(2.0 * xy, xx - yy);
-        let n = rotation(angle);
+        let n = rotation(crate::si(angle));
         let eigenvalue = xx * n.x * n.x + 2.0 * xy * n.x * n.y + yy * n.y * n.y;
         (n * (rhs.dot(n) / eigenvalue), 1)
     };
@@ -326,15 +330,40 @@ mod tests {
 
     #[test]
     fn masked_cast_matches_independent_segment_casts_and_preserves_indices() {
-        let mut map = [Surface::new(0.0, 0.0, 0.0, 0.0); 33];
-        map[0] = Surface::new(-2.0, 0.8, 2.0, 0.8);
-        map[4] = Surface::new(-2.0, 1.0, 2.0, 1.0);
-        map[31] = Surface::new(-2.0, 1.2, 2.0, 1.2);
-        map[32] = Surface::new(-2.0, 0.5, 2.0, 0.5);
+        let mut map = [Surface::new(
+            crate::si(0.0),
+            crate::si(0.0),
+            crate::si(0.0),
+            crate::si(0.0),
+        ); 33];
+        map[0] = Surface::new(
+            crate::si(-2.0),
+            crate::si(0.8),
+            crate::si(2.0),
+            crate::si(0.8),
+        );
+        map[4] = Surface::new(
+            crate::si(-2.0),
+            crate::si(1.0),
+            crate::si(2.0),
+            crate::si(1.0),
+        );
+        map[31] = Surface::new(
+            crate::si(-2.0),
+            crate::si(1.2),
+            crate::si(2.0),
+            crate::si(1.2),
+        );
+        map[32] = Surface::new(
+            crate::si(-2.0),
+            crate::si(0.5),
+            crate::si(2.0),
+            crate::si(0.5),
+        );
         for yaw in [-0.3, 0.0, 0.3] {
             for mask in [0, 1, 1 << 4, 1 << 31, (1 << 4) | (1 << 31), u32::MAX] {
-                let pose = Pose::new(0.1, -0.2, yaw);
-                let mount = Mount::new(0.05, -0.03, 0.1);
+                let pose = Pose::new(crate::si(0.1), crate::si(-0.2), crate::si(yaw));
+                let mount = Mount::new(crate::si(0.05), crate::si(-0.03), crate::si(0.1));
                 let expected = map
                     .iter()
                     .enumerate()
@@ -351,15 +380,24 @@ mod tests {
             }
         }
         assert_eq!(
-            cast(Pose::default(), Mount::new(0.0, 0.0, 0.0), &map)
-                .unwrap()
-                .surface,
+            cast(
+                Pose::default(),
+                Mount::new(crate::si(0.0), crate::si(0.0), crate::si(0.0)),
+                &map
+            )
+            .unwrap()
+            .surface,
             32
         );
         assert_eq!(
-            cast_masked(Pose::default(), Mount::new(0.0, 0.0, 0.0), &map, u32::MAX)
-                .unwrap()
-                .surface,
+            cast_masked(
+                Pose::default(),
+                Mount::new(crate::si(0.0), crate::si(0.0), crate::si(0.0)),
+                &map,
+                u32::MAX
+            )
+            .unwrap()
+            .surface,
             0
         );
     }
@@ -370,17 +408,17 @@ mod tests {
             start: DVec2::new(1.0, -1.0),
             end: DVec2::new(1.0, 1.0),
         };
-        let pose = Pose::new(0.1, 0.1, 0.3);
+        let pose = Pose::new(crate::si(0.1), crate::si(0.1), crate::si(0.3));
         let mount = Mount {
             offset: DVec2::new(0.1, 0.0),
             heading: -core::f64::consts::FRAC_PI_2,
         };
-        let true_pose = Pose::new(0.0, 0.1, 0.3);
+        let true_pose = Pose::new(crate::si(0.0), crate::si(0.1), crate::si(0.3));
         let distance = cast(true_pose, mount, &[surface]).unwrap().distance;
         let reading = RangeReading {
-            distance,
+            distance: si(distance),
             confidence: 1.0,
-            age: 0.0,
+            age: si(0.0),
             occluded: false,
         };
         let constraint = constrain(

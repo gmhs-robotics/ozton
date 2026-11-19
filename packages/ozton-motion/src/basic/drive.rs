@@ -7,6 +7,7 @@ use std::{
 
 use ozton_control::{
     Tolerances,
+    axis::Linear,
     loops::{AngularPid, Feedback, Pid},
 };
 use ozton_drivetrain::{Drivetrain, model::Arcade};
@@ -37,7 +38,7 @@ where
     pub(crate) target_distance: f64,
     pub(crate) target_heading: Angle,
     pub(crate) timeout: Option<Duration>,
-    pub(crate) linear_tolerances: Tolerances,
+    pub(crate) linear_tolerances: Tolerances<Linear>,
     pub(crate) angular_tolerances: Tolerances,
     pub(crate) linear_controller: L,
     pub(crate) angular_controller: A,
@@ -86,15 +87,15 @@ where
 
         // println!("{}", linear_error);
 
-        if this
-            .linear_tolerances
-            .check(linear_error, this.drivetrain.tracking.linear_velocity())
-        {
+        if this.linear_tolerances.check(
+            ozton_math::si(linear_error),
+            ozton_math::si(this.drivetrain.tracking.linear_velocity()),
+        ) {
             state.linear_settled = true;
         }
         if this.angular_tolerances.check(
-            angular_error.as_radians(),
-            this.drivetrain.tracking.angular_velocity(),
+            ozton_math::si(angular_error.as_radians()),
+            ozton_math::si(this.drivetrain.tracking.angular_velocity()),
         ) {
             state.angular_settled = true;
         }
@@ -165,13 +166,16 @@ where
     }
 
     /// Modifies this motion's linear tolerances.
-    pub const fn with_linear_tolerances(&mut self, tolerances: Tolerances) -> &mut Self {
+    pub const fn with_linear_tolerances(&mut self, tolerances: Tolerances<Linear>) -> &mut Self {
         self.linear_tolerances = tolerances;
         self
     }
 
     /// Modifies this motion's linear error tolerance.
-    pub const fn with_linear_error_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_linear_error_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::Length,
+    ) -> &mut Self {
         self.linear_tolerances.error_tolerance = Some(tolerance);
         self
     }
@@ -183,7 +187,10 @@ where
     }
 
     /// Modifies this motion's linear velocity tolerance.
-    pub const fn with_linear_velocity_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_linear_velocity_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::Velocity,
+    ) -> &mut Self {
         self.linear_tolerances.velocity_tolerance = Some(tolerance);
         self
     }
@@ -220,7 +227,10 @@ where
     }
 
     /// Modifies this motion's angular error tolerance.
-    pub const fn with_angular_error_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_angular_error_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::Angle,
+    ) -> &mut Self {
         self.angular_tolerances.error_tolerance = Some(tolerance);
         self
     }
@@ -232,7 +242,10 @@ where
     }
 
     /// Modifies this motion's angular velocity tolerance.
-    pub const fn with_angular_velocity_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_angular_velocity_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::AngularVelocity,
+    ) -> &mut Self {
         self.angular_tolerances.velocity_tolerance = Some(tolerance);
         self
     }
@@ -289,9 +302,12 @@ where
     }
 
     /// Modifies this motion's linear integration range.
-    pub const fn with_linear_integration_range(&mut self, integration_range: f64) -> &mut Self {
+    pub const fn with_linear_integration_range(
+        &mut self,
+        integration_range: ozton_math::uom::si::f64::Length,
+    ) -> &mut Self {
         self.linear_controller
-            .set_integration_range(Some(integration_range));
+            .set_integration_range(Some(integration_range.value));
         self
     }
 

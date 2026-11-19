@@ -2,17 +2,60 @@
 
 use core::time::Duration;
 
+use ozton_math::{
+    si,
+    uom::si::{self, Dimension, Quantity, SI, f64::ElectricPotential},
+};
+
 use crate::loops::{Feedforward, MotorFeedforward, MotorFeedforwardSetpoint, Pid};
 
-/// Builder-style settings for an axis in output radians and volts.
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Selects the position, velocity and acceleration dimensions of a control axis.
+pub trait AxisDimension: sealed::Sealed + Copy {
+    type Position: Dimension + ?Sized;
+    type Velocity: Dimension + ?Sized;
+    type Acceleration: Dimension + ?Sized;
+}
+
+/// A mechanism with angular travel.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Rotary;
+
+/// A mechanism with linear travel.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Linear;
+
+impl sealed::Sealed for Rotary {}
+impl sealed::Sealed for Linear {}
+
+impl AxisDimension for Rotary {
+    type Position = si::angle::Dimension;
+    type Velocity = si::angular_velocity::Dimension;
+    type Acceleration = si::angular_acceleration::Dimension;
+}
+
+impl AxisDimension for Linear {
+    type Position = si::length::Dimension;
+    type Velocity = si::velocity::Dimension;
+    type Acceleration = si::acceleration::Dimension;
+}
+
+pub(crate) type Position<D> = Quantity<<D as AxisDimension>::Position, SI<f64>, f64>;
+pub(crate) type Velocity<D> = Quantity<<D as AxisDimension>::Velocity, SI<f64>, f64>;
+pub(crate) type Acceleration<D> = Quantity<<D as AxisDimension>::Acceleration, SI<f64>, f64>;
+
+/// Builder-style settings for an axis with typed position limits and voltage.
 /// Call `build()` to validate settings before running the controller.
 #[derive(Debug, Clone, Copy)]
-pub struct AxisConfig {
+pub struct AxisConfig<D: AxisDimension = Rotary> {
     pub pid: Pid,
-    pub feedforward: MotorFeedforward,
+    pub feedforward: MotorFeedforward<D>,
     pub derivative_filter: Duration,
-    pub maximum_voltage: f64,
-    pub position_limits: Option<(f64, f64)>,
+    pub maximum_voltage: ElectricPotential,
+    pub position_limits: Option<(Position<D>, Position<D>)>,
 }
 
 impl Default for AxisConfig {
@@ -22,14 +65,26 @@ impl Default for AxisConfig {
 }
 
 impl AxisConfig {
-    /// Starts a stationary axis with zero gains, no limits, and a 12 V cap.
-    /// Positions and velocities use output radians and radians per second.
+    /// Starts a rotary axis with zero gains, no limits, and a 12 V cap.
     pub fn new() -> Self {
+        Self::with_defaults()
+    }
+}
+
+impl AxisConfig<Linear> {
+    /// Starts a linear axis with zero gains, no limits, and a 12 V cap.
+    pub fn linear() -> Self {
+        Self::with_defaults()
+    }
+}
+
+impl<D: AxisDimension> AxisConfig<D> {
+    fn with_defaults() -> Self {
         Self {
             pid: Pid::new(0.0, 0.0, 0.0, None),
-            feedforward: MotorFeedforward::new(0.0, 0.0, 0.0),
+            feedforward: MotorFeedforward::new(si(0.0), 0.0, 0.0),
             derivative_filter: Duration::ZERO,
-            maximum_voltage: 12.0,
+            maximum_voltage: si(12.0),
             position_limits: None,
         }
     }
@@ -41,7 +96,7 @@ impl AxisConfig {
     }
 
     #[must_use]
-    pub fn with_feedforward(mut self, feedforward: MotorFeedforward) -> Self {
+    pub fn with_feedforward(mut self, feedforward: MotorFeedforward<D>) -> Self {
         self.feedforward = feedforward;
         self
     }
@@ -53,70 +108,72 @@ impl AxisConfig {
     }
 
     #[must_use]
-    pub fn with_maximum_voltage(mut self, voltage: f64) -> Self {
+    pub fn with_maximum_voltage(mut self, voltage: ElectricPotential) -> Self {
         self.maximum_voltage = voltage;
         self
     }
 
     #[must_use]
-    pub fn with_position_limits(mut self, bottom: f64, top: f64) -> Self {
+    pub fn with_position_limits(mut self, bottom: Position<D>, top: Position<D>) -> Self {
         self.position_limits = Some((bottom, top));
         self
     }
 
     /// Validates settings before creating the controller.
-    pub fn build(self) -> Option<AxisController> {
+    pub fn build(self) -> Option<AxisController<D>> {
         AxisController::new(self)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AxisSample {
-    pub position: f64,
-    pub velocity: f64,
+pub struct AxisSample<D: AxisDimension = Rotary> {
+    pub position: Position<D>,
+    pub velocity: Velocity<D>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Target {
+pub enum Target<D: AxisDimension = Rotary> {
     Position {
-        position: f64,
-        velocity: f64,
-        acceleration: f64,
+        position: Position<D>,
+        velocity: Velocity<D>,
+        acceleration: Acceleration<D>,
     },
     Velocity {
-        velocity: f64,
-        acceleration: f64,
+        velocity: Velocity<D>,
+        acceleration: Acceleration<D>,
     },
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AxisController {
-    config: AxisConfig,
+pub struct AxisController<D: AxisDimension = Rotary> {
+    config: AxisConfig<D>,
     position_tolerance: f64,
     maximum_gap: Option<Duration>,
     position_mode: Option<bool>,
 }
 
-impl AxisController {
-    pub fn new(mut config: AxisConfig) -> Option<Self> {
+impl<D: AxisDimension> AxisController<D> {
+    pub fn new(mut config: AxisConfig<D>) -> Option<Self> {
         let (kp, ki, kd) = config.pid.gains();
         let (ks, kv, ka) = config.feedforward.constants();
-        if ![kp, ki, kd, ks, kv, ka]
+        if ![kp, ki, kd, ks.value, kv, ka]
             .iter()
             .all(|value| value.is_finite())
             || config
                 .pid
                 .integration_range()
                 .is_some_and(|range| !range.is_finite() || range <= 0.0)
-            || !config.maximum_voltage.is_finite()
-            || config.maximum_voltage <= 0.0
-            || config
-                .position_limits
-                .is_some_and(|(min, max)| !min.is_finite() || !max.is_finite() || min >= max)
+            || !config.maximum_voltage.value.is_finite()
+            || config.maximum_voltage.value <= 0.0
+            || config.position_limits.is_some_and(|(min, max)| {
+                !min.value.is_finite() || !max.value.is_finite() || min >= max
+            })
         {
             return None;
         }
-        config.pid.set_output_limit(Some(config.maximum_voltage));
+        config
+            .pid
+            .set_output_limit(Some(config.maximum_voltage.value));
         config.pid.reset();
         Some(Self {
             config,
@@ -126,11 +183,11 @@ impl AxisController {
         })
     }
 
-    /// Adds a position deadband in output radians. Invalid values fail closed on update.
+    /// Adds a position deadband. Invalid values fail closed on update.
     /// Stationary targets inside the deadband produce zero volts; callers choose braking.
     #[must_use]
-    pub fn with_position_tolerance(mut self, tolerance: f64) -> Self {
-        self.position_tolerance = tolerance;
+    pub fn with_position_tolerance(mut self, tolerance: Position<D>) -> Self {
+        self.position_tolerance = tolerance.value;
         self
     }
 
@@ -146,19 +203,26 @@ impl AxisController {
         self.position_mode = None;
     }
 
-    pub fn update(&mut self, sample: AxisSample, target: Target, dt: Duration) -> Option<f64> {
+    pub fn update(
+        &mut self,
+        sample: AxisSample<D>,
+        target: Target<D>,
+        dt: Duration,
+    ) -> Option<ElectricPotential> {
         let valid_target = match target {
             Target::Position {
                 position,
                 velocity,
                 acceleration,
-            } => [position, velocity, acceleration]
+            } => [position.value, velocity.value, acceleration.value]
                 .iter()
                 .all(|v| v.is_finite()),
             Target::Velocity {
                 velocity,
                 acceleration,
-            } => [velocity, acceleration].iter().all(|v| v.is_finite()),
+            } => [velocity.value, acceleration.value]
+                .iter()
+                .all(|v| v.is_finite()),
         };
         if !valid_target || !self.position_tolerance.is_finite() || self.position_tolerance < 0.0 {
             self.reset();
@@ -173,22 +237,36 @@ impl AxisController {
                 let setpoint = self
                     .config
                     .position_limits
-                    .map_or(position, |(min, max)| position.clamp(min, max));
-                (sample.position, setpoint, velocity, acceleration, true)
+                    .map_or(position.value, |(min, max)| {
+                        position.value.clamp(min.value, max.value)
+                    });
+                (
+                    sample.position.value,
+                    setpoint,
+                    velocity,
+                    acceleration,
+                    true,
+                )
             }
             Target::Velocity {
                 velocity,
                 acceleration,
-            } => (sample.velocity, velocity, velocity, acceleration, false),
+            } => (
+                sample.velocity.value,
+                velocity.value,
+                velocity,
+                acceleration,
+                false,
+            ),
         };
         if dt.is_zero()
             || self.maximum_gap.is_some_and(|gap| dt > gap)
             || ![
-                sample.position,
-                sample.velocity,
+                sample.position.value,
+                sample.velocity.value,
                 setpoint,
-                velocity,
-                acceleration,
+                velocity.value,
+                acceleration.value,
             ]
             .iter()
             .all(|value| value.is_finite())
@@ -203,11 +281,11 @@ impl AxisController {
         if self.position_tolerance > 0.0
             && position_mode
             && (setpoint - measurement).abs() <= self.position_tolerance
-            && velocity == 0.0
-            && acceleration == 0.0
+            && velocity.value == 0.0
+            && acceleration.value == 0.0
         {
             self.config.pid.reset();
-            return Some(0.0);
+            return Some(si(0.0));
         }
         let feedforward = self.config.feedforward.update(
             MotorFeedforwardSetpoint {
@@ -216,7 +294,7 @@ impl AxisController {
             },
             dt,
         );
-        if !feedforward.is_finite() {
+        if !feedforward.value.is_finite() {
             self.reset();
             return None;
         }
@@ -225,7 +303,7 @@ impl AxisController {
             setpoint,
             dt,
             self.config.derivative_filter,
-            feedforward,
+            feedforward.value,
         );
         if !output.is_finite() {
             self.reset();
@@ -236,9 +314,9 @@ impl AxisController {
         });
         if limited {
             self.config.pid.reset();
-            Some(0.0)
+            Some(si(0.0))
         } else {
-            Some(output)
+            Some(si(output))
         }
     }
 }
@@ -249,50 +327,50 @@ mod tests {
 
     const TICK: Duration = Duration::from_millis(10);
     const SAMPLE: AxisSample = AxisSample {
-        position: 0.5,
-        velocity: 0.0,
+        position: si(0.5),
+        velocity: si(0.0),
     };
 
     fn target(position: f64) -> Target {
         Target::Position {
-            position,
-            velocity: 0.0,
-            acceleration: 0.0,
+            position: si(position),
+            velocity: si(0.0),
+            acceleration: si(0.0),
         }
     }
 
     fn controller() -> AxisController {
         AxisConfig::new()
             .with_pid(Pid::new(10.0, 0.0, 0.0, None))
-            .with_maximum_voltage(4.0)
-            .with_position_limits(0.0, 1.0)
+            .with_maximum_voltage(si(4.0))
+            .with_position_limits(si(0.0), si(1.0))
             .build()
             .unwrap()
-            .with_position_tolerance(0.01)
+            .with_position_tolerance(si(0.01))
             .with_maximum_gap(Duration::from_millis(100))
     }
 
     #[test]
     fn builder_limits_voltage_travel_and_timing_and_recovers_after_faults() {
         let mut axis = controller();
-        assert_eq!(axis.update(SAMPLE, target(100.0), TICK), Some(4.0));
-        assert_eq!(axis.update(SAMPLE, target(-100.0), TICK), Some(-4.0));
-        assert_eq!(axis.update(SAMPLE, target(0.505), TICK), Some(0.0));
+        assert_eq!(axis.update(SAMPLE, target(100.0), TICK), Some(si(4.0)));
+        assert_eq!(axis.update(SAMPLE, target(-100.0), TICK), Some(si(-4.0)));
+        assert_eq!(axis.update(SAMPLE, target(0.505), TICK), Some(si(0.0)));
         for dt in [Duration::ZERO, Duration::from_millis(101)] {
             assert!(axis.update(SAMPLE, target(1.0), dt).is_none());
         }
-        assert_eq!(axis.update(SAMPLE, target(1.0), TICK), Some(4.0));
+        assert_eq!(axis.update(SAMPLE, target(1.0), TICK), Some(si(4.0)));
         // An axis outside its measured limits must still be allowed to return.
         assert_eq!(
             axis.update(
                 AxisSample {
-                    position: 1.5,
-                    velocity: 0.0
+                    position: si(1.5),
+                    velocity: si(0.0)
                 },
                 target(1.0),
                 TICK
             ),
-            Some(-4.0)
+            Some(si(-4.0))
         );
     }
 
@@ -304,8 +382,8 @@ mod tests {
             assert!(
                 axis.update(
                     AxisSample {
-                        position: invalid,
-                        velocity: 0.0
+                        position: si(invalid),
+                        velocity: si(0.0)
                     },
                     target(1.0),
                     TICK
@@ -315,19 +393,19 @@ mod tests {
         }
         assert!(
             AxisConfig::new()
-                .with_maximum_voltage(f64::NAN)
+                .with_maximum_voltage(si(f64::NAN))
                 .build()
                 .is_none()
         );
         assert!(
             AxisConfig::new()
-                .with_position_limits(1.0, 0.0)
+                .with_position_limits(si(1.0), si(0.0))
                 .build()
                 .is_none()
         );
         assert!(
             controller()
-                .with_position_tolerance(-1.0)
+                .with_position_tolerance(si(-1.0))
                 .update(SAMPLE, target(0.5), TICK)
                 .is_none()
         );

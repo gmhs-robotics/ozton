@@ -52,8 +52,8 @@ impl PoseEstimator for Mcl {
                 offset: DVec2::ZERO,
                 heading: 0.0,
             },
-            distance: 0.0,
-            max_range: 0.0,
+            distance: ozton_math::si(0.0),
+            max_range: ozton_math::si(0.0),
             surface_mask: u32::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
@@ -62,7 +62,7 @@ impl PoseEstimator for Mcl {
         for (sensor, _, distance) in measurements.clone() {
             beams[count] = Beam {
                 mount: sensor.mount,
-                distance,
+                distance: ozton_math::si(distance),
                 max_range: sensor.gate.max_range,
                 surface_mask: sensor.surface_mask,
             };
@@ -72,9 +72,11 @@ impl PoseEstimator for Mcl {
             return None;
         }
         self.candidate.clone_from(&self.filter);
-        let estimate = self
-            .candidate
-            .observe_position(&beams[..count], map, predicted.heading)?;
+        let estimate = self.candidate.observe_position(
+            &beams[..count],
+            map,
+            ozton_math::si(predicted.heading),
+        )?;
         let (first, second) = independent(measurements.map(|(_, constraint, _)| constraint))?;
         let change = estimate.pose.position - predicted.position;
         let normal = first.hit.normal;

@@ -4,9 +4,11 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use arrayvec::ArrayVec;
 use ozton_control::drive::{AntiTip, SlewLimiter};
-use ozton_math::desaturate;
+use ozton_math::{
+    desaturate, si,
+    uom::si::f64::{Angle, ElectricPotential, Frequency, Length, Velocity},
+};
 use vexide::{
-    math::Angle,
     prelude::{InertialSensor, Motor},
     smart::{PortError, motor::BrakeMode},
 };
@@ -72,8 +74,8 @@ impl Side {
                 .ok()
                 .zip(motor.motor.velocity().ok())
                 .map(|(position, velocity)| WheelFeedback {
-                    position: position.as_turns() * motor.meters_per_turn,
-                    velocity: velocity / motor.rpm_per_meter_per_second,
+                    position: si(position.as_turns() * motor.meters_per_turn),
+                    velocity: si(velocity / motor.rpm_per_meter_per_second),
                 });
         }
         consensus.borrow_mut().sample(&samples[..motors.len()], dt)
@@ -138,8 +140,8 @@ fn each<M>(
 /// Continuous per-side travel and velocity from all configured geared motors.
 #[derive(Debug, Clone, Copy)]
 pub struct WheelFeedback {
-    pub position: f64,
-    pub velocity: f64,
+    pub position: Length,
+    pub velocity: Velocity,
 }
 
 /// Electrical load and fastest absolute wheel speed on one geared drive side.
@@ -182,7 +184,7 @@ struct TipControl {
 /// One differential drivetrain for voltage and matched wheel-speed control.
 pub struct Differential {
     sides: [Side; 2],
-    wheel_speed_limit: Option<f64>,
+    wheel_speed_limit: Option<Velocity>,
     scale: f64,
     slew: Option<[SlewLimiter; 2]>,
     anti_tip: Option<TipControl>,
@@ -213,9 +215,9 @@ impl Differential {
     pub fn geared(
         left: impl IntoIterator<Item = DriveMotor>,
         right: impl IntoIterator<Item = DriveMotor>,
-        wheel_speed_limit: Option<f64>,
+        wheel_speed_limit: Option<Velocity>,
     ) -> Option<Self> {
-        if wheel_speed_limit.is_some_and(|limit| !limit.is_finite() || limit <= 0.0) {
+        if wheel_speed_limit.is_some_and(|limit| !limit.value.is_finite() || limit.value <= 0.0) {
             return None;
         }
         let left = collect_geared_side(left)?;
@@ -248,7 +250,7 @@ impl Differential {
         )
     }
 
-    fn from_sides(sides: [Side; 2], wheel_speed_limit: Option<f64>) -> Self {
+    fn from_sides(sides: [Side; 2], wheel_speed_limit: Option<Velocity>) -> Self {
         Self {
             sides,
             wheel_speed_limit,
@@ -280,8 +282,12 @@ impl Differential {
         self
     }
 
-    pub fn with_slew(mut self, rise_per_second: f64, fall_per_second: f64) -> Option<Self> {
-        if ![rise_per_second, fall_per_second]
+    pub fn with_slew(
+        mut self,
+        rise_per_second: Frequency,
+        fall_per_second: Frequency,
+    ) -> Option<Self> {
+        if ![rise_per_second.value, fall_per_second.value]
             .iter()
             .all(|rate| rate.is_finite() && *rate > 0.0)
         {
@@ -304,7 +310,7 @@ impl Differential {
         self
     }
 
-    pub fn wheel_speed_limit(&self) -> Option<f64> {
+    pub fn wheel_speed_limit(&self) -> Option<Velocity> {
         self.wheel_speed_limit
     }
 
@@ -338,10 +344,10 @@ impl Differential {
         [self.sides[0].wheel_load(), self.sides[1].wheel_load()]
     }
 
-    pub fn measured_voltage(&self) -> [Option<f64>; 2] {
+    pub fn measured_voltage(&self) -> [Option<ElectricPotential>; 2] {
         [
-            self.sides[0].voltage_feedback(),
-            self.sides[1].voltage_feedback(),
+            self.sides[0].voltage_feedback().map(si),
+            self.sides[1].voltage_feedback().map(si),
         ]
     }
 
@@ -358,25 +364,30 @@ impl Differential {
     }
 
     /// Applies normalized voltage even when tank input is configured for wheel speed.
-    pub fn drive_voltage(&mut self, left: f64, right: f64) -> Result<(), PortError> {
+    pub fn drive_normalized_voltage(&mut self, left: f64, right: f64) -> Result<(), PortError> {
         self.apply([left, right], None, false)
     }
 
     /// Applies volts to every motor on each side, limited by each motor's rating.
     /// Optional output scaling, slew limiting and tilt protection still apply.
-    pub fn drive_volts(&mut self, left: f64, right: f64) -> Result<(), PortError> {
+    pub fn drive_volts(
+        &mut self,
+        left: ElectricPotential,
+        right: ElectricPotential,
+    ) -> Result<(), PortError> {
         let maximum = Motor::V5_MAX_VOLTAGE;
-        self.apply([left / maximum, right / maximum], None, true)
+        self.apply([left.value / maximum, right.value / maximum], None, true)
     }
 
     /// SI wheel-speed control without changing the driver's voltage-control mode.
     /// Requires geared sides. Scaling, slew and anti-tip remain active.
     pub fn drive_wheel_speeds(
         &mut self,
-        left: f64,
-        right: f64,
-        maximum: f64,
+        left: Velocity,
+        right: Velocity,
+        maximum: Velocity,
     ) -> Result<(), WheelSpeedError> {
+        let (left, right, maximum) = (left.value, right.value, maximum.value);
         if !maximum.is_finite() || maximum <= 0.0 || !left.is_finite() || !right.is_finite() {
             let _ = self.brake_now(self.brake);
             return Err(WheelSpeedError::InvalidCommand);
@@ -427,9 +438,12 @@ impl Differential {
                     TipAngleAxis::Pitch => angles.a,
                     TipAngleAxis::Roll => angles.c,
                 };
-                let correction = tip
-                    .controller
-                    .correction((tilt - tip.level).wrapped_half().as_radians(), dt);
+                let correction = tip.controller.correction(
+                    si((tilt - vexide::math::Angle::from_radians(tip.level.value))
+                        .wrapped_half()
+                        .as_radians()),
+                    dt,
+                );
                 command = desaturate(command.map(|power| power + correction), 1.0);
             } else {
                 tip.controller.reset();
@@ -460,7 +474,11 @@ impl DrivetrainModel for Differential {
 
 impl Tank for Differential {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.apply([left, right], self.wheel_speed_limit, false)
+        self.apply(
+            [left, right],
+            self.wheel_speed_limit.map(|limit| limit.value),
+            false,
+        )
     }
 
     fn stop_now(&mut self) -> Result<(), PortError> {

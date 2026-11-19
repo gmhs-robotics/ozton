@@ -8,6 +8,7 @@ use std::{
 use glam::DVec2 as Vec2;
 use ozton_control::{
     Tolerances,
+    axis::Linear,
     loops::{AngularPid, Pid},
 };
 use ozton_drivetrain::{
@@ -68,8 +69,8 @@ impl SimState {
         }
 
         self.heading_radians = wrap_radians(self.heading_radians + self.angular_velocity * dt);
-        let displacement =
-            ozton_math::geometry::direction(self.heading_radians) * (self.linear_velocity * dt);
+        let displacement = ozton_math::geometry::direction(ozton_math::si(self.heading_radians))
+            * (self.linear_velocity * dt);
         self.position += displacement;
         self.forward_travel += self.linear_velocity * dt;
     }
@@ -171,26 +172,26 @@ fn new_drivetrain() -> Drivetrain<MockArcadeModel, MockTracking> {
     )
 }
 
-fn linear_tolerances() -> Tolerances {
+fn linear_tolerances() -> Tolerances<Linear> {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(0.04);
-    tolerances.velocity_tolerance = Some(0.05);
+    tolerances.error_tolerance = Some(ozton_math::si(0.04));
+    tolerances.velocity_tolerance = Some(ozton_math::si(0.05));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
 
 fn angular_tolerances() -> Tolerances {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(0.05);
-    tolerances.velocity_tolerance = Some(0.08);
+    tolerances.error_tolerance = Some(ozton_math::si(0.05));
+    tolerances.velocity_tolerance = Some(ozton_math::si(0.08));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
 
-fn point_tolerances() -> Tolerances {
+fn point_tolerances() -> Tolerances<Linear> {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(0.05);
-    tolerances.velocity_tolerance = Some(0.06);
+    tolerances.error_tolerance = Some(ozton_math::si(0.05));
+    tolerances.velocity_tolerance = Some(ozton_math::si(0.06));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
@@ -232,9 +233,11 @@ fn basic_motion_reaches_distance_and_heading_goals() {
     let mut motion = basic_motion();
 
     block_on(async {
-        motion.drive_distance(&mut drivetrain, 1.2).await;
         motion
-            .turn_to_point(&mut drivetrain, Vec2::new(-1.2, 1.2))
+            .drive_distance(&mut drivetrain, ozton_math::si(1.2))
+            .await;
+        motion
+            .turn_to_point(&mut drivetrain, [ozton_math::si(-1.2), ozton_math::si(1.2)])
             .await;
     });
 
@@ -269,13 +272,13 @@ fn seeking_motion_reaches_multiple_waypoints() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(0.0, 1.0))
+            .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
             .await;
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(-1.0, 1.0))
+            .move_to_point(&mut drivetrain, [ozton_math::si(-1.0), ozton_math::si(1.0)])
             .await;
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(-1.4, 0.4))
+            .move_to_point(&mut drivetrain, [ozton_math::si(-1.4), ozton_math::si(0.4)])
             .await;
     });
 
@@ -303,7 +306,7 @@ fn reverse_seeking_drives_backward_to_target() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, Vec2::new(0.0, 1.0))
+            .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
             .reverse()
             .await;
     });

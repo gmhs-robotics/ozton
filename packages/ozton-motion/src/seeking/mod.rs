@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use glam::DVec2 as Vec2;
-use ozton_control::{Tolerances, loops::Feedback};
+use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
+use ozton_math::uom::si::f64::Length;
 use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
 
 mod boomerang;
@@ -38,7 +39,7 @@ where
     ///
     /// Error is denoted by the distance from the target, while velocity
     /// is the robot's linear forward velocity.
-    pub tolerances: Tolerances,
+    pub tolerances: Tolerances<Linear>,
 
     /// Maximum duration the motion can take before being cancelled.
     pub timeout: Option<Duration>,
@@ -56,12 +57,12 @@ where
     pub fn move_to_point<'a, M: Arcade, T: TracksPosition + TracksHeading + TracksVelocity>(
         &mut self,
         drivetrain: &'a mut Drivetrain<M, T>,
-        point: impl Into<Vec2>,
+        point: [Length; 2],
     ) -> MoveToPointFuture<'a, M, L, A, T> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,
-            target_point: point.into(),
+            target_point: Vec2::from_array(point.map(|length| length.value)),
             timeout: self.timeout,
             tolerances: self.tolerances,
             linear_controller: self.linear_controller.clone(),

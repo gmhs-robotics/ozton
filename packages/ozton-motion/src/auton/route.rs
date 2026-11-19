@@ -5,6 +5,7 @@ use std::{convert::Infallible, future::Future, pin::Pin, time::Duration};
 use ozton_math::{
     geometry::Pose,
     path::{Limits, Path, PathError, follower::Follower, jerryio},
+    uom::si::f64::{Angle, Length, Velocity},
 };
 use ozton_runtime::{CustomList, clock::CONTROL_PERIOD};
 use vexide::{display::Display, prelude::Controller, smart::PortError};
@@ -140,18 +141,18 @@ pub enum RegistrationProblem {
 /// Relative alignment target. The selected sensor supplies the distance.
 #[derive(Debug, Clone, Copy)]
 pub struct AlignTarget {
-    pub distance: f64,
-    pub heading: f64,
-    pub maximum_speed: f64,
+    pub distance: Length,
+    pub heading: Angle,
+    pub maximum_speed: Velocity,
     pub rear_facing: bool,
 }
 
 impl AlignTarget {
-    pub const fn front(distance: f64, heading: f64) -> Self {
+    pub const fn front(distance: Length, heading: Angle) -> Self {
         Self {
             distance,
             heading,
-            maximum_speed: 0.2,
+            maximum_speed: ozton_math::si(0.2),
             rear_facing: false,
         }
     }
@@ -183,7 +184,9 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
 
     pub async fn follow(&mut self, timeout: Duration) -> RouteResult {
         self.follow_with(
-            Follower::PurePursuit { lookahead: 0.16 },
+            Follower::PurePursuit {
+                lookahead: ozton_math::si(0.16),
+            },
             false,
             &[],
             timeout,
@@ -227,7 +230,7 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
         timeout: Duration,
     ) -> RouteResult<bool> {
         let maximum_speed = self.runner.robot().drive.drive_options.maximum_wheel_speed;
-        if !target.maximum_speed.is_finite() {
+        if !target.maximum_speed.value.is_finite() {
             return Err(AutonError::Configuration);
         }
         self.runner
@@ -236,7 +239,9 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
                     sensor: sensor.0,
                     distance: target.distance,
                     heading: target.heading,
-                    maximum_speed: target.maximum_speed.min(maximum_speed),
+                    maximum_speed: ozton_math::si(
+                        target.maximum_speed.value.min(maximum_speed.value),
+                    ),
                     direction: if target.rear_facing { -1.0 } else { 1.0 },
                 },
                 timeout,
@@ -246,8 +251,8 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
 
     pub async fn drive_to_point(
         &mut self,
-        target: [f64; 2],
-        maximum_speed: f64,
+        target: [Length; 2],
+        maximum_speed: Velocity,
         reverse: bool,
         timeout: Duration,
     ) -> RouteResult {
@@ -257,16 +262,16 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
     }
     pub async fn drive_distance(
         &mut self,
-        meters: f64,
-        heading: f64,
-        maximum_speed: f64,
+        meters: Length,
+        heading: Angle,
+        maximum_speed: Velocity,
         timeout: Duration,
     ) -> RouteResult {
         self.runner
             .drive_distance(meters, heading, maximum_speed, timeout)
             .await
     }
-    pub async fn turn_to(&mut self, heading: f64, timeout: Duration) -> RouteResult {
+    pub async fn turn_to(&mut self, heading: Angle, timeout: Duration) -> RouteResult {
         self.runner.turn_to(heading, timeout).await
     }
     pub async fn wait(&mut self, duration: Duration, timeout: Duration) -> RouteResult {

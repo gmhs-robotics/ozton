@@ -7,18 +7,20 @@ use glam::DVec2;
 use ozton_math::{
     geometry::{BodyDelta, Pose},
     path::{Limits, Path, Waypoint, follower::Follower},
+    si,
+    uom::si::f64::Velocity,
 };
 use ozton_motion::auton::{AutonError, AutonRobot, Command, DriveOptions, Feedback, Runner};
 use vex_sdk_mock as _;
 use vexide::runtime::block_on;
 
 const OPTIONS: DriveOptions = DriveOptions {
-    track_width: 0.3,
-    maximum_wheel_speed: 1.0,
-    position_tolerance: 0.018,
-    heading_tolerance: 0.09,
-    speed_tolerance: 0.03,
-    angular_speed_tolerance: 0.08,
+    track_width: si(0.3),
+    maximum_wheel_speed: si(1.0),
+    position_tolerance: si(0.018),
+    heading_tolerance: si(0.09),
+    speed_tolerance: si(0.03),
+    angular_speed_tolerance: si(0.08),
     settle: Duration::from_millis(40),
 };
 
@@ -43,7 +45,11 @@ struct Sim {
 impl Sim {
     fn new(reverse: bool) -> Self {
         Self {
-            pose: Pose::new(0.0, 0.0, if reverse { PI } else { 0.0 }),
+            pose: Pose::new(
+                ozton_math::si(0.0),
+                ozton_math::si(0.0),
+                ozton_math::si(if reverse { PI } else { 0.0 }),
+            ),
             travel: 0.0,
             last: Instant::now(),
             wheels: [0.0; 2],
@@ -96,7 +102,7 @@ impl AutonRobot for Sim {
         let angular_speed = if self.jammed {
             0.0
         } else {
-            (right - left) / OPTIONS.track_width
+            (right - left) / OPTIONS.track_width.value
         };
         self.travel += speed * dt;
         self.pose = self.pose.integrate(BodyDelta {
@@ -105,10 +111,10 @@ impl AutonRobot for Sim {
         });
         Ok(Some(Feedback {
             pose: self.pose,
-            forward_travel: self.travel,
-            forward_velocity: speed,
-            lateral_velocity: 0.0,
-            angular_velocity: angular_speed,
+            forward_travel: si(self.travel),
+            forward_velocity: si(speed),
+            lateral_velocity: si(0.0),
+            angular_velocity: si(angular_speed),
             ranges: [None; 8],
             reset_accepted: false,
         }))
@@ -124,11 +130,12 @@ impl AutonRobot for Sim {
         Ok(())
     }
 
-    fn drive(&mut self, wheels: [f64; 2], _: Duration) -> Result<(), Self::Error> {
+    fn drive(&mut self, wheels: [Velocity; 2], _: Duration) -> Result<(), Self::Error> {
+        let wheels = wheels.map(|speed| speed.value);
         assert!(
             wheels
                 .iter()
-                .all(|wheel| wheel.abs() <= OPTIONS.maximum_wheel_speed + 1e-9)
+                .all(|wheel| wheel.abs() <= OPTIONS.maximum_wheel_speed.value + 1e-9)
         );
         self.wheels = wheels;
         Ok(())
@@ -165,18 +172,18 @@ fn route() -> Path {
     let points: Vec<_> = (0..=12)
         .map(|index| {
             let x = f64::from(index) * 0.05;
-            Waypoint::new(-0.22 * x.powi(2), x, 0.8)
+            Waypoint::new(ozton_math::si(-0.22 * x.powi(2)), ozton_math::si(x), 0.8)
         })
         .collect();
     Path::new(
         &points,
         Limits {
-            track_width: OPTIONS.track_width,
-            linear_speed: 0.8,
-            wheel_speed: 1.0,
-            acceleration: 2.0,
-            deceleration: 2.0,
-            lateral_acceleration: 1.0,
+            track_width: ozton_math::si(OPTIONS.track_width.value),
+            linear_speed: ozton_math::si(0.8),
+            wheel_speed: ozton_math::si(1.0),
+            acceleration: ozton_math::si(2.0),
+            deceleration: ozton_math::si(2.0),
+            lateral_acceleration: ozton_math::si(1.0),
         },
     )
     .unwrap()
@@ -187,7 +194,12 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
     block_on(async {
         let path = route();
         for (follower, reverse) in [
-            (Follower::PurePursuit { lookahead: 0.14 }, false),
+            (
+                Follower::PurePursuit {
+                    lookahead: si(0.14),
+                },
+                false,
+            ),
             (Follower::Ramsete { b: 2.0, zeta: 0.7 }, true),
         ] {
             let mut robot = Sim::new(reverse);
@@ -206,7 +218,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                             path: &path,
                             follower,
                             reverse,
-                            trigger: Some((0.12, |robot: &mut Sim| robot.intake = true)),
+                            trigger: Some((si(0.12), |robot: &mut Sim| robot.intake = true)),
                         },
                         Duration::from_secs(3),
                         || true,
@@ -215,7 +227,8 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                     .unwrap();
                 let robot = runner.robot();
                 assert!(
-                    robot.pose.position.distance(path.end().position) <= OPTIONS.position_tolerance
+                    robot.pose.position.distance(path.end().position)
+                        <= OPTIONS.position_tolerance.value
                 );
                 assert_eq!(robot.wheels, [0.0; 2]);
                 assert!(robot.intake_moving_ticks > 0);
@@ -225,9 +238,9 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                 let outcome = runner
                     .run_while(
                         Command::DriveDistance {
-                            meters: 0.4,
-                            heading: path.end().heading + if reverse { PI } else { 0.0 },
-                            maximum_speed: 0.4,
+                            meters: si(0.4),
+                            heading: si(path.end().heading + if reverse { PI } else { 0.0 }),
+                            maximum_speed: si(0.4),
                         },
                         Duration::from_secs(1),
                         || {
@@ -262,10 +275,10 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
         .unwrap();
         let markers = [
             (
-                0.10,
+                si(0.10),
                 (|robot: &mut Sim| robot.intake = true) as fn(&mut Sim),
             ),
-            (0.40, |robot: &mut Sim| {
+            (si(0.40), |robot: &mut Sim| {
                 assert!(robot.intake_moving_ticks > 0);
                 robot.intake = false;
             }),
@@ -274,7 +287,9 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
             .run_while(
                 Command::FollowMarked {
                     path: &path,
-                    follower: Follower::PurePursuit { lookahead: 0.14 },
+                    follower: Follower::PurePursuit {
+                        lookahead: si(0.14),
+                    },
                     reverse: false,
                     markers: &markers,
                 },
@@ -289,9 +304,9 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
                 .try_align_while(
                     Alignment {
                         sensor: 0,
-                        distance: 0.12,
-                        heading: 0.0,
-                        maximum_speed: 0.2,
+                        distance: si(0.12),
+                        heading: si(0.0),
+                        maximum_speed: si(0.2),
                         direction: 1.0,
                     },
                     Duration::from_millis(30),
@@ -339,9 +354,9 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
             runner
                 .run_while(
                     Command::DriveToPoint {
-                        target: [-0.10, 0.20],
+                        target: [si(-0.10), si(0.20)],
                         reverse,
-                        maximum_speed: 0.5,
+                        maximum_speed: si(0.5),
                     },
                     Duration::from_secs(4),
                     || true,
@@ -354,7 +369,7 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
                     .pose
                     .position
                     .distance(DVec2::new(-0.10, 0.20))
-                    <= OPTIONS.position_tolerance
+                    <= OPTIONS.position_tolerance.value
             );
             assert_eq!(runner.robot().wheels, [0.0; 2]);
             assert!(runner.robot().intake_moving_ticks > 0);
@@ -397,9 +412,9 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         let moved = runner
             .try_run_while(
                 Command::DriveToPoint {
-                    target: [0.0, 0.1],
+                    target: [si(0.0), si(0.1)],
                     reverse: false,
-                    maximum_speed: 0.3,
+                    maximum_speed: si(0.3),
                 },
                 Duration::from_secs(1),
                 || true,
@@ -412,9 +427,9 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         runner
             .run_while(
                 Command::DriveToPoint {
-                    target: [0.0, 0.1],
+                    target: [si(0.0), si(0.1)],
                     reverse: false,
-                    maximum_speed: 0.3,
+                    maximum_speed: si(0.3),
                 },
                 Duration::from_secs(3),
                 || true,
@@ -441,9 +456,9 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
         let completed = runner
             .try_run_while(
                 Command::DriveDistance {
-                    meters: 0.2,
-                    heading: 0.0,
-                    maximum_speed: 0.3,
+                    meters: si(0.2),
+                    heading: si(0.0),
+                    maximum_speed: si(0.3),
                 },
                 Duration::from_secs(2),
                 || true,
@@ -621,8 +636,8 @@ fn contact_approach_brakes_without_changing_the_field_reference() {
         runner
             .run_while(
                 Command::ApproachContact {
-                    heading: 0.0,
-                    speed: creep_speed,
+                    heading: si(0.0),
+                    speed: si(creep_speed),
                     settle: Duration::from_millis(60),
                     touched: &mut touched,
                 },

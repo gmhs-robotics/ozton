@@ -8,6 +8,8 @@ use ozton_math::{
         Constraint, Mount, RangeGate, RangeReading, Rejection, Surface, constrain_masked,
         fit_translation,
     },
+    si,
+    uom::si::f64::{Length, Time},
 };
 
 pub const MAX_RANGES: usize = 8;
@@ -16,8 +18,8 @@ pub const MAX_RANGES: usize = 8;
 pub struct RangeSensorConfig {
     pub mount: Mount,
     pub gate: RangeGate,
-    pub bias: f64,
-    pub sigma: f64,
+    pub bias: Length,
+    pub sigma: Length,
     pub surface: Option<usize>,
     /// Eligible map surfaces, e.g. walls reaching this sensor's mounting height.
     pub surface_mask: u32,
@@ -29,8 +31,8 @@ impl RangeSensorConfig {
         Self {
             mount,
             gate: RangeGate::DEFAULT,
-            bias: 0.0,
-            sigma: 0.025,
+            bias: si(0.0),
+            sigma: si(0.025),
             surface: None,
             surface_mask: u32::MAX,
         }
@@ -40,9 +42,9 @@ impl RangeSensorConfig {
         self.mount.offset.is_finite()
             && self.mount.heading.is_finite()
             && self.gate.is_valid()
-            && self.bias.is_finite()
-            && self.sigma.is_finite()
-            && self.sigma > 0.0
+            && self.bias.value.is_finite()
+            && self.sigma.value.is_finite()
+            && self.sigma.value > 0.0
             && self.surface.is_none_or(|index| index < map.len())
     }
 
@@ -52,14 +54,14 @@ impl RangeSensorConfig {
         self,
         sample: RangeObservation,
         now: Duration,
-    ) -> Result<f64, Rejection> {
+    ) -> Result<Length, Rejection> {
         let age = now.checked_sub(sample.timestamp).ok_or(Rejection::Stale)?;
-        let reading = self.reading(sample, age.as_secs_f64());
+        let reading = self.reading(sample, si(age.as_secs_f64()));
         reading.validate(self.gate)?;
         Ok(reading.distance)
     }
 
-    fn reading(self, sample: RangeObservation, age: f64) -> RangeReading {
+    fn reading(self, sample: RangeObservation, age: Time) -> RangeReading {
         RangeReading {
             distance: sample.distance - self.bias,
             confidence: sample.confidence,
@@ -72,7 +74,7 @@ impl RangeSensorConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct RangeObservation {
     pub timestamp: Duration,
-    pub distance: f64,
+    pub distance: Length,
     pub confidence: f64,
     pub occluded: bool,
 }
@@ -80,7 +82,7 @@ pub struct RangeObservation {
 #[derive(Debug, Clone, Copy)]
 pub struct RangeReport {
     pub observation: Option<RangeObservation>,
-    pub calibrated_distance: Option<f64>,
+    pub calibrated_distance: Option<Length>,
     pub constraint: Result<Constraint, Rejection>,
 }
 
@@ -109,10 +111,11 @@ pub(super) fn inspect(
             .as_secs_f64();
         *previous = Some(sample.timestamp);
         let motion_during_age = (movement.translation.length()
-            + movement.heading.abs() * (sample.distance.abs() + sensor.mount.offset.length()))
+            + movement.heading.abs()
+                * (sample.distance.value.abs() + sensor.mount.offset.length()))
             * age
             / dt.as_secs_f64();
-        if motion_during_age > sensor.gate.max_residual * 0.25 {
+        if motion_during_age > sensor.gate.max_residual.value * 0.25 {
             return Err(Rejection::Stale);
         }
         constrain_sample(pose, map, sensor, sample, age)
@@ -131,7 +134,7 @@ fn constrain_sample(
     sample: RangeObservation,
     age: f64,
 ) -> Result<Constraint, Rejection> {
-    let reading = sensor.reading(sample, age);
+    let reading = sensor.reading(sample, si(age));
     constrain_masked(
         pose,
         sensor.mount,
@@ -201,7 +204,7 @@ impl ResetWindow {
         }
         if self.anchor.is_some_and(|(_, anchor)| {
             pose.position.distance(anchor.position) > 0.012
-                || wrap_heading(pose.heading - anchor.heading).abs() > 0.02
+                || wrap_heading(ozton_math::si(pose.heading - anchor.heading)).abs() > 0.02
         }) {
             self.restart();
         }
@@ -237,7 +240,7 @@ impl ResetWindow {
                 let sample = sample?;
                 let age = now.checked_sub(sample.timestamp)?.as_secs_f64();
                 let c = constrain_sample(pose, map, sensor, sample, age).ok()?;
-                Some((c, sensor.sigma * c.hit.incidence.abs()))
+                Some((c, sensor.sigma.value * c.hit.incidence.abs()))
             })
         {
             constraints[count] = constraint;

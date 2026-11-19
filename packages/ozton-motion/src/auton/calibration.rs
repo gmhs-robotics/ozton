@@ -3,6 +3,7 @@
 use std::{f64::consts::PI, fs::File, time::Duration};
 
 use ozton_diagnostics::{Journal, calibration::CalibrationSample};
+use ozton_math::uom::si::f64::{Angle, Length};
 use ozton_tracking::localizer::Snapshot;
 use vexide::controller::ControllerState;
 
@@ -15,13 +16,13 @@ const MAX_DRIVE_VOLTS: f64 = 3.0;
 #[derive(Debug, Clone, Copy)]
 pub enum CalibrationTrial {
     /// Hold A and drive a measured straight line. Release A at the mark.
-    Straight { meters: f64 },
+    Straight { distance: Length },
     /// Hold A and turn through a measured angle. Release A at the mark.
-    Turn { radians: f64 },
+    Turn { angle: Angle },
     /// Hold A while stationary to sample the named range sensor.
     Range {
         sensor: &'static str,
-        reference: f64,
+        reference: Length,
     },
     /// Hold A and sweep the forward stick. Record both directions in the same file.
     Feedforward,
@@ -62,10 +63,12 @@ impl PreparedCalibration {
             return None;
         }
         let trial = match config.trial {
-            CalibrationTrial::Straight { meters } if positive(meters) => Trial::Straight(meters),
-            CalibrationTrial::Turn { radians } if positive(radians) => Trial::Turn(radians),
-            CalibrationTrial::Range { sensor, reference } if positive(reference) => {
-                Trial::Range(drive.range(sensor)?, reference, sensor)
+            CalibrationTrial::Straight { distance } if positive(distance.value) => {
+                Trial::Straight(distance.value)
+            }
+            CalibrationTrial::Turn { angle } if positive(angle.value) => Trial::Turn(angle.value),
+            CalibrationTrial::Range { sensor, reference } if positive(reference.value) => {
+                Trial::Range(drive.range(sensor)?, reference.value, sensor)
             }
             CalibrationTrial::Feedforward => Trial::Feedforward,
             _ => return None,
@@ -153,8 +156,12 @@ impl CalibrationRun {
         };
         if !pressed {
             let start = self.start.take()?;
-            let travel =
-                self.record_travel(case.trial, start, sample, drive.settings.wheel_diameter);
+            let travel = self.record_travel(
+                case.trial,
+                start,
+                sample,
+                drive.settings.wheel_diameter.value,
+            );
             return Some(if travel || self.samples_this_hold > 0 {
                 "Sample saved in memory"
             } else {
@@ -190,7 +197,7 @@ impl CalibrationRun {
                     self.journal.push(
                         CalibrationSample::Range {
                             reference,
-                            measured: raw.distance,
+                            measured: raw.distance.value,
                         }
                         .event(sample.time, name),
                     );
@@ -219,7 +226,10 @@ impl CalibrationRun {
                 .chassis
                 .drivetrain
                 .model
-                .drive_volts(left * MAX_DRIVE_VOLTS, right * MAX_DRIVE_VOLTS)
+                .drive_volts(
+                    ozton_math::si(left * MAX_DRIVE_VOLTS),
+                    ozton_math::si(right * MAX_DRIVE_VOLTS),
+                )
                 .map_err(|_| ())
         };
         if result.is_err() {
@@ -250,7 +260,10 @@ impl CalibrationRun {
         else {
             return false;
         };
-        let [left, right] = [left_end - left_start, right_end - right_start];
+        let [left, right] = [
+            left_end.value - left_start.value,
+            right_end.value - right_start.value,
+        ];
         if !left.is_finite() || !right.is_finite() {
             return false;
         }
@@ -274,13 +287,13 @@ impl CalibrationRun {
                 if let Some((from, to)) = start.forward.zip(end.forward) {
                     push(CalibrationSample::ForwardOffset {
                         radians,
-                        pod_travel: to - from,
+                        pod_travel: to.value - from.value,
                     });
                 }
                 if let Some((from, to)) = start.lateral.zip(end.lateral) {
                     push(CalibrationSample::LateralOffset {
                         radians,
-                        pod_travel: to - from,
+                        pod_travel: to.value - from.value,
                     });
                 }
             }
@@ -297,16 +310,16 @@ mod tests {
     #[test]
     fn travel_trials_use_signed_references_and_write_pod_offsets() {
         let start = Snapshot {
-            drive: [Some(0.0); 2],
-            forward: Some(0.0),
-            lateral: Some(0.0),
+            drive: [Some(ozton_math::si(0.0)); 2],
+            forward: Some(ozton_math::si(0.0)),
+            lateral: Some(ozton_math::si(0.0)),
             ..Snapshot::default()
         };
         let end = Snapshot {
             time: Duration::from_millis(100),
-            drive: [Some(0.5), Some(-0.5)],
-            forward: Some(0.04),
-            lateral: Some(-0.03),
+            drive: [Some(ozton_math::si(0.5)), Some(ozton_math::si(-0.5))],
+            forward: Some(ozton_math::si(0.04)),
+            lateral: Some(ozton_math::si(-0.03)),
             ..start
         };
         let mut run = CalibrationRun::new();

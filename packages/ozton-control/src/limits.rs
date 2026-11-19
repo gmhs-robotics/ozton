@@ -1,72 +1,68 @@
 //! Finite travel and arrival limits for position-controlled mechanisms.
 
-/// Optional inclusive travel and absolute arrival tolerance in the caller's position units.
-///
-/// Use a constant plus a const assertion on [`Self::valid`] for static settings.
-/// Runtime commands can validate the same value before accepting it.
+use ozton_math::{
+    si,
+    uom::si::{Dimension, Quantity, SI},
+};
+
+use crate::axis::{AxisDimension, Position, Rotary};
+
+/// Inclusive travel bounds and an absolute arrival tolerance.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PositionLimits<T = f64> {
-    pub travel: Option<(T, T)>,
-    pub arrival_tolerance: T,
+pub struct PositionLimits<D: AxisDimension = Rotary> {
+    pub travel: Option<(Position<D>, Position<D>)>,
+    pub arrival_tolerance: Position<D>,
 }
 
-impl<T> PositionLimits<T> {
-    /// Defines the travel range and maximum absolute error for arrival.
-    pub const fn new(travel: Option<(T, T)>, arrival_tolerance: T) -> Self {
+impl<D: AxisDimension> PositionLimits<D> {
+    pub const fn new(
+        travel: Option<(Position<D>, Position<D>)>,
+        arrival_tolerance: Position<D>,
+    ) -> Self {
         Self {
             travel,
             arrival_tolerance,
         }
     }
-}
 
-impl PositionLimits<vexide::math::Angle> {
-    /// Converts typed angles for controllers operating in accumulated encoder degrees.
-    pub const fn in_degrees(self) -> PositionLimits<f64> {
-        let travel = match self.travel {
-            Some((min, max)) => Some((min.as_degrees(), max.as_degrees())),
-            None => None,
-        };
-        PositionLimits::new(travel, self.arrival_tolerance.as_degrees())
-    }
-}
-
-impl PositionLimits<f64> {
-    pub const fn valid(self) -> bool {
+    pub const fn valid(&self) -> bool {
         valid_range(self.travel)
-            && self.arrival_tolerance.is_finite()
-            && self.arrival_tolerance >= 0.0
+            && self.arrival_tolerance.value.is_finite()
+            && self.arrival_tolerance.value >= 0.0
     }
 
-    /// Clamp to travel while keeping non-finite targets invalid.
-    pub fn target(self, target: f64) -> f64 {
+    /// Clamps a target to the configured travel.
+    pub fn target(&self, target: Position<D>) -> Position<D> {
         clamp_target(target, self.travel)
     }
 
     /// Checks arrival against the clamped target. Invalid inputs fail closed.
-    pub fn ready(self, position: f64, target: f64) -> bool {
+    pub fn ready(&self, position: Position<D>, target: Position<D>) -> bool {
         self.valid()
-            && position.is_finite()
-            && (position - self.target(target)).abs() <= self.arrival_tolerance
+            && position.value.is_finite()
+            && (position.value - self.target(target).value).abs() <= self.arrival_tolerance.value
     }
 }
 
-/// Validate an optional inclusive travel range. None means unrestricted.
-pub const fn valid_range(range: Option<(f64, f64)>) -> bool {
+pub const fn valid_range<D: Dimension + ?Sized>(
+    range: Option<(Quantity<D, SI<f64>, f64>, Quantity<D, SI<f64>, f64>)>,
+) -> bool {
     match range {
-        Some((min, max)) => min.is_finite() && max.is_finite() && min < max,
+        Some((min, max)) => min.value.is_finite() && max.value.is_finite() && min.value < max.value,
         None => true,
     }
 }
 
-/// Clamp a finite target; invalid raw targets remain invalid for caller validation.
-pub fn clamp_target(target: f64, range: Option<(f64, f64)>) -> f64 {
-    if !target.is_finite() {
+pub fn clamp_target<D: Dimension + ?Sized>(
+    target: Quantity<D, SI<f64>, f64>,
+    range: Option<(Quantity<D, SI<f64>, f64>, Quantity<D, SI<f64>, f64>)>,
+) -> Quantity<D, SI<f64>, f64> {
+    if !target.value.is_finite() {
         return target;
     }
     match range {
-        Some((min, max)) if valid_range(range) => target.clamp(min, max),
-        Some(_) => f64::NAN,
+        Some((min, max)) if valid_range(range) => si(target.value.clamp(min.value, max.value)),
+        Some(_) => si(f64::NAN),
         None => target,
     }
 }

@@ -33,7 +33,7 @@ in a const setting. Attach each device with `DriveMotor::calibrated`.
 `Differential::geared_arrays(left, right)` checks fixed motor counts at compile
 time. Use `Differential::geared` when supplying an iterator or a model-level
 wheel speed limit.
-For a custom chassis, `DriveOptions::from_dimensions(track_width, wheel_speed)`
+For a custom chassis, `DriveOptions::differential(track_width, wheel_speed)`
 builds runner options from `Length` and `Velocity` values.
 
 `DifferentialConfig::build` calibrates the IMU supplied in `TrackingSetup`.

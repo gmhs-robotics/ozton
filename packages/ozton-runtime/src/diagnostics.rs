@@ -11,8 +11,8 @@ use vexide::{competition::CompetitionMode, prelude::Motor, smart::motor::MotorCo
 #[derive(Clone, Copy)]
 pub struct MotionSample {
     pub elapsed: Duration,
-    pub progress: f64,
-    pub wheel_targets: [f64; 2],
+    pub progress: ozton_math::uom::si::f64::Length,
+    pub wheel_targets: [ozton_math::uom::si::f64::Velocity; 2],
 }
 
 /// Shared context for all rows of a robot sample.

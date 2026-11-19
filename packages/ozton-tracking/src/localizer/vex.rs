@@ -20,7 +20,7 @@ const RANGE_PERIOD: Duration = Duration::from_millis(33);
 
 /// A wheel-travel source in meters. A missing observation returns None.
 pub trait WheelSource {
-    fn read_travel(&self) -> Option<f64>;
+    fn read_travel(&self) -> Option<Length>;
 
     /// Performs any configuration checks before the source is installed.
     fn valid(&self) -> bool {
@@ -29,13 +29,13 @@ pub trait WheelSource {
 }
 
 impl WheelSource for () {
-    fn read_travel(&self) -> Option<f64> {
+    fn read_travel(&self) -> Option<Length> {
         None
     }
 }
 
 impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
-    fn read_travel(&self) -> Option<f64> {
+    fn read_travel(&self) -> Option<Length> {
         self.travel().ok()
     }
 
@@ -44,10 +44,10 @@ impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
     }
 }
 
-type TravelCallback = Option<Box<dyn Fn() -> Option<f64>>>;
+type TravelCallback = Option<Box<dyn Fn() -> Option<Length>>>;
 
 impl WheelSource for TravelCallback {
-    fn read_travel(&self) -> Option<f64> {
+    fn read_travel(&self) -> Option<Length> {
         self.as_ref().and_then(|read| read())
     }
 }
@@ -153,7 +153,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     /// Sample the locally owned distance devices along with wheel, IMU and GPS data.
     pub fn capture(
         &mut self,
-        drive: [Option<f64>; 2],
+        drive: [Option<Length>; 2],
         occluded: u8,
     ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
         let ranges = self.distances.capture(occluded);
@@ -193,7 +193,7 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
         true
     }
 
-    fn capture_snapshot(&self, drive: [Option<f64>; 2]) -> Snapshot {
+    fn capture_snapshot(&self, drive: [Option<Length>; 2]) -> Snapshot {
         let gps = self.gps.as_ref().and_then(gps_fix).map(|mut fix| {
             fix.pose = fix.pose.in_frame(self.field_origin);
             fix
@@ -205,12 +205,14 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
 
     /// Read only the travel and heading required for low-latency driver odometry.
     /// No range or GPS device calls occur on this path.
-    pub fn capture_odometry(&self, drive: [Option<f64>; 2]) -> Snapshot {
+    pub fn capture_odometry(&self, drive: [Option<Length>; 2]) -> Snapshot {
         let imu = self.imu.as_deref().and_then(|imu| {
             if imu.is_calibrating().ok()? {
                 return None;
             }
-            Some(compass_heading(imu.heading().ok()?.as_degrees()))
+            Some(compass_heading(ozton_math::si(
+                imu.heading().ok()?.as_radians(),
+            )))
         });
         let forward = self.forward.read_travel();
         let lateral = self.lateral.read_travel();
@@ -230,7 +232,7 @@ impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
     pub fn capture_with_distances(
         &self,
         distances: &mut Distances,
-        drive: [Option<f64>; 2],
+        drive: [Option<Length>; 2],
         occluded: u8,
     ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
         let ranges = distances.capture(occluded);
@@ -240,12 +242,12 @@ impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
 
 impl Sensors {
     /// Pass calibrated wheel travel in meters, or None when no valid reading is available.
-    pub fn with_forward(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
+    pub fn with_forward(mut self, read: impl Fn() -> Option<Length> + 'static) -> Self {
         self.forward = Some(Box::new(read));
         self
     }
 
-    pub fn with_lateral(mut self, read: impl Fn() -> Option<f64> + 'static) -> Self {
+    pub fn with_lateral(mut self, read: impl Fn() -> Option<Length> + 'static) -> Self {
         self.lateral = Some(Box::new(read));
         self
     }
@@ -266,8 +268,8 @@ impl Sensors {
 }
 
 fn calibrated<T: RotarySensor>(wheel: &TrackingWheel<T>) -> bool {
-    wheel.wheel_diameter.is_finite()
-        && wheel.wheel_diameter > 0.0
+    wheel.wheel_diameter.value.is_finite()
+        && wheel.wheel_diameter.value > 0.0
         && wheel
             .gearing
             .is_none_or(|ratio| ratio.is_finite() && ratio > 0.0)
@@ -286,7 +288,7 @@ fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation>
     }
     Some(RangeObservation {
         timestamp: stamp(after),
-        distance: Length::new::<millimeter>(f64::from(reading.distance)).value,
+        distance: Length::new::<millimeter>(f64::from(reading.distance)),
         confidence: reading.confidence,
         occluded,
     })
@@ -295,15 +297,19 @@ fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation>
 fn gps_fix(sensor: &GpsSensor) -> Option<GpsFix> {
     let before = sensor.timestamp().ok()?;
     let position = sensor.position().ok()?;
-    let heading = compass_heading(sensor.heading().ok()?.as_degrees());
+    let heading = compass_heading(ozton_math::si(sensor.heading().ok()?.as_radians()));
     let position_error = sensor.error().ok()?;
     let after = sensor.timestamp().ok()?;
     if before != after {
         return None;
     }
     Some(GpsFix {
-        pose: Pose::new(position.x, position.y, heading),
-        position_error,
+        pose: Pose::new(
+            ozton_math::si(position.x),
+            ozton_math::si(position.y),
+            heading,
+        ),
+        position_error: ozton_math::si(position_error),
         timestamp: stamp(after),
     })
 }
@@ -326,15 +332,25 @@ mod tests {
 
     #[test]
     fn concrete_wheels_sample_each_axis_without_callbacks() {
-        let wheel = TrackingWheel::new(Encoder(-2.0), 0.1, 0.0, Some(0.5));
+        let wheel = TrackingWheel::new(
+            Encoder(-2.0),
+            ozton_math::si(0.1),
+            ozton_math::si(0.0),
+            Some(0.5),
+        );
         let sensors = Sensors::with_wheel_sources((), wheel).unwrap();
-        let sample = sensors.capture_odometry([Some(0.1), None]);
-        assert_eq!(sample.drive, [Some(0.1), None]);
+        let sample = sensors.capture_odometry([Some(ozton_math::si(0.1)), None]);
+        assert_eq!(sample.drive, [Some(ozton_math::si(0.1)), None]);
         assert_eq!(sample.forward, None);
-        assert!((sample.lateral.unwrap() + 0.1 * core::f64::consts::PI).abs() < 1e-12);
+        assert!((sample.lateral.unwrap().value + 0.1 * core::f64::consts::PI).abs() < 1e-12);
 
         for diameter in [0.0, -0.1, f64::NAN] {
-            let wheel = TrackingWheel::new(Encoder(1.0), diameter, 0.0, None);
+            let wheel = TrackingWheel::new(
+                Encoder(1.0),
+                ozton_math::si(diameter),
+                ozton_math::si(0.0),
+                None,
+            );
             assert!(Sensors::with_wheel_sources(wheel, ()).is_none());
         }
     }
@@ -342,10 +358,13 @@ mod tests {
     #[test]
     fn existing_callback_sources_can_still_be_replaced() {
         let sensors = Sensors::default()
-            .with_forward(|| Some(1.0))
-            .with_forward(|| Some(2.0))
-            .with_lateral(|| Some(-3.0));
+            .with_forward(|| Some(ozton_math::si(1.0)))
+            .with_forward(|| Some(ozton_math::si(2.0)))
+            .with_lateral(|| Some(ozton_math::si(-3.0)));
         let sample = sensors.capture_odometry([None; 2]);
-        assert_eq!((sample.forward, sample.lateral), (Some(2.0), Some(-3.0)));
+        assert_eq!(
+            (sample.forward, sample.lateral),
+            (Some(ozton_math::si(2.0)), Some(ozton_math::si(-3.0)))
+        );
     }
 }

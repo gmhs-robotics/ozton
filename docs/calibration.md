@@ -13,14 +13,15 @@ Each trial has a label and a dedicated CSV path on the SD card.
 
 ```rust,ignore
 use ozton::motion::auton::{Calibration, CalibrationTrial, compete_with_calibration};
+use ozton::uom::si::{angle::degree, f64::{Angle, Length}, length::meter};
 
 let trials = [
     Calibration::new("Straight 1 m", "straight.csv",
-        CalibrationTrial::Straight { meters: 1.0 }),
+        CalibrationTrial::Straight { distance: Length::new::<meter>(1.0) }),
     Calibration::new("Turn 180°", "turn.csv",
-        CalibrationTrial::Turn { radians: std::f64::consts::PI }),
+        CalibrationTrial::Turn { angle: Angle::new::<degree>(180.0) }),
     Calibration::new("Front range", "range.csv",
-        CalibrationTrial::Range { sensor: "front", reference: 0.50 }),
+        CalibrationTrial::Range { sensor: "front", reference: Length::new::<meter>(0.50) }),
     Calibration::new("Drive feedforward", "voltage.csv", CalibrationTrial::Feedforward),
 ];
 compete_with_calibration(robot, display, controller, routes, trials).await?;

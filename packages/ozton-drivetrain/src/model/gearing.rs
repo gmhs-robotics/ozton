@@ -2,7 +2,7 @@
 
 use core::f64::consts::PI;
 
-use ozton_math::{si, uom::si::f64::Length};
+use ozton_math::uom::si::f64::Length;
 use vexide::prelude::Motor;
 
 /// Wheel turns per motor output turn. Motor direction handles gear polarity.
@@ -69,10 +69,10 @@ pub struct DriveMotor {
 }
 
 impl DriveMotor {
-    pub fn new(motor: Motor, ratio: GearRatio, wheel_diameter: f64) -> Option<Self> {
+    pub fn new(motor: Motor, ratio: GearRatio, wheel_diameter: Length) -> Option<Self> {
         Some(Self::calibrated(
             motor,
-            DriveMotorCalibration::new(ratio, si(wheel_diameter))?,
+            DriveMotorCalibration::new(ratio, wheel_diameter)?,
         ))
     }
 

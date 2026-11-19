@@ -1,8 +1,10 @@
 //! Motion hooks for an assembled Ozton robot.
-
 use std::time::Duration;
 
-use ozton_math::geometry::Pose;
+use ozton_math::{
+    geometry::Pose,
+    uom::si::f64::{Length, Velocity},
+};
 use ozton_runtime::{
     CustomList, Robot,
     diagnostics::{MotionSample, Sample, Telemetry},
@@ -21,7 +23,7 @@ pub trait AutonomousControls<R> {
     fn sample(robot: &mut R) -> Result<Option<Feedback>, Self::Error>;
     /// Supply shared input for the registered customs on a runner tick.
     fn custom_input(robot: &mut R, dt: Duration) -> Result<Self::CustomInput, Self::Error>;
-    fn drive(robot: &mut R, wheel_speeds: [f64; 2], dt: Duration) -> Result<(), Self::Error>;
+    fn drive(robot: &mut R, wheel_speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error>;
     fn stop_drive(robot: &mut R) -> Result<(), Self::Error>;
     /// Stop application-controlled outputs and clear retained goals.
     fn stop(robot: &mut R) -> Result<(), Self::Error>;
@@ -45,8 +47,8 @@ pub trait AutonomousControls<R> {
         _robot: &mut R,
         _elapsed: Duration,
         _dt: Duration,
-        _progress: f64,
-        _wheels: [f64; 2],
+        _progress: Length,
+        _wheels: [Velocity; 2],
     ) {
     }
 }
@@ -66,7 +68,7 @@ where
         let mut input = P::custom_input(self, dt)?;
         self.custom.update_all(&mut input)
     }
-    fn drive(&mut self, wheel_speeds: [f64; 2], dt: Duration) -> Result<(), Self::Error> {
+    fn drive(&mut self, wheel_speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error> {
         P::drive(self, wheel_speeds, dt)
     }
     fn stop_drive(&mut self) -> Result<(), Self::Error> {
@@ -96,7 +98,13 @@ where
     fn cancel_distance_reset(&mut self) {
         P::cancel_distance_reset(self);
     }
-    fn log_step(&mut self, elapsed: Duration, dt: Duration, progress: f64, wheels: [f64; 2]) {
+    fn log_step(
+        &mut self,
+        elapsed: Duration,
+        dt: Duration,
+        progress: Length,
+        wheels: [Velocity; 2],
+    ) {
         P::log_step(self, elapsed, dt, progress, wheels);
         self.record_diagnostics(Sample {
             mode: vexide::competition::CompetitionMode::Autonomous,

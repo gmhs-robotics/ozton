@@ -23,6 +23,7 @@ positive directions from `Right`, `Forward`, `Left`, and `Backward`. For example
 with +X forward and +Y left, enter the same mount as follows.
 
 ```rust
+# extern crate ozton;
 use ozton::math::si;
 use ozton::tracking::mount::{MountAxes, MountDirection};
 
@@ -50,7 +51,17 @@ and [registering GPS](localization.md#register-gps).
 ## Use physical units
 
 Use native `uom` types such as `ozton::uom::si::f64::Length` for physical
-settings. Use `Length::new::<inch>(2.25)` for runtime conversion and
-`ozton::math::si` for SI quantities in constants. Pass typed coordinates to
-`Pose::from_lengths` and `RobotPoint::new`. Use `get::<meter>()` when an
-interface takes a scalar in meters.
+settings. Construct quantities in the units you measured and pass them directly
+to Ozton. Use `ozton::math::si` for SI quantities in constants.
+
+```rust
+# extern crate ozton;
+use ozton::math::geometry::Pose;
+use ozton::uom::si::{angle::degree, f64::{Angle, Length}, length::{inch, meter}};
+
+let start = Pose::new(
+    Length::new::<inch>(18.0),
+    Length::new::<meter>(0.5),
+    Angle::new::<degree>(90.0),
+);
+```

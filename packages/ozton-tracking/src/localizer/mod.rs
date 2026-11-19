@@ -39,7 +39,7 @@ pub struct Config {
     pub estimator: Estimator,
     /// Run the estimator for diagnostics while motion uses dead reckoning.
     pub shadow: bool,
-    pub max_correction_meters: f64,
+    pub max_correction: ozton_math::uom::si::f64::Length,
 }
 
 impl Config {
@@ -54,7 +54,7 @@ impl Config {
             odometry,
             estimator,
             shadow,
-            max_correction_meters: max_correction.value,
+            max_correction,
         }
     }
 }
@@ -132,8 +132,8 @@ impl<'a> Localizer<'a> {
     ) -> Option<Self> {
         if !config.odometry.is_valid()
             || !pose.is_finite()
-            || !config.max_correction_meters.is_finite()
-            || config.max_correction_meters <= 0.0
+            || !config.max_correction.value.is_finite()
+            || config.max_correction.value <= 0.0
             || map.len() > 32
             || sensors.len() > MAX_RANGES
             || map.iter().any(|surface| !surface.is_valid())
@@ -142,7 +142,7 @@ impl<'a> Localizer<'a> {
             return None;
         }
         let pose = Pose {
-            heading: wrap_heading(pose.heading),
+            heading: wrap_heading(ozton_math::si(pose.heading)),
             ..pose
         };
         Some(Self {
@@ -240,7 +240,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.filter.name(self.config.shadow)
     }
 
-    pub fn range_max_age(&self, index: usize) -> Option<f64> {
+    pub fn range_max_age(&self, index: usize) -> Option<ozton_math::uom::si::f64::Time> {
         self.sensors.get(index).map(|sensor| sensor.gate.max_age)
     }
 
@@ -254,7 +254,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             return false;
         }
         let pose = Pose {
-            heading: wrap_heading(pose.heading),
+            heading: wrap_heading(ozton_math::si(pose.heading)),
             ..pose
         };
         self.trust = PoseTrust::Trusted;
@@ -415,7 +415,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 &self.map,
                 &self.sensors,
                 &reports,
-                self.config.max_correction_meters,
+                self.config.max_correction.value,
                 [
                     self.forward_velocity,
                     movement.translation.x / seconds,
@@ -448,7 +448,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 sensors: &self.sensors,
                 reports: &reports,
                 map: &self.map,
-                maximum_correction: self.config.max_correction_meters,
+                maximum_correction: self.config.max_correction.value,
             });
             if let Some(estimate) = candidate {
                 self.filter_pose = estimate;

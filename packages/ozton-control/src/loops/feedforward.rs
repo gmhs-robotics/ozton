@@ -1,19 +1,28 @@
 //! Common feedforward (open-loop) controllers.
 
-use vexide::math::Angle;
+use core::marker::PhantomData;
+
+use ozton_math::{
+    si,
+    uom::si::f64::{
+        Acceleration as LinearAcceleration, Angle, AngularAcceleration, AngularVelocity,
+        ElectricPotential, Velocity as LinearVelocity,
+    },
+};
 
 use super::Feedforward;
+use crate::axis::{Acceleration, AxisDimension, Rotary, Velocity};
 
 /// Desired setpoint of a DC motor.
 ///
 /// Describes the setpoint required to control a motor.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MotorFeedforwardSetpoint {
+pub struct MotorFeedforwardSetpoint<D: AxisDimension = Rotary> {
     /// Desired motor velocity.
-    pub velocity: f64,
+    pub velocity: Velocity<D>,
 
     /// Desired instantaneous motor acceleration.
-    pub acceleration: f64,
+    pub acceleration: Acceleration<D>,
 }
 
 /// Ideal DC motor feedforward controller.
@@ -25,34 +34,39 @@ pub struct MotorFeedforwardSetpoint {
 ///
 /// `V = Kₛ sign(ω) + Kᵥ ω + Kₐ α`
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MotorFeedforward {
-    ks: f64,
+pub struct MotorFeedforward<D: AxisDimension = Rotary> {
+    ks: ElectricPotential,
     kv: f64,
     ka: f64,
+    axis: PhantomData<D>,
 }
 
-impl MotorFeedforward {
-    /// Creates a new [`MotorFeedforward`] with the given constants and target.
+impl<D: AxisDimension> MotorFeedforward<D> {
+    /// Creates a feedforward model from static voltage and SI model gains.
     ///
     /// # Parameters
     ///
     /// - `ks` - Feedforward constant for static friction compensation.
     /// - `kv` - Feedforward constant for velocity compensation.
     /// - `ka` - Feedforward constant for acceleration compensation.
-    /// - `target_acceleration` - Feedforward constant for the target acceleration.
-    pub const fn new(ks: f64, kv: f64, ka: f64) -> Self {
-        Self { ks, kv, ka }
+    pub const fn new(ks: ElectricPotential, kv: f64, ka: f64) -> Self {
+        Self {
+            ks,
+            kv,
+            ka,
+            axis: PhantomData,
+        }
     }
 
-    /// Get the current PID gains as a tuple (`ks`, `kv`, `ka`).
+    /// Get the current feedforward constants as a tuple (`ks`, `kv`, `ka`).
     #[must_use]
-    pub const fn constants(&self) -> (f64, f64, f64) {
+    pub const fn constants(&self) -> (ElectricPotential, f64, f64) {
         (self.ks, self.kv, self.ka)
     }
 
     /// Returns the controller's static friction constant (`ks`).
     #[must_use]
-    pub const fn ks(&self) -> f64 {
+    pub const fn ks(&self) -> ElectricPotential {
         self.ks
     }
 
@@ -68,15 +82,15 @@ impl MotorFeedforward {
         self.ka
     }
 
-    /// Sets the PID gains to provided values.
-    pub const fn set_constants(&mut self, ks: f64, kv: f64, ka: f64) {
+    /// Sets the feedforward constants to provided values.
+    pub const fn set_constants(&mut self, ks: ElectricPotential, kv: f64, ka: f64) {
         self.ks = ks;
         self.kv = kv;
         self.ka = ka;
     }
 
     /// Sets the controller's static friction constant (`ks`).
-    pub const fn set_ks(&mut self, ks: f64) {
+    pub const fn set_ks(&mut self, ks: ElectricPotential) {
         self.ks = ks;
     }
 
@@ -91,17 +105,23 @@ impl MotorFeedforward {
     }
 }
 
-impl Feedforward for MotorFeedforward {
-    type State = MotorFeedforwardSetpoint;
-    type Signal = f64;
+impl<D: AxisDimension> Feedforward for MotorFeedforward<D> {
+    type State = MotorFeedforwardSetpoint<D>;
+    type Signal = ElectricPotential;
 
-    fn update(&mut self, setpoint: MotorFeedforwardSetpoint, _dt: core::time::Duration) -> f64 {
-        let static_voltage = if setpoint.velocity == 0.0 {
+    fn update(
+        &mut self,
+        setpoint: MotorFeedforwardSetpoint<D>,
+        _dt: core::time::Duration,
+    ) -> ElectricPotential {
+        let static_voltage = if setpoint.velocity.value == 0.0 {
             0.0
         } else {
-            self.ks * setpoint.velocity.signum()
+            self.ks.value * setpoint.velocity.value.signum()
         };
-        static_voltage + self.kv * setpoint.velocity + self.ka * setpoint.acceleration
+        si(static_voltage
+            + self.kv * setpoint.velocity.value
+            + self.ka * setpoint.acceleration.value)
     }
 }
 
@@ -114,42 +134,42 @@ pub struct ArmFeedforwardSetpoint {
     pub position: Angle,
 
     /// Desired velocity of the arm.
-    pub velocity: f64,
+    pub velocity: AngularVelocity,
 
     /// Desired acceleration of the arm.
-    pub acceleration: f64,
+    pub acceleration: AngularAcceleration,
 }
 
 /// Feedforward controller for an ideal DC motor attached to a rotational arm.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ArmFeedforward {
-    ks: f64,
-    kg: f64,
+    ks: ElectricPotential,
+    kg: ElectricPotential,
     kv: f64,
     ka: f64,
 }
 
 impl ArmFeedforward {
     /// Creates a new arm feedforward controller.
-    pub const fn new(ks: f64, kg: f64, kv: f64, ka: f64) -> Self {
+    pub const fn new(ks: ElectricPotential, kg: ElectricPotential, kv: f64, ka: f64) -> Self {
         Self { ks, kg, kv, ka }
     }
 
-    /// Get the current PID gains as a tuple (`ks`, `kg`, `kv`, `ka`).
+    /// Get the current feedforward constants as a tuple (`ks`, `kg`, `kv`, `ka`).
     #[must_use]
-    pub const fn constants(&self) -> (f64, f64, f64, f64) {
+    pub const fn constants(&self) -> (ElectricPotential, ElectricPotential, f64, f64) {
         (self.ks, self.kg, self.kv, self.ka)
     }
 
     /// Returns the controller's static friction constant (`ks`).
     #[must_use]
-    pub const fn ks(&self) -> f64 {
+    pub const fn ks(&self) -> ElectricPotential {
         self.ks
     }
 
     /// Returns the controller's gravity compensation constant (`kg`).
     #[must_use]
-    pub const fn kg(&self) -> f64 {
+    pub const fn kg(&self) -> ElectricPotential {
         self.kg
     }
 
@@ -165,8 +185,14 @@ impl ArmFeedforward {
         self.ka
     }
 
-    /// Sets the PID gains to provided values.
-    pub const fn set_constants(&mut self, ks: f64, kg: f64, kv: f64, ka: f64) {
+    /// Sets the feedforward constants to provided values.
+    pub const fn set_constants(
+        &mut self,
+        ks: ElectricPotential,
+        kg: ElectricPotential,
+        kv: f64,
+        ka: f64,
+    ) {
         self.ks = ks;
         self.kg = kg;
         self.kv = kv;
@@ -174,12 +200,12 @@ impl ArmFeedforward {
     }
 
     /// Sets the controller's static friction constant (`ks`).
-    pub const fn set_ks(&mut self, ks: f64) {
+    pub const fn set_ks(&mut self, ks: ElectricPotential) {
         self.ks = ks;
     }
 
     /// Sets the controller's gravity compensation constant (`kg`).
-    pub const fn set_kg(&mut self, kg: f64) {
+    pub const fn set_kg(&mut self, kg: ElectricPotential) {
         self.kg = kg;
     }
 
@@ -196,12 +222,16 @@ impl ArmFeedforward {
 
 impl Feedforward for ArmFeedforward {
     type State = ArmFeedforwardSetpoint;
-    type Signal = f64;
-    fn update(&mut self, setpoint: ArmFeedforwardSetpoint, _dt: core::time::Duration) -> f64 {
-        self.kg * setpoint.position.cos()
-            + self.ks * setpoint.velocity.signum()
-            + self.kv * setpoint.velocity
-            + self.ka * setpoint.acceleration
+    type Signal = ElectricPotential;
+    fn update(
+        &mut self,
+        setpoint: ArmFeedforwardSetpoint,
+        _dt: core::time::Duration,
+    ) -> ElectricPotential {
+        si(self.kg.value * setpoint.position.value.cos()
+            + self.ks.value * setpoint.velocity.value.signum()
+            + self.kv * setpoint.velocity.value
+            + self.ka * setpoint.acceleration.value)
     }
 }
 
@@ -209,42 +239,42 @@ impl Feedforward for ArmFeedforward {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ElevatorFeedforwardSetpoint {
     /// Velocity of the elevator.
-    pub velocity: f64,
+    pub velocity: LinearVelocity,
 
     /// Acceleration of the elevator.
-    pub acceleration: f64,
+    pub acceleration: LinearAcceleration,
 }
 
 /// Feedforward controller for an ideal DC motor attached to an elevator mechanism.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ElevatorFeedforward {
-    ks: f64,
-    kg: f64,
+    ks: ElectricPotential,
+    kg: ElectricPotential,
     kv: f64,
     ka: f64,
 }
 
 impl ElevatorFeedforward {
     /// Creates a new elevator feedforward controller.
-    pub const fn new(ks: f64, kg: f64, kv: f64, ka: f64) -> Self {
+    pub const fn new(ks: ElectricPotential, kg: ElectricPotential, kv: f64, ka: f64) -> Self {
         Self { ks, kg, kv, ka }
     }
 
-    /// Get the current PID gains as a tuple (`ks`, `kg`, `kv`, `ka`).
+    /// Get the current feedforward constants as a tuple (`ks`, `kg`, `kv`, `ka`).
     #[must_use]
-    pub const fn constants(&self) -> (f64, f64, f64, f64) {
+    pub const fn constants(&self) -> (ElectricPotential, ElectricPotential, f64, f64) {
         (self.ks, self.kg, self.kv, self.ka)
     }
 
     /// Returns the controller's static friction constant (`ks`).
     #[must_use]
-    pub const fn ks(&self) -> f64 {
+    pub const fn ks(&self) -> ElectricPotential {
         self.ks
     }
 
     /// Returns the controller's gravity compensation constant (`kg`).
     #[must_use]
-    pub const fn kg(&self) -> f64 {
+    pub const fn kg(&self) -> ElectricPotential {
         self.kg
     }
 
@@ -260,8 +290,14 @@ impl ElevatorFeedforward {
         self.ka
     }
 
-    /// Sets the PID gains to provided values.
-    pub const fn set_constants(&mut self, ks: f64, kg: f64, kv: f64, ka: f64) {
+    /// Sets the feedforward constants to provided values.
+    pub const fn set_constants(
+        &mut self,
+        ks: ElectricPotential,
+        kg: ElectricPotential,
+        kv: f64,
+        ka: f64,
+    ) {
         self.ks = ks;
         self.kg = kg;
         self.kv = kv;
@@ -269,12 +305,12 @@ impl ElevatorFeedforward {
     }
 
     /// Sets the controller's static friction constant (`ks`).
-    pub const fn set_ks(&mut self, ks: f64) {
+    pub const fn set_ks(&mut self, ks: ElectricPotential) {
         self.ks = ks;
     }
 
     /// Sets the controller's gravity compensation constant (`kg`).
-    pub const fn set_kg(&mut self, kg: f64) {
+    pub const fn set_kg(&mut self, kg: ElectricPotential) {
         self.kg = kg;
     }
 
@@ -291,11 +327,15 @@ impl ElevatorFeedforward {
 
 impl Feedforward for ElevatorFeedforward {
     type State = ElevatorFeedforwardSetpoint;
-    type Signal = f64;
-    fn update(&mut self, setpoint: ElevatorFeedforwardSetpoint, _dt: core::time::Duration) -> f64 {
-        self.kg
-            + self.ks * setpoint.velocity.signum()
-            + self.kv * setpoint.velocity
-            + self.ka * setpoint.acceleration
+    type Signal = ElectricPotential;
+    fn update(
+        &mut self,
+        setpoint: ElevatorFeedforwardSetpoint,
+        _dt: core::time::Duration,
+    ) -> ElectricPotential {
+        si(self.kg.value
+            + self.ks.value * setpoint.velocity.value.signum()
+            + self.kv * setpoint.velocity.value
+            + self.ka * setpoint.acceleration.value)
     }
 }

@@ -1,7 +1,10 @@
 //! Short SI command helpers; every command uses the same cancellation and deadlines.
 use std::time::Duration;
 
-use ozton_math::geometry::Pose;
+use ozton_math::{
+    geometry::Pose,
+    uom::si::f64::{Angle, Length, Velocity},
+};
 
 use super::{AutonError, AutonRobot, Command, Runner};
 impl<R: AutonRobot> Runner<'_, R> {
@@ -13,8 +16,8 @@ impl<R: AutonRobot> Runner<'_, R> {
     }
     pub async fn drive_to_point(
         &mut self,
-        target: [f64; 2],
-        maximum_speed: f64,
+        target: [Length; 2],
+        maximum_speed: Velocity,
         reverse: bool,
         timeout: Duration,
     ) -> Result<(), AutonError<R::Error>> {
@@ -30,9 +33,9 @@ impl<R: AutonRobot> Runner<'_, R> {
     }
     pub async fn drive_distance(
         &mut self,
-        meters: f64,
-        heading: f64,
-        maximum_speed: f64,
+        meters: Length,
+        heading: Angle,
+        maximum_speed: Velocity,
         timeout: Duration,
     ) -> Result<(), AutonError<R::Error>> {
         self.run(
@@ -47,7 +50,7 @@ impl<R: AutonRobot> Runner<'_, R> {
     }
     pub async fn turn_to(
         &mut self,
-        heading: f64,
+        heading: Angle,
         timeout: Duration,
     ) -> Result<(), AutonError<R::Error>> {
         self.run(Command::Turn { heading }, timeout).await

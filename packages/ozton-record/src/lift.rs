@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use ozton_control::lift::{LiftController, LiftProfile};
+use ozton_math::uom::si::{angle::degree, f64::Angle};
 use rkyv::{Archive, Deserialize, Serialize};
 use vexide::{
     prelude::Motor,
@@ -54,7 +55,7 @@ impl MirroredLift {
         }
     }
 
-    pub fn position_degrees(&self) -> Result<(f64, f64), PortError> {
+    fn position_degrees(&self) -> Result<(f64, f64), PortError> {
         Ok((
             self.first.position()?.as_degrees(),
             self.second.position()?.as_degrees(),
@@ -103,9 +104,12 @@ impl RecordField for MirroredLift {
                 .map(|(first, second)| (first + second) / 2.0)
         };
         let target = (mode == RecordMode::Playback).then_some(frame.position_degrees);
-        let command = self
-            .controller
-            .update(frame.direction, target, position, dt);
+        let command = self.controller.update(
+            frame.direction,
+            target.map(Angle::new::<degree>),
+            position.map(Angle::new::<degree>),
+            dt,
+        );
         if command == 0.0 {
             return self.hold();
         }

@@ -1,7 +1,11 @@
 //! Shared actuator and position feedback interfaces for mechanisms.
 
+use ozton_math::{
+    si,
+    uom::si::f64::{Angle, AngularVelocity, ElectricPotential, Torque},
+};
 use vexide::{
-    math::Angle,
+    math::Angle as VexAngle,
     prelude::{Motor, RotationSensor},
     smart::{PortError, motor::BrakeMode},
 };
@@ -11,29 +15,29 @@ pub trait MotorDevice {
     fn position(&self) -> Result<Angle, PortError>;
     fn set_position(&mut self, position: Angle) -> Result<(), PortError>;
     fn brake(&mut self, mode: BrakeMode) -> Result<(), PortError>;
-    fn max_voltage(&self) -> f64;
-    fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError>;
+    fn max_voltage(&self) -> ElectricPotential;
+    fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError>;
 }
 
 impl MotorDevice for Motor {
     fn position(&self) -> Result<Angle, PortError> {
-        Motor::position(self)
+        Motor::position(self).map(|position| si(position.as_radians()))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
-        Motor::set_position(self, position)
+        Motor::set_position(self, VexAngle::from_radians(position.value))
     }
     fn brake(&mut self, mode: BrakeMode) -> Result<(), PortError> {
         Motor::brake(self, mode)
     }
-    fn max_voltage(&self) -> f64 {
-        Motor::max_voltage(self)
+    fn max_voltage(&self) -> ElectricPotential {
+        si(Motor::max_voltage(self))
     }
-    fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
-        Motor::set_voltage(self, voltage)
+    fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError> {
+        Motor::set_voltage(self, voltage.value)
     }
 }
 
-/// Accumulated angular feedback; adapters retain device units as `Angle`.
+/// Accumulated angular position and reference assignment.
 pub trait PositionSensor {
     fn position(&self) -> Result<Angle, PortError>;
     fn set_position(&mut self, position: Angle) -> Result<(), PortError>;
@@ -41,31 +45,31 @@ pub trait PositionSensor {
 
 impl PositionSensor for RotationSensor {
     fn position(&self) -> Result<Angle, PortError> {
-        RotationSensor::position(self)
+        RotationSensor::position(self).map(|position| si(position.as_radians()))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
-        RotationSensor::set_position(self, position)
+        RotationSensor::set_position(self, VexAngle::from_radians(position.value))
     }
 }
 
-/// Motors with integrated velocity feedback, expressed in revolutions per minute.
+/// Motors with integrated velocity feedback as an angular velocity.
 pub trait VelocityMotor: MotorDevice {
-    fn velocity(&self) -> Result<f64, PortError>;
+    fn velocity(&self) -> Result<AngularVelocity, PortError>;
 }
 
 impl VelocityMotor for Motor {
-    fn velocity(&self) -> Result<f64, PortError> {
-        Motor::velocity(self)
+    fn velocity(&self) -> Result<AngularVelocity, PortError> {
+        Motor::velocity(self).map(|rpm| si(rpm * (core::f64::consts::TAU / 60.0)))
     }
 }
 
 /// Optional load feedback in newton-metres. Driver control need not read it.
 pub trait TorqueMotor: MotorDevice {
-    fn torque(&self) -> Result<f64, PortError>;
+    fn torque(&self) -> Result<Torque, PortError>;
 }
 
 impl TorqueMotor for Motor {
-    fn torque(&self) -> Result<f64, PortError> {
-        Motor::torque(self)
+    fn torque(&self) -> Result<Torque, PortError> {
+        Motor::torque(self).map(si)
     }
 }

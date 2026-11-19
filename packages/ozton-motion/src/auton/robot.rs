@@ -1,9 +1,11 @@
 //! Stock VEX competition robot. Application code owns mechanism behavior.
-
 use std::{fs::File, time::Duration};
 
 use ozton_drivetrain::model::DriverFaultPolicy;
-use ozton_math::geometry::Pose;
+use ozton_math::{
+    geometry::Pose,
+    uom::si::f64::{Length, Velocity},
+};
 use ozton_runtime::{Custom, CustomList};
 use vexide::{controller::ControllerState, smart::PortError};
 
@@ -146,7 +148,7 @@ where
             .map_err(ChassisError::Output)
     }
 
-    fn drive(&mut self, speeds: [f64; 2], dt: Duration) -> Result<(), Self::Error> {
+    fn drive(&mut self, speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error> {
         self.drive.chassis.drive(speeds, dt)
     }
 
@@ -176,7 +178,13 @@ where
         self.drive.chassis.request_distance_reset();
     }
 
-    fn log_step(&mut self, elapsed: Duration, dt: Duration, progress: f64, wheels: [f64; 2]) {
+    fn log_step(
+        &mut self,
+        elapsed: Duration,
+        dt: Duration,
+        progress: Length,
+        wheels: [Velocity; 2],
+    ) {
         self.drive.chassis.log_step(elapsed, dt, progress, wheels);
     }
 }

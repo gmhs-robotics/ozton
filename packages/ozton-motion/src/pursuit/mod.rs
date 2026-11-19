@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drivetrain, model::Tank};
+use ozton_math::uom::si::f64::Length;
 use ozton_tracking::{TracksHeading, TracksPosition};
 
 mod follow;
@@ -41,10 +42,10 @@ pub struct Waypoint {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PurePursuit {
     /// Radius of the robot's lookahead circle.
-    pub lookahead_distance: f64,
+    pub lookahead_distance: Length,
 
     /// Distance between the left and right wheels on the robot.
-    pub track_width: f64,
+    pub track_width: Length,
 
     /// Maximum duration the motion can take before being cancelled.
     pub timeout: Option<Duration>,
@@ -66,8 +67,8 @@ impl PurePursuit {
             drivetrain,
             state: None,
             waypoints: waypoints.into_iter(),
-            lookahead_distance: self.lookahead_distance,
-            track_width: self.track_width,
+            lookahead_distance: self.lookahead_distance.value,
+            track_width: self.track_width.value,
             timeout: self.timeout,
         }
     }

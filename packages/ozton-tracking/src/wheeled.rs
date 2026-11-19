@@ -3,7 +3,7 @@
 use std::{cell::RefCell, f64::consts::PI, rc::Rc, time::Instant};
 
 use glam::DVec2 as Vec2;
-use ozton_math::uom::si::f64::Length;
+use ozton_math::uom::si::f64::{Angle as Heading, Length};
 use vexide::{
     math::Angle,
     smart::motor::Motor,
@@ -26,14 +26,14 @@ pub struct TrackingWheel<T: RotarySensor> {
     pub sensor: T,
 
     /// Diameter of the wheel.
-    pub wheel_diameter: f64,
+    pub wheel_diameter: Length,
 
     /// Signed offset from the drivetrain's center of rotation.
     ///
     /// For a forward wheel, this is X right from The Origin. For a sideways wheel,
     /// this is Y forward from The Origin. Forward travel is +Y; sideways travel is +X.
     /// Heading is CCW from +Y. Both tracking implementations use these conventions.
-    pub offset: f64,
+    pub offset: Length,
 
     /// External gearing of the wheel.
     ///
@@ -42,16 +42,6 @@ pub struct TrackingWheel<T: RotarySensor> {
 }
 
 impl<T: RotarySensor> TrackingWheel<T> {
-    /// Creates a tracking wheel from physical diameter and signed offset.
-    pub const fn from_dimensions(
-        sensor: T,
-        diameter: Length,
-        offset: Length,
-        gearing: Option<f64>,
-    ) -> Self {
-        Self::new(sensor, diameter.value, offset.value, gearing)
-    }
-
     /// Creates a new tracking wheel with the given parameters.
     ///
     /// # Parameters
@@ -60,7 +50,12 @@ impl<T: RotarySensor> TrackingWheel<T> {
     /// * `wheel_diameter` - The diameter of the wheel in linear units.
     /// * `offset` - Distance from wheel to robot's center of rotation.
     /// * `gearing` - Optional gear ratio between sensor and wheel (use None for 1:1 if ungeared).
-    pub const fn new(sensor: T, wheel_diameter: f64, offset: f64, gearing: Option<f64>) -> Self {
+    pub const fn new(
+        sensor: T,
+        wheel_diameter: Length,
+        offset: Length,
+        gearing: Option<f64>,
+    ) -> Self {
         Self {
             sensor,
             wheel_diameter,
@@ -77,7 +72,7 @@ impl<T: RotarySensor> TrackingWheel<T> {
     /// # Errors
     ///
     /// Returns an error if [`RotarySensor::position`] fails.
-    pub fn travel(&self) -> Result<f64, T::Error> {
+    pub fn travel(&self) -> Result<Length, T::Error> {
         let wheel_circumference = self.wheel_diameter * PI;
 
         Ok(self.sensor.position()?.as_turns() * self.gearing.unwrap_or(1.0) * wheel_circumference)
@@ -157,14 +152,16 @@ impl WheeledTracking {
                     let j_wheel = &forward_wheels[j];
 
                     // Check if their offsets are acceptable enough
-                    if (i_wheel.offset + j_wheel.offset).abs() <= FORWARD_TRACKER_OFFSET_TOLERANCE
-                        && (i_wheel.offset - j_wheel.offset).abs() > f64::EPSILON
+                    if (i_wheel.offset.value + j_wheel.offset.value).abs()
+                        <= FORWARD_TRACKER_OFFSET_TOLERANCE
+                        && (i_wheel.offset.value - j_wheel.offset.value).abs() > f64::EPSILON
                     {
-                        parallel_forward_indicies = Some(if i_wheel.offset < j_wheel.offset {
-                            (i, j)
-                        } else {
-                            (j, i)
-                        });
+                        parallel_forward_indicies =
+                            Some(if i_wheel.offset.value < j_wheel.offset.value {
+                                (i, j)
+                            } else {
+                                (j, i)
+                            });
                     }
                 }
             }
@@ -175,12 +172,16 @@ impl WheeledTracking {
             "No gyro provided or viable tracking wheels available to determine robot orientation."
         );
 
-        let initial_forward_wheel_data = forward_wheels
-            .each_ref()
-            .map(|wheel| wheel.travel().map(|travel| (travel, wheel.offset)));
-        let initial_sideways_wheel_data = sideways_wheels
-            .each_ref()
-            .map(|wheel| wheel.travel().map(|travel| (travel, wheel.offset)));
+        let initial_forward_wheel_data = forward_wheels.each_ref().map(|wheel| {
+            wheel
+                .travel()
+                .map(|travel| (travel.value, wheel.offset.value))
+        });
+        let initial_sideways_wheel_data = sideways_wheels.each_ref().map(|wheel| {
+            wheel
+                .travel()
+                .map(|travel| (travel.value, wheel.offset.value))
+        });
         let initial_heading_result = Self::compute_raw_heading(
             gyro.as_ref(),
             parallel_forward_indicies.map(|(left_index, right_index)| {
@@ -298,7 +299,7 @@ impl WheeledTracking {
             gyro_heading.as_radians()
         } else if let Some((left_wheel, right_wheel)) = parallel_wheels {
             // Distance between the left and right wheels.
-            let track_width = right_wheel.offset - left_wheel.offset;
+            let track_width = right_wheel.offset.value - left_wheel.offset.value;
 
             // Nothing we can use if either of these disconnects, so all we can do is wait for them
             // to reconnect. Seriously, fix your wiring!
@@ -309,7 +310,7 @@ impl WheeledTracking {
                 .travel()
                 .map_err(|err| HeadingError::RotarySensor(err))?;
 
-            (right_travel - left_travel) / track_width
+            (right_travel.value - left_travel.value) / track_width
         } else if let Some(Err(_)) = gyro_rotation {
             // gyro failed and we have no viable sensors to determine heading. Nothing we can do to
             // recover from this.
@@ -353,12 +354,16 @@ impl WheeledTracking {
 
             let mut data = data.borrow_mut();
 
-            let forward_wheel_data = forward_wheels
-                .each_ref()
-                .map(|wheel| wheel.travel().map(|travel| (travel, wheel.offset)));
-            let sideways_wheel_data = sideways_wheels
-                .each_ref()
-                .map(|wheel| wheel.travel().map(|travel| (travel, wheel.offset)));
+            let forward_wheel_data = forward_wheels.each_ref().map(|wheel| {
+                wheel
+                    .travel()
+                    .map(|travel| (travel.value, wheel.offset.value))
+            });
+            let sideways_wheel_data = sideways_wheels.each_ref().map(|wheel| {
+                wheel
+                    .travel()
+                    .map(|travel| (travel.value, wheel.offset.value))
+            });
 
             if forward_wheel_data.iter().any(Result::is_err)
                 || sideways_wheel_data.iter().any(Result::is_err)
@@ -563,7 +568,7 @@ impl WheeledTracking {
 
     // MARK: Setters
 
-    /// Offsets the currently tracked heading to a given [`Angle`].
+    /// Reports whether tracking has a continuous position estimate.
     pub fn is_ready(&self) -> bool {
         self.data.borrow().ready
     }
@@ -572,14 +577,15 @@ impl WheeledTracking {
         offset + previous_raw - new_raw
     }
 
-    pub fn set_heading(&mut self, heading: Angle) {
+    /// Offsets the current heading to the supplied angle.
+    pub fn set_heading(&mut self, heading: Heading) {
         let mut data = self.data.borrow_mut();
-        data.heading_offset = heading - data.raw_heading;
+        data.heading_offset = Angle::from_radians(heading.value) - data.raw_heading;
     }
 
     /// Sets the currently tracked position to a new point.
-    pub fn set_position(&mut self, position: impl Into<Vec2>) {
-        self.data.borrow_mut().position = position.into();
+    pub fn set_position(&mut self, [x, y]: [Length; 2]) {
+        self.data.borrow_mut().position = Vec2::new(x.value, y.value);
     }
 }
 

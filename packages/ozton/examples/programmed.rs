@@ -25,19 +25,20 @@ use ozton::{
         localizer::{PoseTrust, RangeSensorConfig},
         mount::RobotPoint,
     },
+    uom::si::f64::{Angle, Length, Velocity},
 };
 use vexide::{
-    competition::CompetitionMode, controller::ControllerState, math::Angle, prelude::*,
-    smart::motor::BrakeMode,
+    competition::CompetitionMode, controller::ControllerState, prelude::*, smart::motor::BrakeMode,
 };
 
 // Embedded path moves right (+X), so begin facing right (-90 degrees).
-const START: Pose = Pose::from_lengths(si(0.0), si(0.0), -core::f64::consts::FRAC_PI_2);
+const START_HEADING: Angle = si(-core::f64::consts::FRAC_PI_2);
+const START: Pose = Pose::new(si(0.0), si(0.0), START_HEADING);
 const GEARED: GearRatio = GearRatio::from_teeth(36, 48);
 const DRIVER_FAULT_POLICY: DriverFaultPolicy = DriverFaultPolicy::Stop;
 const CONFIG: DifferentialConfig = DifferentialConfig {
     journal_capacity: 2048,
-    ..DifferentialConfig::new(2.25 * INCH, 0.30, 0.50)
+    ..DifferentialConfig::new(si(2.25 * INCH), si(0.30), si(0.50))
 };
 const FRONT_MOUNT: RobotPoint = RobotPoint::new(si(0.0), si(0.15), si(0.0));
 // `front` is the first (and only) range registered with `TrackingSetup` below.
@@ -174,7 +175,7 @@ impl AutonomousControls<CompetitionBot> for Controls {
 
     fn drive(
         robot: &mut CompetitionBot,
-        wheels: [f64; 2],
+        wheels: [Velocity; 2],
         dt: Duration,
     ) -> Result<(), Self::Error> {
         robot.drivetrain.chassis.drive(wheels, dt)
@@ -221,8 +222,8 @@ impl AutonomousControls<CompetitionBot> for Controls {
         robot: &mut CompetitionBot,
         elapsed: Duration,
         dt: Duration,
-        progress: f64,
-        wheels: [f64; 2],
+        progress: Length,
+        wheels: [Velocity; 2],
     ) {
         robot
             .drivetrain
@@ -254,7 +255,9 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
         .run(
             Command::Follow {
                 path: &path,
-                follower: Follower::PurePursuit { lookahead: 0.16 },
+                follower: Follower::PurePursuit {
+                    lookahead: si(0.16),
+                },
                 reverse: false,
                 trigger: None,
             },
@@ -267,9 +270,9 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
         .try_align(
             Alignment {
                 sensor: FRONT_RANGE_INDEX,
-                distance: 1.10,
-                heading: START.heading,
-                maximum_speed: 0.20,
+                distance: si(1.10),
+                heading: START_HEADING,
+                maximum_speed: si(0.20),
                 direction: 1.0,
             },
             Duration::from_secs(2),
@@ -296,13 +299,13 @@ async fn main(p: Peripherals) {
     let right = side(p.port_3, p.port_4, Direction::Forward);
     let tracking = TrackingSetup {
         imu: Some(InertialSensor::new(p.port_7)),
-        map: vec![Surface::new(1.8, -1.8, 1.8, 1.8)],
+        map: vec![Surface::new(si(1.8), si(-1.8), si(1.8), si(1.8))],
         ranges: vec![(
             "front",
             DistanceSensor::new(p.port_8),
             RangeSensorConfig::new(
                 FRONT_MOUNT
-                    .horizontal_range_mount(Angle::ZERO)
+                    .horizontal_range_mount(si(0.0))
                     .expect("valid range mount"),
             ),
         )],

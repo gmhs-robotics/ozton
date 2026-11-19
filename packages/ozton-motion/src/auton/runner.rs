@@ -1,8 +1,10 @@
 //! Bounded execution for programmed autonomous, including cancellation by drop.
-
 use std::time::{Duration, Instant};
 
-use ozton_math::geometry::{Pose, wrap_heading};
+use ozton_math::{
+    geometry::{Pose, wrap_heading},
+    uom::si::f64::{Length, Velocity},
+};
 use ozton_runtime::clock::CommandClock;
 use vexide::competition::{self, CompetitionMode};
 
@@ -15,7 +17,7 @@ pub trait AutonRobot {
     /// Capture tracking once. None is a stopped initialization/rebaseline tick.
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error>;
     fn update_custom(&mut self, dt: Duration) -> Result<(), Self::Error>;
-    fn drive(&mut self, meters_per_second: [f64; 2], dt: Duration) -> Result<(), Self::Error>;
+    fn drive(&mut self, meters_per_second: [Velocity; 2], dt: Duration) -> Result<(), Self::Error>;
     fn stop_drive(&mut self) -> Result<(), Self::Error>;
     /// Stop every output, even when an individual device fails.
     fn stop(&mut self) -> Result<(), Self::Error>;
@@ -39,7 +41,14 @@ pub trait AutonRobot {
     }
     fn request_distance_reset(&mut self);
     fn cancel_distance_reset(&mut self) {}
-    fn log_step(&mut self, _elapsed: Duration, _dt: Duration, _progress: f64, _wheels: [f64; 2]) {}
+    fn log_step(
+        &mut self,
+        _elapsed: Duration,
+        _dt: Duration,
+        _progress: Length,
+        _wheels: [Velocity; 2],
+    ) {
+    }
 }
 
 #[derive(Debug)]
@@ -347,10 +356,10 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             };
             if !feedback.pose.is_finite()
                 || ![
-                    feedback.forward_travel,
-                    feedback.forward_velocity,
-                    feedback.lateral_velocity,
-                    feedback.angular_velocity,
+                    feedback.forward_travel.value,
+                    feedback.forward_velocity.value,
+                    feedback.lateral_velocity.value,
+                    feedback.angular_velocity.value,
                 ]
                 .iter()
                 .all(|value| value.is_finite())
@@ -365,7 +374,8 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                     let start = path.start();
                     let heading = start.heading + if reverse { core::f64::consts::PI } else { 0.0 };
                     if feedback.pose.position.distance(start.position) > 0.15
-                        || wrap_heading(feedback.pose.heading - heading).abs() > 1.05
+                        || wrap_heading(ozton_math::si(feedback.pose.heading - heading)).abs()
+                            > 1.05
                     {
                         return Err(AutonError::PathStart);
                     }
@@ -397,7 +407,8 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             if step.wheels.iter().any(|v| v.abs() > 0.08) {
                 let anchor = *progress_pose.get_or_insert(feedback.pose);
                 if feedback.pose.position.distance(anchor.position) > 0.008
-                    || wrap_heading(feedback.pose.heading - anchor.heading).abs() > 0.025
+                    || wrap_heading(ozton_math::si(feedback.pose.heading - anchor.heading)).abs()
+                        > 0.025
                 {
                     progress_pose = Some(feedback.pose);
                     progress_elapsed = Duration::ZERO;
@@ -414,7 +425,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             if step.complete || step.wheels == [0.0; 2] {
                 active.robot.stop_drive().map_err(AutonError::StopFailed)?;
             } else {
-                match active.robot.drive(step.wheels, dt) {
+                match active.robot.drive(step.wheels.map(ozton_math::si), dt) {
                     Ok(()) => output_retry_since = None,
                     Err(error) if active.robot.recoverable(&error) => {
                         let since = *output_retry_since.get_or_insert(Instant::now());
@@ -428,9 +439,12 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             }
             // Serial diagnostics can be slower than feedback. Publish the
             // actuator command before offering this sample to a reporter.
-            active
-                .robot
-                .log_step(self.started.elapsed(), dt, step.progress, step.wheels);
+            active.robot.log_step(
+                self.started.elapsed(),
+                dt,
+                ozton_math::si(step.progress),
+                step.wheels.map(ozton_math::si),
+            );
             if step.complete {
                 if let Command::Contact(contact) = command {
                     active

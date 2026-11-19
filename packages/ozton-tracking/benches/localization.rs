@@ -33,10 +33,30 @@ fn measure(name: &str, count: usize, mut step: impl FnMut(usize)) {
 
 fn main() {
     let map = [
-        Surface::new(-1.8, -1.8, 1.8, -1.8),
-        Surface::new(1.8, -1.8, 1.8, 1.8),
-        Surface::new(1.8, 1.8, -1.8, 1.8),
-        Surface::new(-1.8, 1.8, -1.8, -1.8),
+        Surface::new(
+            ozton_math::si(-1.8),
+            ozton_math::si(-1.8),
+            ozton_math::si(1.8),
+            ozton_math::si(-1.8),
+        ),
+        Surface::new(
+            ozton_math::si(1.8),
+            ozton_math::si(-1.8),
+            ozton_math::si(1.8),
+            ozton_math::si(1.8),
+        ),
+        Surface::new(
+            ozton_math::si(1.8),
+            ozton_math::si(1.8),
+            ozton_math::si(-1.8),
+            ozton_math::si(1.8),
+        ),
+        Surface::new(
+            ozton_math::si(-1.8),
+            ozton_math::si(1.8),
+            ozton_math::si(-1.8),
+            ozton_math::si(-1.8),
+        ),
     ];
     let sensors = [
         0.0,
@@ -44,9 +64,19 @@ fn main() {
         core::f64::consts::PI,
         -core::f64::consts::FRAC_PI_2,
     ]
-    .map(|yaw| RangeSensorConfig::new(Mount::new(0.0, 0.0, yaw)));
+    .map(|yaw| {
+        RangeSensorConfig::new(Mount::new(
+            ozton_math::si(0.0),
+            ozton_math::si(0.0),
+            ozton_math::si(yaw),
+        ))
+    });
     measure("four wall casts", 100_000, |tick| {
-        let pose = Pose::new(0.01, -0.02, (tick % 100) as f64 * 0.001);
+        let pose = Pose::new(
+            ozton_math::si(0.01),
+            ozton_math::si(-0.02),
+            ozton_math::si((tick % 100) as f64 * 0.001),
+        );
         for sensor in sensors {
             black_box(cast(black_box(pose), sensor.mount, black_box(&map)));
         }
@@ -71,17 +101,17 @@ fn main() {
     ] {
         let config = Config {
             odometry: OdometryConfig {
-                track_width: 0.3,
-                forward_offset: 0.0,
-                lateral_offset: 0.0,
+                track_width: ozton_math::si(0.3),
+                forward_offset: ozton_math::si(0.0),
+                lateral_offset: ozton_math::si(0.0),
                 require_lateral: false,
-                max_linear_speed: 3.0,
-                max_angular_speed: 12.0,
+                max_linear_speed: ozton_math::si(3.0),
+                max_angular_speed: ozton_math::si(12.0),
                 max_gap: Duration::from_millis(100),
             },
             estimator,
             shadow: false,
-            max_correction_meters: 0.25,
+            max_correction: ozton_math::si(0.25),
         };
         let mut localizer = Localizer::new(config, Pose::default(), &map, &sensors).unwrap();
         if name.starts_with("driver") {
@@ -94,15 +124,15 @@ fn main() {
             let packet = Duration::from_millis((sequence / 4) * 40);
             let ranges = [Some(RangeObservation {
                 timestamp: packet,
-                distance: 1.8,
+                distance: ozton_math::si(1.8),
                 confidence: 1.0,
                 occluded: false,
             }); 4];
             black_box(localizer.update(
                 black_box(Snapshot {
                     time,
-                    drive: [Some(0.0); 2],
-                    imu: Some(0.0),
+                    drive: [Some(ozton_math::si(0.0)); 2],
+                    imu: Some(ozton_math::si(0.0)),
                     ..Default::default()
                 }),
                 black_box(&ranges),

@@ -15,6 +15,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::axis::{AxisDimension, Position, Rotary, Velocity};
+
 /// Describes when a control system has stabilized reasonably near its setpoint.
 ///
 /// This struct monitors both position error and velocity to determine if a system has
@@ -31,21 +33,27 @@ use std::time::{Duration, Instant};
 ///   2. The system has maintained these tolerances for the specified duration.
 ///
 /// If the system leaves the tolerance window before the duration is met, the tolerance timer resets.
-#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct Tolerances {
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Tolerances<D: AxisDimension = Rotary> {
     tolerance_timestamp: Option<Instant>,
 
     /// Duration for which `error_tolerance` and `velocity_tolerance` must be satisfied.
     pub duration: Option<Duration>,
 
     /// Minimum error range.
-    pub error_tolerance: Option<f64>,
+    pub error_tolerance: Option<Position<D>>,
 
     /// Minimum velocity range.
-    pub velocity_tolerance: Option<f64>,
+    pub velocity_tolerance: Option<Velocity<D>>,
 }
 
-impl Tolerances {
+impl<D: AxisDimension> Default for Tolerances<D> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<D: AxisDimension> Tolerances<D> {
     /// Creates a new [`Tolerances`] instance with no configured tolerances or timings.
     ///
     /// Until tolerances are configured using the builder methods, all tolerance
@@ -65,7 +73,7 @@ impl Tolerances {
     /// The error tolerance defines how close to the target position the system
     /// must be to be considered "within tolerance".
     #[must_use]
-    pub const fn error(&mut self, tolerance: f64) -> Self {
+    pub const fn error(&mut self, tolerance: Position<D>) -> Self {
         self.error_tolerance = Some(tolerance);
         *self
     }
@@ -75,7 +83,7 @@ impl Tolerances {
     /// The velocity tolerance defines how slow the system must be moving to be
     /// considered "stable".
     #[must_use]
-    pub const fn velocity(&mut self, tolerance: f64) -> Self {
+    pub const fn velocity(&mut self, tolerance: Velocity<D>) -> Self {
         self.velocity_tolerance = Some(tolerance);
         *self
     }
@@ -103,14 +111,14 @@ impl Tolerances {
     ///
     /// * `error` - Difference between the setpoint and measured state of the system.
     /// * `velocity` - Measurement of how fast the system response is changing over time.
-    pub fn check(&mut self, error: f64, velocity: f64) -> bool {
+    pub fn check(&mut self, error: Position<D>, velocity: Velocity<D>) -> bool {
         // Check if we are within the tolerance range for either error and velocity.
         let in_tolerances = self
             .error_tolerance
-            .is_none_or(|tolerance| error.abs() < tolerance)
+            .is_none_or(|tolerance| error.value.abs() < tolerance.value)
             && self
                 .velocity_tolerance
-                .is_none_or(|tolerance| velocity.abs() < tolerance);
+                .is_none_or(|tolerance| velocity.value.abs() < tolerance.value);
 
         if in_tolerances {
             // We are now within tolerance, so we record the timestamp that this occurred if

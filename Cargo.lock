@@ -390,6 +390,7 @@ dependencies = [
 name = "ozton-control"
 version = "0.4.0"
 dependencies = [
+ "ozton-math",
  "vexide",
 ]
 
@@ -453,6 +454,7 @@ dependencies = [
  "ozton-control",
  "ozton-derive",
  "ozton-drivetrain",
+ "ozton-math",
  "ozton-runtime",
  "ozton-tracking",
  "rkyv",
@@ -465,6 +467,7 @@ version = "0.4.0"
 dependencies = [
  "ozton-control",
  "ozton-diagnostics",
+ "ozton-math",
  "vexide",
 ]
 

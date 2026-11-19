@@ -8,6 +8,7 @@ use std::{
 use glam::DVec2 as Vec2;
 use ozton_control::{
     Tolerances,
+    axis::Linear,
     loops::{AngularPid, Feedback, Pid},
 };
 use ozton_drivetrain::{Drivetrain, model::Arcade};
@@ -37,7 +38,7 @@ where
     pub(crate) target_heading: Angle,
     pub(crate) lead: f64,
     pub(crate) timeout: Option<Duration>,
-    pub(crate) tolerances: Tolerances,
+    pub(crate) tolerances: Tolerances<Linear>,
     pub(crate) linear_controller: L,
     pub(crate) angular_controller: A,
     pub(crate) drivetrain: &'a mut Drivetrain<M, T>,
@@ -81,7 +82,7 @@ where
         let heading = this.drivetrain.tracking.heading();
 
         let carrot = this.target_point
-            - (ozton_math::geometry::direction(this.target_heading.as_radians())
+            - (ozton_math::geometry::direction(ozton_math::si(this.target_heading.as_radians()))
                 * position.distance(this.target_point)
                 * this.lead);
 
@@ -94,12 +95,12 @@ where
 
         let close = linear_error < 7.5;
 
-        if this
-            .tolerances
-            .check(linear_error, this.drivetrain.tracking.linear_velocity())
-            || this
-                .timeout
-                .is_some_and(|timeout| state.start_time.elapsed() > timeout)
+        if this.tolerances.check(
+            ozton_math::si(linear_error),
+            ozton_math::si(this.drivetrain.tracking.linear_velocity()),
+        ) || this
+            .timeout
+            .is_some_and(|timeout| state.start_time.elapsed() > timeout)
         {
             drop(this.drivetrain.model.drive_arcade(0.0, 0.0));
             return Poll::Ready(());
@@ -163,13 +164,16 @@ where
     }
 
     /// Modifies this motion's tolerances.
-    pub const fn with_tolerances(&mut self, tolerances: Tolerances) -> &mut Self {
+    pub const fn with_tolerances(&mut self, tolerances: Tolerances<Linear>) -> &mut Self {
         self.tolerances = tolerances;
         self
     }
 
     /// Modifies this motion's error tolerance.
-    pub const fn with_error_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_error_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::Length,
+    ) -> &mut Self {
         self.tolerances.error_tolerance = Some(tolerance);
         self
     }
@@ -181,7 +185,10 @@ where
     }
 
     /// Modifies this motion's velocity tolerance.
-    pub const fn with_velocity_tolerance(&mut self, tolerance: f64) -> &mut Self {
+    pub const fn with_velocity_tolerance(
+        &mut self,
+        tolerance: ozton_math::uom::si::f64::Velocity,
+    ) -> &mut Self {
         self.tolerances.velocity_tolerance = Some(tolerance);
         self
     }
@@ -238,9 +245,12 @@ where
     }
 
     /// Modifies this motion's linear integration range.
-    pub const fn with_linear_integration_range(&mut self, integration_range: f64) -> &mut Self {
+    pub const fn with_linear_integration_range(
+        &mut self,
+        integration_range: ozton_math::uom::si::f64::Length,
+    ) -> &mut Self {
         self.linear_controller
-            .set_integration_range(Some(integration_range));
+            .set_integration_range(Some(integration_range.value));
         self
     }
 

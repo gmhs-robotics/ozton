@@ -50,9 +50,10 @@ The programmed example retains the profiled path in its controls and clones the
 {{#include ../packages/ozton/examples/programmed.rs:route}}
 ```
 
-Use `Command::FollowMarked` with a slice of `(distance_m, action)` markers for
+Use `Command::FollowMarked` with a slice of `(distance, action)` markers for
 multiple actions. Markers run once in distance order, including all markers
-crossed in one tick. On a chained path, measure from the start of the full path.
+crossed in one tick. Each marker distance is a `Length`. On a chained path,
+measure from the start of the full path.
 Set `reverse: true` for reverse travel and start with the robot facing against
 the travel direction.
 
@@ -65,9 +66,9 @@ can capture thresholds, reads robot state, and should complete quickly.
 ## Try alignment and continue
 
 Set `Alignment::sensor` to the index of the range sensor in the feedback
-array. Choose a clear view of the intended surface, a positive approach speed
-in metres per second, and `direction` of `1.0` for a front-facing sensor or
-`-1.0` for a rear-facing one. The configured chassis checks the range sample
+array. Choose a clear view of the intended surface and a positive approach
+`Velocity`. Set `direction` to `1.0` for a front-facing sensor or `-1.0` for a
+rear-facing one. The configured chassis checks the range sample
 for age, confidence, operating range, and occlusion. Field-map association is
 used for localization.
 
@@ -79,7 +80,7 @@ the route. Dropping the runner stops the chassis and mechanisms.
 ## Short commands, scoring and bounded fallback
 
 `Runner` exposes `drive_to_point`, `drive_distance`, `turn_to`, and `wait`.
-Positions and distances are metres. Headings are CCW radians from forward.
+Use `Length` for positions and distances and a CCW `Angle` from forward for headings.
 Absolute point, path, and DSR commands check pose trust every tick.
 `AutonomousControls::pose_trusted` and `AutonRobot::pose_trusted` default to
 false. Supply evidence of trust from the tracker.

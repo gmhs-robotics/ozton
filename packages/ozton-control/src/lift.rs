@@ -2,11 +2,13 @@
 
 use std::time::Duration;
 
+use ozton_math::uom::si::{angle::degree, f64::Angle};
+
 /// Voltage limits and recorded-position control for a mirrored lift.
 #[derive(Debug, Clone, Copy)]
 pub struct LiftProfile {
-    pub bottom_degrees: f64,
-    pub top_degrees: f64,
+    pub bottom: Angle,
+    pub top: Angle,
     pub up_maximum_command: f64,
     pub down_maximum_command: f64,
     /// Maximum increase in upward command magnitude per second.
@@ -39,10 +41,12 @@ impl LiftController {
     pub fn update(
         &mut self,
         requested_direction: i8,
-        target: Option<f64>,
-        position: Option<f64>,
+        target: Option<Angle>,
+        position: Option<Angle>,
         dt: Duration,
     ) -> f64 {
+        let target = target.map(|angle| angle.get::<degree>());
+        let position = position.map(|angle| angle.get::<degree>());
         let direction = match target {
             Some(target) if position.is_some_and(|position| (target - position).abs() <= 3.0) => {
                 self.reset();
@@ -62,8 +66,8 @@ impl LiftController {
             return 0.0;
         }
         if position.is_some_and(|position| {
-            direction > 0.0 && position >= self.profile.top_degrees
-                || direction < 0.0 && position <= self.profile.bottom_degrees
+            direction > 0.0 && position >= self.profile.top.get::<degree>()
+                || direction < 0.0 && position <= self.profile.bottom.get::<degree>()
         }) {
             self.reset();
             return 0.0;
@@ -96,12 +100,12 @@ impl LiftController {
 mod tests {
     use std::time::Duration;
 
-    use super::{LiftController, LiftProfile};
+    use super::{Angle, LiftController, LiftProfile, degree};
 
     fn controller() -> LiftController {
         LiftController::new(LiftProfile {
-            bottom_degrees: 30.0,
-            top_degrees: 600.0,
+            bottom: Angle::new::<degree>(30.0),
+            top: Angle::new::<degree>(600.0),
             up_maximum_command: 0.75,
             down_maximum_command: 0.33,
             up_rise_per_second: 1.5,
@@ -114,38 +118,98 @@ mod tests {
     fn live_buttons_ramp_up_and_down_then_stop_immediately() {
         let mut lift = controller();
         let step = Duration::from_millis(100);
-        assert!((lift.update(1, None, Some(100.0), step) - 0.15).abs() < 1e-12);
-        assert!((lift.update(1, None, Some(100.0), step) - 0.30).abs() < 1e-12);
+        assert!(
+            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+        );
+        assert!(
+            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.30).abs() < 1e-12
+        );
         assert_eq!(
-            lift.update(1, None, Some(100.0), Duration::from_secs(1)),
+            lift.update(
+                1,
+                None,
+                Some(Angle::new::<degree>(100.0)),
+                Duration::from_secs(1)
+            ),
             0.75
         );
-        assert_eq!(lift.update(0, None, Some(100.0), step), 0.0);
-        assert!((lift.update(-1, None, Some(100.0), step) + 0.09).abs() < 1e-12);
         assert_eq!(
-            lift.update(-1, None, Some(100.0), Duration::from_secs(1)),
+            lift.update(0, None, Some(Angle::new::<degree>(100.0)), step),
+            0.0
+        );
+        assert!(
+            (lift.update(-1, None, Some(Angle::new::<degree>(100.0)), step) + 0.09).abs() < 1e-12
+        );
+        assert_eq!(
+            lift.update(
+                -1,
+                None,
+                Some(Angle::new::<degree>(100.0)),
+                Duration::from_secs(1)
+            ),
             -0.33
         );
-        assert!((lift.update(1, None, Some(100.0), step) - 0.15).abs() < 1e-12);
+        assert!(
+            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+        );
     }
 
     #[test]
     fn known_endpoints_stop_motion_outward() {
         let mut lift = controller();
         let step = Duration::from_millis(100);
-        assert_eq!(lift.update(1, None, Some(600.0), step), 0.0);
-        assert_eq!(lift.update(-1, None, Some(30.0), step), 0.0);
-        assert!((lift.update(1, None, Some(100.0), step) - 0.15).abs() < 1e-12);
-        assert_eq!(lift.update(1, None, Some(600.0), step), 0.0);
-        assert!((lift.update(-1, None, Some(100.0), step) + 0.09).abs() < 1e-12);
+        assert_eq!(
+            lift.update(1, None, Some(Angle::new::<degree>(600.0)), step),
+            0.0
+        );
+        assert_eq!(
+            lift.update(-1, None, Some(Angle::new::<degree>(30.0)), step),
+            0.0
+        );
+        assert!(
+            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+        );
+        assert_eq!(
+            lift.update(1, None, Some(Angle::new::<degree>(600.0)), step),
+            0.0
+        );
+        assert!(
+            (lift.update(-1, None, Some(Angle::new::<degree>(100.0)), step) + 0.09).abs() < 1e-12
+        );
     }
 
     #[test]
     fn playback_respects_position_command_and_ramp() {
         let mut lift = controller();
         let step = Duration::from_millis(100);
-        assert!((lift.update(1, Some(120.0), Some(100.0), step) - 0.15).abs() < 1e-12);
-        assert_eq!(lift.update(1, Some(102.0), Some(100.0), step), 0.0);
-        assert!((lift.update(-1, Some(80.0), Some(100.0), step) + 0.09).abs() < 1e-12);
+        assert!(
+            (lift.update(
+                1,
+                Some(Angle::new::<degree>(120.0)),
+                Some(Angle::new::<degree>(100.0)),
+                step
+            ) - 0.15)
+                .abs()
+                < 1e-12
+        );
+        assert_eq!(
+            lift.update(
+                1,
+                Some(Angle::new::<degree>(102.0)),
+                Some(Angle::new::<degree>(100.0)),
+                step
+            ),
+            0.0
+        );
+        assert!(
+            (lift.update(
+                -1,
+                Some(Angle::new::<degree>(80.0)),
+                Some(Angle::new::<degree>(100.0)),
+                step
+            ) + 0.09)
+                .abs()
+                < 1e-12
+        );
     }
 }

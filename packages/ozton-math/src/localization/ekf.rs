@@ -100,7 +100,7 @@ impl PoseEkf {
             residual * self.covariance * residual.transpose() + outer(gain, gain) * variance;
         let pose = Pose {
             position: self.pose.position + DVec2::new(correction.x, correction.y),
-            heading: wrap_heading(self.pose.heading + correction.z),
+            heading: wrap_heading(crate::si(self.pose.heading + correction.z)),
         };
         if !pose.is_finite() || !covariance.is_finite() {
             return false;
@@ -142,7 +142,11 @@ mod tests {
     }
     #[test]
     fn correction_reduces_error_and_rejects_outlier() {
-        let mut filter = PoseEkf::new(Pose::new(0.12, 0.2, 0.0), DVec3::splat(0.01)).unwrap();
+        let mut filter = PoseEkf::new(
+            Pose::new(crate::si(0.12), crate::si(0.2), crate::si(0.0)),
+            DVec3::splat(0.01),
+        )
+        .unwrap();
         assert!(filter.correct(-0.12, DVec3::X, 0.0004, 9.0));
         assert!(filter.pose().position.x.abs() < 0.01);
         assert_eq!(filter.pose().position.y, 0.2);

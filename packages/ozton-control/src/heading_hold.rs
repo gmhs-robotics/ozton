@@ -1,6 +1,6 @@
 //! Driver-only IMU heading hold. No position estimation or distance sensors.
 
-use vexide::math::Angle;
+use ozton_math::{geometry::wrap_heading, uom::si::f64::Angle};
 
 /// Holds the heading captured when straight driving starts. Manual steering,
 /// stopping and invalid IMU feedback release the captured heading.
@@ -23,7 +23,7 @@ impl HeadingHold {
         self.target = None;
     }
 
-    /// Returns arcade turn input. Heading uses the Vexide API's clockwise-positive radians;
+    /// Returns arcade turn input. Heading uses clockwise-positive rotation;
     /// positive arcade turn makes the left side faster and the right side slower.
     pub fn turn(&mut self, throttle: f64, manual_turn: f64, heading: Option<Angle>) -> f64 {
         if !throttle.is_finite()
@@ -40,12 +40,12 @@ impl HeadingHold {
             self.reset();
             return manual_turn;
         }
-        let Some(heading) = heading.filter(|angle| angle.as_radians().is_finite()) else {
+        let Some(heading) = heading.filter(|angle| angle.value.is_finite()) else {
             self.reset();
             return 0.0;
         };
         let target = *self.target.get_or_insert(heading);
-        let error = (target - heading).wrapped_half().as_radians();
+        let error = wrap_heading(target - heading);
         // Keep both sides in the requested travel direction, even at low throttle.
         let limit = self.maximum_turn.min(throttle.abs());
         (self.gain * error).clamp(-limit, limit)
@@ -56,7 +56,7 @@ impl HeadingHold {
 mod tests {
     use super::*;
     fn angle(degrees: f64) -> Option<Angle> {
-        Some(Angle::from_degrees(degrees))
+        Some(Angle::new::<ozton_math::uom::si::angle::degree>(degrees))
     }
     fn hold() -> HeadingHold {
         HeadingHold::new(1.5, 0.2)
@@ -83,10 +83,7 @@ mod tests {
         assert_eq!(hold.turn(0.6, 0.0, angle(50.0)), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, None), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(60.0)), 0.0);
-        assert_eq!(
-            hold.turn(0.6, 0.0, Some(Angle::from_radians(f64::NAN))),
-            0.0
-        );
+        assert_eq!(hold.turn(0.6, 0.0, Some(ozton_math::si(f64::NAN))), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(70.0)), 0.0);
         hold.reset();
         assert_eq!(hold.turn(0.6, 0.0, angle(80.0)), 0.0);

@@ -2,18 +2,20 @@
 
 use std::time::Duration;
 
+use ozton_math::uom::si::f64::{Angle, Frequency};
+
 use crate::loops::{Feedback, Pid};
 
 /// Limits changes in a normalized command without changing its steady-state value.
 #[derive(Debug, Clone, Copy)]
 pub struct SlewLimiter {
     value: f64,
-    rise_per_second: f64,
-    fall_per_second: f64,
+    rise_per_second: Frequency,
+    fall_per_second: Frequency,
 }
 
 impl SlewLimiter {
-    pub const fn new(rise_per_second: f64, fall_per_second: f64) -> Self {
+    pub const fn new(rise_per_second: Frequency, fall_per_second: Frequency) -> Self {
         Self {
             value: 0.0,
             rise_per_second,
@@ -30,7 +32,7 @@ impl SlewLimiter {
         } else {
             self.fall_per_second
         };
-        let change = rate.max(0.0) * dt.as_secs_f64();
+        let change = rate.value.max(0.0) * dt.as_secs_f64();
         self.value += (target - self.value).clamp(-change, change);
         self.value
     }
@@ -54,15 +56,10 @@ pub struct AntiTip {
 }
 
 impl AntiTip {
-    pub const fn new(
-        pid: Pid,
-        threshold_radians: f64,
-        polarity: f64,
-        maximum_correction: f64,
-    ) -> Self {
+    pub const fn new(pid: Pid, threshold: Angle, polarity: f64, maximum_correction: f64) -> Self {
         Self {
             pid,
-            threshold_radians,
+            threshold_radians: threshold.value,
             polarity,
             maximum_correction,
         }
@@ -72,7 +69,8 @@ impl AntiTip {
         self.pid.reset();
     }
 
-    pub fn correction(&mut self, pitch_radians: f64, dt: Duration) -> f64 {
+    pub fn correction(&mut self, pitch: Angle, dt: Duration) -> f64 {
+        let pitch_radians = pitch.value;
         if !pitch_radians.is_finite()
             || !self.threshold_radians.is_finite()
             || self.threshold_radians < 0.0

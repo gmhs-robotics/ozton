@@ -9,12 +9,12 @@ fn actual_export_uses_field_coordinates_and_real_end_point() {
     let path = Path::new(
         &points,
         Limits {
-            track_width: 0.3,
-            linear_speed: 0.8,
-            wheel_speed: 0.8,
-            acceleration: 1.0,
-            deceleration: 1.0,
-            lateral_acceleration: 1.2,
+            track_width: ozton_math::si(0.3),
+            linear_speed: ozton_math::si(0.8),
+            wheel_speed: ozton_math::si(0.8),
+            acceleration: ozton_math::si(1.0),
+            deceleration: ozton_math::si(1.0),
+            lateral_acceleration: ozton_math::si(1.2),
         },
     )
     .unwrap();
@@ -26,8 +26,8 @@ fn actual_export_uses_field_coordinates_and_real_end_point() {
     assert_eq!(path.end().speed, 0.0);
     for i in 1..20 {
         let time = path.end().time * f64::from(i) / 20.0;
-        let sample = path.at_time(time);
-        assert!((path.at_distance(sample.distance).time - time).abs() < 1e-8);
+        let sample = path.at_time(ozton_math::si(time));
+        assert!((path.at_distance(ozton_math::si(sample.distance)).time - time).abs() < 1e-8);
     }
 }
 
@@ -36,25 +36,27 @@ fn projection_keeps_the_current_branch_at_a_crossing() {
     use ozton_math::path::Waypoint;
     let path = Path::new(
         &[
-            Waypoint::new(-1.0, -1.0, 1.0),
-            Waypoint::new(1.0, 1.0, 1.0),
-            Waypoint::new(-1.0, 1.0, 1.0),
-            Waypoint::new(1.0, -1.0, 1.0),
+            Waypoint::new(ozton_math::si(-1.0), ozton_math::si(-1.0), 1.0),
+            Waypoint::new(ozton_math::si(1.0), ozton_math::si(1.0), 1.0),
+            Waypoint::new(ozton_math::si(-1.0), ozton_math::si(1.0), 1.0),
+            Waypoint::new(ozton_math::si(1.0), ozton_math::si(-1.0), 1.0),
         ],
         Limits {
-            track_width: 0.3,
-            linear_speed: 0.8,
-            wheel_speed: 0.8,
-            acceleration: 1.0,
-            deceleration: 1.0,
-            lateral_acceleration: 1.2,
+            track_width: ozton_math::si(0.3),
+            linear_speed: ozton_math::si(0.8),
+            wheel_speed: ozton_math::si(0.8),
+            acceleration: ozton_math::si(1.0),
+            deceleration: ozton_math::si(1.0),
+            lateral_acceleration: ozton_math::si(1.2),
         },
     )
     .unwrap();
     let mut progress = Progress::default();
     for i in 1..=15 {
-        let point = path.at_distance(f64::from(i) * 0.1).position;
-        progress.update(&path, point, 0.11);
+        let point = path
+            .at_distance(ozton_math::si(f64::from(i) * 0.1))
+            .position;
+        progress.update(&path, point, ozton_math::si(0.11));
     }
     assert!((progress.distance() - 1.5).abs() < 1e-10);
     assert!(progress.distance() < path.end().distance * 0.25);
@@ -70,17 +72,17 @@ fn compatible_export_segments_are_profiled_through_the_junction() {
     let path = Path::new(
         &points,
         Limits {
-            track_width: 0.3,
-            linear_speed: 0.8,
-            wheel_speed: 0.8,
-            acceleration: 1.0,
-            deceleration: 1.0,
-            lateral_acceleration: 1.2,
+            track_width: ozton_math::si(0.3),
+            linear_speed: ozton_math::si(0.8),
+            wheel_speed: ozton_math::si(0.8),
+            acceleration: ozton_math::si(1.0),
+            deceleration: ozton_math::si(1.0),
+            lateral_acceleration: ozton_math::si(1.2),
         },
     )
     .unwrap();
     assert_eq!(points.len(), 5);
-    assert!(path.at_distance(8.0 * INCH).speed > 0.2);
+    assert!(path.at_distance(ozton_math::si(8.0 * INCH)).speed > 0.2);
     assert_eq!(path.end().speed, 0.0);
     assert_eq!(parse_chain(&[first, first]), Err(ChainError::Junction(1)));
 }

@@ -42,7 +42,10 @@ impl<'a> Observations<'a> {
             .zip(self.reports)
             .filter_map(|(sensor, report)| {
                 let constraint = report.as_ref()?.constraint.ok()?;
-                Some((constraint, sensor.sigma * constraint.hit.incidence.abs()))
+                Some((
+                    constraint,
+                    sensor.sigma.value * constraint.hit.incidence.abs(),
+                ))
             });
         let mut buffer = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
@@ -60,7 +63,11 @@ impl<'a> Observations<'a> {
                     return None;
                 }
                 let report = report.as_ref()?;
-                Some((sensor, report.constraint.ok()?, report.calibrated_distance?))
+                Some((
+                    sensor,
+                    report.constraint.ok()?,
+                    report.calibrated_distance?.value,
+                ))
             })
     }
 }

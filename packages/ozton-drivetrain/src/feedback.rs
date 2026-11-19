@@ -1,6 +1,8 @@
 //! Continuous side odometry from all geared motors, with reconnect baselines.
 use core::time::Duration;
 
+use ozton_math::si;
+
 use crate::model::WheelFeedback;
 
 pub const MAX_SIDE_MOTORS: usize = 16;
@@ -37,20 +39,22 @@ impl EncoderConsensus {
         let mut velocity_count = 0;
         for (index, sample) in samples.iter().enumerate() {
             let valid = sample.filter(|s| {
-                s.position.is_finite() && s.velocity.is_finite() && s.velocity.abs() <= 10.0
+                s.position.value.is_finite()
+                    && s.velocity.value.is_finite()
+                    && s.velocity.value.abs() <= 10.0
             });
             if let Some(sample) = valid {
-                speeds[velocity_count] = sample.velocity;
+                speeds[velocity_count] = sample.velocity.value;
                 velocity_count += 1;
                 if let Some(last) = self.previous[index] {
-                    let delta = sample.position - last;
+                    let delta = sample.position.value - last;
                     if delta.abs() <= 10.0 * dt.as_secs_f64() + 0.005 {
                         deltas[count] = delta;
                         count += 1;
                     }
                 }
             }
-            self.previous[index] = valid.map(|s| s.position);
+            self.previous[index] = valid.map(|s| s.position.value);
         }
         if velocity_count == 0 || (had_baseline && count == 0) {
             return None;
@@ -71,8 +75,8 @@ impl EncoderConsensus {
             self.position += delta;
         }
         Some(WheelFeedback {
-            position: self.position,
-            velocity,
+            position: si(self.position),
+            velocity: si(velocity),
         })
     }
 }
@@ -89,8 +93,8 @@ mod tests {
     use super::*;
     fn sample(position: f64) -> Option<WheelFeedback> {
         Some(WheelFeedback {
-            position,
-            velocity: 0.1,
+            position: si(position),
+            velocity: si(0.1),
         })
     }
     #[test]
@@ -100,7 +104,8 @@ mod tests {
         assert_eq!(
             side.sample(&[sample(10.0), sample(-3.0), sample(5.0)], dt)
                 .unwrap()
-                .position,
+                .position
+                .value,
             0.0
         );
         assert!(
@@ -108,6 +113,7 @@ mod tests {
                 .sample(&[sample(10.01), sample(-2.99), sample(5.9)], dt)
                 .unwrap()
                 .position
+                .value
                 - 0.01)
                 .abs()
                 < 1e-9
@@ -117,6 +123,7 @@ mod tests {
                 .sample(&[None, sample(-2.98), sample(5.91)], dt)
                 .unwrap()
                 .position
+                .value
                 - 0.02)
                 .abs()
                 < 1e-9
@@ -126,6 +133,7 @@ mod tests {
                 .sample(&[sample(0.0), sample(-2.97), sample(5.92)], dt)
                 .unwrap()
                 .position
+                .value
                 - 0.03)
                 .abs()
                 < 1e-9
@@ -136,6 +144,7 @@ mod tests {
                 .sample(&[sample(2.0), sample(5.0), sample(-1.0)], dt)
                 .unwrap()
                 .position
+                .value
                 - 0.03)
                 .abs()
                 < 1e-9

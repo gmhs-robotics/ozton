@@ -1,14 +1,16 @@
 //! Vexide differential chassis for the programmed autonomous runner.
-
 use std::time::Duration;
 
-use ozton_control::axis::{AxisController, AxisSample, Target};
+use ozton_control::axis::{AxisController, AxisSample, Linear, Target};
 use ozton_diagnostics::{Event, Journal, calibration::CalibrationSample};
 use ozton_drivetrain::{
     Drivetrain,
     model::{Differential, Tank, WheelFeedback},
 };
-use ozton_math::geometry::Pose;
+use ozton_math::{
+    geometry::Pose,
+    uom::si::f64::{Length, Velocity},
+};
 use ozton_tracking::{
     TracksForwardTravel,
     localizer::{
@@ -32,7 +34,7 @@ pub enum ChassisError {
 #[derive(Clone, Copy)]
 pub enum WheelControl {
     Native,
-    Voltage([AxisController; 2]),
+    Voltage([AxisController<Linear>; 2]),
 }
 
 pub struct Chassis<'a, E: PoseEstimator = Filter> {
@@ -116,16 +118,17 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         self.log_tracking(update);
         Ok(Some(Feedback {
             pose: update.pose,
-            forward_velocity: update.forward_velocity,
-            lateral_velocity: update.lateral_velocity,
-            forward_travel: self.drivetrain.tracking.localizer.forward_travel(),
-            angular_velocity: update.angular_velocity,
+            forward_velocity: ozton_math::si(update.forward_velocity),
+            lateral_velocity: ozton_math::si(update.lateral_velocity),
+            forward_travel: ozton_math::si(self.drivetrain.tracking.localizer.forward_travel()),
+            angular_velocity: ozton_math::si(update.angular_velocity),
             ranges: self.range,
             reset_accepted: update.distance_reset,
         }))
     }
 
-    pub fn drive(&mut self, target: [f64; 2], dt: Duration) -> Result<(), ChassisError> {
+    pub fn drive(&mut self, target: [Velocity; 2], dt: Duration) -> Result<(), ChassisError> {
+        let target = target.map(|speed| speed.value);
         if dt.is_zero() || target.iter().any(|speed| !speed.is_finite()) {
             let _ = self.stop();
             return Err(ChassisError::InvalidCommand);
@@ -139,7 +142,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     .model
                     .wheel_speed_limit()
                     .expect("validated at construction");
-                let power = target.map(|speed| speed / limit);
+                let power = target.map(|speed| speed / limit.value);
                 self.drivetrain
                     .model
                     .drive_tank(power[0], power[1])
@@ -159,12 +162,13 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                             .update(
                                 sample,
                                 Target::Velocity {
-                                    velocity: target[index],
-                                    acceleration,
+                                    velocity: ozton_math::si(target[index]),
+                                    acceleration: ozton_math::si(acceleration),
                                 },
                                 dt,
                             )
-                            .ok_or(ChassisError::WheelFeedback)?;
+                            .ok_or(ChassisError::WheelFeedback)?
+                            .value;
                     }
                     Ok(voltage)
                 })();
@@ -177,7 +181,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     ));
                     self.drivetrain
                         .model
-                        .drive_volts(voltage[0], voltage[1])
+                        .drive_volts(ozton_math::si(voltage[0]), ozton_math::si(voltage[1]))
                         .map_err(ChassisError::Output)
                 })
             }
@@ -234,7 +238,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     pub(super) fn feedforward_samples(&mut self) -> [Option<CalibrationSample>; 2] {
         let voltage = self.drivetrain.model.measured_voltage();
         [0, 1].map(|index| {
-            let speed = self.wheels[index].map(|wheel| wheel.velocity);
+            let speed = self.wheels[index].map(|wheel| wheel.velocity.value);
             let previous = core::mem::replace(
                 &mut self.calibration_velocity[index],
                 speed.map(|value| (value, self.time)),
@@ -249,7 +253,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 Some(CalibrationSample::Voltage {
                     speed,
                     acceleration,
-                    volts,
+                    volts: volts.value,
                 })
             } else {
                 None
@@ -261,7 +265,13 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         self.drivetrain.tracking.localizer.request_distance_reset();
     }
 
-    pub fn log_step(&mut self, elapsed: Duration, dt: Duration, progress: f64, wheels: [f64; 2]) {
+    pub fn log_step(
+        &mut self,
+        elapsed: Duration,
+        dt: Duration,
+        progress: Length,
+        wheels: [Velocity; 2],
+    ) {
         self.journal.push(Event::new(
             self.time,
             "auton",
@@ -269,9 +279,9 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             [
                 elapsed.as_secs_f64(),
                 dt.as_secs_f64(),
-                progress,
-                wheels[0],
-                wheels[1],
+                progress.value,
+                wheels[0].value,
+                wheels[1].value,
             ],
         ));
     }
@@ -287,11 +297,11 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             "tracking",
             "sensors",
             [
-                raw.drive[0].unwrap_or(missing),
-                raw.drive[1].unwrap_or(missing),
-                raw.forward.unwrap_or(missing),
-                raw.lateral.unwrap_or(missing),
-                raw.imu.unwrap_or(missing),
+                raw.drive[0].map_or(missing, |value| value.value),
+                raw.drive[1].map_or(missing, |value| value.value),
+                raw.forward.map_or(missing, |value| value.value),
+                raw.lateral.map_or(missing, |value| value.value),
+                raw.imu.map_or(missing, |value| value.value),
             ],
         ));
         self.journal.push(Event::new(
@@ -299,8 +309,8 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             "drive",
             "velocity",
             [
-                self.wheels[0].map_or(missing, |wheel| wheel.velocity),
-                self.wheels[1].map_or(missing, |wheel| wheel.velocity),
+                self.wheels[0].map_or(missing, |wheel| wheel.velocity.value),
+                self.wheels[1].map_or(missing, |wheel| wheel.velocity.value),
                 self.target[0],
                 self.target[1],
                 missing,
@@ -366,7 +376,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     index as f64,
                     report
                         .observation
-                        .map_or(missing, |reading| reading.distance),
+                        .map_or(missing, |reading| reading.distance.value),
                     report
                         .observation
                         .map_or(missing, |reading| reading.confidence),

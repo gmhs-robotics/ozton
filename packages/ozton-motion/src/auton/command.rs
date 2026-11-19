@@ -9,13 +9,14 @@ use ozton_math::{
         Path,
         follower::{self, Follower, Progress},
     },
-    uom::si::f64::{Length, Velocity},
+    si,
+    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
 };
 use ozton_tracking::localizer::MAX_RANGES;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeFeedback {
-    pub distance: f64,
+    pub distance: Length,
     pub timestamp: Duration,
 }
 
@@ -23,23 +24,23 @@ pub struct RangeFeedback {
 #[derive(Debug, Clone, Copy)]
 pub struct Feedback {
     pub pose: Pose,
-    pub forward_travel: f64,
-    pub forward_velocity: f64,
+    pub forward_travel: Length,
+    pub forward_velocity: Velocity,
     /// Positive toward robot +X (right), metres per second.
-    pub lateral_velocity: f64,
-    pub angular_velocity: f64,
+    pub lateral_velocity: Velocity,
+    pub angular_velocity: AngularVelocity,
     pub ranges: [Option<RangeFeedback>; MAX_RANGES],
     pub reset_accepted: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct DriveOptions {
-    pub track_width: f64,
-    pub maximum_wheel_speed: f64,
-    pub position_tolerance: f64,
-    pub heading_tolerance: f64,
-    pub speed_tolerance: f64,
-    pub angular_speed_tolerance: f64,
+    pub track_width: Length,
+    pub maximum_wheel_speed: Velocity,
+    pub position_tolerance: Length,
+    pub heading_tolerance: Angle,
+    pub speed_tolerance: Velocity,
+    pub angular_speed_tolerance: AngularVelocity,
     pub settle: Duration,
 }
 
@@ -48,45 +49,40 @@ impl DriveOptions {
     pub const fn with_settling(
         mut self,
         position: Length,
-        heading: vexide::math::Angle,
+        heading: Angle,
         speed: Velocity,
-        angular_speed: ozton_math::uom::si::f64::AngularVelocity,
+        angular_speed: AngularVelocity,
         settle: Duration,
     ) -> Self {
-        self.position_tolerance = position.value;
-        self.heading_tolerance = heading.as_radians();
-        self.speed_tolerance = speed.value;
-        self.angular_speed_tolerance = angular_speed.value;
+        self.position_tolerance = position;
+        self.heading_tolerance = heading;
+        self.speed_tolerance = speed;
+        self.angular_speed_tolerance = angular_speed;
         self.settle = settle;
         self
     }
 
-    /// Settling defaults for a differential robot with unit-bearing geometry and speed.
-    pub const fn from_dimensions(track_width: Length, maximum_wheel_speed: Velocity) -> Self {
-        Self::differential(track_width.value, maximum_wheel_speed.value)
-    }
-
-    /// Settling defaults for a differential robot, in meters and radians.
-    pub const fn differential(track_width: f64, maximum_wheel_speed: f64) -> Self {
+    /// Settling defaults for a differential robot.
+    pub const fn differential(track_width: Length, maximum_wheel_speed: Velocity) -> Self {
         Self {
             track_width,
             maximum_wheel_speed,
-            position_tolerance: 0.025,
-            heading_tolerance: 0.06,
-            speed_tolerance: 0.04,
-            angular_speed_tolerance: 0.12,
+            position_tolerance: si(0.025),
+            heading_tolerance: si(0.06),
+            speed_tolerance: si(0.04),
+            angular_speed_tolerance: si(0.12),
             settle: Duration::from_millis(120),
         }
     }
 
     pub(super) fn valid(self) -> bool {
         [
-            self.track_width,
-            self.maximum_wheel_speed,
-            self.position_tolerance,
-            self.heading_tolerance,
-            self.speed_tolerance,
-            self.angular_speed_tolerance,
+            self.track_width.value,
+            self.maximum_wheel_speed.value,
+            self.position_tolerance.value,
+            self.heading_tolerance.value,
+            self.speed_tolerance.value,
+            self.angular_speed_tolerance.value,
         ]
         .iter()
         .all(|value| value.is_finite() && *value > 0.0)
@@ -97,9 +93,9 @@ impl DriveOptions {
 #[derive(Debug, Clone, Copy)]
 pub struct Alignment {
     pub sensor: usize,
-    pub distance: f64,
-    pub heading: f64,
-    pub maximum_speed: f64,
+    pub distance: Length,
+    pub heading: Angle,
+    pub maximum_speed: Velocity,
     /// +1 for a front-facing sensor, -1 for a rear-facing sensor.
     pub direction: f64,
 }
@@ -107,12 +103,12 @@ pub struct Alignment {
 /// Approach at bounded speed until a debounced switch verifies contact.
 pub struct Contact<R> {
     pub known_pose: Pose,
-    pub speed: f64,
+    pub speed: Velocity,
     pub touched: fn(&R) -> bool,
 }
 
 /// A mechanism action at a distance along a path, in meters.
-pub type PathMarker<R> = (f64, fn(&mut R));
+pub type PathMarker<R> = (Length, fn(&mut R));
 
 /// Evaluates contact evidence using the current pose and elapsed command time.
 pub type ContactCondition<'a, R> = &'a mut dyn FnMut(&R, Feedback, Duration) -> bool;
@@ -133,26 +129,26 @@ pub enum Command<'a, R> {
         markers: &'a [PathMarker<R>],
     },
     Turn {
-        heading: f64,
+        heading: Angle,
     },
     /// Closed-loop field-point navigation using full planar pose, including lateral drift.
     DriveToPoint {
-        target: [f64; 2],
+        target: [Length; 2],
         reverse: bool,
-        maximum_speed: f64,
+        maximum_speed: Velocity,
     },
     DriveDistance {
-        meters: f64,
-        heading: f64,
-        maximum_speed: f64,
+        meters: Length,
+        heading: Angle,
+        maximum_speed: Velocity,
     },
     Align(Alignment),
     Contact(Contact<R>),
     /// Approach until the caller confirms contact, then brake and settle.
     /// The caller decides whether and how to correct field pose afterward.
     ApproachContact {
-        heading: f64,
-        speed: f64,
+        heading: Angle,
+        speed: Velocity,
         settle: Duration,
         touched: ContactCondition<'a, R>,
     },
@@ -168,11 +164,11 @@ pub enum Command<'a, R> {
 
 impl<R> Command<'_, R> {
     /// Encoder-based travel along a heading in CCW radians.
-    pub const fn drive_distance(distance: Length, heading: f64, maximum_speed: Velocity) -> Self {
+    pub const fn drive_distance(distance: Length, heading: Angle, maximum_speed: Velocity) -> Self {
         Self::DriveDistance {
-            meters: distance.value,
+            meters: distance,
             heading,
-            maximum_speed: maximum_speed.value,
+            maximum_speed,
         }
     }
 
@@ -183,8 +179,8 @@ impl<R> Command<'_, R> {
         reverse: bool,
     ) -> Self {
         Self::DriveToPoint {
-            target: [right.value, forward.value],
-            maximum_speed: maximum_speed.value,
+            target: [right, forward],
+            maximum_speed,
             reverse,
         }
     }
@@ -217,9 +213,9 @@ impl<R> Command<'_, R> {
                 ..
             } => {
                 follower.is_valid()
-                    && (path.limits().track_width - options.track_width).abs() < 1e-6
+                    && (path.limits().track_width.value - options.track_width.value).abs() < 1e-6
                     && path.limits().wheel_speed <= options.maximum_wheel_speed
-                    && trigger.is_none_or(|(at, _)| (0.0..=path.end().distance).contains(&at))
+                    && trigger.is_none_or(|(at, _)| (0.0..=path.end().distance).contains(&at.value))
             }
             Self::FollowMarked {
                 path,
@@ -228,48 +224,49 @@ impl<R> Command<'_, R> {
                 ..
             } => {
                 follower.is_valid()
-                    && (path.limits().track_width - options.track_width).abs() < 1e-6
+                    && (path.limits().track_width.value - options.track_width.value).abs() < 1e-6
                     && path.limits().wheel_speed <= options.maximum_wheel_speed
                     && markers
                         .iter()
-                        .all(|(at, _)| (0.0..=path.end().distance).contains(at))
+                        .all(|(at, _)| (0.0..=path.end().distance).contains(&at.value))
                     && markers.windows(2).all(|pair| pair[0].0 <= pair[1].0)
             }
-            Self::Turn { heading } => heading.is_finite(),
+            Self::Turn { heading } => heading.value.is_finite(),
             Self::DriveToPoint {
                 target,
                 maximum_speed,
                 ..
             } => {
-                target.iter().all(|v| v.is_finite())
-                    && maximum_speed.is_finite()
-                    && *maximum_speed > 0.0
-                    && *maximum_speed <= options.maximum_wheel_speed
+                target.iter().all(|v| v.value.is_finite())
+                    && maximum_speed.value.is_finite()
+                    && maximum_speed.value > 0.0
+                    && maximum_speed.value <= options.maximum_wheel_speed.value
             }
             Self::DriveDistance {
                 meters,
                 heading,
                 maximum_speed,
             } => {
-                meters.is_finite()
-                    && heading.is_finite()
-                    && *maximum_speed > 0.0
-                    && *maximum_speed <= options.maximum_wheel_speed
+                meters.value.is_finite()
+                    && heading.value.is_finite()
+                    && maximum_speed.value > 0.0
+                    && maximum_speed.value <= options.maximum_wheel_speed.value
             }
             Self::Align(alignment) => {
                 alignment.sensor < MAX_RANGES
-                    && alignment.distance.is_finite()
-                    && alignment.distance > 0.0
-                    && alignment.heading.is_finite()
-                    && (0.0..=options.maximum_wheel_speed).contains(&alignment.maximum_speed)
-                    && alignment.maximum_speed > 0.0
+                    && alignment.distance.value.is_finite()
+                    && alignment.distance.value > 0.0
+                    && alignment.heading.value.is_finite()
+                    && (0.0..=options.maximum_wheel_speed.value)
+                        .contains(&alignment.maximum_speed.value)
+                    && alignment.maximum_speed.value > 0.0
                     && alignment.direction.abs() == 1.0
             }
             Self::Contact(contact) => {
                 contact.known_pose.is_finite()
-                    && contact.speed.is_finite()
-                    && contact.speed.abs() <= options.maximum_wheel_speed
-                    && contact.speed != 0.0
+                    && contact.speed.value.is_finite()
+                    && contact.speed.value.abs() <= options.maximum_wheel_speed.value
+                    && contact.speed.value != 0.0
             }
             Self::ApproachContact {
                 heading,
@@ -277,10 +274,10 @@ impl<R> Command<'_, R> {
                 settle,
                 ..
             } => {
-                heading.is_finite()
-                    && speed.is_finite()
-                    && speed.abs() <= options.maximum_wheel_speed
-                    && *speed != 0.0
+                heading.value.is_finite()
+                    && speed.value.is_finite()
+                    && speed.value.abs() <= options.maximum_wheel_speed.value
+                    && speed.value != 0.0
                     && !settle.is_zero()
             }
             Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } | Self::DistanceReset => true,
@@ -315,14 +312,17 @@ impl State {
         dt: Duration,
         options: DriveOptions,
     ) -> Step {
-        let slow = feedback.forward_velocity.hypot(feedback.lateral_velocity)
-            <= options.speed_tolerance
-            && feedback.angular_velocity.abs() <= options.angular_speed_tolerance;
-        let error_at = |heading| wrap_heading(heading - feedback.pose.heading);
+        let slow = feedback
+            .forward_velocity
+            .value
+            .hypot(feedback.lateral_velocity.value)
+            <= options.speed_tolerance.value
+            && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
+        let error_at = |heading| wrap_heading(ozton_math::si(heading - feedback.pose.heading));
         let drive = |linear, angular| {
             desaturate(
-                wheel_speeds(linear, angular, options.track_width),
-                options.maximum_wheel_speed,
+                wheel_speeds(si(linear), si(angular), options.track_width).map(|speed| speed.value),
+                options.maximum_wheel_speed.value,
             )
         };
         let contact_motion = |touched, heading: f64, speed, limit, settle: Duration| {
@@ -330,7 +330,7 @@ impl State {
             if touched {
                 (
                     [0.0; 2],
-                    slow && error.abs() <= options.heading_tolerance,
+                    slow && error.abs() <= options.heading_tolerance.value,
                     settle.max(Duration::from_millis(30)),
                 )
             } else {
@@ -356,11 +356,11 @@ impl State {
                 self.progress.update(
                     path,
                     feedback.pose.position,
-                    options.maximum_wheel_speed * dt.as_secs_f64() * 2.0,
+                    ozton_math::si(options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0),
                 );
                 let end = path.end();
                 let tracking_error = path
-                    .at_distance(self.progress.distance())
+                    .at_distance(ozton_math::si(self.progress.distance()))
                     .position
                     .distance(feedback.pose.position);
                 lost = tracking_error > 0.35
@@ -368,9 +368,11 @@ impl State {
                         && elapsed.as_secs_f64() >= end.time
                         && self.progress.distance() < end.distance - 0.20);
                 let heading = end.heading + if *reverse { core::f64::consts::PI } else { 0.0 };
-                let ready = self.progress.distance() >= end.distance - options.position_tolerance
-                    && feedback.pose.position.distance(end.position) <= options.position_tolerance
-                    && error_at(heading).abs() <= options.heading_tolerance;
+                let ready = self.progress.distance()
+                    >= end.distance - options.position_tolerance.value
+                    && feedback.pose.position.distance(end.position)
+                        <= options.position_tolerance.value
+                    && error_at(heading).abs() <= options.heading_tolerance.value;
                 let wheels = if ready {
                     [0.0; 2]
                 } else {
@@ -379,8 +381,8 @@ impl State {
                         path,
                         self.progress,
                         feedback.pose,
-                        elapsed.as_secs_f64(),
-                        dt.as_secs_f64(),
+                        ozton_math::si(elapsed.as_secs_f64()),
+                        ozton_math::si(dt.as_secs_f64()),
                         *reverse,
                         options.position_tolerance,
                     )
@@ -396,8 +398,8 @@ impl State {
                 (wheels, ready && slow, options.settle)
             }
             Command::Turn { heading } => {
-                let error = error_at(*heading);
-                let ready = error.abs() <= options.heading_tolerance;
+                let error = error_at(heading.value);
+                let ready = error.abs() <= options.heading_tolerance.value;
                 (
                     drive(0.0, if ready { 0.0 } else { 3.0 * error }),
                     ready && slow,
@@ -409,10 +411,12 @@ impl State {
                 reverse,
                 maximum_speed,
             } => {
-                let delta = ozton_math::geometry::Pose::new(target[0], target[1], 0.0).position
-                    - feedback.pose.position;
+                let delta =
+                    ozton_math::geometry::Pose::new(target[0], target[1], ozton_math::si(0.0))
+                        .position
+                        - feedback.pose.position;
                 let distance = delta.length();
-                let reached = distance <= options.position_tolerance;
+                let reached = distance <= options.position_tolerance.value;
                 let heading = error_at(
                     ozton_math::geometry::bearing(delta)
                         + if *reverse { core::f64::consts::PI } else { 0.0 },
@@ -420,7 +424,7 @@ impl State {
                 let linear = if reached || heading.abs() > 0.7 {
                     0.0
                 } else {
-                    (2.5 * distance).min(*maximum_speed) * if *reverse { -1.0 } else { 1.0 }
+                    (2.5 * distance).min(maximum_speed.value) * if *reverse { -1.0 } else { 1.0 }
                 };
                 (
                     drive(linear, if reached { 0.0 } else { 3.0 * heading }),
@@ -433,15 +437,17 @@ impl State {
                 heading,
                 maximum_speed,
             } => {
-                let start = *self.start_travel.get_or_insert(feedback.forward_travel);
-                let error = *meters - (feedback.forward_travel - start);
-                let heading = error_at(*heading);
-                let reached = error.abs() <= options.position_tolerance;
-                let facing = heading.abs() <= options.heading_tolerance;
+                let start = *self
+                    .start_travel
+                    .get_or_insert(feedback.forward_travel.value);
+                let error = meters.value - (feedback.forward_travel.value - start);
+                let heading = error_at(heading.value);
+                let reached = error.abs() <= options.position_tolerance.value;
+                let facing = heading.abs() <= options.heading_tolerance.value;
                 let speed = if reached || heading.abs() > 0.35 {
                     0.0
                 } else {
-                    (2.5 * error).clamp(-*maximum_speed, *maximum_speed)
+                    (2.5 * error).clamp(-maximum_speed.value, maximum_speed.value)
                 };
                 (
                     drive(speed, if facing { 0.0 } else { 3.0 * heading }),
@@ -453,15 +459,17 @@ impl State {
                 if let Some(range) = feedback.ranges[alignment.sensor] {
                     fresh_alignment_range = self.fresh_range != Some(range.timestamp);
                     self.fresh_range = Some(range.timestamp);
-                    let distance_error = range.distance - alignment.distance;
-                    let heading_error = error_at(alignment.heading);
-                    let position_ready = distance_error.abs() <= options.position_tolerance;
-                    let heading_ready = heading_error.abs() <= options.heading_tolerance;
+                    let distance_error = range.distance.value - alignment.distance.value;
+                    let heading_error = error_at(alignment.heading.value);
+                    let position_ready = distance_error.abs() <= options.position_tolerance.value;
+                    let heading_ready = heading_error.abs() <= options.heading_tolerance.value;
                     let linear = if position_ready || heading_error.abs() > 0.2 {
                         0.0
                     } else {
-                        (2.0 * distance_error * alignment.direction)
-                            .clamp(-alignment.maximum_speed, alignment.maximum_speed)
+                        (2.0 * distance_error * alignment.direction).clamp(
+                            -alignment.maximum_speed.value,
+                            alignment.maximum_speed.value,
+                        )
                     };
                     (
                         drive(
@@ -482,8 +490,8 @@ impl State {
             Command::Contact(contact) => contact_motion(
                 (contact.touched)(robot),
                 contact.known_pose.heading,
-                contact.speed,
-                options.maximum_wheel_speed,
+                contact.speed.value,
+                options.maximum_wheel_speed.value,
                 options.settle,
             ),
             Command::ApproachContact {
@@ -493,9 +501,9 @@ impl State {
                 touched,
             } => contact_motion(
                 touched(robot, feedback, elapsed),
-                *heading,
-                *speed,
-                speed.abs(),
+                heading.value,
+                speed.value,
+                speed.value.abs(),
                 *settle,
             ),
             Command::DistanceReset => ([0.0; 2], feedback.reset_accepted, Duration::ZERO),
@@ -535,7 +543,7 @@ impl State {
     fn trigger<R>(&mut self, command: &mut Command<'_, R>, robot: &mut R, distance: f64) {
         match command {
             Command::Follow { trigger, .. } => {
-                if trigger.is_some_and(|(at, _)| distance >= at)
+                if trigger.is_some_and(|(at, _)| distance >= at.value)
                     && let Some((_, action)) = trigger.take()
                 {
                     action(robot);
@@ -543,7 +551,7 @@ impl State {
             }
             Command::FollowMarked { markers, .. } => {
                 while let Some(&(at, action)) = markers.get(self.next_marker) {
-                    if distance < at {
+                    if distance < at.value {
                         break;
                     }
                     self.next_marker += 1;
@@ -566,14 +574,14 @@ mod settling_tests {
             ready: &mut ready,
             stable: Duration::from_millis(30),
         };
-        let options = DriveOptions::differential(0.3, 1.0);
+        let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
         let mut state = State::default();
         let mut feedback = Feedback {
             pose: Pose::default(),
-            forward_travel: 0.0,
-            forward_velocity: 0.0,
-            lateral_velocity: 0.0,
-            angular_velocity: 0.0,
+            forward_travel: si(0.0),
+            forward_velocity: si(0.0),
+            lateral_velocity: si(0.0),
+            angular_velocity: si(0.0),
             ranges: [None; MAX_RANGES],
             reset_accepted: false,
         };
@@ -584,7 +592,7 @@ mod settling_tests {
             assert!(!step.complete);
             assert_eq!(step.wheels, [0.0; 2]);
         }
-        feedback.angular_velocity = 0.5;
+        feedback.angular_velocity = si(0.5);
         for _ in 0..5 {
             assert!(
                 !state
@@ -592,7 +600,7 @@ mod settling_tests {
                     .complete
             );
         }
-        feedback.angular_velocity = 0.0;
+        feedback.angular_velocity = si(0.0);
         for expected in [false, false, true] {
             assert_eq!(
                 state
@@ -606,13 +614,13 @@ mod settling_tests {
     fn sideways_motion_prevents_arrival_even_with_correct_position_and_heading() {
         let mut state = State::default();
         let mut command = Command::WaitUntil(|_: &()| true);
-        let options = DriveOptions::differential(0.3, 1.0);
+        let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
         let mut feedback = Feedback {
             pose: Pose::default(),
-            forward_travel: 0.0,
-            forward_velocity: 0.0,
-            lateral_velocity: 0.2,
-            angular_velocity: 0.0,
+            forward_travel: si(0.0),
+            forward_velocity: si(0.0),
+            lateral_velocity: si(0.2),
+            angular_velocity: si(0.0),
             ranges: [None; MAX_RANGES],
             reset_accepted: false,
         };
@@ -624,7 +632,7 @@ mod settling_tests {
                     .complete
             );
         }
-        feedback.lateral_velocity = 0.0;
+        feedback.lateral_velocity = si(0.0);
         let mut completed = false;
         for _ in 0..12 {
             completed = state

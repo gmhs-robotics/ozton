@@ -1,5 +1,9 @@
 //! Bounded progress and encoder checks shared by mechanisms and motion executors.
-use core::time::Duration;
+use core::{marker::PhantomData, time::Duration};
+
+use ozton_math::si;
+
+use crate::axis::{AxisDimension, Position, Rotary, Velocity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressFault {
@@ -8,11 +12,12 @@ pub enum ProgressFault {
     NoProgress,
 }
 
-/// Positions use the caller's consistent units. A nonzero command must produce
+/// Positions and speeds follow the axis dimension. A nonzero command must produce
 /// signed physical travel before the deadline. Releasing the command rearms a jam;
 /// invalid feedback and jumps require explicit acknowledgment with `reset`.
 #[derive(Debug, Clone)]
-pub struct ProgressGuard {
+pub struct ProgressGuard<D: AxisDimension = Rotary> {
+    dimension: PhantomData<D>,
     minimum_progress: f64,
     maximum_speed: f64,
     timeout: Duration,
@@ -23,11 +28,16 @@ pub struct ProgressGuard {
     fault: Option<ProgressFault>,
     velocity: f64,
 }
-impl ProgressGuard {
-    pub fn new(minimum_progress: f64, maximum_speed: f64, timeout: Duration) -> Self {
+impl<D: AxisDimension> ProgressGuard<D> {
+    pub fn new(
+        minimum_progress: Position<D>,
+        maximum_speed: Velocity<D>,
+        timeout: Duration,
+    ) -> Self {
         Self {
-            minimum_progress,
-            maximum_speed,
+            dimension: PhantomData,
+            minimum_progress: minimum_progress.value,
+            maximum_speed: maximum_speed.value,
             timeout,
             previous: None,
             anchor: None,
@@ -45,18 +55,19 @@ impl ProgressGuard {
         self.fault = None;
         self.velocity = 0.0;
     }
-    pub fn velocity(&self) -> f64 {
-        self.velocity
+    pub fn velocity(&self) -> Velocity<D> {
+        si(self.velocity)
     }
     pub fn fault(&self) -> Option<ProgressFault> {
         self.fault
     }
     pub fn update(
         &mut self,
-        position: f64,
+        position: Position<D>,
         command: f64,
         dt: Duration,
     ) -> Result<(), ProgressFault> {
+        let position = position.value;
         if !position.is_finite()
             || !command.is_finite()
             || dt.is_zero()
@@ -116,27 +127,30 @@ mod tests {
     use super::*;
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
-        let mut guard = ProgressGuard::new(0.01, 2.0, Duration::from_millis(100));
+        let mut guard = ProgressGuard::<Rotary>::new(si(0.01), si(2.0), Duration::from_millis(100));
         let tick = Duration::from_millis(10);
         for _ in 0..9 {
-            assert!(guard.update(0.0, 1.0, tick).is_ok());
+            assert!(guard.update(si(0.0), 1.0, tick).is_ok());
         }
-        assert_eq!(guard.update(0.0, 1.0, tick), Err(ProgressFault::NoProgress));
-        assert!(guard.update(0.0, 0.0, tick).is_ok());
-        assert!(guard.update(0.01, 1.0, tick).is_ok());
         assert_eq!(
-            guard.update(1.0, 1.0, tick),
+            guard.update(si(0.0), 1.0, tick),
+            Err(ProgressFault::NoProgress)
+        );
+        assert!(guard.update(si(0.0), 0.0, tick).is_ok());
+        assert!(guard.update(si(0.01), 1.0, tick).is_ok());
+        assert_eq!(
+            guard.update(si(1.0), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
-        assert!(guard.update(1.0, 0.0, tick).is_err());
+        assert!(guard.update(si(1.0), 0.0, tick).is_err());
         guard.reset();
-        assert!(guard.update(1.0, 0.0, tick).is_ok());
+        assert!(guard.update(si(1.0), 0.0, tick).is_ok());
     }
     #[test]
     fn wrong_direction_does_not_count_as_progress() {
-        let mut guard = ProgressGuard::new(0.01, 2.0, Duration::from_millis(100));
+        let mut guard = ProgressGuard::<Rotary>::new(si(0.01), si(2.0), Duration::from_millis(100));
         for i in 0..10 {
-            let _ = guard.update(-0.01 * i as f64, 1.0, Duration::from_millis(10));
+            let _ = guard.update(si(-0.01 * i as f64), 1.0, Duration::from_millis(10));
         }
         assert_eq!(guard.fault(), Some(ProgressFault::NoProgress));
     }

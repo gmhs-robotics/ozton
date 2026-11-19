@@ -2,13 +2,13 @@
 
 Start with geared drive encoders and a calibrated IMU. Add a forward tracking
 pod or lateral pod where wheel slip is significant. Supply calibrated pod
-travel in meters with `Sensors::with_forward_wheel` or
+travel as `Length` with `Sensors::with_forward_wheel` or
 `Sensors::with_lateral_wheel`. Set the corresponding offset in `TrackingSetup`.
-Measure from [The Origin](coordinates.md). A forward pod uses
-`RobotPoint::forward_wheel_offset_m` (right), and a lateral pod uses
-`RobotPoint::lateral_wheel_offset_m` (forward). Lateral travel is positive to the right.
+Measure from [The Origin](coordinates.md). Use `RobotPoint::right` for a
+forward pod and `RobotPoint::forward` for a lateral pod. Lateral travel is
+positive to the right.
 Set `require_lateral` for robots that rely on measured sideways travel.
-Use `TrackingWheel::from_dimensions` to pass the diameter and signed offset
+Use `TrackingWheel::new` to pass the diameter and signed offset
 as `Length` values.
 
 Each tick uses one sensor snapshot. A recovered source needs a fresh baseline
@@ -98,7 +98,7 @@ nonfinite data. A new/rejoined motor receives its own baseline. Common-mode whee
 slip remains unobservable without an independent pod or valid external references.
 
 All filter positions and innovations use X right and Y forward. The geometry
-helper returns `direction(0) = (0, 1)`. A field pose transforms a body mount by
+helper returns `direction(si(0.0)) = (0, 1)`. A field pose transforms a body mount by
 rotating its offset counterclockwise about The Origin and translating it to
 the robot's field position.
 

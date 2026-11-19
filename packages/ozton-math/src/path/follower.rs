@@ -3,6 +3,7 @@
 use core::f64::consts::PI;
 
 use glam::DVec2;
+use uom::si::f64::{Length, Time};
 
 use super::Path;
 use crate::{
@@ -12,14 +13,14 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum Follower {
-    PurePursuit { lookahead: f64 },
+    PurePursuit { lookahead: Length },
     Ramsete { b: f64, zeta: f64 },
 }
 
 impl Follower {
     pub fn is_valid(self) -> bool {
         match self {
-            Self::PurePursuit { lookahead } => lookahead.is_finite() && lookahead > 0.0,
+            Self::PurePursuit { lookahead } => lookahead.value.is_finite() && lookahead.value > 0.0,
             Self::Ramsete { b, zeta } => {
                 b.is_finite() && b > 0.0 && (0.0..=1.0).contains(&zeta) && zeta > 0.0
             }
@@ -39,9 +40,10 @@ impl Progress {
     }
 
     /// Advances within a bounded local window to disambiguate crossing paths.
-    pub fn update(&mut self, path: &Path, position: DVec2, advance_limit: f64) {
-        let maximum = self.distance + advance_limit.max(0.0);
-        let mut best_error = position.distance_squared(path.at_distance(self.distance).position);
+    pub fn update(&mut self, path: &Path, position: DVec2, advance_limit: Length) {
+        let maximum = self.distance + advance_limit.value.max(0.0);
+        let mut best_error =
+            position.distance_squared(path.at_distance(crate::si(self.distance)).position);
         let mut best_distance = self.distance;
         for pair in path.samples[self.segment..].windows(2).take(64) {
             let (a, b) = (pair[0], pair[1]);
@@ -70,14 +72,15 @@ impl Progress {
     fn lookahead(&self, path: &Path, position: DVec2, radius: f64) -> DVec2 {
         for pair in path.samples[self.segment..].windows(2).take(128) {
             let (a, b) = (pair[0], pair[1]);
-            let [_, exit] = circle_segment_fractions(position, radius, a.position, b.position);
+            let [_, exit] =
+                circle_segment_fractions(position, crate::si(radius), a.position, b.position);
             if let Some(exit) = exit
                 && a.distance + (b.distance - a.distance) * exit >= self.distance
             {
                 return a.position.lerp(b.position, exit);
             }
         }
-        path.at_distance(self.distance + radius).position
+        path.at_distance(crate::si(self.distance + radius)).position
     }
 }
 
@@ -87,11 +90,12 @@ pub fn command(
     path: &Path,
     progress: Progress,
     pose: Pose,
-    elapsed: f64,
-    dt: f64,
+    elapsed: Time,
+    dt: Time,
     reverse: bool,
-    position_tolerance: f64,
+    position_tolerance: Length,
 ) -> [f64; 2] {
+    let (elapsed, dt, position_tolerance) = (elapsed.value, dt.value, position_tolerance.value);
     let sign = if reverse { -1.0 } else { 1.0 };
     let facing = if reverse { PI } else { 0.0 };
     let end = path.end();
@@ -102,9 +106,10 @@ pub fn command(
                 heading: pose.heading + facing,
                 ..pose
             };
-            let target = virtual_pose.to_local(progress.lookahead(path, pose.position, lookahead));
-            let reference = path.at_distance(progress.distance);
-            let speed = path.at_time(reference.time + dt).speed;
+            let target =
+                virtual_pose.to_local(progress.lookahead(path, pose.position, lookahead.value));
+            let reference = path.at_distance(crate::si(progress.distance));
+            let speed = path.at_time(crate::si(reference.time + dt)).speed;
             if target.y < 0.0 {
                 (0.0, 2.0 * crate::geometry::bearing(target))
             } else {
@@ -112,9 +117,9 @@ pub fn command(
             }
         }
         Follower::Ramsete { b, zeta } => {
-            let reference = path.at_time(elapsed + dt);
+            let reference = path.at_time(crate::si(elapsed + dt));
             let error = pose.to_local(reference.position);
-            let heading_error = wrap_heading(reference.heading + facing - pose.heading);
+            let heading_error = wrap_heading(crate::si(reference.heading + facing - pose.heading));
             let velocity = sign * reference.speed;
             let omega = reference.speed * reference.curvature;
             let gain = 2.0 * zeta * libm::sqrt(omega * omega + b * velocity * velocity);
@@ -137,13 +142,13 @@ pub fn command(
     };
     let (linear, angular) = if terminal {
         let error = pose.to_local(end.position);
-        let heading_error = wrap_heading(end.heading + facing - pose.heading);
+        let heading_error = wrap_heading(crate::si(end.heading + facing - pose.heading));
         let distance = error.length();
         if distance > position_tolerance {
             let travel_heading = crate::geometry::bearing(error);
             let backward = travel_heading.abs() > PI / 2.0;
-            let bearing = wrap_heading(travel_heading + if backward { PI } else { 0.0 });
-            let terminal_speed = (2.0 * distance).min(limits.linear_speed * 0.4);
+            let bearing = wrap_heading(crate::si(travel_heading + if backward { PI } else { 0.0 }));
+            let terminal_speed = (2.0 * distance).min(limits.linear_speed.value * 0.4);
             (
                 terminal_speed * libm::cos(bearing) * if backward { -1.0 } else { 1.0 },
                 3.0 * bearing,
@@ -155,7 +160,8 @@ pub fn command(
         (linear, angular)
     };
     desaturate(
-        wheel_speeds(linear, angular, limits.track_width),
-        limits.wheel_speed,
+        wheel_speeds(crate::si(linear), crate::si(angular), limits.track_width)
+            .map(|speed| speed.value),
+        limits.wheel_speed.value,
     )
 }

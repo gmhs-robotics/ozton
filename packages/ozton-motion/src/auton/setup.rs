@@ -7,13 +7,18 @@ use ozton_drivetrain::{
     Drivetrain,
     model::{Differential, DriveMotor, GearRatio, TipAngleAxis},
 };
-use ozton_math::{geometry::Pose, localization::range::Surface, path::Limits};
+use ozton_math::{
+    geometry::Pose,
+    localization::range::Surface,
+    path::Limits,
+    si,
+    uom::si::f64::{Acceleration, Angle, Length, Velocity},
+};
 use ozton_tracking::localizer::{
     Config, Estimator, Localizer, MAX_RANGES, OdometryConfig, RangeSensorConfig, Tracking,
     vex::{Distances, Sensors},
 };
 use vexide::{
-    math::Angle,
     prelude::{DistanceSensor, InertialSensor, Motor},
     smart::imu::CalibrateError,
 };
@@ -26,12 +31,12 @@ use super::{
 /// Physical settings shared by the drivetrain, odometry, path preparation and runner.
 #[derive(Clone, Copy)]
 pub struct DifferentialConfig {
-    pub wheel_diameter: f64,
-    pub track_width: f64,
-    pub maximum_wheel_speed: f64,
-    pub acceleration: f64,
-    pub deceleration: f64,
-    pub lateral_acceleration: f64,
+    pub wheel_diameter: Length,
+    pub track_width: Length,
+    pub maximum_wheel_speed: Velocity,
+    pub acceleration: Acceleration,
+    pub deceleration: Acceleration,
+    pub lateral_acceleration: Acceleration,
     pub max_control_gap: Duration,
     pub route_timeout: Duration,
     pub journal_capacity: usize,
@@ -40,14 +45,18 @@ pub struct DifferentialConfig {
 }
 
 impl DifferentialConfig {
-    pub const fn new(wheel_diameter: f64, track_width: f64, maximum_wheel_speed: f64) -> Self {
+    pub const fn new(
+        wheel_diameter: Length,
+        track_width: Length,
+        maximum_wheel_speed: Velocity,
+    ) -> Self {
         Self {
             wheel_diameter,
             track_width,
             maximum_wheel_speed,
-            acceleration: 1.0,
-            deceleration: 1.0,
-            lateral_acceleration: 1.0,
+            acceleration: si(1.0),
+            deceleration: si(1.0),
+            lateral_acceleration: si(1.0),
             max_control_gap: Duration::from_millis(100),
             route_timeout: Duration::from_secs(15),
             journal_capacity: 0,
@@ -57,14 +66,14 @@ impl DifferentialConfig {
     }
 
     pub fn path_limits(self) -> Limits {
-        Limits {
-            track_width: self.track_width,
-            linear_speed: self.maximum_wheel_speed,
-            wheel_speed: self.maximum_wheel_speed,
-            acceleration: self.acceleration,
-            deceleration: self.deceleration,
-            lateral_acceleration: self.lateral_acceleration,
-        }
+        Limits::from_units(
+            self.track_width,
+            self.maximum_wheel_speed,
+            self.maximum_wheel_speed,
+            self.acceleration,
+            self.deceleration,
+            self.lateral_acceleration,
+        )
     }
 
     pub async fn build(
@@ -74,8 +83,8 @@ impl DifferentialConfig {
         tracking: TrackingSetup,
     ) -> Result<ConfiguredChassis, SetupError> {
         if !self.path_limits().is_valid()
-            || !self.wheel_diameter.is_finite()
-            || self.wheel_diameter <= 0.0
+            || !self.wheel_diameter.value.is_finite()
+            || self.wheel_diameter.value <= 0.0
             || self.max_control_gap < ozton_runtime::clock::CONTROL_PERIOD
             || self.route_timeout < ozton_runtime::clock::CONTROL_PERIOD
         {
@@ -105,7 +114,7 @@ impl DifferentialConfig {
             forward_offset,
             lateral_offset,
             require_lateral,
-            max_correction_meters,
+            max_correction,
         } = tracking;
         let mut names = Vec::with_capacity(ranges.len());
         let mut ports = Vec::with_capacity(ranges.len());
@@ -130,12 +139,14 @@ impl DifferentialConfig {
                     lateral_offset,
                     require_lateral,
                     max_linear_speed: self.maximum_wheel_speed * 2.0,
-                    max_angular_speed: self.maximum_wheel_speed * 3.0 / self.track_width,
+                    max_angular_speed: si(
+                        self.maximum_wheel_speed.value * 3.0 / self.track_width.value
+                    ),
                     max_gap: self.max_control_gap,
                 },
                 estimator,
                 shadow,
-                max_correction_meters,
+                max_correction,
             },
             Pose::default(),
             map,
@@ -182,11 +193,11 @@ pub struct TrackingSetup {
     pub estimator: Estimator,
     pub shadow: bool,
     /// Forward tracking wheel X-right position from The Origin, metres.
-    pub forward_offset: f64,
+    pub forward_offset: Length,
     /// Right-positive lateral wheel Y-forward position from The Origin, metres.
-    pub lateral_offset: f64,
+    pub lateral_offset: Length,
     pub require_lateral: bool,
-    pub max_correction_meters: f64,
+    pub max_correction: Length,
     pub imu: Option<InertialSensor>,
     pub map: Vec<Surface>,
     pub ranges: Vec<(&'static str, DistanceSensor, RangeSensorConfig)>,
@@ -198,10 +209,10 @@ impl Default for TrackingSetup {
             sensors: Sensors::default(),
             estimator: Estimator::Odometry,
             shadow: false,
-            forward_offset: 0.0,
-            lateral_offset: 0.0,
+            forward_offset: si(0.0),
+            lateral_offset: si(0.0),
             require_lateral: false,
-            max_correction_meters: 0.16,
+            max_correction: si(0.16),
             imu: None,
             map: Vec::new(),
             ranges: Vec::new(),

@@ -46,7 +46,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
         if fields.next().is_some() || !(0.0..=127.0).contains(&speed) {
             return Err(ImportError::InvalidRow(line_number));
         }
-        points.push(Waypoint::from_lengths(
+        points.push(Waypoint::new(
             Length::new::<inch>(x),
             Length::new::<inch>(y),
             speed / 127.0,
@@ -101,7 +101,11 @@ mod tests {
         assert_eq!(points[0].speed_fraction, 1.0);
         assert_eq!(
             points[2],
-            Waypoint::new(0.0, Length::new::<inch>(12.0).value, 0.0)
+            Waypoint::new(
+                crate::si(0.0),
+                crate::si(Length::new::<inch>(12.0).value),
+                0.0
+            )
         );
         assert_eq!(parse(b"0,0,NaN\nendData"), Err(ImportError::InvalidRow(1)));
     }

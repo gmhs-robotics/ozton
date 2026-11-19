@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use ozton_control::axis::{AxisController, AxisSample, Target};
+use ozton_math::{si, uom::si::f64::ElectricPotential};
 use vexide::{
     prelude::Motor,
     smart::{PortError, motor::BrakeMode},
@@ -53,17 +54,17 @@ impl<M: MotorDevice> PidMotor<M> {
         sample: AxisSample,
         target: Target,
         dt: Duration,
-    ) -> Result<f64, MotorError> {
+    ) -> Result<ElectricPotential, MotorError> {
         let Some(volts) = self.controller.update(sample, target, dt) else {
             self.stop().map_err(MotorError::Port)?;
             return Err(MotorError::InvalidFeedback);
         };
         let maximum = self.motor.max_voltage();
-        if !maximum.is_finite() || maximum <= 0.0 {
+        if !maximum.value.is_finite() || maximum.value <= 0.0 {
             self.stop().map_err(MotorError::Port)?;
             return Err(MotorError::InvalidFeedback);
         }
-        let voltage = volts.clamp(-maximum, maximum);
+        let voltage = si(volts.value.clamp(-maximum.value, maximum.value));
         if let Err(error) = self.motor.set_voltage(voltage) {
             let _ = self.stop();
             return Err(MotorError::Port(error));
@@ -71,14 +72,14 @@ impl<M: MotorDevice> PidMotor<M> {
         Ok(voltage)
     }
 
-    pub fn update(&mut self, target: Target, dt: Duration) -> Result<f64, MotorError>
+    pub fn update(&mut self, target: Target, dt: Duration) -> Result<ElectricPotential, MotorError>
     where
         M: VelocityMotor,
     {
         let sample = self.motor.position().and_then(|position| {
             self.motor.velocity().map(|velocity| AxisSample {
-                position: position.as_radians() * self.output_per_motor,
-                velocity: velocity * (core::f64::consts::TAU / 60.0) * self.output_per_motor,
+                position: position * self.output_per_motor,
+                velocity: velocity * self.output_per_motor,
             })
         });
         match sample {
@@ -141,7 +142,7 @@ impl<M: MotorDevice> PidMotorBuilder<M> {
 #[cfg(test)]
 mod tests {
     use ozton_control::{axis::AxisConfig, loops::Pid};
-    use vexide::math::Angle;
+    use ozton_math::uom::si::f64::{Angle, AngularVelocity};
 
     use super::*;
 
@@ -156,10 +157,10 @@ mod tests {
 
     impl MotorDevice for FakeMotor {
         fn position(&self) -> Result<Angle, PortError> {
-            Ok(Angle::from_radians(self.position))
+            Ok(si(self.position))
         }
         fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
-            self.position = position.as_radians();
+            self.position = position.value;
             Ok(())
         }
         fn brake(&mut self, mode: BrakeMode) -> Result<(), PortError> {
@@ -167,18 +168,18 @@ mod tests {
             self.brake = Some(mode);
             Ok(())
         }
-        fn max_voltage(&self) -> f64 {
-            self.maximum
+        fn max_voltage(&self) -> ElectricPotential {
+            si(self.maximum)
         }
-        fn set_voltage(&mut self, voltage: f64) -> Result<(), PortError> {
-            self.voltage = voltage;
+        fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError> {
+            self.voltage = voltage.value;
             Ok(())
         }
     }
 
     impl VelocityMotor for FakeMotor {
-        fn velocity(&self) -> Result<f64, PortError> {
-            Ok(self.rpm)
+        fn velocity(&self) -> Result<AngularVelocity, PortError> {
+            Ok(si(self.rpm * (core::f64::consts::TAU / 60.0)))
         }
     }
 
@@ -204,30 +205,30 @@ mod tests {
             .unwrap();
         let dt = Duration::from_millis(10);
         let position = Target::Position {
-            position: 2.0,
-            velocity: 0.0,
-            acceleration: 0.0,
+            position: si(2.0),
+            velocity: si(0.0),
+            acceleration: si(0.0),
         };
-        assert_eq!(axis.update(position, dt).unwrap(), 1.0);
+        assert_eq!(axis.update(position, dt).unwrap(), si(1.0));
         let velocity = Target::Velocity {
-            velocity: core::f64::consts::TAU * 0.25,
-            acceleration: 0.0,
+            velocity: si(core::f64::consts::TAU * 0.25),
+            acceleration: si(0.0),
         };
-        assert!(axis.update(velocity, dt).unwrap().abs() < 1e-12);
+        assert!(axis.update(velocity, dt).unwrap().value.abs() < 1e-12);
         assert_eq!(
             axis.apply(
                 AxisSample {
-                    position: 0.0,
-                    velocity: 0.0
+                    position: si(0.0),
+                    velocity: si(0.0)
                 },
                 Target::Velocity {
-                    velocity: 100.0,
-                    acceleration: 0.0
+                    velocity: si(100.0),
+                    acceleration: si(0.0)
                 },
                 dt
             )
             .unwrap(),
-            8.0
+            si(8.0)
         );
         axis.stop().unwrap();
         assert_eq!(axis.motor.voltage, 0.0);
@@ -248,8 +249,8 @@ mod tests {
             .build()
             .unwrap();
         let target = Target::Velocity {
-            velocity: 1.0,
-            acceleration: 0.0,
+            velocity: si(1.0),
+            acceleration: si(0.0),
         };
         assert!(matches!(
             axis.update(target, Duration::from_millis(10)),

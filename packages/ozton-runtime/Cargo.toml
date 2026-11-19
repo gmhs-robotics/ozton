@@ -10,3 +10,4 @@ edition = "2024"
 ozton-control = { workspace = true }
 ozton-diagnostics = { workspace = true }
 vexide = { workspace = true }
+ozton-math = { workspace = true }
