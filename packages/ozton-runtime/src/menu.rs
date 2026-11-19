@@ -26,10 +26,23 @@ pub struct RouteMenu<A: Copy + 'static> {
 }
 impl<A: Copy + 'static> RouteMenu<A> {
     pub fn new(display: Display, disabled: A) -> Self {
-        let choices = vec![Choice {
+        Self::with_choices(display, disabled, std::iter::empty::<(&str, A)>())
+    }
+
+    /// Build all choices before starting the selector, always with Disable first.
+    pub fn with_choices(
+        display: Display,
+        disabled: A,
+        routes: impl IntoIterator<Item = (impl Into<String>, A)>,
+    ) -> Self {
+        let mut choices = vec![Choice {
             label: "Disable".into(),
             action: disabled,
         }];
+        choices.extend(routes.into_iter().map(|(label, action)| Choice {
+            label: label.into(),
+            action,
+        }));
         let selector = Selector::new(display, choices.clone(), 0);
         let status = selector.status_handle();
         status.set_selection_enabled(
@@ -67,7 +80,8 @@ impl<A: Copy + 'static> RouteMenu<A> {
     }
     pub fn status(&mut self, message: &str) {
         if self.last_status != message {
-            self.last_status = message.to_owned();
+            self.last_status.clear();
+            self.last_status.push_str(message);
             self.status.show_status_persistent(message);
         }
     }

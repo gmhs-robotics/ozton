@@ -1,8 +1,10 @@
 //! Shared hardware and competition utilities.
 
 pub mod clock;
+pub mod competition;
 pub mod device;
 pub mod motor;
+mod robot;
 pub mod selector;
 
 /// Retries an initial reference until established. Reconnection preserves the zero.
@@ -26,3 +28,5 @@ impl StartupReference {
 }
 
 pub mod menu;
+
+pub use robot::{DriveControl, Robot};

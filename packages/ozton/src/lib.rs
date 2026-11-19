@@ -20,6 +20,8 @@ pub use ozton_record as record;
 #[cfg(feature = "recording")]
 pub use ozton_record::{log, record_frame};
 pub use ozton_runtime as runtime;
+#[cfg(feature = "programmed")]
+pub use ozton_runtime::autonomous_routes;
 pub use ozton_tracking as tracking;
 
 pub mod prelude {
@@ -28,6 +30,8 @@ pub mod prelude {
         DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
         DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, frame::RecordMode,
     };
+    #[cfg(feature = "programmed")]
+    pub use crate::runtime::{DriveControl, Robot, competition::CompetitionRobot};
     pub use crate::{
         control::Tolerances,
         drivetrain::{

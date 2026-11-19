@@ -33,8 +33,9 @@ impl AdjustableDrive for Differential {
 /// Mechanism-dependent limits are supplied by the application as a speed scale.
 pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     model: M,
-    boost: Rc<Cell<bool>>,
+    boost: Option<Rc<Cell<bool>>>,
     normal_scale: f64,
+    driver_scale: f64,
     speed_scale: f64,
     geometry: DriveGeometry,
     #[cfg(debug_assertions)]
@@ -51,9 +52,18 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
         geometry: DriveGeometry,
     ) -> Self {
         Self {
+            boost: Some(boost),
+            ..Self::new_local(model, normal_scale, geometry)
+        }
+    }
+
+    /// Build a drive whose application writes driver scale directly.
+    pub fn new_local(model: M, normal_scale: f64, geometry: DriveGeometry) -> Self {
+        Self {
             model,
-            boost,
+            boost: None,
             normal_scale,
+            driver_scale: normal_scale,
             speed_scale: 1.0,
             geometry,
             #[cfg(debug_assertions)]
@@ -61,6 +71,23 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             debug_faults: 0,
             debug_failed: false,
         }
+    }
+
+    /// Set the caller-controlled driver output scale before the stability envelope.
+    /// Brake and autonomous commands restore the configured normal scale.
+    pub fn set_driver_scale(&mut self, scale: f64) {
+        self.driver_scale = if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+    }
+
+    fn reset_driver_scale(&mut self) {
+        if let Some(boost) = &self.boost {
+            boost.set(false);
+        }
+        self.driver_scale = self.normal_scale;
     }
 
     /// Apply an application-owned envelope to both driver and autonomous output.
@@ -115,14 +142,14 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
 
     /// Best-effort stop that retries every motor even after a port failure.
     pub fn brake_now(&mut self) -> Result<(), PortError> {
-        self.boost.set(false);
+        self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
         let _ = self.send_brake();
         Ok(())
     }
 
     pub fn coast_now(&mut self) -> Result<(), PortError> {
-        self.boost.set(false);
+        self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
         let _ = self.model.stop_now();
         Ok(())
@@ -136,10 +163,10 @@ impl<M: AdjustableDrive> DrivetrainModel for ResilientDrive<M> {
 impl<M: AdjustableDrive> ResilientDrive<M> {
     /// Same driver response, with observable output errors.
     pub fn live_drive(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        let scale = if self.boost.get() {
+        let scale = if self.boost.as_ref().is_some_and(|boost| boost.get()) {
             1.0
         } else {
-            self.normal_scale
+            self.driver_scale
         } * self.speed_scale;
         let left = if left.is_finite() { left } else { 0.0 };
         let right = if right.is_finite() { right } else { 0.0 };
@@ -148,7 +175,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
 
     /// Propagate output failures so the caller chooses retry/fallback policy.
     pub fn autonomous_drive(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.boost.set(false);
+        self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
         if left == 0.0 && right == 0.0 {
             self.send_brake()
@@ -158,7 +185,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
     }
 
     pub fn autonomous_brake(&mut self) -> Result<(), PortError> {
-        self.boost.set(false);
+        self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
         self.send_brake()
     }
@@ -179,7 +206,7 @@ impl ResilientDrive {
         &mut self,
         speeds: [f64; 2],
     ) -> Result<(), crate::model::WheelSpeedError> {
-        self.boost.set(false);
+        self.reset_driver_scale();
         self.model.set_output_scale(self.speed_scale);
         let result =
             self.model
