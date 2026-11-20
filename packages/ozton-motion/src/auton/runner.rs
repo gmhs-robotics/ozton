@@ -41,6 +41,8 @@ pub trait AutonRobot {
     }
     fn request_distance_reset(&mut self);
     fn cancel_distance_reset(&mut self) {}
+    /// Display the current operation when the robot has a competition UI.
+    fn show_status(&mut self, _status: &str) {}
     fn log_step(
         &mut self,
         _elapsed: Duration,
@@ -301,6 +303,9 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             robot: self.robot,
             completed: false,
         };
+        let status = command.status();
+        active.robot.show_status(status);
+        ozton_runtime::diagnostic_event!("auton_command={status}");
         let started = Instant::now();
         let mut state = State::default();
         let mut initialized = false;

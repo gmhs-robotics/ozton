@@ -1,0 +1,131 @@
+//! Append-only VEX Brain telemetry with a bounded staging buffer.
+
+use std::{
+    fmt::{self, Write as _},
+    fs::OpenOptions,
+    io::{self, Write},
+    sync::Mutex,
+};
+
+const PATH: &str = "OZTON.LOG";
+const BUFFER_BYTES: usize = 256 * 1024;
+const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=1\n";
+
+#[derive(Default)]
+struct Pending {
+    bytes: Vec<u8>,
+    dropped_rows: u64,
+    uncertain_bytes: usize,
+    session_started: bool,
+}
+
+static PENDING: Mutex<Pending> = Mutex::new(Pending {
+    bytes: Vec::new(),
+    dropped_rows: 0,
+    uncertain_bytes: 0,
+    session_started: false,
+});
+
+#[cfg(target_os = "vexos")]
+pub(crate) fn enqueue(row: fmt::Arguments<'_>) {
+    let Ok(mut pending) = PENDING.lock() else {
+        return;
+    };
+    pending.push(row);
+}
+
+struct BatchWriter<'a>(&'a mut Vec<u8>);
+
+impl fmt::Write for BatchWriter<'_> {
+    fn write_str(&mut self, text: &str) -> fmt::Result {
+        if text.len() > BUFFER_BYTES - self.0.len() {
+            return Err(fmt::Error);
+        }
+        self.0.extend_from_slice(text.as_bytes());
+        Ok(())
+    }
+}
+
+/// Append buffered rows to the card. An unavailable card leaves rows queued.
+/// Competition schedules this separately from report collection.
+pub fn flush() -> io::Result<()> {
+    let mut pending = PENDING
+        .lock()
+        .map_err(|_| io::Error::other("SD log lock poisoned"))?;
+    if pending.bytes.is_empty() && pending.dropped_rows == 0 && pending.uncertain_bytes == 0 {
+        return Ok(());
+    }
+    let file = OpenOptions::new().create(true).append(true).open(PATH)?;
+    pending.append(file)
+}
+
+impl Pending {
+    fn push(&mut self, row: fmt::Arguments<'_>) {
+        let start = self.bytes.len();
+        if writeln!(BatchWriter(&mut self.bytes), "{row}").is_err() {
+            self.bytes.truncate(start);
+            self.dropped_rows = self.dropped_rows.saturating_add(1);
+        }
+    }
+
+    fn append(&mut self, mut file: impl Write) -> io::Result<()> {
+        if !self.session_started || self.uncertain_bytes != 0 {
+            // A previous writer or power loss can leave an incomplete last row.
+            file.write_all(b"\n")?;
+        }
+        if !self.session_started {
+            file.write_all(SESSION)?;
+        }
+        if self.dropped_rows != 0 || self.uncertain_bytes != 0 {
+            writeln!(
+                file,
+                "DBG,SD_GAP,dropped_rows={},uncertain_bytes={}",
+                self.dropped_rows, self.uncertain_bytes
+            )?;
+        }
+        let result = file.write_all(&self.bytes).and_then(|()| file.flush());
+        if result.is_ok() {
+            self.session_started = true;
+            self.dropped_rows = 0;
+            self.uncertain_bytes = 0;
+        } else {
+            // Some bytes may already be on disk. Avoid replaying partial batches.
+            self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.bytes.len());
+        }
+        self.bytes.clear();
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_an_entire_row_when_the_buffer_is_full() {
+        let mut pending = Pending {
+            bytes: vec![b'a'; BUFFER_BYTES - 3],
+            ..Pending::default()
+        };
+        pending.push(format_args!("a,{}", 42));
+        assert_eq!(pending.dropped_rows, 1);
+        assert_eq!(pending.bytes.len(), BUFFER_BYTES - 3);
+    }
+
+    #[test]
+    fn log_appends_one_session_and_reports_a_gap() {
+        let mut pending = Pending {
+            bytes: b"DBG,EVENT,t_ms=2,boot\n".to_vec(),
+            dropped_rows: 3,
+            ..Pending::default()
+        };
+        let mut output = b"partial previous row".to_vec();
+        pending.append(&mut output).unwrap();
+        pending.push(format_args!("DBG,EVENT,t_ms=4,ready"));
+        pending.append(&mut output).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "partial previous row\nDBG,SESSION,t_ms=0,schema=1\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0\nDBG,EVENT,t_ms=2,boot\nDBG,EVENT,t_ms=4,ready\n"
+        );
+    }
+}

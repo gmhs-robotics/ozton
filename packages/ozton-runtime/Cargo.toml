@@ -11,3 +11,7 @@ ozton-control = { workspace = true }
 ozton-diagnostics = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
+ozton-drivetrain = { workspace = true }
+
+[features]
+sd-logging = ["ozton-diagnostics/sd-logging", "ozton-drivetrain/sd-logging"]

@@ -46,6 +46,7 @@ impl<R: MechanismRobot> Runner<'_, R> {
             let _ = self.robot().stop();
             return Err(AutonError::Cancelled);
         }
+        self.robot().show_status("Autonomous: prepare mechanism");
         let setup = self
             .robot()
             .set_action(false)

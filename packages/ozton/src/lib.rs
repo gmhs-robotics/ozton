@@ -23,7 +23,7 @@ pub use ozton_record::{log, record_frame};
 pub use ozton_runtime as runtime;
 #[cfg(feature = "programmed")]
 pub use ozton_runtime::autonomous_routes;
-pub use ozton_tracking as tracking;
+pub use ozton_tracking::{self as tracking, sensor_layout};
 
 pub mod prelude {
     #[cfg(feature = "programmed")]

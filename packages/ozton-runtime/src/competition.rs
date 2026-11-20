@@ -99,7 +99,8 @@ pub trait CompetitionRobot: Sized {
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
     fn route_failed(&mut self, _route: Self::Route, error: Self::Error) {
-        self.menu().status(&format!("Autonomous stopped: {error}"));
+        crate::diagnostic_event!("auton_error={error}");
+        self.menu().status("Autonomous stopped");
     }
 }
 
@@ -124,6 +125,10 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
 
 impl<R: RouteSet, D, C, T, X, P> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R> {
     fn record(_: &mut Robot<D, C, T, X, P, Self>, _: Sample) {}
+
+    fn status(robot: &mut Robot<D, C, T, X, P, Self>, status: &str) {
+        robot.autonomous.status(status);
+    }
 }
 
 impl<R, D, C, T, X, P, S> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R, Sampler<S>>
@@ -137,10 +142,17 @@ where
         }
     }
 
+    fn status(robot: &mut Robot<D, C, T, X, P, Self>, status: &str) {
+        robot.autonomous.status(status);
+    }
+
     fn driver_output(robot: &mut Robot<D, C, T, X, P, Self>, elapsed: Duration) {
         robot.autonomous.sampler.driver_output(elapsed);
     }
 }
+
+/// Displayed during ordinary driver control.
+pub const DRIVER_STATUS: &str = "Driver control";
 
 /// Application-specific competition behavior for an Ozton [`Robot`].
 /// Install its state with `Robot::with_controls`. The hooks receive the
@@ -157,6 +169,10 @@ pub trait CompetitionControls<R> {
     fn driver_tick(robot: &mut R, tick: Tick) -> Option<Self::CustomInput>;
 
     fn after_custom_update(_robot: &mut R) {}
+    /// Optional operator-facing status for application hardware.
+    fn driver_status(_robot: &R) -> Option<&'static str> {
+        None
+    }
     fn mode_changed(_robot: &mut R, _mode: CompetitionMode) {}
     fn after_tick(_robot: &mut R, _mode: CompetitionMode, _tick: Tick) {}
     fn autonomous_error(
@@ -190,7 +206,12 @@ where
     fn driver_tick(&mut self, tick: Tick) {
         if let Some(mut input) = P::driver_tick(self, tick) {
             match self.custom.update_all(&mut input) {
-                Ok(()) => P::after_custom_update(self),
+                Ok(()) => {
+                    P::after_custom_update(self);
+                    if let Some(status) = P::driver_status(self) {
+                        self.autonomous.status(status);
+                    }
+                }
                 Err(_) => {
                     let _ = self.stop();
                 }
@@ -212,11 +233,11 @@ where
     }
 
     fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
+        crate::diagnostic_event!("auton_route={},error={error}", route.label());
         if let Some(status) = P::autonomous_error(self, route.label(), &error) {
             self.autonomous.status(status);
         } else {
-            self.autonomous
-                .status(&format!("Autonomous stopped: {error}"));
+            self.autonomous.status("Autonomous stopped");
         }
     }
 }
@@ -243,6 +264,8 @@ pub fn route_menu<R: CompetitionRobot>(display: Display) -> RouteMenu<Option<R::
 /// Run the common mode loop. Route code that drives over multiple ticks should
 /// use Ozton's runner or otherwise check disable itself.
 pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
+    let _sd_writer = crate::diagnostics::start_sd_logging();
+    crate::diagnostic_event!("boot,control_period_us={}", R::CONTROL_PERIOD.as_micros());
     let mut previous_mode = None;
     let mut last_tick = Instant::now();
     loop {
@@ -258,10 +281,11 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         if entering {
             let _ = robot.stop();
             previous_mode = Some(mode);
+            crate::diagnostic_event!("competition_mode={mode:?}");
             robot.menu().poll(disabled);
             robot.mode_changed(mode);
             if mode == CompetitionMode::Driver {
-                robot.menu().status("Driver control");
+                robot.menu().status(DRIVER_STATUS);
             }
         }
         if competition::mode() != mode {
@@ -282,12 +306,22 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
             CompetitionMode::Driver => robot.driver_tick(tick),
             CompetitionMode::Autonomous if entering => {
                 if let Some(route) = robot.menu().action() {
+                    robot
+                        .menu()
+                        .status(&format!("Autonomous: {}", route.label()));
+                    crate::diagnostic_event!("auton_route={},state=start", route.label());
                     let result = match robot.stop() {
                         Ok(()) => route.run(&mut robot).await,
                         Err(error) => Err(error),
                     };
                     match result.and(robot.stop()) {
-                        Ok(()) => robot.menu().status("Autonomous complete"),
+                        Ok(()) => {
+                            robot.menu().status("Autonomous complete");
+                            crate::diagnostic_event!(
+                                "auton_route={},state=complete",
+                                route.label()
+                            );
+                        }
                         Err(error) => robot.route_failed(route, error),
                     }
                 } else {

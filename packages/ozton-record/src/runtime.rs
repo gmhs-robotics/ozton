@@ -98,6 +98,7 @@ pub struct RecordingAutonomous<R: Recordable + 'static> {
 
 impl<R: Recordable + 'static> RecordingAutonomous<R> {
     pub async fn compete(robot: R, display: Display) -> ! {
+        let _sd_writer = ozton_runtime::diagnostics::start_sd_logging();
         let store = RouteStore::open(Path::new(".")).ok();
         let selector = Selector::new(display, choices(store.as_ref(), false), 0);
         let status = selector.status_handle();

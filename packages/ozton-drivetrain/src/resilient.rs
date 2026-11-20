@@ -53,9 +53,9 @@ pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     driver_scale: f64,
     speed_scale: f64,
     geometry: DriveGeometry,
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "sd-logging"))]
     debug_command: (f64, f64, f64),
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "sd-logging"))]
     last_positions: Cell<[Option<f64>; 2]>,
     status: FaultLog,
 }
@@ -82,9 +82,9 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             driver_scale: normal_scale,
             speed_scale: 1.0,
             geometry,
-            #[cfg(debug_assertions)]
+            #[cfg(any(debug_assertions, feature = "sd-logging"))]
             debug_command: (0.0, 0.0, normal_scale),
-            #[cfg(debug_assertions)]
+            #[cfg(any(debug_assertions, feature = "sd-logging"))]
             last_positions: Cell::new([None; 2]),
             status: FaultLog::new("drive", vexide::time::user_uptime),
         }
@@ -128,7 +128,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
     }
     fn send_tank(&mut self, left: f64, right: f64, scale: f64) -> Result<(), PortError> {
         self.model.set_output_scale(scale);
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         {
             self.debug_command = (left, right, scale);
         }
@@ -137,7 +137,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
         result
     }
     fn send_brake(&mut self) -> Result<(), PortError> {
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         {
             self.debug_command = (0.0, 0.0, self.normal_scale);
         }
@@ -208,7 +208,7 @@ impl ResilientDrive {
             .model
             .feedback()
             .map(|sample| sample.map(|sample| sample.position));
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         self.last_positions
             .set(positions.map(|position| position.map(|position| position.value)));
         positions
@@ -222,7 +222,7 @@ impl ResilientDrive {
         let result =
             self.model
                 .drive_wheel_speeds(speeds[0], speeds[1], self.geometry.maximum_wheel_speed);
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         {
             self.debug_command = (
                 (speeds[0] / self.geometry.maximum_wheel_speed).value,
@@ -237,8 +237,13 @@ impl ResilientDrive {
         self.model.visit_motors(visit);
     }
 
+    /// Active wheel dimensions and speed limit, in SI units.
+    pub fn geometry(&self) -> DriveGeometry {
+        self.geometry
+    }
+
     /// Snapshot from the preceding control tick. Reading it does not touch encoders.
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "sd-logging"))]
     pub fn snapshot(&self) -> DriveSnapshot {
         let wheel_meters = self
             .last_positions
@@ -269,7 +274,7 @@ impl ResilientDrive {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
 #[derive(Clone, Copy)]
 pub struct DriveSnapshot {
     pub command: [f64; 2],
@@ -356,7 +361,7 @@ mod tests {
         assert_eq!(drive.model.stops, 2);
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "sd-logging"))]
     #[test]
     fn debug_drive_keeps_request_scale_and_failed_write_count() {
         let boost = Rc::new(Cell::new(true));

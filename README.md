@@ -42,3 +42,24 @@ Ozton draws on [Evian](https://github.com/vexide/evian),
 ## License
 
 Choose [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
+
+### SD diagnostics
+
+Enable Ozton's `sd-logging` feature to append diagnostics to `OZTON.LOG` on
+the Brain's SD card. The competition runtime batches writes roughly once a
+second. Each program run has a session marker. An unavailable card leaves a
+bounded backlog in memory, and a gap marker records losses when writing resumes.
+VEXos writes are synchronous, so check the `LOOP` records for timing on your card.
+
+Robots assembled with `with_competition_ui` or `with_diagnostics` capture
+periodic frames in release builds too. The default UI captures at 20 ms on SD
+and 250 ms over USB in debug firmware. Boot, mode changes, faults, recoveries,
+and autonomous command transitions are also logged. Use `Report` to add fields
+for custom hardware.
+
+From the Ozton checkout, open a copied SD log or USB capture with
+
+```sh
+cargo run -p ozton-tools -- view-log /path/to/OZTON.LOG
+cargo run -p ozton-tools -- view-log /path/to/OZTON.LOG --kind MOTOR
+```

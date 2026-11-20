@@ -2,6 +2,7 @@
 
 mod calibration;
 mod csv;
+mod log;
 
 use std::{
     env,
@@ -14,7 +15,7 @@ use std::{
 
 use ozton_math::path::jerryio;
 
-const USAGE: &str = "ozton-tools import-path <lemlib-v0.5.txt>\n                    ozton-tools calibrate <telemetry.csv> [experiment-name]\n                    Use --help for input column definitions.";
+const USAGE: &str = "ozton-tools import-path <lemlib-v0.5.txt>\n                    ozton-tools calibrate <telemetry.csv> [experiment-name]\n                    ozton-tools view-log <OZTON.LOG> [--kind KIND]\n                    Use --help for input column definitions.";
 
 fn main() -> ExitCode {
     match run() {
@@ -40,6 +41,15 @@ fn run() -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         [command, input] if command == "import-path" => import(Path::new(input), stdout),
+        [command, input] if command == "view-log" => {
+            log::view(BufReader::new(fs::File::open(input)?), stdout, None)?;
+            Ok(())
+        }
+        [command, input, flag, kind] if command == "view-log" && flag == "--kind" => {
+            let kind = kind.to_str().ok_or("record kind must be UTF-8")?;
+            log::view(BufReader::new(fs::File::open(input)?), stdout, Some(kind))?;
+            Ok(())
+        }
         [command, input] if command == "calibrate" => calibrate(Path::new(input), None, stdout),
         [command, input, name] if command == "calibrate" => {
             let name = name.to_str().ok_or("experiment name must be UTF-8")?;

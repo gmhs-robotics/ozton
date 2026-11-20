@@ -24,3 +24,6 @@ cargo-args = [
     "-Zbuild-std=std,panic_abort",
     "-Zbuild-std-features=compiler-builtins-mem,panic-unwind",
 ]
+
+[features]
+sd-logging = ["ozton-diagnostics/sd-logging"]

@@ -7,6 +7,8 @@ use std::{
 };
 
 pub mod calibration;
+#[cfg(all(feature = "sd-logging", any(target_os = "vexos", test)))]
+pub mod sd;
 pub mod serial;
 
 pub const CSV_HEADER: &str = "version,time_us,kind,name,a,b,c,d,e";

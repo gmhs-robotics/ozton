@@ -150,3 +150,30 @@ macro_rules! shared_motors {
 }
 
 pub mod mount;
+
+/// Define sensor IDs, ordered mounts and named device wiring from one layout.
+#[macro_export]
+macro_rules! sensor_layout {
+    ($vis:vis enum $id:ident, $devices:ident => $mounts:ident: $mount:ty {
+        $($sensor:ident: $device:ident => $value:expr),+ $(,)?
+    }) => {
+        /// Sensor IDs in mount-array order.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[repr(usize)]
+        $vis enum $id { $($sensor),+ }
+
+        $vis const $mounts: [$mount; [$(stringify!($sensor)),+].len()] = [$($value),+];
+
+        /// One device for every mount in the layout.
+        $vis struct $devices<T> {
+            $(pub $device: T),+
+        }
+
+        impl<T> $devices<T> {
+            /// Move the devices into an array in mount order.
+            $vis fn into_array(self) -> [T; $mounts.len()] {
+                [$(self.$device),+]
+            }
+        }
+    };
+}

@@ -27,6 +27,7 @@ ozton-tracking = { workspace = true }
 [features]
 default = ["programmed"]
 programmed = ["dep:ozton-motion"]
+sd-logging = ["ozton-runtime/sd-logging"]
 recording = ["dep:ozton-derive", "dep:ozton-record"]
 
 [[example]]

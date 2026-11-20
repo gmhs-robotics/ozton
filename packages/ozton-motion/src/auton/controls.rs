@@ -98,6 +98,10 @@ where
     fn cancel_distance_reset(&mut self) {
         P::cancel_distance_reset(self);
     }
+    fn show_status(&mut self, status: &str) {
+        A::status(self, status);
+    }
+
     fn log_step(
         &mut self,
         elapsed: Duration,

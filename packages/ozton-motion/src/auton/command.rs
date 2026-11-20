@@ -163,6 +163,19 @@ pub enum Command<'a, R> {
 }
 
 impl<R> Command<'_, R> {
+    pub(super) fn status(&self) -> &'static str {
+        match self {
+            Self::Turn { .. } => "Autonomous: turn",
+            Self::DriveToPoint { .. } => "Autonomous: drive to point",
+            Self::DriveDistance { .. } => "Autonomous: drive distance",
+            Self::DistanceReset => "Autonomous: distance reset",
+            Self::Contact(_) | Self::ApproachContact { .. } => "Autonomous: approach contact",
+            Self::Align(_) => "Autonomous: align",
+            Self::Follow { .. } | Self::FollowMarked { .. } => "Autonomous: follow path",
+            Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } => "Autonomous: wait",
+        }
+    }
+
     /// Encoder-based travel along a heading in CCW radians.
     pub const fn drive_distance(distance: Length, heading: Angle, maximum_speed: Velocity) -> Self {
         Self::DriveDistance {

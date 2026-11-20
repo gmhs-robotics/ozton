@@ -32,13 +32,37 @@ impl Frame {
 
     /// Emit one complete row to stdout.
     pub fn row(&self, kind: &str, fields: fmt::Arguments<'_>) {
-        let _ = self.write_row(io::stdout().lock(), kind, fields);
+        self.emit(kind, fields, true);
+    }
+
+    /// Route a frame to the enabled sinks. SD-only frames skip USB formatting writes.
+    pub fn emit(&self, kind: &str, fields: fmt::Arguments<'_>, usb: bool) {
+        emit(
+            usb,
+            format_args!(
+                "DBG,{kind},seq={},t_ms={},{}",
+                self.sequence,
+                self.time.as_millis(),
+                fields,
+            ),
+        );
     }
 }
 
 /// An event independent of periodic sampling.
 pub fn event(time: Duration, fields: fmt::Arguments<'_>) {
-    println!("DBG,EVENT,t_ms={},{}", time.as_millis(), fields);
+    emit(
+        true,
+        format_args!("DBG,EVENT,t_ms={},{}", time.as_millis(), fields),
+    );
+}
+
+fn emit(usb: bool, row: fmt::Arguments<'_>) {
+    #[cfg(all(feature = "sd-logging", target_os = "vexos"))]
+    crate::sd::enqueue(row);
+    if usb {
+        let _ = writeln!(io::stdout().lock(), "{row}");
+    }
 }
 
 /// Persistent status for outputs or controllers. Emits only fault/recovery
@@ -75,25 +99,31 @@ impl FaultLog {
     pub fn fail(&mut self, code: &'static str, details: fmt::Arguments<'_>) {
         self.count = self.count.saturating_add(1);
         if self.code.replace(code) != Some(code) {
-            println!(
-                "DBG,FAULT,t_ms={},source={},code={},count={}{}",
-                (self.clock)().as_millis(),
-                self.source,
-                code,
-                self.count,
-                details
+            emit(
+                true,
+                format_args!(
+                    "DBG,FAULT,t_ms={},source={},code={},count={}{}",
+                    (self.clock)().as_millis(),
+                    self.source,
+                    code,
+                    self.count,
+                    details
+                ),
             );
         }
     }
 
     pub fn recovered(&mut self) {
         if let Some(previous) = self.code.take() {
-            println!(
-                "DBG,RECOVERED,t_ms={},source={},previous={},count={}",
-                (self.clock)().as_millis(),
-                self.source,
-                previous,
-                self.count
+            emit(
+                true,
+                format_args!(
+                    "DBG,RECOVERED,t_ms={},source={},previous={},count={}",
+                    (self.clock)().as_millis(),
+                    self.source,
+                    previous,
+                    self.count
+                ),
             );
         }
     }

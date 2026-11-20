@@ -96,6 +96,7 @@ pub(super) async fn compete_app<R: CompetitionApp + 'static>(
     display: Display,
     routes: &[(&'static str, R::Route)],
 ) -> ! {
+    let _sd_writer = ozton_runtime::diagnostics::start_sd_logging();
     let mut choices = vec![Choice {
         label: "Disable",
         route: None,
@@ -151,7 +152,10 @@ impl<R: CompetitionApp> Compete for Competition<R> {
                     Some(status) => format!("Autonomous complete | {status}"),
                     None => "Autonomous complete".to_owned(),
                 },
-                Err(error) => format!("Autonomous stopped: {error:?}"),
+                Err(error) => {
+                    ozton_runtime::diagnostic_event!("auton_error={error:?}");
+                    "Autonomous stopped".to_owned()
+                }
             };
             self.status.show_status_persistent(message);
         } else {

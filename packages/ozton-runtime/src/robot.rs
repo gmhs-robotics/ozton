@@ -1,5 +1,40 @@
 //! Typed composition for robots with stock or application-owned hardware.
 
+use vexide::{display::Display, prelude::Controller};
+
+use crate::{
+    competition::{Autonomous, RouteSet},
+    diagnostics::Sampler,
+};
+
+/// Names the parts of a competition robot once, on its control policy.
+/// All components are stored inline and the compiler checks the assembled layout.
+pub trait RobotLayout: Sized {
+    type Drivetrain;
+    type Tracking;
+    type Customs;
+    type Routes: RouteSet;
+    type Report;
+}
+
+/// Concrete robot for a layout, usable in route and policy signatures.
+pub type CompetitionBot<L> = Robot<
+    <L as RobotLayout>::Drivetrain,
+    Controller,
+    <L as RobotLayout>::Tracking,
+    <L as RobotLayout>::Customs,
+    L,
+    Autonomous<<L as RobotLayout>::Routes, Sampler<<L as RobotLayout>::Report>>,
+>;
+
+impl<L: RobotLayout> Robot<L::Drivetrain, Controller, L::Tracking, L::Customs, L> {
+    /// Install the route menu and telemetry declared by the control policy.
+    pub fn with_competition_ui(self, display: Display) -> CompetitionBot<L> {
+        self.with_autonomous::<L::Routes>(display)
+            .with_diagnostics::<L::Report>(crate::diagnostics::USB_SAMPLE_INTERVAL)
+    }
+}
+
 /// An application-owned subsystem. The tick input can hold controller state
 /// and shared commands. Earlier customs can be borrowed directly through
 /// [`CustomAt`]. Independent customs can leave `Earlier` unconstrained.
@@ -179,8 +214,8 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
 impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
     Robot<D, C, T, X, P, crate::competition::Autonomous<R, S>>
 {
-    /// Attach a typed diagnostic report to the Brain runtime. Periodic serial
-    /// output is active in debug builds and samples after control outputs.
+    /// Attach a typed diagnostic report. USB samples use the given interval in
+    /// debug builds. The SD feature also samples in release firmware.
     pub fn with_diagnostics<L>(
         self,
         interval: std::time::Duration,
@@ -215,9 +250,9 @@ where
 
     /// Time from the driver tick start to the end of the wheel write.
     pub fn mark_driver_output(&mut self, tick: crate::competition::Tick) {
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         A::driver_output(self, tick.work());
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "sd-logging")))]
         let _ = tick;
     }
 }

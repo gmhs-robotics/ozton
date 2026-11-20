@@ -1,10 +1,62 @@
-//! Opt-in serial sampling for competition and autonomous runner ticks.
+//! Opt-in USB and SD sampling for competition and autonomous runner ticks.
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
 use std::time::Instant;
 use std::{marker::PhantomData, time::Duration};
 
-pub use ozton_diagnostics::serial::{FaultLog, Frame};
+use ozton_diagnostics::serial;
+pub use ozton_diagnostics::serial::FaultLog;
+use vexide::smart::SmartDevice;
+
+pub(crate) const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+#[cfg(feature = "sd-logging")]
+const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(20);
+
+/// A sampled timestamp with its USB/SD routing.
+#[derive(Clone, Copy)]
+pub struct Frame {
+    stamp: serial::Frame,
+    usb: bool,
+}
+
+impl core::ops::Deref for Frame {
+    type Target = serial::Frame;
+    fn deref(&self) -> &Self::Target {
+        &self.stamp
+    }
+}
+
+impl Frame {
+    /// Write one diagnostic row to the destinations scheduled for this sample.
+    pub fn row(&self, kind: &str, fields: std::fmt::Arguments<'_>) {
+        self.stamp.emit(kind, fields, self.usb);
+    }
+}
+
+/// Start the SD writer for a competition loop. Each wake writes one batch.
+/// VEXos file I/O is synchronous. Keep the task alive for the competition.
+pub fn start_sd_logging() -> Option<vexide::task::Task<()>> {
+    #[cfg(all(feature = "sd-logging", target_os = "vexos"))]
+    return Some(vexide::task::spawn(async {
+        let mut failed = false;
+        loop {
+            vexide::time::sleep(Duration::from_secs(1)).await;
+            match ozton_diagnostics::sd::flush() {
+                Err(error) if !failed => {
+                    event(format_args!("sd_log_unavailable,error={error}"));
+                    failed = true;
+                }
+                Ok(()) if failed => {
+                    event(format_args!("sd_log_resumed"));
+                    failed = false;
+                }
+                _ => {}
+            }
+        }
+    }));
+    #[cfg(not(all(feature = "sd-logging", target_os = "vexos")))]
+    None
+}
 use vexide::{competition::CompetitionMode, prelude::Motor, smart::motor::MotorControl};
 
 /// Motion state from the autonomous runner, in metres and metres per second.
@@ -27,10 +79,11 @@ pub trait Report<R> {
     fn collect(robot: &R, frame: Frame, sample: Sample);
 }
 
-/// Runtime slot used by the builder. Omitted diagnostics add no tick work.
+/// UI hooks for a builder's runtime slot. Omitted diagnostics add no tick work.
 pub trait Telemetry<R> {
     fn record(robot: &mut R, sample: Sample);
     fn driver_output(_robot: &mut R, _elapsed: Duration) {}
+    fn status(_robot: &mut R, _status: &str) {}
 }
 
 impl<R> Telemetry<R> for () {
@@ -38,38 +91,63 @@ impl<R> Telemetry<R> for () {
 }
 
 pub struct Sampler<S> {
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "sd-logging"))]
     clock: SampleClock,
+    #[cfg(debug_assertions)]
+    last_usb: Instant,
+    #[cfg(debug_assertions)]
+    usb_interval: Duration,
     source: PhantomData<S>,
 }
 
 impl<S> Sampler<S> {
     pub(crate) fn new(interval: Duration) -> Self {
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "sd-logging")))]
         let _ = interval;
         Self {
+            #[cfg(any(debug_assertions, feature = "sd-logging"))]
+            clock: SampleClock::new(Instant::now(), {
+                #[cfg(feature = "sd-logging")]
+                let interval = interval.min(SD_SAMPLE_INTERVAL);
+                interval
+            }),
             #[cfg(debug_assertions)]
-            clock: SampleClock::new(Instant::now(), interval),
+            last_usb: Instant::now(),
+            #[cfg(debug_assertions)]
+            usb_interval: interval,
             source: PhantomData,
         }
     }
 
     pub(crate) fn driver_output(&mut self, elapsed: Duration) {
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         {
             self.clock.max_driver_output = self.clock.max_driver_output.max(elapsed);
         }
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "sd-logging")))]
         let _ = elapsed;
     }
 
     pub(crate) fn frame(&mut self, sample: Sample) -> Option<Frame> {
-        #[cfg(debug_assertions)]
+        #[cfg(any(debug_assertions, feature = "sd-logging"))]
         {
-            let snapshot = self.clock.tick(Instant::now(), sample.dt)?;
+            let now = Instant::now();
+            let snapshot = self.clock.tick(now, sample.dt)?;
+            #[cfg(debug_assertions)]
+            let usb = if now.saturating_duration_since(self.last_usb) >= self.usb_interval {
+                self.last_usb = now;
+                true
+            } else {
+                false
+            };
+            #[cfg(not(debug_assertions))]
+            let usb = false;
             let frame = Frame {
-                sequence: snapshot.sequence,
-                time: vexide::time::user_uptime(),
+                stamp: serial::Frame {
+                    sequence: snapshot.sequence,
+                    time: vexide::time::user_uptime(),
+                },
+                usb,
             };
             frame.row(
                 "LOOP",
@@ -81,9 +159,32 @@ impl<S> Sampler<S> {
                     snapshot.max_driver_output.as_micros(),
                 ),
             );
+            frame.row("MODE", format_args!("mode={:?}", sample.mode));
+            frame.row(
+                "BATTERY",
+                format_args!(
+                    "volts={:.3},current_a={:.3},capacity={:.3},temp_c={}",
+                    vexide::battery::voltage(),
+                    vexide::battery::current(),
+                    vexide::battery::capacity(),
+                    vexide::battery::temperature(),
+                ),
+            );
+            if let Some(motion) = sample.motion {
+                frame.row(
+                    "AUTON",
+                    format_args!(
+                        "route_ms={},progress_m={:.5},left_target_mps={:.5},right_target_mps={:.5}",
+                        motion.elapsed.as_millis(),
+                        motion.progress.value,
+                        motion.wheel_targets[0].value,
+                        motion.wheel_targets[1].value,
+                    ),
+                );
+            }
             Some(frame)
         }
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(any(debug_assertions, feature = "sd-logging")))]
         {
             let _ = sample;
             None
@@ -91,7 +192,7 @@ impl<S> Sampler<S> {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
 struct SampleClock {
     interval: Duration,
     last: Instant,
@@ -101,7 +202,7 @@ struct SampleClock {
     max_driver_output: Duration,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
 struct LoopSample {
     sequence: u64,
     ticks: u64,
@@ -109,7 +210,7 @@ struct LoopSample {
     max_driver_output: Duration,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
 impl SampleClock {
     fn new(now: Instant, interval: Duration) -> Self {
         Self {
@@ -139,9 +240,67 @@ impl SampleClock {
     }
 }
 
+/// Read and report a differential drive using its installed model and geometry.
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+pub fn report_drive(frame: Frame, drive: &ozton_drivetrain::resilient::ResilientDrive) {
+    let snapshot = drive.snapshot();
+    let geometry = drive.geometry();
+    let [left, right] = snapshot.wheel_meters;
+    let [left_rev, right_rev] = snapshot.wheel_revolutions;
+    frame.row("DRIVE", format_args!(
+        "left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={left_rev:.6},right_rev={right_rev:.6},left_m={left:.5},right_m={right:.5},wheel_dia_m={:.6},max_wheel_mps={:.5},write_failed={},fault_count={}",
+        snapshot.command[0], snapshot.command[1], snapshot.scale,
+        geometry.wheel_diameter.value, geometry.maximum_wheel_speed.value,
+        u8::from(snapshot.write_failed), snapshot.fault_count,
+    ));
+    drive.visit_motors(|side, index, motor| {
+        let side = if side == 0 { 'l' } else { 'r' };
+        MotorSample::read(motor).write(frame, format_args!("drive_{side}{}", index + 1));
+    });
+}
+
+/// Report connected controller axes and buttons using Ozton's stock field names.
+pub fn report_controller(frame: Frame, input: Option<&vexide::controller::ControllerState>) {
+    let Some(input) = input else {
+        frame.row("INPUT", format_args!("ready=0"));
+        return;
+    };
+    frame.row("INPUT", format_args!(
+            "throttle={:.4},turn={:.4},r1={},r2={},l1={},l2={},x={},a={},b={},up={},down={},boost={},ready=1",
+            input.left_stick.y(), input.right_stick.x(), u8::from(input.button_r1.is_pressed()),
+            u8::from(input.button_r2.is_pressed()), u8::from(input.button_l1.is_pressed()),
+            u8::from(input.button_l2.is_pressed()), u8::from(input.button_x.is_pressed()),
+            u8::from(input.button_a.is_pressed()), u8::from(input.button_b.is_pressed()),
+            u8::from(input.button_up.is_pressed()), u8::from(input.button_down.is_pressed()),
+            u8::from(input.button_y.is_pressed()),
+        ));
+}
+
+/// Report the live IMU orientation, angular rates, and acceleration.
+pub fn report_imu(frame: Frame, imu: &vexide::prelude::InertialSensor) {
+    let orientation = imu.euler();
+    let orientation = orientation
+        .map(|a| [a.a.as_radians(), a.c.as_radians(), a.b.as_radians()])
+        .unwrap_or([f64::NAN; 3]);
+    let rate = imu
+        .gyro_rate()
+        .map(|v| [v.x, v.y, v.z])
+        .unwrap_or([f64::NAN; 3]);
+    let acceleration = imu
+        .acceleration()
+        .map(|v| [v.x, v.y, v.z])
+        .unwrap_or([f64::NAN; 3]);
+    frame.row("IMU", format_args!(
+        "port={},pitch_rad={:.5},roll_rad={:.5},yaw_rad={:.5},rate_x_dps={:.4},rate_y_dps={:.4},rate_z_dps={:.4},accel_x_g={:.5},accel_y_g={:.5},accel_z_g={:.5}",
+        imu.port_number(), orientation[0], orientation[1], orientation[2],
+        rate[0], rate[1], rate[2], acceleration[0], acceleration[1], acceleration[2],
+    ));
+}
+
 /// Smart motor snapshot read only on a scheduled tick. Targets come from the
 /// device's own command state, so every control method can use this reporter.
 pub struct MotorSample {
+    pub port: u8,
     pub volts: f64,
     pub current: f64,
     pub temperature: f64,
@@ -154,6 +313,7 @@ pub struct MotorSample {
 impl MotorSample {
     pub fn read(motor: &Motor) -> Self {
         Self {
+            port: motor.port_number(),
             volts: motor.voltage().unwrap_or(f64::NAN),
             current: motor.current().unwrap_or(f64::NAN),
             temperature: motor.temperature().unwrap_or(f64::NAN),
@@ -184,8 +344,8 @@ impl MotorSample {
             }
         };
         frame.row("MOTOR", format_args!(
-            "name={name},measured_v={:.3},current_a={:.3},temp_c={:.2},rpm={:.2},torque_nm={:.4},request_v={:.3},position_deg={:.3},command_mode={mode},request_rpm={rpm},request_deg={position},brake_mode={brake:?}",
-            self.volts, self.current, self.temperature, self.rpm, self.torque,
+            "name={name},port={},measured_v={:.3},current_a={:.3},temp_c={:.2},rpm={:.2},torque_nm={:.4},request_v={:.3},position_deg={:.3},command_mode={mode},request_rpm={rpm},request_deg={position},brake_mode={brake:?}",
+            self.port, self.volts, self.current, self.temperature, self.rpm, self.torque,
             self.requested_voltage(), self.position_degrees,
         ));
     }
