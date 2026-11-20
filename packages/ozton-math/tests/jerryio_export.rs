@@ -51,12 +51,12 @@ fn projection_keeps_the_current_branch_at_a_crossing() {
         },
     )
     .unwrap();
-    let mut progress = Progress::default();
+    let mut progress = Progress::new(&path);
     for i in 1..=15 {
         let point = path
             .at_distance(ozton_math::si(f64::from(i) * 0.1))
             .position;
-        progress.update(&path, point, ozton_math::si(0.11));
+        progress.update(point, ozton_math::si(0.11));
     }
     assert!((progress.distance() - 1.5).abs() < 1e-10);
     assert!(progress.distance() < path.end().distance * 0.25);

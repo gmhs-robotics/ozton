@@ -55,7 +55,7 @@ where
         M: Arcade,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
-        &mut self,
+        &self,
         drivetrain: &'a mut Drivetrain<M, T>,
         target_distance: Length,
         target_heading: UnitAngle,
@@ -81,7 +81,7 @@ where
         M: Arcade,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
-        &mut self,
+        &self,
         drivetrain: &'a mut Drivetrain<M, T>,
         distance: Length,
     ) -> DriveFuture<'a, M, L, A, T> {
@@ -98,7 +98,7 @@ where
         M: Arcade,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
-        &mut self,
+        &self,
         drivetrain: &'a mut Drivetrain<M, T>,
         heading: UnitAngle,
     ) -> DriveFuture<'a, M, L, A, T> {
@@ -111,7 +111,7 @@ where
         M: Arcade,
         T: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
     >(
-        &mut self,
+        &self,
         drivetrain: &'a mut Drivetrain<M, T>,
         point: [Length; 2],
     ) -> TurnToPointFuture<'a, M, L, A, T> {

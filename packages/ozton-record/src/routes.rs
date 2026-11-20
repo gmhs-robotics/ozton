@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::BTreeMap, path::PathBuf};
 
-use crate::store::{RouteStore, commit_row};
+use crate::store::RouteStore;
 
 #[derive(Debug, Clone, Default)]
 pub struct RouteIndex {
@@ -37,21 +37,31 @@ impl RouteIndex {
         self.map.len()
     }
 
-    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Persist names for existing routes through the append-only route store.
     pub fn save(&self) -> std::io::Result<()> {
-        let store =
-            RouteStore::open(".").map_err(|error| std::io::Error::other(format!("{error:?}")))?;
-        let mut contents = String::new();
-        for (&id, name) in &self.map {
-            if name.contains(['\t', '\n', '\r']) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "invalid route name",
-                ));
-            }
-            contents.push_str(&commit_row(id, name, store.file_id(id).unwrap_or(id)));
+        let mut store = RouteStore::open(".").map_err(std::io::Error::other)?;
+        if self.map.len() != store.iter().count()
+            || self.map.keys().any(|&id| store.file_id(id).is_none())
+            || self
+                .map
+                .values()
+                .any(|name| name.trim().is_empty() || name.contains(['\t', '\n', '\r']))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the route index can only rename existing recordings",
+            ));
         }
-        std::fs::write(Self::INDEX_PATH, contents)
+        for (&id, name) in &self.map {
+            store
+                .rename_route(id, name)
+                .map_err(std::io::Error::other)?;
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]

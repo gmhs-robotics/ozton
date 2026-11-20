@@ -86,16 +86,27 @@ pub struct RangeReport {
     pub constraint: Result<Constraint, Rejection>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct RangeTick {
+    pub pose: Pose,
+    pub movement: BodyDelta,
+    pub dt: Duration,
+    pub now: Duration,
+}
+
 pub(super) fn inspect(
-    pose: Pose,
-    movement: BodyDelta,
-    dt: Duration,
-    now: Duration,
+    tick: RangeTick,
     map: &[Surface],
     sensor: RangeSensorConfig,
     observation: Option<RangeObservation>,
     previous: &mut Option<Duration>,
 ) -> RangeReport {
+    let RangeTick {
+        pose,
+        movement,
+        dt,
+        now,
+    } = tick;
     let constraint = (|| {
         let sample = observation.ok_or(Rejection::Missing)?;
         if previous.is_some_and(|last| sample.timestamp <= last) {
@@ -165,6 +176,14 @@ pub(super) enum ResetResult {
     Rejected,
 }
 
+pub(super) struct ResetTick {
+    pub time: Duration,
+    pub pose: Pose,
+    pub forward_velocity: f64,
+    pub lateral_velocity: f64,
+    pub angular_velocity: f64,
+}
+
 impl ResetWindow {
     pub(super) fn new(minimum_axes: u8) -> Self {
         Self {
@@ -187,17 +206,24 @@ impl ResetWindow {
     /// Distance sensors publish independently. Collect fresh, nearby samples while stopped.
     pub(super) fn update(
         &mut self,
-        now: Duration,
-        pose: Pose,
+        tick: ResetTick,
         map: &[Surface],
         sensors: &[RangeSensorConfig],
         reports: &[Option<RangeReport>; MAX_RANGES],
         maximum: f64,
-        velocity: [f64; 3],
     ) -> ResetResult {
-        if !velocity.iter().all(|v| v.is_finite())
-            || velocity[0].hypot(velocity[1]) > 0.025
-            || velocity[2].abs() > 0.06
+        let ResetTick {
+            time: now,
+            pose,
+            forward_velocity,
+            lateral_velocity,
+            angular_velocity,
+        } = tick;
+        if ![forward_velocity, lateral_velocity, angular_velocity]
+            .iter()
+            .all(|v| v.is_finite())
+            || forward_velocity.hypot(lateral_velocity) > 0.025
+            || angular_velocity.abs() > 0.06
         {
             self.restart();
             return ResetResult::Waiting;

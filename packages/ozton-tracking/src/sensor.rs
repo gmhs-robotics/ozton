@@ -49,82 +49,54 @@ impl<const TPR: u32> RotarySensor for AdiEncoder<TPR> {
     }
 }
 
-impl<T: RotarySensor> RotarySensor for Vec<T> {
-    type Error = T::Error;
+/// Why a sensor group could not produce a position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RotaryGroupError<E> {
+    Empty,
+    InvalidPosition,
+    Device(E),
+}
+
+impl<T: RotarySensor> RotarySensor for [T] {
+    type Error = RotaryGroupError<T::Error>;
 
     fn position(&self) -> Result<Angle, Self::Error> {
-        // The total motors to be used in the average later
-        let mut total_motors = 0;
-        let mut degree_sum = 0.0;
-        let mut last_error = None;
-
-        for motor in self {
-            degree_sum += match motor.position() {
-                Ok(position) => {
-                    total_motors += 1;
-                    position.as_degrees()
+        let mut count = 0.0;
+        let mut sum = 0.0;
+        let mut failed = RotaryGroupError::Empty;
+        for sensor in self {
+            match sensor.position() {
+                Ok(position) if position.as_radians().is_finite() => {
+                    sum += position.as_radians();
+                    count += 1.0;
                 }
-                Err(error) => {
-                    // Since this motor isn't being counted in the average, decrement the count
-                    last_error = Some(error);
-                    continue;
-                }
-            };
+                Ok(_) => failed = RotaryGroupError::InvalidPosition,
+                Err(error) => failed = RotaryGroupError::Device(error),
+            }
         }
-
-        // Handle a case where no motors were added to the total.
-        if total_motors == 0 {
-            return if let Some(error) = last_error {
-                // Return the error from the last motor that failed.
-                Err(error)
-            } else {
-                // This means there were no motors in the group. We don't want to divide by zero here.
-                Ok(Angle::ZERO)
-            };
+        if count == 0.0 {
+            Err(failed)
+        } else if !sum.is_finite() {
+            Err(RotaryGroupError::InvalidPosition)
+        } else {
+            Ok(Angle::from_radians(sum / count))
         }
-
-        #[allow(clippy::cast_precision_loss)]
-        Ok(Angle::from_degrees(degree_sum / f64::from(total_motors)))
     }
 }
 
-// Duplicated because rust is stupid and I can't blanket-impl this for AsMut<[T]>.
-impl<const N: usize, T: RotarySensor> RotarySensor for [T; N] {
-    type Error = T::Error;
+impl<T: RotarySensor> RotarySensor for Vec<T> {
+    type Error = RotaryGroupError<T::Error>;
 
     fn position(&self) -> Result<Angle, Self::Error> {
-        // The total motors to be used in the average later
-        let mut total_motors = 0;
-        let mut degree_sum = 0.0;
-        let mut last_error = None;
+        self.as_slice().position()
+    }
+}
 
-        for motor in self {
-            degree_sum += match motor.position() {
-                Ok(position) => {
-                    total_motors += 1;
-                    position.as_degrees()
-                }
-                Err(error) => {
-                    // Since this motor isn't being counted in the average, decrement the count
-                    last_error = Some(error);
-                    continue;
-                }
-            };
-        }
+impl<T: RotarySensor, const N: usize> RotarySensor for [T; N] {
+    type Error = RotaryGroupError<T::Error>;
 
-        // Handle a case where no motors were added to the total.
-        if total_motors == 0 {
-            return if let Some(error) = last_error {
-                // Return the error from the last motor that failed.
-                Err(error)
-            } else {
-                // This means there were no motors in the group. We don't want to divide by zero here.
-                Ok(Angle::ZERO)
-            };
-        }
-
-        #[allow(clippy::cast_precision_loss)]
-        Ok(Angle::from_degrees(degree_sum / f64::from(total_motors)))
+    fn position(&self) -> Result<Angle, Self::Error> {
+        self.as_slice().position()
     }
 }
 

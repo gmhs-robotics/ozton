@@ -23,13 +23,9 @@ jobs:
       - run: cargo test --workspace --doc --locked
       - run: cargo check --workspace --all-targets --locked --no-default-features --features ozton/recording
       - run: cargo test --workspace --all-targets --locked --no-default-features --features ozton/recording
-      - name: Reject invalid autonomous feature combinations
-        run: |
-          set -e
-          if cargo check -p ozton --locked --features recording >both.log 2>&1; then exit 1; fi
-          grep -F 'Ozton requires exactly one mode' both.log
-          if cargo check -p ozton --locked --no-default-features >neither.log 2>&1; then exit 1; fi
-          grep -F 'Ozton requires either the programmed or recording feature' neither.log
+
+      - run: cargo check -p ozton --locked --all-features
+      - run: cargo check -p ozton --locked --no-default-features
 
   v5:
     runs-on: ubuntu-latest

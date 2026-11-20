@@ -91,9 +91,21 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
                 &frame.#field_ident,
                 mode,
             ).await {
+                if mode == #record_path::frame::RecordMode::Playback {
+                    return Err(error);
+                }
                 result = Err(error);
             }
         }
+    });
+
+    let device_checks = included_fields.iter().map(|(field, ty)| {
+        quote! {
+            && <#ty as #record_path::RecordField>::playback_ready(&self.#field)
+        }
+    });
+    let playback_fields = included_fields.iter().map(|(field, ty)| quote! {
+        <#ty as #record_path::RecordField>::apply_playback_value(&mut self.#field, &frame.#field).await?;
     });
 
     let stop_fields = included_fields.iter().map(|(field_ident, field_type)| {
@@ -106,20 +118,48 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
         }
     });
 
-    let record_field_bounds = included_fields.iter().map(|(_, field_type)| {
+    let parameter_names = ast
+        .generics
+        .params
+        .iter()
+        .map(|param| match param {
+            syn::GenericParam::Lifetime(param) => param.lifetime.ident.to_string(),
+            syn::GenericParam::Type(param) => param.ident.to_string(),
+            syn::GenericParam::Const(param) => param.ident.to_string(),
+        })
+        .collect::<Vec<_>>();
+    fn mentions_parameter(tokens: proc_macro2::TokenStream, parameters: &[String]) -> bool {
+        tokens.into_iter().any(|token| match token {
+            proc_macro2::TokenTree::Ident(ident) => {
+                parameters.iter().any(|name| ident == name.as_str())
+            }
+            proc_macro2::TokenTree::Group(group) => mentions_parameter(group.stream(), parameters),
+            _ => false,
+        })
+    }
+    for (_, field_type) in &included_fields {
+        if mentions_parameter(quote!(#field_type), &parameter_names) {
+            return Err(syn::Error::new_spanned(
+                field_type,
+                "RecordedRobot requires a concrete recorded field type; use #[record(skip)] for generic fields",
+            ));
+        }
+    }
+
+    let mut generics = ast.generics.clone();
+    for (_, field_type) in &included_fields {
+        generics
+            .make_where_clause()
+            .predicates
+            .push(syn::parse_quote!(#field_type: #record_path::RecordField));
+    }
+    let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
+
+    let schema_fields = included_fields.iter().map(|(field, ty)| {
         quote! {
-            #field_type: #record_path::RecordField,
+            stringify!(#field: #ty), ";",
         }
     });
-
-    let where_clause = if included_fields.is_empty() {
-        quote! {}
-    } else {
-        quote! {
-            where
-                #(#record_field_bounds)*
-        }
-    };
 
     let generated = quote! {
         #[derive(
@@ -135,6 +175,12 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
             #(#frame_fields)*
         }
 
+        impl #record_path::frame::FrameSchema for #frame_ident {
+            const SCHEMA_ID: u64 = #record_path::frame::schema_id(concat!(
+                module_path!(), "::", stringify!(#frame_ident), "{", #(#schema_fields)* "}",
+            ));
+        }
+
         impl #record_path::Interpolate for #frame_ident {
             fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
                 Self {
@@ -144,7 +190,7 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
         }
 
         #[#record_path::async_trait(?Send)]
-        impl #record_path::frame::FrameRobot for #name
+        impl #impl_generics #record_path::frame::FrameRobot for #name #type_generics
         #where_clause
         {
             type Frame = #frame_ident;
@@ -165,6 +211,18 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
                 result
             }
 
+            fn devices_ready(&self) -> bool {
+                true #(#device_checks)*
+            }
+
+            async fn apply_playback_frame(
+                &mut self,
+                frame: &Self::Frame,
+            ) -> Result<(), #record_path::frame::PlaybackError> {
+                #(#playback_fields)*
+                Ok(())
+            }
+
             async fn stop_playback(&mut self) -> Result<(), #record_path::PortError> {
                 let mut result = Ok(());
                 #(#stop_fields)*
@@ -177,22 +235,22 @@ fn impl_recorded_robot(ast: &DeriveInput) -> Result<TokenStream, syn::Error> {
 }
 
 fn resolve_record_path() -> Result<Path, syn::Error> {
-    if let Ok(found) = crate_name("ozton") {
-        return Ok(match found {
-            FoundCrate::Itself => syn::parse_quote!(crate::record),
-            FoundCrate::Name(name) => {
-                let ident = format_ident!("{}", name);
-                syn::parse_quote!(::#ident::record)
-            }
-        });
-    }
-
     if let Ok(found) = crate_name("ozton-record") {
         return Ok(match found {
             FoundCrate::Itself => syn::parse_quote!(crate),
             FoundCrate::Name(name) => {
                 let ident = format_ident!("{}", name);
                 syn::parse_quote!(::#ident)
+            }
+        });
+    }
+
+    if let Ok(found) = crate_name("ozton") {
+        return Ok(match found {
+            FoundCrate::Itself => syn::parse_quote!(crate::record),
+            FoundCrate::Name(name) => {
+                let ident = format_ident!("{}", name);
+                syn::parse_quote!(::#ident::record)
             }
         });
     }

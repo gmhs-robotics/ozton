@@ -24,12 +24,12 @@ use vexide::{
 };
 
 use super::{
-    DriveOptions,
-    chassis::{Chassis, WheelControl},
+    DriveOptions, Feedback,
+    chassis::{Chassis, ChassisError, WheelControl},
 };
 
 /// Physical settings shared by the drivetrain, odometry, path preparation and runner.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct DifferentialConfig {
     pub wheel_diameter: Length,
     pub track_width: Length,
@@ -65,7 +65,7 @@ impl DifferentialConfig {
         }
     }
 
-    pub fn path_limits(self) -> Limits {
+    pub fn path_limits(&self) -> Limits {
         Limits::from_units(
             self.track_width,
             self.maximum_wheel_speed,
@@ -77,7 +77,7 @@ impl DifferentialConfig {
     }
 
     pub async fn build(
-        self,
+        mut self,
         left: impl IntoIterator<Item = (Motor, GearRatio)>,
         right: impl IntoIterator<Item = (Motor, GearRatio)>,
         tracking: TrackingSetup,
@@ -93,14 +93,8 @@ impl DifferentialConfig {
         let build_side = |(motor, ratio)| {
             DriveMotor::new(motor, ratio, self.wheel_diameter).ok_or(SetupError::DriveGeometry)
         };
-        let left = left
-            .into_iter()
-            .map(build_side)
-            .collect::<Result<Vec<_>, _>>()?;
-        let right = right
-            .into_iter()
-            .map(build_side)
-            .collect::<Result<Vec<_>, _>>()?;
+        let left = build_motor_side(left, build_side)?;
+        let right = build_motor_side(right, build_side)?;
         let mut model = Differential::geared(left, right, Some(self.maximum_wheel_speed))
             .ok_or(SetupError::EmptyMotorSide)?;
 
@@ -116,6 +110,9 @@ impl DifferentialConfig {
             require_lateral,
             max_correction,
         } = tracking;
+        if ranges.len() > MAX_RANGES {
+            return Err(SetupError::Tracking);
+        }
         let mut names = Vec::with_capacity(ranges.len());
         let mut ports = Vec::with_capacity(ranges.len());
         let mut mounts = Vec::with_capacity(ranges.len());
@@ -126,9 +123,6 @@ impl DifferentialConfig {
             names.push(name);
             ports.push(port);
             mounts.push(mount);
-        }
-        if names.len() > MAX_RANGES {
-            return Err(SetupError::Tracking);
         }
         let distances = Distances::new(ports).ok_or(SetupError::Tracking)?;
         let localizer = Localizer::new_owned(
@@ -161,18 +155,19 @@ impl DifferentialConfig {
             let imu = sensors.imu.clone().ok_or(SetupError::MissingTipImu)?;
             model = model.with_anti_tip(imu, controller, axis, level);
         }
+        let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
         let chassis = Chassis::new(
             Drivetrain::new(model, Tracking::new(localizer).with_distances(distances)),
             sensors.into_shared_reader(),
-            self.wheel_control,
+            control,
             self.journal_capacity,
         )
         .ok_or(SetupError::DriveGeometry)?;
         Ok(ConfiguredChassis {
             chassis,
+            drive_options: DriveOptions::differential(self.track_width, self.maximum_wheel_speed),
             settings: self,
             names,
-            drive_options: DriveOptions::differential(self.track_width, self.maximum_wheel_speed),
         })
     }
 }
@@ -181,6 +176,7 @@ impl DifferentialConfig {
 pub enum SetupError {
     DriveGeometry,
     EmptyMotorSide,
+    TooManyMotors,
     Tracking,
     RangeName(&'static str),
     MissingTipImu,
@@ -225,6 +221,18 @@ impl Default for TrackingSetup {
 pub struct RangeId(pub(super) usize);
 
 impl RangeId {
+    pub const fn from_index(index: usize) -> Option<Self> {
+        if index < MAX_RANGES {
+            Some(Self(index))
+        } else {
+            None
+        }
+    }
+
+    pub const fn index(self) -> usize {
+        self.0
+    }
+
     pub const fn mask(self) -> u8 {
         1 << self.0
     }
@@ -232,13 +240,64 @@ impl RangeId {
 
 /// A chassis with the limits and sensor names required by the stock robot adapter.
 pub struct ConfiguredChassis {
-    pub chassis: Chassis<'static>,
+    pub(super) chassis: Chassis<'static>,
     pub(super) settings: DifferentialConfig,
     pub(super) drive_options: DriveOptions,
     names: Vec<&'static str>,
 }
 
 impl ConfiguredChassis {
+    pub fn chassis(&self) -> &Chassis<'static> {
+        &self.chassis
+    }
+
+    pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
+        self.chassis.sample(occluded)
+    }
+
+    pub fn drive(&mut self, target: [Velocity; 2], dt: Duration) -> Result<(), ChassisError> {
+        self.chassis.drive(target, dt)
+    }
+
+    pub fn stop(&mut self) -> Result<(), ChassisError> {
+        self.chassis.stop()
+    }
+
+    pub fn drive_driver_arcade(
+        &mut self,
+        throttle: f64,
+        steer: f64,
+        policy: ozton_drivetrain::model::DriverFaultPolicy,
+    ) -> Result<(), vexide::smart::PortError> {
+        self.chassis.drive_driver_arcade(throttle, steer, policy)
+    }
+
+    pub fn journal_mut(&mut self) -> &mut ozton_diagnostics::Journal {
+        &mut self.chassis.journal
+    }
+
+    pub fn set_pose(&mut self, pose: Pose) -> Result<(), ChassisError> {
+        self.chassis.set_pose(pose)
+    }
+
+    pub fn request_distance_reset(&mut self) {
+        self.chassis.request_distance_reset();
+    }
+
+    pub fn cancel_distance_reset(&mut self) {
+        self.chassis.cancel_distance_reset();
+    }
+
+    pub fn log_step(
+        &mut self,
+        elapsed: Duration,
+        dt: Duration,
+        progress: Length,
+        wheels: [Velocity; 2],
+    ) {
+        self.chassis.log_step(elapsed, dt, progress, wheels);
+    }
+
     pub fn range(&self, name: &str) -> Option<RangeId> {
         self.names
             .iter()
@@ -260,4 +319,21 @@ impl ConfiguredChassis {
         self.drive_options = options;
         Ok(())
     }
+}
+
+fn build_motor_side(
+    motors: impl IntoIterator<Item = (Motor, GearRatio)>,
+    build: impl Fn((Motor, GearRatio)) -> Result<DriveMotor, SetupError>,
+) -> Result<Vec<DriveMotor>, SetupError> {
+    let mut side = Vec::new();
+    for motor in motors {
+        if side.len() == ozton_drivetrain::feedback::MAX_SIDE_MOTORS {
+            return Err(SetupError::TooManyMotors);
+        }
+        side.push(build(motor)?);
+    }
+    if side.is_empty() {
+        return Err(SetupError::EmptyMotorSide);
+    }
+    Ok(side)
 }

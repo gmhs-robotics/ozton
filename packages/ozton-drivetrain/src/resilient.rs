@@ -11,20 +11,45 @@ use crate::model::{Differential, DrivetrainModel, Tank};
 /// Chassis geometry for converting wheel commands and feedback; SI units.
 #[derive(Debug, Clone, Copy)]
 pub struct DriveGeometry {
-    pub maximum_wheel_speed: Velocity,
-    pub wheel_diameter: Length,
+    maximum_wheel_speed: Velocity,
+    wheel_diameter: Length,
 }
 
 impl DriveGeometry {
+    pub const fn wheel_diameter(self) -> Length {
+        self.wheel_diameter
+    }
+
+    pub const fn maximum_wheel_speed(self) -> Velocity {
+        self.maximum_wheel_speed
+    }
+
     /// Geometry and maximum wheel speed in physical units.
     pub const fn from_units(
         maximum_wheel_speed: ozton_math::uom::si::f64::Velocity,
         wheel_diameter: ozton_math::uom::si::f64::Length,
     ) -> Self {
-        Self {
+        match Self::try_from_units(maximum_wheel_speed, wheel_diameter) {
+            Some(geometry) => geometry,
+            None => panic!("invalid drivetrain geometry"),
+        }
+    }
+
+    pub const fn try_from_units(
+        maximum_wheel_speed: Velocity,
+        wheel_diameter: Length,
+    ) -> Option<Self> {
+        if !maximum_wheel_speed.value.is_finite()
+            || maximum_wheel_speed.value <= 0.0
+            || !wheel_diameter.value.is_finite()
+            || wheel_diameter.value <= 0.0
+        {
+            return None;
+        }
+        Some(Self {
             maximum_wheel_speed,
             wheel_diameter,
-        }
+        })
     }
 }
 
@@ -56,7 +81,7 @@ pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     #[cfg(any(debug_assertions, feature = "sd-logging"))]
     debug_command: (f64, f64, f64),
     #[cfg(any(debug_assertions, feature = "sd-logging"))]
-    last_positions: Cell<[Option<f64>; 2]>,
+    last_positions: [Option<f64>; 2],
     status: FaultLog,
 }
 
@@ -85,7 +110,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             #[cfg(any(debug_assertions, feature = "sd-logging"))]
             debug_command: (0.0, 0.0, normal_scale),
             #[cfg(any(debug_assertions, feature = "sd-logging"))]
-            last_positions: Cell::new([None; 2]),
+            last_positions: [None; 2],
             status: FaultLog::new("drive", vexide::time::user_uptime),
         }
     }
@@ -150,15 +175,15 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
     pub fn brake_now(&mut self) -> Result<(), PortError> {
         self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
-        let _ = self.send_brake();
-        Ok(())
+        self.send_brake()
     }
 
     pub fn coast_now(&mut self) -> Result<(), PortError> {
         self.reset_driver_scale();
         self.model.set_output_scale(self.normal_scale);
-        let _ = self.model.stop_now();
-        Ok(())
+        let result = self.model.stop_now();
+        self.record_result(&result);
+        result
     }
 }
 
@@ -191,9 +216,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
     }
 
     pub fn autonomous_brake(&mut self) -> Result<(), PortError> {
-        self.reset_driver_scale();
-        self.model.set_output_scale(self.normal_scale);
-        self.send_brake()
+        self.brake_now()
     }
 }
 
@@ -203,14 +226,15 @@ impl ResilientDrive {
         self.model.wheel_load()
     }
 
-    pub fn tracking_positions(&self) -> [Option<Length>; 2] {
+    pub fn tracking_positions(&mut self) -> [Option<Length>; 2] {
         let positions = self
             .model
-            .feedback()
+            .sample_feedback()
             .map(|sample| sample.map(|sample| sample.position));
         #[cfg(any(debug_assertions, feature = "sd-logging"))]
-        self.last_positions
-            .set(positions.map(|position| position.map(|position| position.value)));
+        {
+            self.last_positions = positions.map(|position| position.map(|position| position.value));
+        }
         positions
     }
     pub fn autonomous_wheel_speeds(
@@ -247,7 +271,6 @@ impl ResilientDrive {
     pub fn snapshot(&self) -> DriveSnapshot {
         let wheel_meters = self
             .last_positions
-            .get()
             .map(|position| position.unwrap_or(f64::NAN));
         let circumference = core::f64::consts::PI * self.geometry.wheel_diameter.value;
         DriveSnapshot {
@@ -287,8 +310,7 @@ pub struct DriveSnapshot {
 
 impl<M: AdjustableDrive> Tank for ResilientDrive<M> {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        let _ = self.live_drive(left, right);
-        Ok(())
+        self.live_drive(left, right)
     }
 
     fn stop_now(&mut self) -> Result<(), PortError> {
@@ -332,20 +354,20 @@ mod tests {
     }
 
     #[test]
-    fn missing_drive_motor_does_not_abort_driver_or_prevent_retry() {
+    fn missing_drive_motor_is_reported_on_every_retry() {
         let mut drive = ResilientDrive::new(
             FakeDrive::default(),
             Rc::new(Cell::new(false)),
             0.70,
             geometry(),
         );
-        assert!(drive.drive_tank(0.4, 0.5).is_ok());
-        assert!(drive.drive_tank(0.2, 0.3).is_ok());
+        assert!(drive.drive_tank(0.4, 0.5).is_err());
+        assert!(drive.drive_tank(0.2, 0.3).is_err());
         assert_eq!(drive.model.commands, [(0.4, 0.5), (0.2, 0.3)]);
-        assert!(drive.stop_now().is_ok());
-        assert!(drive.stop_now().is_ok());
+        assert!(drive.stop_now().is_err());
+        assert!(drive.stop_now().is_err());
         assert_eq!(drive.model.stops, 2);
-        assert!(drive.brake_now().is_ok());
+        assert!(drive.brake_now().is_err());
         assert_eq!(drive.model.stops, 3);
     }
 
@@ -372,7 +394,7 @@ mod tests {
         assert!(drive.autonomous_drive(0.35, 0.35).is_err());
         assert_eq!(drive.debug_command, (0.35, 0.35, 0.7));
         assert_eq!(drive.status.count(), 2);
-        drive.brake_now().unwrap();
+        assert!(drive.brake_now().is_err());
         assert_eq!(drive.debug_command, (0.0, 0.0, 0.7));
         assert_eq!(drive.status.count(), 3);
     }
@@ -385,7 +407,7 @@ mod tests {
             0.70,
             geometry(),
         );
-        assert!(drive.drive_tank(f64::NAN, f64::INFINITY).is_ok());
+        assert!(drive.drive_tank(f64::NAN, f64::INFINITY).is_err());
         assert_eq!(drive.model.commands, [(0.0, 0.0)]);
     }
 
@@ -395,13 +417,13 @@ mod tests {
         let mut drive = ResilientDrive::new(FakeDrive::default(), boost.clone(), 0.70, geometry());
         for held in [false, true, true, false, true] {
             boost.set(held);
-            assert!(drive.drive_tank(1.0, -1.0).is_ok());
+            assert!(drive.drive_tank(1.0, -1.0).is_err());
             assert_eq!(drive.model.scale, if held { 1.0 } else { 0.70 });
         }
-        assert!(drive.stop_now().is_ok());
+        assert!(drive.stop_now().is_err());
         assert!(!boost.get());
         assert_eq!(drive.model.scale, 0.70);
-        assert!(drive.drive_tank(1.0, 1.0).is_ok());
+        assert!(drive.drive_tank(1.0, 1.0).is_err());
         assert_eq!(drive.model.scale, 0.70);
     }
     #[test]

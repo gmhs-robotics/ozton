@@ -12,8 +12,8 @@ and what the robot does on the field.
 | Write autonomous routines in Rust, follow paths, and coordinate mechanisms | `programmed` (default) | [Build a programmed robot][programmed] |
 | Capture a driven routine to SD and replay it during autonomous | `recording` with default features disabled | [Record and replay][recording] |
 
-Enable exactly one mode per firmware build. Cargo unifies features across
-dependencies, so every dependency on Ozton must select the same mode.
+Choose the competition loop in your firmware entry point. The two library
+features can be enabled together when dependencies need both APIs.
 
 ## Read the book by task
 

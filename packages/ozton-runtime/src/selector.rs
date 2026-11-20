@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cell::RefCell,
     rc::Rc,
     time::{Duration, Instant},
@@ -48,8 +49,9 @@ struct StatusMessage {
 
 #[derive(Debug, Clone)]
 struct SelectorState<I: SelectorItem + 'static> {
-    options: Vec<I>,
+    options: Vec<Rc<I>>,
     selection: usize,
+    selection_revision: u64,
     active_row: Option<usize>,
     status: Option<StatusMessage>,
     status_dirty: bool,
@@ -70,7 +72,7 @@ pub struct StatusHandle<I: SelectorItem + 'static> {
 #[derive(Debug)]
 pub struct SelectionController<I: SelectorItem + Clone + 'static> {
     status: StatusHandle<I>,
-    last_selection: Option<usize>,
+    last_selection: Option<u64>,
 }
 
 impl<I: SelectorItem + 'static> Selector<I> {
@@ -96,8 +98,9 @@ impl<I: SelectorItem + 'static> Selector<I> {
         let selection = default_selection.min(options.len() - 1);
 
         let state = Rc::new(RefCell::new(SelectorState {
-            options,
+            options: options.into_iter().map(Rc::new).collect(),
             selection,
+            selection_revision: 0,
             active_row: None,
             status: None,
             status_dirty: true,
@@ -166,7 +169,11 @@ impl<I: SelectorItem + 'static> Selector<I> {
                             let page_start = page * Self::PAGE_SIZE;
                             let option_index = page_start + row;
                             if row < Self::PAGE_SIZE && option_index < state.options.len() {
-                                state.selection = option_index;
+                                if state.selection != option_index {
+                                    state.selection = option_index;
+                                    state.selection_revision =
+                                        state.selection_revision.wrapping_add(1);
+                                }
                                 state.active_row = Some(option_index);
                             } else if new_press
                                 && state.options.len() > Self::PAGE_SIZE
@@ -349,7 +356,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
         let label = Self::short_label(label, 28);
         display.draw_text(
             &Text::from_string(
-                &label,
+                label.as_ref(),
                 Font::new(FontSize::MEDIUM, FontFamily::Proportional),
                 [8, y + 6],
             ),
@@ -358,13 +365,14 @@ impl<I: SelectorItem + 'static> Selector<I> {
         );
     }
 
-    fn short_label(label: &str, max_chars: usize) -> String {
-        let mut chars = label.chars();
-        let mut shortened: String = chars.by_ref().take(max_chars).collect();
-        if chars.next().is_some() {
-            shortened.push('…');
-        }
-        shortened
+    fn short_label(label: &str, max_chars: usize) -> Cow<'_, str> {
+        let Some((end, _)) = label.char_indices().nth(max_chars) else {
+            return Cow::Borrowed(label);
+        };
+        let mut shortened = String::with_capacity(end + '…'.len_utf8());
+        shortened.push_str(&label[..end]);
+        shortened.push('…');
+        Cow::Owned(shortened)
     }
 
     fn draw_status(display: &mut Display, theme: &SimpleSelectTheme, text: &str) {
@@ -379,7 +387,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
         let text = Self::short_label(text, 32);
         display.draw_text(
             &Text::from_string(
-                &text,
+                text.as_ref(),
                 Font::new(FontSize::MEDIUM, FontFamily::Proportional),
                 [8, y_start + 4],
             ),
@@ -404,16 +412,28 @@ impl<I: SelectorItem + 'static> StatusHandle<I> {
         self.state.borrow_mut().selection_enabled = enabled;
     }
 
-    pub fn replace_options(&self, options: Vec<I>, selected: usize) {
+    /// Replaces the choices. Returns false if the incoming list is empty.
+    pub fn replace_options(&self, options: Vec<I>, selected: usize) -> bool {
         if options.is_empty() {
-            return;
+            return false;
         }
+        let options: Vec<_> = options.into_iter().map(Rc::new).collect();
         let mut state = self.state.borrow_mut();
         state.selection = selected.min(options.len() - 1);
-        state.options = options;
+        state.selection_revision = state.selection_revision.wrapping_add(1);
+        let old = std::mem::replace(&mut state.options, options);
         state.active_row = None;
         state.options_dirty = true;
         state.status_dirty = true;
+        drop(state);
+        drop(old);
+        true
+    }
+
+    pub(crate) fn add_option(&self, option: I) {
+        let mut state = self.state.borrow_mut();
+        state.options.push(Rc::new(option));
+        state.options_dirty = true;
     }
 
     pub fn show_status(&self, text: impl Into<String>) {
@@ -441,8 +461,11 @@ impl<I: SelectorItem + 'static> StatusHandle<I> {
     }
 
     pub fn with_selection<T>(&self, read: impl FnOnce(&I) -> T) -> T {
-        let state = self.state.borrow();
-        read(&state.options[state.selection])
+        let option = {
+            let state = self.state.borrow();
+            Rc::clone(&state.options[state.selection])
+        };
+        read(option.as_ref())
     }
 
     pub fn selection(&self) -> I
@@ -466,13 +489,13 @@ impl<I: SelectorItem + Clone + 'static> SelectionController<I> {
     }
 
     pub fn consume_selection_change(&mut self) -> Option<I> {
-        let selection_index = self.status.selection_index();
+        let revision = self.status.state.borrow().selection_revision;
 
-        if self.last_selection == Some(selection_index) {
+        if self.last_selection == Some(revision) {
             return None;
         }
 
-        self.last_selection = Some(selection_index);
+        self.last_selection = Some(revision);
         let selection = self.status.selection();
         Some(selection)
     }

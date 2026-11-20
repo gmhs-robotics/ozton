@@ -10,7 +10,7 @@ pub mod lift;
 pub mod loops;
 
 mod tolerances;
-pub use tolerances::Tolerances;
+pub use tolerances::{Settling, Tolerances};
 
 pub mod heading_hold;
 pub mod protection;

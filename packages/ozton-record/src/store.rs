@@ -5,17 +5,21 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    rc::Rc,
     time::Duration,
 };
 
 use crate::{
-    frame::{Frameable, Recording, RecordingError},
+    frame::{
+        FrameSchema, Frameable, Recording, RecordingError, archive_header, decode_archive,
+        write_archive,
+    },
     routes::RouteIndex,
     selector::RecordTarget,
 };
 
 const MAX_INDEX_BYTES: u64 = 64 * 1024;
-const MAX_RECORDING_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_RECORDING_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ROUTE_ID: u32 = 4096;
 const MAX_ROUTES: usize = 32;
 pub(crate) const MAX_FRAMES: usize = 6001;
@@ -28,6 +32,32 @@ pub enum StoreError {
     InvalidRecording,
     MissingRoute,
     StorageFull,
+    StalePending,
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "{error}"),
+            Self::Archive(error) => write!(f, "{error}"),
+            Self::InvalidRecording => f.write_str("invalid recording"),
+            Self::MissingRoute => f.write_str("route does not exist"),
+            Self::StorageFull => f.write_str("recording storage is full"),
+            Self::StalePending => {
+                f.write_str("pending save belongs to another store or route revision")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StoreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Archive(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl From<io::Error> for StoreError {
@@ -42,16 +72,23 @@ impl From<RecordingError> for StoreError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
     label: String,
     file: u32,
 }
 
+struct Prepared {
+    owner: Rc<()>,
+    id: u32,
+    previous: Option<Entry>,
+    entry: Entry,
+}
+
 pub struct Pending<F: Frameable> {
     target: RecordTarget,
     recording: Recording<F>,
-    prepared: Option<(u32, Entry)>,
+    prepared: Option<Prepared>,
 }
 
 impl<F: Frameable> Pending<F> {
@@ -67,6 +104,7 @@ impl<F: Frameable> Pending<F> {
 /// Immutable recording files plus an append-only index. One owner writes a store.
 pub struct RouteStore {
     root: PathBuf,
+    owner: Rc<()>,
     routes: BTreeMap<u32, Entry>,
     next_file: u32,
 }
@@ -113,6 +151,7 @@ impl RouteStore {
         }
         Ok(Self {
             root,
+            owner: Rc::new(()),
             routes,
             next_file,
         })
@@ -128,7 +167,29 @@ impl RouteStore {
         self.routes.get(&route).map(|entry| entry.file)
     }
 
-    pub fn load<F: Frameable>(
+    /// Append a label update for a committed recording without replacing its file.
+    pub fn rename_route(&mut self, route: u32, label: &str) -> Result<(), StoreError> {
+        if label.trim().is_empty() || label.contains(['\t', '\n', '\r']) {
+            return Err(StoreError::InvalidRecording);
+        }
+        let entry = self
+            .routes
+            .get_mut(&route)
+            .ok_or(StoreError::MissingRoute)?;
+        if entry.label == label {
+            return Ok(());
+        }
+        let mut index = OpenOptions::new()
+            .append(true)
+            .open(self.root.join(RouteIndex::INDEX_PATH))?;
+        let row = journal_append(route, label, entry.file, index.metadata()?.len())?;
+        index.write_all(row.as_bytes())?;
+        index.sync_all()?;
+        entry.label = label.to_owned();
+        Ok(())
+    }
+
+    pub fn load<F: Frameable + FrameSchema>(
         &self,
         id: u32,
         max_duration: Duration,
@@ -142,7 +203,7 @@ impl RouteStore {
         )
     }
 
-    pub fn save<F: Frameable>(
+    pub fn save<F: Frameable + FrameSchema>(
         &mut self,
         pending: &mut Pending<F>,
         max_duration: Duration,
@@ -155,7 +216,8 @@ impl RouteStore {
             Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
             Err(error) => return Err(error.into()),
         };
-        if pending.prepared.is_none() {
+        let retrying = pending.prepared.is_some();
+        if !retrying {
             let (id, label) = match pending.target {
                 RecordTarget::Off => return Err(StoreError::InvalidRecording),
                 RecordTarget::New => {
@@ -181,32 +243,58 @@ impl RouteStore {
             }
             let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&pending.recording)
                 .map_err(RecordingError::Rkyv)?;
-            if bytes.len() as u64 > MAX_RECORDING_BYTES {
+            let header = archive_header::<F>();
+            if bytes.len() as u64 + header.len() as u64 > MAX_RECORDING_BYTES {
                 return Err(StoreError::InvalidRecording);
             }
             let (file_id, path, mut file) = self.reserve(id, &label, index_length)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
+            let written = write_archive(&mut file, &header, &bytes)
+                .and_then(|()| file.sync_all().map_err(RecordingError::Io));
             drop(file);
-            load_file::<F>(&path, max_duration, &valid)?;
-            pending.prepared = Some((
+            if let Err(error) = written {
+                let _ = std::fs::remove_file(&path);
+                return Err(error.into());
+            }
+            drop(bytes);
+            if let Err(error) = load_file::<F>(&path, max_duration, &valid) {
+                let _ = std::fs::remove_file(&path);
+                return Err(error);
+            }
+            pending.prepared = Some(Prepared {
+                owner: Rc::clone(&self.owner),
                 id,
-                Entry {
+                previous: self.routes.get(&id).cloned(),
+                entry: Entry {
                     label,
                     file: file_id,
                 },
-            ));
+            });
         }
-        let (id, entry) = pending
+        let Prepared {
+            owner,
+            id,
+            previous,
+            entry,
+        } = pending
             .prepared
             .as_ref()
             .ok_or(StoreError::InvalidRecording)?;
-        if self
-            .routes
-            .get(id)
-            .is_some_and(|current| current.file == entry.file)
-        {
+        if !Rc::ptr_eq(owner, &self.owner) {
+            return Err(StoreError::StalePending);
+        }
+        let current = self.routes.get(id);
+        if current == Some(entry) {
             return Ok(*id);
+        }
+        if current != previous.as_ref() {
+            return Err(StoreError::StalePending);
+        }
+        if retrying {
+            load_file::<F>(
+                &self.root.join(RouteIndex::path_for(entry.file)),
+                max_duration,
+                &valid,
+            )?;
         }
         let row = journal_append(*id, &entry.label, entry.file, index_length)?;
         let mut index = OpenOptions::new()
@@ -228,12 +316,7 @@ impl RouteStore {
         for file_id in self.next_file..=MAX_ROUTE_ID {
             journal_append(route, label, file_id, index_length)?;
             let path = self.root.join(RouteIndex::path_for(file_id));
-            match OpenOptions::new()
-                .write(true)
-                .create(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(file) => {
                     self.next_file = file_id + 1;
                     return Ok((file_id, path, file));
@@ -288,7 +371,7 @@ fn index_row(line: &str) -> Option<(u32, &str, u32)> {
     (!label.is_empty() && fields.next().is_none()).then_some((id, label, file))
 }
 
-fn load_file<F: Frameable>(
+fn load_file<F: Frameable + FrameSchema>(
     path: &Path,
     max_duration: Duration,
     valid: impl Fn(&F) -> bool,
@@ -311,8 +394,7 @@ fn load_file<F: Frameable>(
     if bytes.len() as u64 != length {
         return Err(StoreError::InvalidRecording);
     }
-    let recording = rkyv::from_bytes::<Recording<F>, rkyv::rancor::Error>(&bytes)
-        .map_err(RecordingError::Rkyv)?;
+    let recording = decode_archive::<F>(&bytes)?;
     validate(&recording, max_duration, valid)?;
     Ok(recording)
 }

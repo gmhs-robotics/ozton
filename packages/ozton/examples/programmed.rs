@@ -21,10 +21,7 @@ use ozton::{
         competition::{Autonomous, CompetitionControls, CompetitionRobot, Tick},
         diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
     },
-    tracking::{
-        localizer::{PoseTrust, RangeSensorConfig},
-        mount::RobotPoint,
-    },
+    tracking::{localizer::RangeSensorConfig, mount::RobotPoint},
     uom::si::f64::{Angle, Length, Velocity},
 };
 use vexide::{
@@ -36,9 +33,10 @@ const START_HEADING: Angle = si(-core::f64::consts::FRAC_PI_2);
 const START: Pose = Pose::new(si(0.0), si(0.0), START_HEADING);
 const GEARED: GearRatio = GearRatio::from_teeth(36, 48);
 const DRIVER_FAULT_POLICY: DriverFaultPolicy = DriverFaultPolicy::Stop;
-const CONFIG: DifferentialConfig = DifferentialConfig {
-    journal_capacity: 2048,
-    ..DifferentialConfig::new(si(2.25 * INCH), si(0.30), si(0.50))
+const CONFIG: DifferentialConfig = {
+    let mut config = DifferentialConfig::new(si(2.25 * INCH), si(0.30), si(0.50));
+    config.journal_capacity = 2048;
+    config
 };
 const FRONT_MOUNT: RobotPoint = RobotPoint::new(si(0.0), si(0.15), si(0.0));
 // `front` is the first (and only) range registered with `TrackingSetup` below.
@@ -132,16 +130,11 @@ impl CompetitionControls<CompetitionBot> for Controls {
             let _ = CompetitionRobot::stop(robot);
             return None;
         };
-        let drive = robot
-            .drivetrain
-            .chassis
-            .drivetrain
-            .model
-            .drive_driver_arcade(
-                state.left_stick.y(),
-                state.right_stick.x(),
-                DRIVER_FAULT_POLICY,
-            );
+        let drive = robot.drivetrain.drive_driver_arcade(
+            state.left_stick.y(),
+            state.right_stick.x(),
+            DRIVER_FAULT_POLICY,
+        );
         robot.mark_driver_output(tick);
         if drive.is_err() && matches!(DRIVER_FAULT_POLICY, DriverFaultPolicy::Stop) {
             let _ = CompetitionRobot::stop(robot);
@@ -151,7 +144,7 @@ impl CompetitionControls<CompetitionBot> for Controls {
     }
 
     fn mode_changed(robot: &mut CompetitionBot, mode: CompetitionMode) {
-        let journal = &mut robot.drivetrain.chassis.journal;
+        let journal = robot.drivetrain.journal_mut();
         if mode == CompetitionMode::Disabled && !journal.is_empty() {
             match File::create("auton.csv").and_then(|file| journal.write_csv(file)) {
                 Ok(()) => journal.clear(),
@@ -166,7 +159,7 @@ impl AutonomousControls<CompetitionBot> for Controls {
     type CustomInput = ();
 
     fn sample(robot: &mut CompetitionBot) -> Result<Option<Feedback>, Self::Error> {
-        robot.drivetrain.chassis.sample(0)
+        robot.drivetrain.sample(0)
     }
 
     fn custom_input(_: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
@@ -178,11 +171,11 @@ impl AutonomousControls<CompetitionBot> for Controls {
         wheels: [Velocity; 2],
         dt: Duration,
     ) -> Result<(), Self::Error> {
-        robot.drivetrain.chassis.drive(wheels, dt)
+        robot.drivetrain.drive(wheels, dt)
     }
 
     fn stop_drive(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
-        robot.drivetrain.chassis.stop()
+        robot.drivetrain.stop()
     }
 
     fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
@@ -190,32 +183,19 @@ impl AutonomousControls<CompetitionBot> for Controls {
     }
 
     fn set_pose(robot: &mut CompetitionBot, pose: Pose) -> Result<(), Self::Error> {
-        robot.drivetrain.chassis.set_pose(pose)
+        robot.drivetrain.set_pose(pose)
     }
 
     fn pose_trusted(robot: &CompetitionBot) -> bool {
-        robot
-            .drivetrain
-            .chassis
-            .drivetrain
-            .tracking
-            .localizer
-            .pose_trust()
-            == PoseTrust::Trusted
+        robot.drivetrain.chassis().pose_trusted()
     }
 
     fn request_distance_reset(robot: &mut CompetitionBot) {
-        robot.drivetrain.chassis.request_distance_reset();
+        robot.drivetrain.request_distance_reset();
     }
 
     fn cancel_distance_reset(robot: &mut CompetitionBot) {
-        robot
-            .drivetrain
-            .chassis
-            .drivetrain
-            .tracking
-            .localizer
-            .cancel_distance_reset();
+        robot.drivetrain.cancel_distance_reset();
     }
 
     fn log_step(
@@ -225,10 +205,7 @@ impl AutonomousControls<CompetitionBot> for Controls {
         progress: Length,
         wheels: [Velocity; 2],
     ) {
-        robot
-            .drivetrain
-            .chassis
-            .log_step(elapsed, dt, progress, wheels);
+        robot.drivetrain.log_step(elapsed, dt, progress, wheels);
     }
 }
 
@@ -269,11 +246,12 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     auton
         .try_align(
             Alignment {
-                sensor: FRONT_RANGE_INDEX,
+                sensor: ozton::motion::auton::RangeId::from_index(FRONT_RANGE_INDEX)
+                    .ok_or(RouteError(AutonError::Configuration))?,
                 distance: si(1.10),
                 heading: START_HEADING,
                 maximum_speed: si(0.20),
-                direction: 1.0,
+                facing: ozton::motion::auton::RangeFacing::Front,
             },
             Duration::from_secs(2),
         )

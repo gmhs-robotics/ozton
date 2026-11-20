@@ -28,24 +28,32 @@ impl Follower {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Progress {
+#[derive(Debug)]
+pub struct Progress<'path> {
+    path: &'path Path,
     distance: f64,
-    segment: usize,
 }
 
-impl Progress {
+impl<'path> Progress<'path> {
+    pub fn new(path: &'path Path) -> Self {
+        Self {
+            path,
+            distance: 0.0,
+        }
+    }
+
     pub fn distance(&self) -> f64 {
         self.distance
     }
 
     /// Advances within a bounded local window to disambiguate crossing paths.
-    pub fn update(&mut self, path: &Path, position: DVec2, advance_limit: Length) {
+    pub fn update(&mut self, position: DVec2, advance_limit: Length) {
+        let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
         let mut best_error =
             position.distance_squared(path.at_distance(crate::si(self.distance)).position);
         let mut best_distance = self.distance;
-        for pair in path.samples[self.segment..].windows(2).take(64) {
+        for pair in path.samples[self.segment(path)..].windows(2).take(64) {
             let (a, b) = (pair[0], pair[1]);
             if a.distance > maximum {
                 break;
@@ -63,14 +71,17 @@ impl Progress {
             }
         }
         self.distance = best_distance;
-        self.segment = path
-            .samples
-            .partition_point(|point| point.distance <= self.distance)
-            .saturating_sub(1);
     }
 
-    fn lookahead(&self, path: &Path, position: DVec2, radius: f64) -> DVec2 {
-        for pair in path.samples[self.segment..].windows(2).take(128) {
+    fn segment(&self, path: &Path) -> usize {
+        path.samples
+            .partition_point(|point| point.distance <= self.distance)
+            .saturating_sub(1)
+    }
+
+    fn lookahead(&self, position: DVec2, radius: f64) -> DVec2 {
+        let path = self.path;
+        for pair in path.samples[self.segment(path)..].windows(2).take(128) {
             let (a, b) = (pair[0], pair[1]);
             let [_, exit] =
                 circle_segment_fractions(position, crate::si(radius), a.position, b.position);
@@ -84,18 +95,29 @@ impl Progress {
     }
 }
 
+/// Timing and pose for one follower tick.
+#[derive(Clone, Copy, Debug)]
+pub struct FollowerSample {
+    pub pose: Pose,
+    pub elapsed: Time,
+    pub period: Time,
+}
+
 /// Wheel speeds in meters per second. The caller owns settling and stopping.
 pub fn command(
     follower: Follower,
-    path: &Path,
-    progress: Progress,
-    pose: Pose,
-    elapsed: Time,
-    dt: Time,
+    progress: &Progress<'_>,
+    sample: FollowerSample,
     reverse: bool,
     position_tolerance: Length,
 ) -> [f64; 2] {
-    let (elapsed, dt, position_tolerance) = (elapsed.value, dt.value, position_tolerance.value);
+    let path = progress.path;
+    let pose = sample.pose;
+    let (elapsed, dt, position_tolerance) = (
+        sample.elapsed.value,
+        sample.period.value,
+        position_tolerance.value,
+    );
     let sign = if reverse { -1.0 } else { 1.0 };
     let facing = if reverse { PI } else { 0.0 };
     let end = path.end();
@@ -106,8 +128,7 @@ pub fn command(
                 heading: pose.heading + facing,
                 ..pose
             };
-            let target =
-                virtual_pose.to_local(progress.lookahead(path, pose.position, lookahead.value));
+            let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
             let reference = path.at_distance(crate::si(progress.distance));
             let speed = path.at_time(crate::si(reference.time + dt)).speed;
             if target.y < 0.0 {

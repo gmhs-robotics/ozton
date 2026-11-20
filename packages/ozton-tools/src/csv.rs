@@ -2,7 +2,7 @@
 
 use std::{error::Error, io::BufRead};
 
-use ozton_diagnostics::CSV_HEADER;
+use ozton_diagnostics::{CSV_HEADER, calibration::CalibrationSample};
 
 use crate::calibration::Dataset;
 
@@ -17,29 +17,35 @@ pub fn read(reader: impl BufRead, name: Option<&str>) -> Result<Dataset, Box<dyn
         if line.is_empty() {
             continue;
         }
-        let fields: Vec<_> = line.split(',').collect();
+        let mut fields = line.split(',');
+        let parsed = core::array::from_fn::<_, 9, _>(|_| fields.next());
         let row = index + 2;
-        if fields.len() != 9 || fields[0] != "1" || fields[1].parse::<u64>().is_err() {
+        let [
+            Some(version),
+            Some(timestamp),
+            Some(kind),
+            Some(label),
+            Some(a),
+            Some(b),
+            Some(c),
+            Some(_),
+            Some(_),
+        ] = parsed
+        else {
+            return Err(format!("malformed telemetry row {row}").into());
+        };
+        if fields.next().is_some() || version != "1" || timestamp.parse::<u64>().is_err() {
             return Err(format!("malformed telemetry row {row}").into());
         }
-        if name.is_some_and(|name| fields[3] != name) {
+        if name.is_some_and(|name| label != name) {
             continue;
         }
-        let count = match fields[2] {
-            "straight" | "voltage" => 3,
-            "turn" => 3,
-            "lateral-offset" | "forward-offset" | "range-calibration" => 2,
-            _ => continue,
-        };
-        let mut values = [0.0; 3];
-        for (value, field) in values[..count].iter_mut().zip(&fields[4..4 + count]) {
-            *value = field
-                .parse::<f64>()
-                .ok()
-                .filter(|value| value.is_finite())
-                .ok_or_else(|| format!("missing or invalid calibration sample on row {row}"))?;
+        if let Some(sample) =
+            CalibrationSample::parse(kind, [a, b, c].map(|field| field.parse().ok()))
+                .map_err(|_| format!("missing or invalid calibration sample on row {row}"))?
+        {
+            data.push_sample(sample);
         }
-        data.push(fields[2], values);
     }
     Ok(data)
 }

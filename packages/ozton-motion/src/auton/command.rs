@@ -7,7 +7,7 @@ use ozton_math::{
     geometry::{Pose, wheel_speeds, wrap_heading},
     path::{
         Path,
-        follower::{self, Follower, Progress},
+        follower::{self, Follower, FollowerSample, Progress},
     },
     si,
     uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
@@ -23,6 +23,8 @@ pub struct RangeFeedback {
 /// One tick of pose at The Origin in X-right/Y-forward metres and CCW radians from +Y.
 #[derive(Debug, Clone, Copy)]
 pub struct Feedback {
+    /// Snapshot time on the same monotonic clock as range packets.
+    pub time: Duration,
     pub pose: Pose,
     pub forward_travel: Length,
     pub forward_velocity: Velocity,
@@ -92,12 +94,26 @@ impl DriveOptions {
 /// Align to a known range and field heading. Waits at zero output during sensor loss.
 #[derive(Debug, Clone, Copy)]
 pub struct Alignment {
-    pub sensor: usize,
+    pub sensor: super::RangeId,
     pub distance: Length,
     pub heading: Angle,
     pub maximum_speed: Velocity,
-    /// +1 for a front-facing sensor, -1 for a rear-facing sensor.
-    pub direction: f64,
+    pub facing: RangeFacing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeFacing {
+    Front,
+    Rear,
+}
+
+impl RangeFacing {
+    const fn direction(self) -> f64 {
+        match self {
+            Self::Front => 1.0,
+            Self::Rear => -1.0,
+        }
+    }
 }
 
 /// Approach at bounded speed until a debounced switch verifies contact.
@@ -108,7 +124,16 @@ pub struct Contact<R> {
 }
 
 /// A mechanism action at a distance along a path, in meters.
-pub type PathMarker<R> = (Length, fn(&mut R));
+pub struct PathMarker<R> {
+    pub distance: Length,
+    pub action: fn(&mut R),
+}
+
+impl<R> PathMarker<R> {
+    pub const fn new(distance: Length, action: fn(&mut R)) -> Self {
+        Self { distance, action }
+    }
+}
 
 /// Evaluates contact evidence using the current pose and elapsed command time.
 pub type ContactCondition<'a, R> = &'a mut dyn FnMut(&R, Feedback, Duration) -> bool;
@@ -228,7 +253,9 @@ impl<R> Command<'_, R> {
                 follower.is_valid()
                     && (path.limits().track_width.value - options.track_width.value).abs() < 1e-6
                     && path.limits().wheel_speed <= options.maximum_wheel_speed
-                    && trigger.is_none_or(|(at, _)| (0.0..=path.end().distance).contains(&at.value))
+                    && trigger.as_ref().is_none_or(|marker| {
+                        (0.0..=path.end().distance).contains(&marker.distance.value)
+                    })
             }
             Self::FollowMarked {
                 path,
@@ -241,8 +268,10 @@ impl<R> Command<'_, R> {
                     && path.limits().wheel_speed <= options.maximum_wheel_speed
                     && markers
                         .iter()
-                        .all(|(at, _)| (0.0..=path.end().distance).contains(&at.value))
-                    && markers.windows(2).all(|pair| pair[0].0 <= pair[1].0)
+                        .all(|marker| (0.0..=path.end().distance).contains(&marker.distance.value))
+                    && markers
+                        .windows(2)
+                        .all(|pair| pair[0].distance <= pair[1].distance)
             }
             Self::Turn { heading } => heading.value.is_finite(),
             Self::DriveToPoint {
@@ -266,14 +295,12 @@ impl<R> Command<'_, R> {
                     && maximum_speed.value <= options.maximum_wheel_speed.value
             }
             Self::Align(alignment) => {
-                alignment.sensor < MAX_RANGES
-                    && alignment.distance.value.is_finite()
+                alignment.distance.value.is_finite()
                     && alignment.distance.value > 0.0
                     && alignment.heading.value.is_finite()
                     && (0.0..=options.maximum_wheel_speed.value)
                         .contains(&alignment.maximum_speed.value)
                     && alignment.maximum_speed.value > 0.0
-                    && alignment.direction.abs() == 1.0
             }
             Self::Contact(contact) => {
                 contact.known_pose.is_finite()
@@ -299,10 +326,11 @@ impl<R> Command<'_, R> {
 }
 
 #[derive(Default)]
-pub(super) struct State {
-    progress: Progress,
+pub(super) struct State<'path> {
+    progress: Option<Progress<'path>>,
     settled: Duration,
     fresh_range: Option<Duration>,
+    range_elapsed: Duration,
     settled_range: Option<Duration>,
     start_travel: Option<f64>,
     next_marker: usize,
@@ -315,10 +343,16 @@ pub(super) struct Step {
     pub lost: bool,
 }
 
-impl State {
+impl<'path> State<'path> {
+    pub(super) fn pause(&mut self) {
+        self.settled = Duration::ZERO;
+        self.settled_range = None;
+        self.range_elapsed = Duration::MAX;
+    }
+
     pub(super) fn step<R>(
         &mut self,
-        command: &mut Command<'_, R>,
+        command: &mut Command<'path, R>,
         robot: &mut R,
         feedback: Feedback,
         elapsed: Duration,
@@ -366,23 +400,22 @@ impl State {
                 reverse,
                 ..
             } => {
-                self.progress.update(
-                    path,
+                let progress = self.progress.get_or_insert_with(|| Progress::new(path));
+                progress.update(
                     feedback.pose.position,
                     ozton_math::si(options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0),
                 );
                 let end = path.end();
                 let tracking_error = path
-                    .at_distance(ozton_math::si(self.progress.distance()))
+                    .at_distance(ozton_math::si(progress.distance()))
                     .position
                     .distance(feedback.pose.position);
                 lost = tracking_error > 0.35
                     || (matches!(follower, Follower::Ramsete { .. })
                         && elapsed.as_secs_f64() >= end.time
-                        && self.progress.distance() < end.distance - 0.20);
+                        && progress.distance() < end.distance - 0.20);
                 let heading = end.heading + if *reverse { core::f64::consts::PI } else { 0.0 };
-                let ready = self.progress.distance()
-                    >= end.distance - options.position_tolerance.value
+                let ready = progress.distance() >= end.distance - options.position_tolerance.value
                     && feedback.pose.position.distance(end.position)
                         <= options.position_tolerance.value
                     && error_at(heading).abs() <= options.heading_tolerance.value;
@@ -391,11 +424,12 @@ impl State {
                 } else {
                     follower::command(
                         *follower,
-                        path,
-                        self.progress,
-                        feedback.pose,
-                        ozton_math::si(elapsed.as_secs_f64()),
-                        ozton_math::si(dt.as_secs_f64()),
+                        progress,
+                        FollowerSample {
+                            pose: feedback.pose,
+                            elapsed: ozton_math::si(elapsed.as_secs_f64()),
+                            period: ozton_math::si(dt.as_secs_f64()),
+                        },
                         *reverse,
                         options.position_tolerance,
                     )
@@ -404,7 +438,7 @@ impl State {
                     let distance = if ready {
                         end.distance
                     } else {
-                        self.progress.distance()
+                        progress.distance()
                     };
                     self.trigger(command, robot, distance);
                 }
@@ -469,9 +503,27 @@ impl State {
                 )
             }
             Command::Align(alignment) => {
-                if let Some(range) = feedback.ranges[alignment.sensor] {
+                self.range_elapsed = self.range_elapsed.saturating_add(dt);
+                let range = feedback.ranges[alignment.sensor.index()].filter(|range| {
+                    feedback
+                        .time
+                        .checked_sub(range.timestamp)
+                        .is_some_and(|age| age <= Duration::from_millis(100))
+                        && range.distance.value.is_finite()
+                        && range.distance.value > 0.0
+                        && self
+                            .fresh_range
+                            .is_none_or(|timestamp| range.timestamp >= timestamp)
+                });
+                if let Some(range) = range
+                    && (self.fresh_range != Some(range.timestamp)
+                        || self.range_elapsed <= Duration::from_millis(100))
+                {
                     fresh_alignment_range = self.fresh_range != Some(range.timestamp);
-                    self.fresh_range = Some(range.timestamp);
+                    if fresh_alignment_range {
+                        self.fresh_range = Some(range.timestamp);
+                        self.range_elapsed = Duration::ZERO;
+                    }
                     let distance_error = range.distance.value - alignment.distance.value;
                     let heading_error = error_at(alignment.heading.value);
                     let position_ready = distance_error.abs() <= options.position_tolerance.value;
@@ -479,7 +531,7 @@ impl State {
                     let linear = if position_ready || heading_error.abs() > 0.2 {
                         0.0
                     } else {
-                        (2.0 * distance_error * alignment.direction).clamp(
+                        (2.0 * distance_error * alignment.facing.direction()).clamp(
                             -alignment.maximum_speed.value,
                             alignment.maximum_speed.value,
                         )
@@ -548,7 +600,7 @@ impl State {
         Step {
             wheels,
             complete,
-            progress: self.progress.distance(),
+            progress: self.progress.as_ref().map_or(0.0, Progress::distance),
             lost,
         }
     }
@@ -556,19 +608,21 @@ impl State {
     fn trigger<R>(&mut self, command: &mut Command<'_, R>, robot: &mut R, distance: f64) {
         match command {
             Command::Follow { trigger, .. } => {
-                if trigger.is_some_and(|(at, _)| distance >= at.value)
-                    && let Some((_, action)) = trigger.take()
+                if trigger
+                    .as_ref()
+                    .is_some_and(|marker| distance >= marker.distance.value)
+                    && let Some(marker) = trigger.take()
                 {
-                    action(robot);
+                    (marker.action)(robot);
                 }
             }
             Command::FollowMarked { markers, .. } => {
-                while let Some(&(at, action)) = markers.get(self.next_marker) {
-                    if distance < at.value {
+                while let Some(marker) = markers.get(self.next_marker) {
+                    if distance < marker.distance.value {
                         break;
                     }
                     self.next_marker += 1;
-                    action(robot);
+                    (marker.action)(robot);
                 }
             }
             _ => {}
@@ -590,6 +644,7 @@ mod settling_tests {
         let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
         let mut state = State::default();
         let mut feedback = Feedback {
+            time: Duration::ZERO,
             pose: Pose::default(),
             forward_travel: si(0.0),
             forward_velocity: si(0.0),
@@ -629,6 +684,7 @@ mod settling_tests {
         let mut command = Command::WaitUntil(|_: &()| true);
         let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
         let mut feedback = Feedback {
+            time: Duration::ZERO,
             pose: Pose::default(),
             forward_travel: si(0.0),
             forward_velocity: si(0.0),

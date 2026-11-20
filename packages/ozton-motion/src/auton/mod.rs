@@ -13,7 +13,9 @@ mod sequence;
 mod setup;
 
 pub use calibration::{Calibration, CalibrationTrial};
-pub use command::{Alignment, Command, Contact, DriveOptions, Feedback, PathMarker, RangeFeedback};
+pub use command::{
+    Alignment, Command, Contact, DriveOptions, Feedback, PathMarker, RangeFacing, RangeFeedback,
+};
 pub use competition::{ProgrammedRobot, compete};
 pub use controls::{AutonomousControls, ScoringControls};
 pub use robot::{Robot, StockTick};

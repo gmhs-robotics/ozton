@@ -117,7 +117,7 @@ impl<D: AxisDimension> Feedforward for MotorFeedforward<D> {
         let static_voltage = if setpoint.velocity.value == 0.0 {
             0.0
         } else {
-            self.ks.value * setpoint.velocity.value.signum()
+            static_voltage(self.ks.value, setpoint.velocity.value)
         };
         si(static_voltage
             + self.kv * setpoint.velocity.value
@@ -229,7 +229,7 @@ impl Feedforward for ArmFeedforward {
         _dt: core::time::Duration,
     ) -> ElectricPotential {
         si(self.kg.value * setpoint.position.value.cos()
-            + self.ks.value * setpoint.velocity.value.signum()
+            + static_voltage(self.ks.value, setpoint.velocity.value)
             + self.kv * setpoint.velocity.value
             + self.ka * setpoint.acceleration.value)
     }
@@ -334,8 +334,16 @@ impl Feedforward for ElevatorFeedforward {
         _dt: core::time::Duration,
     ) -> ElectricPotential {
         si(self.kg.value
-            + self.ks.value * setpoint.velocity.value.signum()
+            + static_voltage(self.ks.value, setpoint.velocity.value)
             + self.kv * setpoint.velocity.value
             + self.ka * setpoint.acceleration.value)
+    }
+}
+
+fn static_voltage(gain: f64, velocity: f64) -> f64 {
+    if velocity == 0.0 {
+        0.0
+    } else {
+        gain * velocity.signum()
     }
 }

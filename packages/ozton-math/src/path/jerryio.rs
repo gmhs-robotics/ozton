@@ -87,30 +87,6 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
     Ok(points)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn trims_ghost_and_ignores_editor_bytes() {
-        let points = parse(
-            b"0, 0, 127\r\n0, 6, 100\r\n0, 12, 0\r\n0, 12, 127\r\n0, 32, 0\r\nendData\r\n\xff",
-        )
-        .unwrap();
-        assert_eq!(points.len(), 3);
-        assert_eq!(points[0].speed_fraction, 1.0);
-        assert_eq!(
-            points[2],
-            Waypoint::new(
-                crate::si(0.0),
-                crate::si(Length::new::<inch>(12.0).value),
-                0.0
-            )
-        );
-        assert_eq!(parse(b"0,0,NaN\nendData"), Err(ImportError::InvalidRow(1)));
-    }
-}
-
 /// A chain keeps the authored junction and profiles through it in one motion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainError {
@@ -159,4 +135,28 @@ pub fn parse_chain(segments: &[&[u8]]) -> Result<Vec<Waypoint>, ChainError> {
         return Err(ChainError::Empty);
     }
     Ok(chain)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trims_ghost_and_ignores_editor_bytes() {
+        let points = parse(
+            b"0, 0, 127\r\n0, 6, 100\r\n0, 12, 0\r\n0, 12, 127\r\n0, 32, 0\r\nendData\r\n\xff",
+        )
+        .unwrap();
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[0].speed_fraction, 1.0);
+        assert_eq!(
+            points[2],
+            Waypoint::new(
+                crate::si(0.0),
+                crate::si(Length::new::<inch>(12.0).value),
+                0.0
+            )
+        );
+        assert_eq!(parse(b"0,0,NaN\nendData"), Err(ImportError::InvalidRow(1)));
+    }
 }

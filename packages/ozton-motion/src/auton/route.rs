@@ -236,13 +236,17 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
         self.runner
             .try_align(
                 Alignment {
-                    sensor: sensor.0,
+                    sensor,
                     distance: target.distance,
                     heading: target.heading,
                     maximum_speed: ozton_math::si(
                         target.maximum_speed.value.min(maximum_speed.value),
                     ),
-                    direction: if target.rear_facing { -1.0 } else { 1.0 },
+                    facing: if target.rear_facing {
+                        super::RangeFacing::Rear
+                    } else {
+                        super::RangeFacing::Front
+                    },
                 },
                 timeout,
             )
@@ -427,14 +431,15 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> CompetitionApp for R
         self.robot
             .set_pose(route.start)
             .map_err(AutonError::Robot)?;
-        let settings = self.robot.drive.settings;
+        let max_control_gap = self.robot.drive.settings.max_control_gap;
+        let route_timeout = self.robot.drive.settings.route_timeout;
         let options = self.robot.drive.drive_options;
         let runner = Runner::new(
             &mut self.robot,
             options,
             CONTROL_PERIOD,
-            settings.max_control_gap,
-            settings.route_timeout,
+            max_control_gap,
+            route_timeout,
         )?;
         route
             .run

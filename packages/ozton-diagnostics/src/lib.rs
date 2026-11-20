@@ -57,15 +57,24 @@ impl Journal {
         self.events.is_empty()
     }
 
-    pub fn push(&mut self, event: Event) {
+    /// Store a valid row. Disabled journals and malformed labels return false.
+    pub fn push(&mut self, event: Event) -> bool {
         if !self.enabled() {
-            return;
+            return false;
+        }
+        if [event.kind, event.name]
+            .iter()
+            .any(|label| label.contains([',', '\r', '\n', '"']))
+        {
+            self.dropped = self.dropped.saturating_add(1);
+            return false;
         }
         if self.events.len() == self.capacity {
             self.events.pop_front();
             self.dropped = self.dropped.saturating_add(1);
         }
         self.events.push_back(event);
+        true
     }
 
     pub fn dropped(&self) -> u64 {
@@ -85,15 +94,6 @@ impl Journal {
             writeln!(writer, "1,0,journal,dropped,{},,,,", self.dropped)?;
         }
         for event in &self.events {
-            if [event.kind, event.name]
-                .iter()
-                .any(|label| label.contains([',', '\r', '\n', '"']))
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid telemetry label",
-                ));
-            }
             write!(
                 writer,
                 "1,{},{},{}",

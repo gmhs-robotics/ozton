@@ -1,6 +1,11 @@
 //! Programmed route selection and a budgeted competition loop for custom robots.
 
-use std::time::{Duration, Instant};
+use std::{
+    future::{Future, poll_fn},
+    pin::{Pin, pin},
+    task::Poll,
+    time::{Duration, Instant},
+};
 
 use vexide::{
     competition::{self, CompetitionMode},
@@ -261,8 +266,7 @@ pub fn route_menu<R: CompetitionRobot>(display: Display) -> RouteMenu<Option<R::
     autonomous_menu(display).menu
 }
 
-/// Run the common mode loop. Route code that drives over multiple ticks should
-/// use Ozton's runner or otherwise check disable itself.
+/// Run the common mode loop, cancelling any route when autonomous ends.
 pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
     let _sd_writer = crate::diagnostics::start_sd_logging();
     crate::diagnostic_event!("boot,control_period_us={}", R::CONTROL_PERIOD.as_micros());
@@ -311,18 +315,32 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
                         .status(&format!("Autonomous: {}", route.label()));
                     crate::diagnostic_event!("auton_route={},state=start", route.label());
                     let result = match robot.stop() {
-                        Ok(()) => route.run(&mut robot).await,
-                        Err(error) => Err(error),
+                        Ok(()) => while_autonomous(route.run(&mut robot), R::CONTROL_PERIOD).await,
+                        Err(error) => Some(Err(error)),
                     };
-                    match result.and(robot.stop()) {
-                        Ok(()) => {
+                    let stopped = robot.stop();
+                    match (result, stopped) {
+                        (Some(Ok(())), Ok(())) => {
                             robot.menu().status("Autonomous complete");
                             crate::diagnostic_event!(
                                 "auton_route={},state=complete",
                                 route.label()
                             );
                         }
-                        Err(error) => robot.route_failed(route, error),
+                        (None, Ok(())) => {
+                            robot.menu().status("Autonomous cancelled");
+                            crate::diagnostic_event!(
+                                "auton_route={},state=cancelled",
+                                route.label()
+                            );
+                        }
+                        (Some(Err(error)), Err(stop)) => {
+                            robot.route_failed(route, error);
+                            robot.route_failed(route, stop);
+                        }
+                        (Some(Err(error)), Ok(())) | (_, Err(error)) => {
+                            robot.route_failed(route, error);
+                        }
                     }
                 } else {
                     robot.menu().status("Autonomous disabled");
@@ -339,6 +357,26 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         robot.after_tick(mode, tick);
         sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
     }
+}
+
+async fn while_autonomous<T>(route: impl Future<Output = T>, period: Duration) -> Option<T> {
+    let mut route = pin!(route);
+    let interval = period.clamp(Duration::from_millis(1), CONTROL_PERIOD);
+    let mut mode_check = sleep(interval);
+    poll_fn(|cx| {
+        if competition::mode() != CompetitionMode::Autonomous {
+            return Poll::Ready(None);
+        }
+        if let Poll::Ready(result) = route.as_mut().poll(cx) {
+            return Poll::Ready(Some(result));
+        }
+        if Pin::new(&mut mode_check).poll(cx).is_ready() {
+            mode_check = sleep(interval);
+            let _ = Pin::new(&mut mode_check).poll(cx);
+        }
+        Poll::Pending
+    })
+    .await
 }
 
 fn control_sleep(period: Duration, work: Duration) -> Duration {

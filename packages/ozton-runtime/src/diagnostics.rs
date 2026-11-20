@@ -250,7 +250,7 @@ pub fn report_drive(frame: Frame, drive: &ozton_drivetrain::resilient::Resilient
     frame.row("DRIVE", format_args!(
         "left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={left_rev:.6},right_rev={right_rev:.6},left_m={left:.5},right_m={right:.5},wheel_dia_m={:.6},max_wheel_mps={:.5},write_failed={},fault_count={}",
         snapshot.command[0], snapshot.command[1], snapshot.scale,
-        geometry.wheel_diameter.value, geometry.maximum_wheel_speed.value,
+        geometry.wheel_diameter().value, geometry.maximum_wheel_speed().value,
         u8::from(snapshot.write_failed), snapshot.fault_count,
     ));
     drive.visit_motors(|side, index, motor| {

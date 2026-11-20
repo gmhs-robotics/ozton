@@ -13,6 +13,10 @@ struct DummyFrame {
     value: u8,
 }
 
+impl ozton_record::frame::FrameSchema for DummyFrame {
+    const SCHEMA_ID: u64 = ozton_record::frame::schema_id("NonSendRobotFrame.value.v1");
+}
+
 impl Interpolate for DummyFrame {
     fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
         Self {

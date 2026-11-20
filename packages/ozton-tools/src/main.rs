@@ -78,5 +78,5 @@ fn import(path: &Path, mut writer: impl Write) -> Result<(), Box<dyn Error>> {
 fn calibrate(path: &Path, name: Option<&str>, writer: impl Write) -> Result<(), Box<dyn Error>> {
     let reader = BufReader::new(fs::File::open(path)?);
     let data = csv::read(reader, name)?;
-    calibration::report(data, writer)
+    calibration::report(&data, writer)
 }

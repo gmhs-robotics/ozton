@@ -13,9 +13,9 @@
 
 ## Overview
 
-`ozton` is a VEX V5 framework with two mutually exclusive competition modes.
+`ozton` is a VEX V5 framework with programmed and recording competition loops.
 `programmed` is the default. Build with `--no-default-features --features recording`
-for recording and playback. Test each mode separately.
+for recording only. Test each mode separately and check feature unification.
 
 Workspace crates live under `packages/`.
 

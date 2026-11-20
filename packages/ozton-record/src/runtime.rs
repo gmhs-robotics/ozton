@@ -118,7 +118,7 @@ impl<R: Recordable + 'static> RecordingAutonomous<R> {
     }
 
     fn interval() -> Duration {
-        R::UPDATE_INTERVAL.clamp(Duration::from_millis(1), MAX_FRAME_GAP)
+        crate::frame::recording_interval(R::UPDATE_INTERVAL)
     }
 
     fn maximum() -> Duration {
@@ -195,7 +195,7 @@ impl<R: Recordable + 'static> Compete for RecordingAutonomous<R> {
             let now = Instant::now();
             let frame = self.robot.get_new_frame().await;
             let capture = if self.capture.is_some() {
-                let valid = self.robot.playback_ready();
+                let valid = self.robot.playback_ready() && self.robot.devices_ready();
                 if valid {
                     let finalized = self.robot.finalize_frame(&frame).await;
                     R::valid_frame(&finalized).then_some(finalized)
@@ -205,12 +205,15 @@ impl<R: Recordable + 'static> Compete for RecordingAutonomous<R> {
             } else {
                 None
             };
-            let result = self.robot.apply_frame(&frame, RecordMode::Live).await;
+            if let Err(error) = self.robot.apply_frame(&frame, RecordMode::Live).await {
+                self.capture = None;
+                self.robot.on_playback_abort().await;
+                self.status.show_status_persistent("Driver output failed");
+                crate::log_error!("recording.live: apply failed: {error:?}");
+                continue;
+            }
             if let Some((_, session)) = &mut self.capture {
-                let result = match (capture, result) {
-                    (Some(frame), Ok(())) => session.push(frame, now),
-                    _ => Err(()),
-                };
+                let result = capture.ok_or(()).and_then(|frame| session.push(frame, now));
                 match result {
                     Ok(true) => {}
                     Ok(false) => {

@@ -2,6 +2,8 @@
 
 use std::{error::Error, f64::consts::PI, io::Write};
 
+use ozton_diagnostics::calibration::CalibrationSample;
+
 pub const COLUMNS: &str = "kind               a                       b                       c
 straight           reference distance (m)  left wheel turns        right wheel turns
 turn               reference heading (rad) left wheel travel (m)   right wheel travel (m)
@@ -22,17 +24,34 @@ pub struct Dataset {
 }
 
 impl Dataset {
-    pub fn push(&mut self, kind: &str, values: [f64; 3]) {
-        match kind {
-            "straight" => &mut self.straight,
-            "turn" => &mut self.turn,
-            "lateral-offset" => &mut self.lateral,
-            "forward-offset" => &mut self.forward,
-            "range-calibration" => &mut self.range,
-            "voltage" => &mut self.voltage,
-            _ => return,
+    pub fn push_sample(&mut self, sample: CalibrationSample) {
+        match sample {
+            CalibrationSample::Straight {
+                meters,
+                wheel_turns: [left, right],
+            } => self.straight.push([meters, left, right]),
+            CalibrationSample::Turn {
+                radians,
+                wheel_travel: [left, right],
+            } => self.turn.push([radians, left, right]),
+            CalibrationSample::ForwardOffset {
+                radians,
+                pod_travel,
+            } => self.forward.push([radians, pod_travel, 0.0]),
+            CalibrationSample::LateralOffset {
+                radians,
+                pod_travel,
+            } => self.lateral.push([radians, pod_travel, 0.0]),
+            CalibrationSample::Range {
+                reference,
+                measured,
+            } => self.range.push([reference, measured, 0.0]),
+            CalibrationSample::Voltage {
+                speed,
+                acceleration,
+                volts,
+            } => self.voltage.push([speed, acceleration, volts]),
         }
-        .push(values);
     }
 }
 
@@ -43,7 +62,7 @@ struct Estimate {
     rmse: f64,
 }
 
-pub fn report(data: Dataset, mut writer: impl Write) -> Result<(), Box<dyn Error>> {
+pub fn report(data: &Dataset, mut writer: impl Write) -> Result<(), Box<dyn Error>> {
     let mut estimates = Vec::new();
     for (rows, name, sample, positive) in [
         (

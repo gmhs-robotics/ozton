@@ -1,16 +1,12 @@
 //! GPS-backed field tracking.
 
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::{Duration, Instant},
-};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use glam::DVec2 as Vec2;
 use ozton_math::{geometry::Pose, si, uom::si::f64::Length};
 use vexide::{
     math::Angle,
-    smart::{PortError, gps::GpsSensor},
+    smart::{PortError, SmartDevice, gps::GpsSensor},
     task::{Task, spawn},
     time::sleep,
 };
@@ -88,7 +84,9 @@ impl GpsTracking {
             config.required_stable_samples,
             config.max_position_error
         );
-        let _ = gps.set_data_interval(config.update_interval);
+        if let Err(error) = gps.set_data_interval(config.update_interval) {
+            log!("gps.with_config: device interval rejected: {error:?}");
+        }
 
         let data = Rc::new(RefCell::new(GpsTrackingData {
             ..Default::default()
@@ -138,9 +136,11 @@ impl GpsTracking {
 
     fn is_position_usable(config: GpsTrackingConfig, position_error: Option<Length>) -> bool {
         position_error.is_some_and(|error| {
-            config
-                .max_position_error
-                .is_none_or(|maximum| error <= maximum)
+            error.value.is_finite()
+                && error.value >= 0.0
+                && config
+                    .max_position_error
+                    .is_none_or(|maximum| error <= maximum)
         })
     }
 
@@ -157,107 +157,95 @@ impl GpsTracking {
             sleep(config.startup_delay).await;
         }
 
-        let mut prev_position = Self::read_position(&gps, config.field_origin).unwrap_or_default();
-        let mut prev_heading = Self::read_heading(&gps, config.field_origin).unwrap_or_default();
-        let mut prev_time = Instant::now();
-        {
-            let mut data = data.borrow_mut();
-            data.position = prev_position;
-            data.heading = prev_heading;
-            data.position_error = gps.error().ok().map(si);
-            data.status = gps.status().ok();
-            data.stable_samples = 0;
-            data.ready = false;
-        }
-        log!("gps.task: started");
+        let interval = config.update_interval.max(Duration::from_millis(1));
+        let max_gap = interval.saturating_mul(3).max(Duration::from_millis(100));
+        let mut previous = None;
+        let mut last_packet = None;
+        let mut since_packet = std::time::Instant::now();
 
         loop {
-            sleep(config.update_interval).await;
-
-            let dt = prev_time.elapsed();
-            prev_time = Instant::now();
-
-            let mut data = data.borrow_mut();
-            data.position_error = gps.error().ok().map(si);
-            data.status = gps.status().ok();
-            log!(
-                "gps.task: dt={}us raw_error={:?} raw_status={:?}",
-                dt.as_micros(),
-                data.position_error,
-                data.status
-            );
-
-            let heading_result = Self::read_heading(&gps, config.field_origin);
-            let heading = heading_result.unwrap_or(prev_heading);
-            let delta_heading = (heading - prev_heading).wrapped_half();
-            let dt_seconds = dt.as_secs_f64();
-
-            data.heading = heading;
-            data.angular_velocity = if dt_seconds > 0.0 {
-                Self::read_angular_velocity(&gps)
-                    .unwrap_or_else(|_| delta_heading.as_radians() / dt_seconds)
-            } else {
-                0.0
+            sleep(interval).await;
+            let packet = (|| {
+                let timestamp = gps.timestamp().ok()?;
+                let position_error = gps.error().ok()?;
+                let position = Self::read_position(&gps, config.field_origin).ok()?;
+                let heading = Self::read_heading(&gps, config.field_origin).ok()?;
+                let rate = Self::read_angular_velocity(&gps)
+                    .ok()
+                    .filter(|rate| rate.is_finite());
+                let status = gps.status().ok();
+                let after = gps.timestamp().ok()?;
+                (timestamp == after && position.is_finite() && heading.as_radians().is_finite())
+                    .then_some((
+                        timestamp,
+                        position,
+                        heading,
+                        si(position_error),
+                        rate,
+                        status,
+                    ))
+            })();
+            if packet
+                .as_ref()
+                .is_some_and(|(time, ..)| last_packet == Some(*time))
+                && since_packet.elapsed() <= max_gap
+            {
+                continue;
+            }
+            let mut state = data.borrow_mut();
+            let Some((time, position, heading, error, rate, status)) = packet else {
+                previous = None;
+                state.ready = false;
+                state.stable_samples = 0;
+                state.linear_velocity = 0.0;
+                state.angular_velocity = 0.0;
+                continue;
             };
-            log!(
-                "gps.task: heading={:?} delta_heading_rad={:.4} angular_velocity={:.4}",
-                data.heading,
-                delta_heading.as_radians(),
-                data.angular_velocity
-            );
+            if last_packet.is_some_and(|last| time <= last) {
+                previous = None;
+                state.ready = false;
+                state.stable_samples = 0;
+                state.linear_velocity = 0.0;
+                state.angular_velocity = 0.0;
+                continue;
+            }
+            last_packet = Some(time);
+            since_packet = std::time::Instant::now();
+            state.position_error = Some(error);
+            state.status = status;
+            if !Self::is_position_usable(config, Some(error)) {
+                previous = None;
+                state.ready = false;
+                state.stable_samples = 0;
+                state.linear_velocity = 0.0;
+                state.angular_velocity = 0.0;
+                continue;
+            }
 
-            let position_is_usable = Self::is_position_usable(config, data.position_error);
-            let position_result = if position_is_usable {
-                Self::read_position(&gps, config.field_origin).ok()
-            } else {
-                None
-            };
-            let sample_is_usable = heading_result.is_ok() && position_result.is_some();
-
-            if let Some(position) = position_result {
-                let delta_position = position - prev_position;
-                let avg_heading = (prev_heading + (delta_heading / 2.0)).wrapped_full();
-                let local_displacement =
-                    Vec2::from_angle(-avg_heading.as_radians()).rotate(delta_position);
-
-                data.position = position;
-                data.forward_travel += local_displacement.y;
-                data.linear_velocity = if dt_seconds > 0.0 {
-                    local_displacement.y / dt_seconds
+            state.position = position;
+            state.heading = heading;
+            state.linear_velocity = 0.0;
+            state.angular_velocity = rate.unwrap_or(0.0);
+            if let Some((last_time, last_position, last_heading)) =
+                previous.replace((time, position, heading))
+            {
+                let span = time.duration_since(last_time);
+                if !span.is_zero() && span <= max_gap {
+                    let delta_heading = (heading - last_heading).wrapped_half();
+                    let midpoint = last_heading + delta_heading / 2.0;
+                    let delta = Vec2::from_angle(-midpoint.as_radians())
+                        .rotate(position - last_position)
+                        .y;
+                    state.forward_travel += delta;
+                    state.linear_velocity = delta / span.as_secs_f64();
+                    state.angular_velocity =
+                        rate.unwrap_or(delta_heading.as_radians() / span.as_secs_f64());
                 } else {
-                    0.0
-                };
-                log!(
-                    "gps.task: position accepted position={position:?} delta_position={delta_position:?} local_displacement={local_displacement:?} forward_travel={:.4} linear_velocity={:.4}",
-                    data.forward_travel,
-                    data.linear_velocity
-                );
-
-                prev_position = position;
-            } else {
-                data.linear_velocity = 0.0;
-                log!(
-                    "gps.task: position rejected usable={} error={:?} max_allowed={:?}",
-                    position_is_usable,
-                    data.position_error,
-                    config.max_position_error
-                );
+                    state.stable_samples = 0;
+                }
             }
-
-            if sample_is_usable {
-                data.stable_samples = data.stable_samples.saturating_add(1);
-            } else {
-                data.stable_samples = 0;
-            }
-            data.ready = data.stable_samples >= config.required_stable_samples;
-            log!(
-                "gps.task: sample_is_usable={} stable_samples={} ready={}",
-                sample_is_usable,
-                data.stable_samples,
-                data.ready
-            );
-
-            prev_heading = heading;
+            state.stable_samples = state.stable_samples.saturating_add(1);
+            state.ready = state.stable_samples >= config.required_stable_samples.max(1);
         }
     }
 }

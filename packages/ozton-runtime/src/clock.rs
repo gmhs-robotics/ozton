@@ -13,15 +13,19 @@ pub struct CommandClock {
 
 impl CommandClock {
     pub fn new(period: Duration) -> Option<Self> {
-        (!period.is_zero()).then(|| Self {
-            previous: Instant::now(),
-            period,
-        })
+        let previous = Instant::now();
+        if period.is_zero() {
+            return None;
+        }
+        previous.checked_add(period)?;
+        Some(Self { previous, period })
     }
 
     /// Includes work since the previous tick and avoids catch-up bursts after a stall.
     pub async fn tick(&mut self) -> Duration {
-        sleep_until(self.previous + self.period).await;
+        if let Some(deadline) = self.previous.checked_add(self.period) {
+            sleep_until(deadline).await;
+        }
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.previous);
         self.previous = now;

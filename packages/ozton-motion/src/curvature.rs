@@ -116,7 +116,7 @@ impl CurvatureDrive {
         let remapped_turn = self.remap_turn(turn);
 
         let (linear_power, angular_power) = if turn_in_place {
-            (remapped_turn * remapped_turn.abs(), 0.0)
+            (0.0, remapped_turn * remapped_turn.abs())
         } else {
             let neg_inertia_power = (turn - self.prev_turn) * self.negative_inertia_scalar;
             self.negative_inertia_accumulator += neg_inertia_power;
@@ -140,6 +140,9 @@ impl CurvatureDrive {
 
     fn remap_turn(&self, turn: f64) -> f64 {
         let denominator = (FRAC_PI_2 * self.turn_nonlinearity).sin();
+        if !denominator.is_finite() || denominator.abs() < f64::EPSILON {
+            return turn;
+        }
         let first_remap = (FRAC_PI_2 * self.turn_nonlinearity * turn).sin() / denominator;
         (FRAC_PI_2 * self.turn_nonlinearity * first_remap).sin() / denominator
     }

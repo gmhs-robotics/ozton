@@ -30,7 +30,7 @@ macro_rules! record_frame {
         $(#[$meta:meta])*
         $vis:vis struct $name:ident {
             $(
-                $(#[$field_meta:meta])*
+                $(#[$($field_meta:tt)*])*
                 $field_vis:vis $field:ident : $ty:ty
             ),* $(,)?
         }
@@ -47,20 +47,44 @@ macro_rules! record_frame {
         $(#[$meta])*
         $vis struct $name {
             $(
-                $(#[$field_meta])*
+                $(#[$($field_meta)*])*
                 $field_vis $field: $ty,
             )*
         }
 
+        impl $crate::frame::FrameSchema for $name {
+            const SCHEMA_ID: u64 = $crate::frame::schema_id(concat!(
+                module_path!(), "::", stringify!($name),
+                $(stringify!($field: $ty), ";",)*
+            ));
+        }
+
         impl $crate::Interpolate for $name {
             fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
-                Self {
-                    $(
-                        $field: $crate::Interpolate::interpolate(&from.$field, &to.$field, amount),
-                    )*
-                }
+                $crate::record_frame!(@interpolate (from, to, amount) [] $(
+                    ($field [$(#[$($field_meta)*])*])
+                )*)
+
             }
         }
+    };
+    (@interpolate ($from:ident, $to:ident, $amount:ident) [$($fields:tt)*]) => {
+        Self { $($fields)* }
+    };
+    (@interpolate $args:tt $fields:tt ($field:ident [$($meta:tt)*]) $($rest:tt)*) => {
+        $crate::record_frame!(@attributes $args $fields $field [] [$($meta)*] $($rest)*)
+    };
+    (@attributes ($from:ident, $to:ident, $amount:ident) [$($fields:tt)*] $field:ident [$($kept:tt)*] [] $($rest:tt)*) => {
+        $crate::record_frame!(@interpolate ($from, $to, $amount) [
+            $($fields)*
+            $($kept)* $field: $crate::Interpolate::interpolate(&$from.$field, &$to.$field, $amount),
+        ] $($rest)*)
+    };
+    (@attributes $args:tt $fields:tt $field:ident [$($kept:tt)*] [#[cfg($($cfg:tt)*)] $($meta:tt)*] $($rest:tt)*) => {
+        $crate::record_frame!(@attributes $args $fields $field [$($kept)* #[cfg($($cfg)*)]] [$($meta)*] $($rest)*)
+    };
+    (@attributes $args:tt $fields:tt $field:ident $kept:tt [#[$_ignored:meta] $($meta:tt)*] $($rest:tt)*) => {
+        $crate::record_frame!(@attributes $args $fields $field $kept [$($meta)*] $($rest)*)
     };
 }
 

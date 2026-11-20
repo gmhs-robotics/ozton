@@ -43,28 +43,53 @@ where
 
 // MARK: Future Poll
 
+impl<M, T, I> Drop for PurePursuitFuture<'_, M, T, I>
+where
+    M: Tank,
+    T: TracksPosition + TracksHeading,
+    I: Iterator<Item = Waypoint> + Unpin,
+{
+    fn drop(&mut self) {
+        if self.state.is_some() {
+            let _ = self.drivetrain.model.stop_now();
+        }
+    }
+}
+
 impl<M, T, I> Future for PurePursuitFuture<'_, M, T, I>
 where
     M: Tank,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {
-    type Output = ();
+    type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
         if this.state.is_none() {
             if !this.lookahead_distance.is_finite() || this.lookahead_distance <= 0.0 {
-                drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-                return Poll::Ready(());
+                this.state = None;
+                return Poll::Ready(
+                    this.drivetrain
+                        .model
+                        .stop_now()
+                        .map_err(crate::MotionError::Stop)
+                        .and(Err(crate::MotionError::InvalidPath)),
+                );
             }
             let now = Instant::now();
             let position = this.drivetrain.tracking.position();
 
             let Some(mut next) = this.waypoints.next() else {
-                drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-                return Poll::Ready(()); // path is empty
+                this.state = None;
+                return Poll::Ready(
+                    this.drivetrain
+                        .model
+                        .stop_now()
+                        .map_err(crate::MotionError::Stop)
+                        .and(Err(crate::MotionError::InvalidPath)),
+                );
             };
 
             // We want an initial intersection to handle the case where the robot
@@ -75,7 +100,7 @@ where
             // close to the first waypoint in the path.
             let mut current = Waypoint {
                 position,
-                velocity: next.velocity,
+                speed_fraction: next.speed_fraction,
             };
 
             // Keep iterating line segments until we find one we haven't intersected.
@@ -84,8 +109,11 @@ where
                 next = if let Some(next_waypoint) = this.waypoints.next() {
                     next_waypoint
                 } else {
-                    drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-                    return Poll::Ready(());
+                    this.state = None;
+                    return Poll::Ready(crate::finish_motion(
+                        this.drivetrain.model.stop_now(),
+                        crate::MotionOutcome::Settled,
+                    ));
                 };
             }
 
@@ -97,8 +125,14 @@ where
                 next.position,
             ) {
                 (None, None) => {
-                    drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-                    return Poll::Ready(());
+                    this.state = None;
+                    return Poll::Ready(
+                        this.drivetrain
+                            .model
+                            .stop_now()
+                            .map_err(crate::MotionError::Stop)
+                            .and(Err(crate::MotionError::InvalidPath)),
+                    );
                 }
 
                 // One intersection; use that.
@@ -134,8 +168,11 @@ where
             .timeout
             .is_some_and(|timeout| state.start_time.elapsed() > timeout)
         {
-            drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-            return Poll::Ready(());
+            this.state = None;
+            return Poll::Ready(crate::finish_motion(
+                this.drivetrain.model.stop_now(),
+                crate::MotionOutcome::TimedOut,
+            ));
         }
 
         // Tracking data (robot position and heading)
@@ -153,8 +190,11 @@ where
                 next_waypoint
             } else {
                 // We're out of waypoints, meaning the end of path has been reached.
-                drop(this.drivetrain.model.drive_tank(0.0, 0.0));
-                return Poll::Ready(());
+                this.state = None;
+                return Poll::Ready(crate::finish_motion(
+                    this.drivetrain.model.stop_now(),
+                    crate::MotionOutcome::Settled,
+                ));
             };
         }
 
@@ -183,20 +223,26 @@ where
             }
         };
 
-        // Take the profiled velocity of the closest point to the robot on the path.
+        // Take the profiled speed fraction of the closest point to the robot on the path.
         let velocity =
             if state.current.position.distance(position) < state.next.position.distance(position) {
-                state.current.velocity
+                state.current.speed_fraction
             } else {
-                state.next.velocity
+                state.next.speed_fraction
             };
 
         let curvature = signed_arc_curvature(position, heading, state.lookahead_point);
 
-        drop(this.drivetrain.model.drive_tank(
+        if let Err(output) = this.drivetrain.model.drive_tank(
             velocity * (2.0 + curvature * this.track_width) / 2.0,
             velocity * (2.0 - curvature * this.track_width) / 2.0,
-        ));
+        ) {
+            this.state = None;
+            return Poll::Ready(Err(crate::motion_output_error(
+                output,
+                this.drivetrain.model.stop_now(),
+            )));
+        }
 
         state.sleep = sleep(Duration::from_millis(5));
         cx.waker().wake_by_ref();
@@ -254,6 +300,19 @@ fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
     -pursuit_curvature(pose.to_local(end))
 }
 
+/// Finds the intersection points between a line segment and a circle.
+fn line_segment_circle_intersections(
+    center: Vec2,
+    radius: f64,
+    start: Vec2,
+    end: Vec2,
+) -> (Option<Vec2>, Option<Vec2>) {
+    let [first, last] =
+        ozton_math::geometry::circle_segment_fractions(center, ozton_math::si(radius), start, end)
+            .map(|fraction| fraction.map(|value| start.lerp(end, value)));
+    (first, last)
+}
+
 #[cfg(test)]
 mod tests {
     use glam::DVec2;
@@ -268,17 +327,4 @@ mod tests {
         assert!(curvature.is_finite());
         assert!((curvature - 2.0).abs() < 1e-10);
     }
-}
-
-/// Finds the intersection points between a line segment and a circle.
-fn line_segment_circle_intersections(
-    center: Vec2,
-    radius: f64,
-    start: Vec2,
-    end: Vec2,
-) -> (Option<Vec2>, Option<Vec2>) {
-    let [first, last] =
-        ozton_math::geometry::circle_segment_fractions(center, ozton_math::si(radius), start, end)
-            .map(|fraction| fraction.map(|value| start.lerp(end, value)));
-    (first, last)
 }

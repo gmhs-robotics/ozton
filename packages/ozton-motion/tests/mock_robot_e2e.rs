@@ -230,15 +230,17 @@ fn seeking_motion() -> Seeking<Pid, Pid> {
 #[test]
 fn basic_motion_reaches_distance_and_heading_goals() {
     let mut drivetrain = new_drivetrain();
-    let mut motion = basic_motion();
+    let motion = basic_motion();
 
     block_on(async {
         motion
             .drive_distance(&mut drivetrain, ozton_math::si(1.2))
-            .await;
+            .await
+            .expect("motion output succeeds");
         motion
             .turn_to_point(&mut drivetrain, [ozton_math::si(-1.2), ozton_math::si(1.2)])
-            .await;
+            .await
+            .expect("motion output succeeds");
     });
 
     let final_position = drivetrain.tracking.position();
@@ -268,18 +270,21 @@ fn basic_motion_reaches_distance_and_heading_goals() {
 #[test]
 fn seeking_motion_reaches_multiple_waypoints() {
     let mut drivetrain = new_drivetrain();
-    let mut motion = seeking_motion();
+    let motion = seeking_motion();
 
     block_on(async {
         motion
             .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
-            .await;
+            .await
+            .expect("motion output succeeds");
         motion
             .move_to_point(&mut drivetrain, [ozton_math::si(-1.0), ozton_math::si(1.0)])
-            .await;
+            .await
+            .expect("motion output succeeds");
         motion
             .move_to_point(&mut drivetrain, [ozton_math::si(-1.4), ozton_math::si(0.4)])
-            .await;
+            .await
+            .expect("motion output succeeds");
     });
 
     let final_position = drivetrain.tracking.position();
@@ -308,7 +313,8 @@ fn reverse_seeking_drives_backward_to_target() {
         motion
             .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
             .reverse()
-            .await;
+            .await
+            .expect("motion output succeeds");
     });
 
     let final_position = drivetrain.tracking.position();

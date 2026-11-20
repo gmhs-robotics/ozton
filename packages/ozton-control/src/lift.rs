@@ -18,6 +18,55 @@ pub struct LiftProfile {
     pub position_gain: f64,
 }
 
+impl LiftProfile {
+    pub const fn is_valid(self) -> bool {
+        self.bottom.value.is_finite()
+            && self.top.value.is_finite()
+            && self.top.value > self.bottom.value
+            && self.up_maximum_command >= 0.0
+            && self.up_maximum_command <= 1.0
+            && self.down_maximum_command >= 0.0
+            && self.down_maximum_command <= 1.0
+            && self.up_rise_per_second.is_finite()
+            && self.up_rise_per_second >= 0.0
+            && self.down_rise_per_second.is_finite()
+            && self.down_rise_per_second >= 0.0
+            && self.position_gain.is_finite()
+            && self.position_gain >= 0.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiftDirection {
+    Up,
+    Hold,
+    Down,
+}
+
+impl LiftDirection {
+    pub const fn from_signed(direction: i8) -> Self {
+        match direction.signum() {
+            1 => Self::Up,
+            -1 => Self::Down,
+            _ => Self::Hold,
+        }
+    }
+
+    const fn sign(self) -> f64 {
+        match self {
+            Self::Up => 1.0,
+            Self::Down => -1.0,
+            Self::Hold => 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LiftTarget {
+    Manual(LiftDirection),
+    Position(Angle),
+}
+
 /// Produces one command shared by both lift motors.
 pub struct LiftController {
     profile: LiftProfile,
@@ -26,6 +75,7 @@ pub struct LiftController {
 
 impl LiftController {
     pub const fn new(profile: LiftProfile) -> Self {
+        assert!(profile.is_valid(), "invalid lift profile");
         Self {
             profile,
             command: 0.0,
@@ -45,8 +95,30 @@ impl LiftController {
         position: Option<Angle>,
         dt: Duration,
     ) -> f64 {
-        let target = target.map(|angle| angle.get::<degree>());
+        let target = target.map_or(
+            LiftTarget::Manual(LiftDirection::from_signed(requested_direction)),
+            LiftTarget::Position,
+        );
+        self.update_target(target, position, dt)
+    }
+
+    pub fn update_target(
+        &mut self,
+        target: LiftTarget,
+        position: Option<Angle>,
+        dt: Duration,
+    ) -> f64 {
+        let (manual_direction, target) = match target {
+            LiftTarget::Manual(direction) => (direction.sign(), None),
+            LiftTarget::Position(target) => (0.0, Some(target.get::<degree>())),
+        };
         let position = position.map(|angle| angle.get::<degree>());
+        if target.is_some_and(|target| !target.is_finite())
+            || position.is_some_and(|position| !position.is_finite())
+        {
+            self.reset();
+            return 0.0;
+        }
         let direction = match target {
             Some(target) if position.is_some_and(|position| (target - position).abs() <= 3.0) => {
                 self.reset();
@@ -59,7 +131,7 @@ impl LiftController {
                     return 0.0;
                 }
             },
-            None => f64::from(requested_direction.signum()),
+            None => manual_direction,
         };
         if direction == 0.0 {
             self.reset();

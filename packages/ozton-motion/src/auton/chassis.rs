@@ -31,15 +31,22 @@ pub enum ChassisError {
 }
 
 /// Native wheel velocity control, or shared PID/feedforward controllers in SI units.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum WheelControl {
     Native,
-    Voltage([AxisController<Linear>; 2]),
+    Voltage(Box<[AxisController<Linear>; 2]>),
+}
+
+impl WheelControl {
+    /// Allocate the two controllers once, during configuration.
+    pub fn voltage(controllers: [AxisController<Linear>; 2]) -> Self {
+        Self::Voltage(Box::new(controllers))
+    }
 }
 
 pub struct Chassis<'a, E: PoseEstimator = Filter> {
-    pub drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
-    pub sensors: SharedSensors,
+    pub(super) drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
+    sensors: SharedSensors,
     pub journal: Journal,
     control: WheelControl,
     wheels: [Option<WheelFeedback>; 2],
@@ -62,6 +69,9 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         {
             return None;
         }
+        if drivetrain.tracking.distances.len() != drivetrain.tracking.localizer.range_count() {
+            return None;
+        }
         Some(Self {
             drivetrain,
             sensors,
@@ -77,9 +87,30 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         })
     }
 
+    /// Drive from operator inputs using the requested fault policy.
+    pub fn drive_driver_arcade(
+        &mut self,
+        throttle: f64,
+        steer: f64,
+        policy: ozton_drivetrain::model::DriverFaultPolicy,
+    ) -> Result<(), PortError> {
+        self.drivetrain
+            .model
+            .drive_driver_arcade(throttle, steer, policy)
+    }
+
+    pub fn pose_trusted(&self) -> bool {
+        self.drivetrain.tracking.localizer.pose_trust()
+            == ozton_tracking::localizer::PoseTrust::Trusted
+    }
+
+    pub fn cancel_distance_reset(&mut self) {
+        self.drivetrain.tracking.localizer.cancel_distance_reset();
+    }
+
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
-        self.wheels = self.drivetrain.model.feedback();
+        self.wheels = self.drivetrain.model.sample_feedback();
         let (snapshot, ranges) = self.sensors.capture_with_distances(
             &mut self.drivetrain.tracking.distances,
             self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),
@@ -117,6 +148,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         }
         self.log_tracking(update);
         Ok(Some(Feedback {
+            time: snapshot.time,
             pose: update.pose,
             forward_velocity: ozton_math::si(update.forward_velocity),
             lateral_velocity: ozton_math::si(update.lateral_velocity),
@@ -141,7 +173,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     .drivetrain
                     .model
                     .wheel_speed_limit()
-                    .expect("validated at construction");
+                    .ok_or(ChassisError::InvalidCommand)?;
                 let power = target.map(|speed| speed / limit.value);
                 self.drivetrain
                     .model

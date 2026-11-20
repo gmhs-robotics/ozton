@@ -72,6 +72,14 @@ impl Distances {
         Some(distances)
     }
 
+    pub fn len(&self) -> usize {
+        self.devices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.devices.is_empty()
+    }
+
     /// Count responsive devices, including those that see no object.
     pub fn ready_count(&self) -> usize {
         self.devices

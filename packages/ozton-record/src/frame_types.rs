@@ -16,7 +16,7 @@ use vexide::{
     smart::{PortError, motor::MotorControl},
 };
 
-use crate::frame::RecordMode;
+use crate::frame::{PlaybackError, RecordMode};
 
 /// A value that can be interpolated between two samples.
 pub trait Interpolate: Clone {
@@ -31,8 +31,15 @@ macro_rules! impl_numeric_interpolate {
         $(
             impl Interpolate for $ty {
                 fn interpolate(from: &Self, to: &Self, amount: f64) -> Self {
-                    let amount = amount.clamp(0.0, 1.0);
-                    (*from as f64 + ((*to as f64) - (*from as f64)) * amount).round() as $ty
+                    if amount <= 0.0 { return *from; }
+                    if amount >= 1.0 { return *to; }
+                    let delta = to.abs_diff(*from);
+                    let offset = ((delta as f64 * amount).round() as u128).min(delta as u128);
+                    if from <= to {
+                        from.wrapping_add(offset as $ty)
+                    } else {
+                        from.wrapping_sub(offset as $ty)
+                    }
                 }
             }
         )*
@@ -94,6 +101,16 @@ pub trait RecordField {
         frame: &Self::Output,
         mode: RecordMode,
     ) -> Result<(), PortError>;
+
+    fn playback_ready(&self) -> bool {
+        true
+    }
+
+    async fn apply_playback_value(&mut self, frame: &Self::Output) -> Result<(), PlaybackError> {
+        self.apply_frame_value(frame, RecordMode::Playback)
+            .await
+            .map_err(Into::into)
+    }
 
     /// Stops any motor-like output after playback completes.
     async fn stop_playback(&mut self) -> Result<(), PortError> {
@@ -272,6 +289,24 @@ pub struct DifferentialVoltagePlayback {
     pub max_turn_correction: f64,
 }
 
+impl DifferentialVoltagePlayback {
+    pub fn is_valid(self) -> bool {
+        [
+            self.longitudinal_gain,
+            self.lateral_gain,
+            self.heading_gain,
+            self.linear_velocity_gain,
+            self.angular_velocity_gain,
+            self.max_drive_correction,
+            self.max_turn_correction,
+        ]
+        .iter()
+        .all(|gain| gain.is_finite())
+            && self.max_drive_correction >= 0.0
+            && self.max_turn_correction >= 0.0
+    }
+}
+
 impl Default for DifferentialVoltagePlayback {
     fn default() -> Self {
         Self {
@@ -289,7 +324,7 @@ impl Default for DifferentialVoltagePlayback {
 /// Wrapper around a [`Drivetrain`] that adds recording/playback behavior while still dereferencing
 /// to the underlying drivetrain for manual autonomous code and motion helpers.
 pub struct RecordableDrivetrain<M: DrivetrainModel, T: Tracking> {
-    pub drivetrain: Drivetrain<M, T>,
+    drivetrain: Drivetrain<M, T>,
     differential_playback: DifferentialPlayback,
     playback_origin: Option<(TrackedMotionFrame, TrackedMotionFrame)>,
 }
@@ -337,6 +372,7 @@ impl<M: Tank<Error = PortError>, T: DifferentialRecording> RecordableDrivetrain<
     }
 
     pub fn set_differential_playback(&mut self, playback: DifferentialPlayback) {
+        self.playback_origin = None;
         self.differential_playback = playback;
     }
 
@@ -346,10 +382,12 @@ impl<M: Tank<Error = PortError>, T: DifferentialRecording> RecordableDrivetrain<
     }
 
     pub fn use_voltage_correction(&mut self, playback: DifferentialVoltagePlayback) {
+        self.playback_origin = None;
         self.differential_playback = DifferentialPlayback::VoltageCorrection(playback);
     }
 
     pub fn use_motion_tracking(&mut self, playback: DifferentialVoltagePlayback) {
+        self.playback_origin = None;
         self.differential_playback = DifferentialPlayback::MotionTracking(playback);
     }
 }
@@ -364,6 +402,7 @@ impl<M: DrivetrainModel, T: Tracking> Deref for RecordableDrivetrain<M, T> {
 
 impl<M: DrivetrainModel, T: Tracking> DerefMut for RecordableDrivetrain<M, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        self.playback_origin = None;
         &mut self.drivetrain
     }
 }
@@ -630,6 +669,46 @@ where
 {
     type Output = DifferentialVoltageFrame;
 
+    fn playback_ready(&self) -> bool {
+        matches!(self.differential_playback, DifferentialPlayback::RawVoltage)
+            || self.drivetrain.tracking.tracked_motion_frame().is_some()
+    }
+
+    async fn apply_playback_value(&mut self, frame: &Self::Output) -> Result<(), PlaybackError> {
+        let (tuning, include_recorded_voltage) = match self.differential_playback {
+            DifferentialPlayback::RawVoltage => {
+                return self
+                    .drivetrain
+                    .model
+                    .drive_tank(frame.left, frame.right)
+                    .map_err(Into::into);
+            }
+            DifferentialPlayback::VoltageCorrection(tuning) => (tuning, true),
+            DifferentialPlayback::MotionTracking(tuning) => (tuning, false),
+        };
+        if !tuning.is_valid() {
+            return Err(PlaybackError::InvalidCorrection);
+        }
+        let current = self
+            .drivetrain
+            .tracking
+            .tracked_motion_frame()
+            .ok_or(PlaybackError::TrackingUnavailable)?;
+        let origin = *self.playback_origin.get_or_insert((frame.motion, current));
+        let target = DifferentialVoltageFrame {
+            motion: relative_motion(frame.motion, origin.0, origin.1),
+            ..*frame
+        };
+        apply_tracked_differential_motion(
+            &mut self.drivetrain.model,
+            current,
+            &target,
+            tuning,
+            include_recorded_voltage,
+        )
+        .map_err(Into::into)
+    }
+
     async fn finalize_frame_value(&self, frame: &Self::Output) -> Self::Output {
         let mut out = *frame;
         if let Some(motion) = self.drivetrain.tracking.tracked_motion_frame() {
@@ -645,40 +724,12 @@ where
     ) -> Result<(), PortError> {
         match mode {
             RecordMode::Live => self.drivetrain.model.drive_tank(frame.left, frame.right),
-            RecordMode::Playback => match (
-                self.differential_playback,
-                if matches!(self.differential_playback, DifferentialPlayback::RawVoltage) {
-                    None
-                } else {
-                    self.drivetrain.tracking.tracked_motion_frame()
-                },
-            ) {
-                (DifferentialPlayback::RawVoltage, _) | (_, None) => {
-                    self.drivetrain.model.drive_tank(frame.left, frame.right)
-                }
-                (DifferentialPlayback::VoltageCorrection(playback), Some(current)) => {
-                    let origin = *self.playback_origin.get_or_insert((frame.motion, current));
-                    let mut target = *frame;
-                    target.motion = relative_motion(frame.motion, origin.0, origin.1);
-                    apply_tracked_differential_motion(
-                        &mut self.drivetrain.model,
-                        current,
-                        &target,
-                        playback,
-                        true,
-                    )
-                }
-                (DifferentialPlayback::MotionTracking(playback), Some(current)) => {
-                    let origin = *self.playback_origin.get_or_insert((frame.motion, current));
-                    let mut target = *frame;
-                    target.motion = relative_motion(frame.motion, origin.0, origin.1);
-                    apply_tracked_differential_motion(
-                        &mut self.drivetrain.model,
-                        current,
-                        &target,
-                        playback,
-                        false,
-                    )
+            RecordMode::Playback => match self.apply_playback_value(frame).await {
+                Ok(()) => Ok(()),
+                Err(PlaybackError::Device(error)) => Err(error),
+                Err(error) => {
+                    crate::log_error!("recording.playback: corrected frame rejected: {error:?}");
+                    self.stop_playback().await
                 }
             },
         }
@@ -695,18 +746,35 @@ pub fn apply_tracked_differential_frame<M, T>(
     drivetrain: &mut Drivetrain<M, T>,
     playback: DifferentialPlayback,
     target: &DifferentialVoltageFrame,
-) -> Result<(), PortError>
+) -> Result<(), PlaybackError>
 where
     M: Tank<Error = PortError>,
     T: DifferentialRecording,
 {
     if matches!(playback, DifferentialPlayback::RawVoltage) {
-        return drivetrain.model.drive_tank(target.left, target.right);
+        return drivetrain
+            .model
+            .drive_tank(target.left, target.right)
+            .map_err(Into::into);
     }
-    let Some(current) = drivetrain.tracking.tracked_motion_frame() else {
-        return drivetrain.model.drive_tank(target.left, target.right);
-    };
+    let current = drivetrain
+        .tracking
+        .tracked_motion_frame()
+        .ok_or(PlaybackError::TrackingUnavailable)?;
 
+    let tuning = match playback {
+        DifferentialPlayback::VoltageCorrection(tuning)
+        | DifferentialPlayback::MotionTracking(tuning) => tuning,
+        DifferentialPlayback::RawVoltage => {
+            return drivetrain
+                .model
+                .drive_tank(target.left, target.right)
+                .map_err(Into::into);
+        }
+    };
+    if !tuning.is_valid() {
+        return Err(PlaybackError::InvalidCorrection);
+    }
     match playback {
         DifferentialPlayback::RawVoltage => drivetrain.model.drive_tank(target.left, target.right),
         DifferentialPlayback::VoltageCorrection(playback) => apply_tracked_differential_motion(
@@ -724,14 +792,15 @@ where
             false,
         ),
     }
+    .map_err(Into::into)
 }
 
-/// Backwards-compatible helper for the tracked-voltage playback mode.
+/// Convenience helper for the tracked-voltage playback mode.
 pub fn apply_differential_voltage_frame<M, T>(
     drivetrain: &mut Drivetrain<M, T>,
     playback: DifferentialVoltagePlayback,
     target: &DifferentialVoltageFrame,
-) -> Result<(), PortError>
+) -> Result<(), PlaybackError>
 where
     M: Tank<Error = PortError>,
     T: DifferentialRecording,
@@ -853,15 +922,17 @@ fn tracked_playback_correction(
         - playback.heading_gain * heading_error
         - playback.angular_velocity_gain * angular_velocity_error;
 
-    let output = (
-        drive_correction.clamp(
-            -playback.max_drive_correction,
-            playback.max_drive_correction,
-        ),
-        turn_correction.clamp(-playback.max_turn_correction, playback.max_turn_correction),
-    );
-
-    output
+    let bounded = |correction: f64, limit: f64| {
+        if correction.is_finite() && limit.is_finite() && limit >= 0.0 {
+            correction.clamp(-limit, limit)
+        } else {
+            0.0
+        }
+    };
+    (
+        bounded(drive_correction, playback.max_drive_correction),
+        bounded(turn_correction, playback.max_turn_correction),
+    )
 }
 
 fn desaturate_pair(left: f64, right: f64, max: f64) -> [f64; 2] {

@@ -1,11 +1,6 @@
-//! Ozton's programmed or recording competition framework.
+//! Ozton's programmed and recording competition framework.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-#[cfg(all(feature = "programmed", feature = "recording"))]
-compile_error!("Ozton requires exactly one mode. For recording, disable default features.");
-#[cfg(not(any(feature = "programmed", feature = "recording")))]
-compile_error!("Ozton requires either the programmed or recording feature.");
 
 pub use ozton_control as control;
 #[cfg(feature = "recording")]

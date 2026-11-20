@@ -127,7 +127,7 @@ pub(crate) fn delta(
             * seconds,
     )
     .map(|distance| (distance, config.forward_offset.value))
-    .or_else(|| match (left, right) {
+    .or(match (left, right) {
         (Some(left), Some(right)) => Some(((left + right) * 0.5, 0.0)),
         (Some(left), None) if config.track_width.value > 0.0 => {
             Some((left, -config.track_width.value * 0.5))

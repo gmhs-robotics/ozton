@@ -25,6 +25,7 @@ type SharedSide = Rc<RefCell<dyn AsMut<[Motor]>>>;
     reason = "geared motor storage is deliberately inline"
 )]
 enum Side {
+    Owned(Box<[Motor]>),
     Shared(SharedSide),
     Geared(GearedSide),
 }
@@ -35,6 +36,7 @@ impl Side {
             motor.set_voltage(motor_voltage(output, motor.max_voltage(), absolute))
         };
         match self {
+            Self::Owned(motors) => each(motors.as_mut(), apply),
             Self::Shared(motors) => each(motors.borrow_mut().as_mut(), apply),
             Self::Geared(motors) => each(motors, |motor| apply(&mut motor.motor)),
         }
@@ -53,6 +55,7 @@ impl Side {
 
     fn stop(&mut self, brake: BrakeMode) -> Result<(), PortError> {
         match self {
+            Self::Owned(motors) => each(motors.as_mut(), |motor| motor.brake(brake)),
             Self::Shared(motors) => each(motors.borrow_mut().as_mut(), |motor| motor.brake(brake)),
             Self::Geared(motors) => each(motors, |motor| motor.motor.brake(brake)),
         }
@@ -60,7 +63,7 @@ impl Side {
 
     fn feedback(
         &self,
-        consensus: &RefCell<crate::feedback::EncoderConsensus>,
+        consensus: &mut crate::feedback::EncoderConsensus,
         dt: std::time::Duration,
     ) -> Option<WheelFeedback> {
         let Self::Geared(motors) = self else {
@@ -78,7 +81,7 @@ impl Side {
                     velocity: si(velocity / motor.rpm_per_meter_per_second),
                 });
         }
-        consensus.borrow_mut().sample(&samples[..motors.len()], dt)
+        consensus.sample(&samples[..motors.len()], dt)
     }
 
     fn wheel_load(&self) -> Option<WheelLoad> {
@@ -105,6 +108,7 @@ impl Side {
     fn voltage_feedback(&self) -> Option<f64> {
         match self {
             Self::Geared(motors) => motors.first()?.motor.voltage().ok(),
+            Self::Owned(motors) => motors.first()?.voltage().ok(),
             Self::Shared(motors) => motors.borrow_mut().as_mut().first()?.voltage().ok(),
         }
     }
@@ -190,16 +194,14 @@ pub struct Differential {
     anti_tip: Option<TipControl>,
     previous: Instant,
     brake: BrakeMode,
-    feedback: [RefCell<crate::feedback::EncoderConsensus>; 2],
-    feedback_time: std::cell::Cell<Instant>,
+    consensus: [crate::feedback::EncoderConsensus; 2],
+    last_feedback: [Option<WheelFeedback>; 2],
+    feedback_time: Instant,
 }
 
 impl Differential {
-    pub fn new<L: AsMut<[Motor]> + 'static, R: AsMut<[Motor]> + 'static>(
-        left: L,
-        right: R,
-    ) -> Self {
-        Self::from_shared(Rc::new(RefCell::new(left)), Rc::new(RefCell::new(right)))
+    pub fn new(left: impl Into<Box<[Motor]>>, right: impl Into<Box<[Motor]>>) -> Self {
+        Self::from_sides([Side::Owned(left.into()), Side::Owned(right.into())], None)
     }
 
     pub fn from_shared<L: AsMut<[Motor]> + 'static, R: AsMut<[Motor]> + 'static>(
@@ -259,10 +261,9 @@ impl Differential {
             anti_tip: None,
             previous: Instant::now(),
             brake: BrakeMode::Brake,
-            feedback: core::array::from_fn(|_| {
-                RefCell::new(crate::feedback::EncoderConsensus::default())
-            }),
-            feedback_time: std::cell::Cell::new(Instant::now()),
+            consensus: core::array::from_fn(|_| crate::feedback::EncoderConsensus::default()),
+            last_feedback: [None; 2],
+            feedback_time: Instant::now(),
         }
     }
 
@@ -314,10 +315,18 @@ impl Differential {
         self.wheel_speed_limit
     }
 
-    pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
+    /// Capture one encoder update and advance both side baselines together.
+    pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
         let now = Instant::now();
-        let dt = now.saturating_duration_since(self.feedback_time.replace(now));
-        [0, 1].map(|i| self.sides[i].feedback(&self.feedback[i], dt))
+        let dt = now.saturating_duration_since(core::mem::replace(&mut self.feedback_time, now));
+        self.last_feedback =
+            core::array::from_fn(|i| self.sides[i].feedback(&mut self.consensus[i], dt));
+        self.last_feedback
+    }
+
+    /// Return cached feedback without reading encoders or advancing the baseline.
+    pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
+        self.last_feedback
     }
 
     /// Visit motors in left/right order without sampling or advancing odometry.
@@ -329,9 +338,16 @@ impl Differential {
                         visit(side, index, &motor.motor);
                     }
                 }
-                Side::Shared(motors) => {
-                    for (index, motor) in motors.borrow_mut().as_mut().iter().enumerate() {
+                Side::Owned(motors) => {
+                    for (index, motor) in motors.iter().enumerate() {
                         visit(side, index, motor);
+                    }
+                }
+                Side::Shared(motors) => {
+                    if let Ok(mut motors) = motors.try_borrow_mut() {
+                        for (index, motor) in motors.as_mut().iter().enumerate() {
+                            visit(side, index, motor);
+                        }
                     }
                 }
             }

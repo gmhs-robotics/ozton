@@ -68,6 +68,11 @@ impl<D: AxisDimension> ProgressGuard<D> {
         dt: Duration,
     ) -> Result<(), ProgressFault> {
         let position = position.value;
+        if let Some(fault @ (ProgressFault::InvalidFeedback | ProgressFault::EncoderJump)) =
+            self.fault
+        {
+            return Err(fault);
+        }
         if !position.is_finite()
             || !command.is_finite()
             || dt.is_zero()
@@ -78,13 +83,19 @@ impl<D: AxisDimension> ProgressGuard<D> {
             || self.timeout.is_zero()
         {
             self.fault = Some(ProgressFault::InvalidFeedback);
+            return Err(ProgressFault::InvalidFeedback);
         }
         if let Some(last) = self.previous {
             let delta = position - last;
-            self.velocity = delta / dt.as_secs_f64();
-            if delta.abs() > self.maximum_speed * dt.as_secs_f64() + self.minimum_progress {
+            let seconds = dt.as_secs_f64();
+            let velocity = delta / seconds;
+            if !velocity.is_finite()
+                || delta.abs() > self.maximum_speed * seconds + self.minimum_progress
+            {
                 self.fault = Some(ProgressFault::EncoderJump);
+                return Err(ProgressFault::EncoderJump);
             }
+            self.velocity = velocity;
         }
         self.previous = Some(position);
         if command.abs() < 0.05 {

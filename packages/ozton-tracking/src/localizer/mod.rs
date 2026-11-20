@@ -22,7 +22,7 @@ pub mod vex;
 
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ranges::{MAX_RANGES, RangeObservation, RangeReport, RangeSensorConfig};
-use ranges::{ResetResult, ResetWindow, inspect};
+use ranges::{RangeTick, ResetResult, ResetTick, ResetWindow, inspect};
 pub use snapshot::{Fault, GpsFix, OdometryConfig, Snapshot};
 
 /// Sensor recovery does not prove that the robot stayed at its old field position.
@@ -67,6 +67,14 @@ pub enum Correction {
     Shadow,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistanceReset {
+    Idle,
+    Waiting,
+    Applied { axes: u8 },
+    Rejected,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Update {
     pub raw: Snapshot,
@@ -78,6 +86,7 @@ pub struct Update {
     pub distance_reset: bool,
     /// Independent observed translation constraints: 0, 1 or 2. Heading is never invented.
     pub distance_reset_axes: u8,
+    pub reset: DistanceReset,
     pub forward_velocity: f64,
     pub lateral_velocity: f64,
     pub angular_velocity: f64,
@@ -244,6 +253,10 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.sensors.get(index).map(|sensor| sensor.gate.max_age)
     }
 
+    pub fn range_count(&self) -> usize {
+        self.sensors.len()
+    }
+
     pub fn range_config(&self, index: usize) -> Option<RangeSensorConfig> {
         self.sensors.get(index).copied()
     }
@@ -371,10 +384,12 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 })
         {
             reports[index] = Some(inspect(
-                checking_pose,
-                movement,
-                dt,
-                raw.time,
+                RangeTick {
+                    pose: checking_pose,
+                    movement,
+                    dt,
+                    now: raw.time,
+                },
                 &self.map,
                 sensor,
                 observations.get(index).copied().flatten(),
@@ -406,25 +421,27 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         let mut candidate = None;
         let mut distance_reset = false;
         let mut distance_reset_axes = 0;
+        let mut reset_status = DistanceReset::Idle;
         self.pose = predicted;
         self.filter_pose = filter_prediction;
         if let Some(reset) = &mut self.reset {
             match reset.update(
-                raw.time,
-                predicted,
+                ResetTick {
+                    time: raw.time,
+                    pose: predicted,
+                    forward_velocity: self.forward_velocity,
+                    lateral_velocity: movement.translation.x / seconds,
+                    angular_velocity: self.angular_velocity,
+                },
                 &self.map,
                 &self.sensors,
                 &reports,
                 self.config.max_correction.value,
-                [
-                    self.forward_velocity,
-                    movement.translation.x / seconds,
-                    self.angular_velocity,
-                ],
             ) {
-                ResetResult::Waiting => {}
+                ResetResult::Waiting => reset_status = DistanceReset::Waiting,
                 ResetResult::Applied(pose, axes) => {
                     distance_reset_axes = axes;
+                    reset_status = DistanceReset::Applied { axes };
                     self.reset = None;
                     self.filter.reset(pose);
                     self.pose = pose;
@@ -438,6 +455,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                     // axis rank across rejected collections; its ordinary repeat
                     // request must not downgrade a full reset to one axis.
                     reset.restart();
+                    reset_status = DistanceReset::Rejected;
                     correction = Correction::Rejected;
                 }
             }
@@ -471,6 +489,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             correction,
             distance_reset,
             distance_reset_axes,
+            reset: reset_status,
             forward_velocity: self.forward_velocity,
             lateral_velocity: movement.translation.x / seconds,
             angular_velocity: self.angular_velocity,

@@ -21,6 +21,7 @@ use vexide::{
 
 pub(crate) struct State {
     sleep: Sleep,
+    settling: ozton_control::Settling,
     prev_time: Instant,
     start_time: Instant,
 }
@@ -46,6 +47,20 @@ where
 
 // MARK: Future Poll
 
+impl<M, L, A, T> Drop for MoveToPointFuture<'_, M, L, A, T>
+where
+    M: Arcade,
+    L: Feedback<State = f64, Signal = f64> + Unpin,
+    A: Feedback<State = f64, Signal = f64> + Unpin,
+    T: TracksPosition + TracksHeading + TracksVelocity,
+{
+    fn drop(&mut self) {
+        if self.state.is_some() {
+            let _ = self.drivetrain.model.drive_arcade(0.0, 0.0);
+        }
+    }
+}
+
 impl<M, L, A, T> Future for MoveToPointFuture<'_, M, L, A, T>
 where
     M: Arcade,
@@ -53,7 +68,7 @@ where
     A: Feedback<State = f64, Signal = f64> + Unpin,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
-    type Output = ();
+    type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
 
     fn poll(
         self: core::pin::Pin<&mut Self>,
@@ -67,6 +82,7 @@ where
                 sleep: sleep(Duration::from_millis(5)),
                 start_time: now,
                 prev_time: now,
+                settling: Default::default(),
             }
         });
 
@@ -74,7 +90,8 @@ where
             return Poll::Pending;
         }
 
-        let dt = state.prev_time.elapsed();
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(state.prev_time);
 
         let position = this.drivetrain.tracking.position();
         let heading = this.drivetrain.tracking.heading();
@@ -82,15 +99,26 @@ where
         let local_target = this.target_point - position;
         let mut distance_error = local_target.length();
 
-        if this.tolerances.check(
+        let settled = this.tolerances.check_with(
+            &mut state.settling,
             ozton_math::si(distance_error),
             ozton_math::si(this.drivetrain.tracking.linear_velocity()),
-        ) || this
+            now,
+        );
+        let timed_out = this
             .timeout
-            .is_some_and(|timeout| state.start_time.elapsed() > timeout)
-        {
-            drop(this.drivetrain.model.drive_arcade(0.0, 0.0));
-            return Poll::Ready(());
+            .is_some_and(|timeout| now.saturating_duration_since(state.start_time) >= timeout);
+        if settled || timed_out {
+            this.state = None;
+            let outcome = if settled {
+                crate::MotionOutcome::Settled
+            } else {
+                crate::MotionOutcome::TimedOut
+            };
+            return Poll::Ready(crate::finish_motion(
+                this.drivetrain.model.drive_arcade(0.0, 0.0),
+                outcome,
+            ));
         }
 
         let drive_heading = if this.reverse {
@@ -131,11 +159,17 @@ where
             this.linear_controller.update(-signed_distance, 0.0, dt) * angle_error.cos().abs()
         };
 
-        drop(
-            this.drivetrain
-                .model
-                .drive_arcade(linear_output, angular_output),
-        );
+        if let Err(output) = this
+            .drivetrain
+            .model
+            .drive_arcade(linear_output, angular_output)
+        {
+            this.state = None;
+            return Poll::Ready(Err(crate::motion_output_error(
+                output,
+                this.drivetrain.model.drive_arcade(0.0, 0.0),
+            )));
+        }
 
         state.sleep = sleep(Duration::from_millis(5));
         state.prev_time = Instant::now();

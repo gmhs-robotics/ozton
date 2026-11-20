@@ -28,6 +28,7 @@ struct Sim {
     pose: Pose,
     travel: f64,
     last: Instant,
+    started: Instant,
     wheels: [f64; 2],
     intake: bool,
     intake_moving_ticks: usize,
@@ -52,6 +53,7 @@ impl Sim {
             ),
             travel: 0.0,
             last: Instant::now(),
+            started: Instant::now(),
             wheels: [0.0; 2],
             intake: false,
             intake_moving_ticks: 0,
@@ -110,6 +112,7 @@ impl AutonRobot for Sim {
             heading: angular_speed * dt,
         });
         Ok(Some(Feedback {
+            time: now.saturating_duration_since(self.started),
             pose: self.pose,
             forward_travel: si(self.travel),
             forward_velocity: si(speed),
@@ -218,7 +221,10 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                             path: &path,
                             follower,
                             reverse,
-                            trigger: Some((si(0.12), |robot: &mut Sim| robot.intake = true)),
+                            trigger: Some(ozton_motion::auton::PathMarker::new(
+                                si(0.12),
+                                |robot: &mut Sim| robot.intake = true,
+                            )),
                         },
                         Duration::from_secs(3),
                         || true,
@@ -260,7 +266,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
 
 #[test]
 fn ordered_markers_and_optional_alignment_keep_the_route_running() {
-    use ozton_motion::auton::Alignment;
+    use ozton_motion::auton::{Alignment, PathMarker, RangeFacing, RangeId};
 
     block_on(async {
         let path = route();
@@ -274,11 +280,8 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
         )
         .unwrap();
         let markers = [
-            (
-                si(0.10),
-                (|robot: &mut Sim| robot.intake = true) as fn(&mut Sim),
-            ),
-            (si(0.40), |robot: &mut Sim| {
+            PathMarker::new(si(0.10), |robot: &mut Sim| robot.intake = true),
+            PathMarker::new(si(0.40), |robot: &mut Sim| {
                 assert!(robot.intake_moving_ticks > 0);
                 robot.intake = false;
             }),
@@ -303,11 +306,11 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
             !runner
                 .try_align_while(
                     Alignment {
-                        sensor: 0,
+                        sensor: RangeId::from_index(0).unwrap(),
                         distance: si(0.12),
                         heading: si(0.0),
                         maximum_speed: si(0.2),
-                        direction: 1.0,
+                        facing: RangeFacing::Front,
                     },
                     Duration::from_millis(30),
                     || true

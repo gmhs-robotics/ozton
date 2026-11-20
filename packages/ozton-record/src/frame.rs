@@ -16,7 +16,7 @@ use rkyv::{
 };
 use vexide::{smart::PortError, time::sleep_until};
 
-use crate::frame_types::Interpolate;
+use crate::store::{MAX_FRAME_GAP, MAX_RECORDING_BYTES};
 
 #[derive(Archive, Serialize, Deserialize, Default, Clone, Debug)]
 pub struct TimedFrame<F: Frameable> {
@@ -33,6 +33,8 @@ pub struct Recording<F: Frameable> {
 pub enum RecordingError {
     Io(std::io::Error),
     Rkyv(Error),
+    InvalidSize,
+    IncompatibleSchema,
 }
 
 impl std::fmt::Display for RecordingError {
@@ -40,8 +42,26 @@ impl std::fmt::Display for RecordingError {
         match self {
             RecordingError::Io(e) => write!(f, "I/O error: {e}"),
             RecordingError::Rkyv(e) => write!(f, "rkyv error: {e}"),
+            RecordingError::InvalidSize => f.write_str("recording exceeds its size limit"),
+            RecordingError::IncompatibleSchema => {
+                f.write_str("incompatible recording schema or format version")
+            }
         }
     }
+}
+
+impl std::error::Error for RecordingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Rkyv(error) => Some(error),
+            Self::InvalidSize | Self::IncompatibleSchema => None,
+        }
+    }
+}
+
+pub(crate) fn recording_interval(interval: Duration) -> Duration {
+    interval.clamp(Duration::from_millis(1), MAX_FRAME_GAP)
 }
 
 impl From<std::io::Error> for RecordingError {
@@ -72,10 +92,23 @@ pub enum PlaybackOutcome {
     OutputFailed,
 }
 
+#[derive(Debug)]
+pub enum PlaybackError {
+    Device(PortError),
+    TrackingUnavailable,
+    InvalidCorrection,
+}
+
+impl From<PortError> for PlaybackError {
+    fn from(error: PortError) -> Self {
+        Self::Device(error)
+    }
+}
+
 /// A robot whose device fields know how to finalize and apply generated frames.
 #[async_trait(?Send)]
 pub trait FrameRobot {
-    type Frame: Frameable;
+    type Frame: Frameable + FrameSchema;
 
     /// Enriches a sampled frame before it is persisted to disk.
     ///
@@ -86,6 +119,17 @@ pub trait FrameRobot {
     /// Applies a frame to the live robot.
     async fn apply_frame(&mut self, frame: &Self::Frame, mode: RecordMode)
     -> Result<(), PortError>;
+
+    /// Checks all derived device fields before a frame is captured or played.
+    fn devices_ready(&self) -> bool {
+        true
+    }
+
+    async fn apply_playback_frame(&mut self, frame: &Self::Frame) -> Result<(), PlaybackError> {
+        self.apply_frame(frame, RecordMode::Playback)
+            .await
+            .map_err(Into::into)
+    }
 
     /// Resets any motor outputs that should be stopped after playback completes.
     async fn stop_playback(&mut self) -> Result<(), PortError>;
@@ -125,15 +169,80 @@ type FrameSerializer<'a> = HighSerializer<AlignedVec, ArenaHandle<'a>, Error>;
 type FrameDeserializer = HighDeserializer<Error>;
 type FrameValidator<'a> = HighValidator<'a, Error>;
 
-pub trait Frameable = Archive
-    + Default
-    + Clone
-    + std::fmt::Debug
-    + Interpolate
-    + for<'a> Serialize<FrameSerializer<'a>>
-where
-    <Self as Archive>::Archived:
-        for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
+pub trait Frameable =
+    Archive + Default + Clone + std::fmt::Debug + for<'a> Serialize<FrameSerializer<'a>>
+    where
+        <Self as Archive>::Archived:
+            for<'a> CheckBytes<FrameValidator<'a>> + Deserialize<Self, FrameDeserializer>;
+
+/// Stable ID for the persisted shape and meaning of a frame.
+pub trait FrameSchema {
+    const SCHEMA_ID: u64;
+}
+
+/// Hash a stable schema description. Include the names, order, and meaning of fields.
+pub const fn schema_id(description: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    let bytes = description.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        hash ^= bytes[index] as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+        index += 1;
+    }
+    hash
+}
+
+macro_rules! primitive_schemas {
+    ($($ty:ty),* $(,)?) => {$(
+        impl FrameSchema for $ty {
+            const SCHEMA_ID: u64 = schema_id(stringify!($ty));
+        }
+    )*};
+}
+primitive_schemas!(
+    bool, i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64
+);
+
+const ARCHIVE_PREFIX: &[u8; 7] = b"OZTONR!";
+const ARCHIVE_VERSION: u8 = 1;
+const HEADER_SIZE: usize = 16;
+
+pub(crate) fn archive_header<F: FrameSchema>() -> [u8; HEADER_SIZE] {
+    let mut header = [0; HEADER_SIZE];
+    header[..7].copy_from_slice(ARCHIVE_PREFIX);
+    header[7] = ARCHIVE_VERSION;
+    header[8..].copy_from_slice(&F::SCHEMA_ID.to_le_bytes());
+    header
+}
+
+pub(crate) fn write_archive(
+    mut writer: impl std::io::Write,
+    header: &[u8; HEADER_SIZE],
+    payload: &[u8],
+) -> Result<(), RecordingError> {
+    if payload.len() as u64 > MAX_RECORDING_BYTES - HEADER_SIZE as u64 {
+        return Err(RecordingError::InvalidSize);
+    }
+    writer.write_all(header)?;
+    writer.write_all(payload)?;
+    Ok(())
+}
+
+pub(crate) fn decode_archive<F: Frameable + FrameSchema>(
+    bytes: &[u8],
+) -> Result<Recording<F>, RecordingError> {
+    let payload = if bytes.starts_with(ARCHIVE_PREFIX) {
+        if !bytes.starts_with(&archive_header::<F>()) {
+            return Err(RecordingError::IncompatibleSchema);
+        }
+        &bytes[HEADER_SIZE..]
+    } else {
+        // Legacy recordings predate the schema header. Validate their archive as before.
+        bytes
+    };
+    Ok(from_bytes::<Recording<F>, Error>(payload)?)
+}
 
 /// Keeps playback lookup linear in total frame count as elapsed time advances.
 struct PlaybackCursor<'a, F: Frameable> {
@@ -194,66 +303,55 @@ impl<F: Frameable> Recording<F> {
         })
     }
 
-    #[allow(dead_code)]
     pub fn frame_at(&self, elapsed: Duration) -> Option<F> {
-        let first = self.frames.first()?;
-        let mut current = first;
-        let mut current_time = Duration::from_micros(first.delta_time_micros);
+        self.frame_at_ref(elapsed).cloned()
+    }
 
-        if elapsed <= current_time {
-            crate::log!(
-                "recording.stepped_frame_at: elapsed={}us frame={:?}",
-                elapsed.as_micros(),
-                current.frame
-            );
-            return Some(current.frame.clone());
-        }
-
-        for next in self.frames.iter().skip(1) {
-            let next_time =
-                current_time.saturating_add(Duration::from_micros(next.delta_time_micros));
-
-            if elapsed < next_time {
-                crate::log!(
-                    "recording.stepped_frame_at: elapsed={}us frame={:?}",
-                    elapsed.as_micros(),
-                    current.frame
-                );
-                return Some(current.frame.clone());
-            }
-
-            current = next;
-            current_time = next_time;
-        }
-
-        crate::log!(
-            "recording.stepped_frame_at: elapsed={}us frame={:?}",
-            elapsed.as_micros(),
-            current.frame
-        );
-        Some(current.frame.clone())
+    pub fn frame_at_ref(&self, elapsed: Duration) -> Option<&F> {
+        PlaybackCursor::new(&self.frames).frame_at(elapsed)
     }
 
     #[allow(dead_code)]
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), RecordingError> {
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), RecordingError>
+    where
+        F: FrameSchema,
+    {
         crate::log!(
             "recording.save: path={} frames={}",
             path.as_ref().display(),
             self.frames.len()
         );
         let bytes = to_bytes::<Error>(self)?;
-        std::fs::write(path, bytes.as_slice())?;
+        if bytes.len() as u64 > MAX_RECORDING_BYTES - HEADER_SIZE as u64 {
+            return Err(RecordingError::InvalidSize);
+        }
+        write_archive(std::fs::File::create(path)?, &archive_header::<F>(), &bytes)?;
         crate::log!("recording.save: success");
         Ok(())
     }
 
     #[allow(dead_code)]
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, RecordingError> {
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, RecordingError>
+    where
+        F: FrameSchema,
+    {
         crate::log!("recording.load: path={}", path.as_ref().display());
-        let bytes = std::fs::read(path)?;
-        let mut aligned = AlignedVec::<16>::with_capacity(bytes.len());
-        aligned.extend_from_slice(&bytes);
-        let recording = from_bytes::<Self, Error>(&aligned)?;
+        use std::io::Read;
+        let file = std::fs::File::open(path)?;
+        let mut aligned = AlignedVec::<16>::new();
+        let mut reader = file.take(MAX_RECORDING_BYTES + 1);
+        let mut buffer = [0; 1024];
+        loop {
+            let count = reader.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            if aligned.len() as u64 + count as u64 > MAX_RECORDING_BYTES {
+                return Err(RecordingError::InvalidSize);
+            }
+            aligned.extend_from_slice(&buffer[..count]);
+        }
+        let recording = decode_archive::<F>(&aligned)?;
         crate::log!(
             "recording.load: success frames={} duration={}us",
             recording.frames.len(),
@@ -283,33 +381,36 @@ impl<F: Frameable> Recording<F> {
             total_duration.as_micros()
         );
         let start = Instant::now();
+        let interval = recording_interval(R::UPDATE_INTERVAL);
         let mut outcome = PlaybackOutcome::Completed;
         let mut cursor = PlaybackCursor::new(&self.frames);
 
         loop {
-            if !robot.playback_ready() {
+            if !robot.playback_ready() || !robot.devices_ready() {
                 crate::log!("recording.playback: localization unavailable; aborting route");
                 outcome = PlaybackOutcome::TrackingLost;
                 break;
             }
-            let elapsed = start.elapsed().min(total_duration);
+            let tick = Instant::now();
+            let elapsed = tick.saturating_duration_since(start).min(total_duration);
 
-            if let Some(frame) = cursor.frame_at(elapsed) {
-                if let Err(error) = robot.apply_frame(frame, RecordMode::Playback).await {
-                    crate::log_error!(
-                        "recording.playback: apply failed; aborting route: {error:?}"
-                    );
-                    outcome = PlaybackOutcome::OutputFailed;
-                    break;
-                }
+            if let Some(frame) = cursor.frame_at(elapsed)
+                && let Err(error) = robot.apply_playback_frame(frame).await
+            {
+                crate::log_error!("recording.playback: apply failed; aborting route: {error:?}");
+                outcome = match error {
+                    PlaybackError::TrackingUnavailable => PlaybackOutcome::TrackingLost,
+                    _ => PlaybackOutcome::OutputFailed,
+                };
+                break;
             }
 
             if elapsed >= total_duration {
                 break;
             }
 
-            let interval = R::UPDATE_INTERVAL.max(Duration::from_millis(1));
-            let Some(next_deadline) = Instant::now().checked_add(interval) else {
+            let remaining = total_duration.saturating_sub(elapsed);
+            let Some(next_deadline) = tick.checked_add(interval.min(remaining)) else {
                 crate::log_error!("recording.playback: deadline overflow; aborting route");
                 outcome = PlaybackOutcome::OutputFailed;
                 break;

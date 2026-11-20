@@ -68,6 +68,10 @@ pub enum AutonError<E> {
     Robot(E),
     /// An output could not be stopped. Even optional commands cannot recover from this.
     StopFailed(E),
+    StopFailedAfter {
+        cause: Box<Self>,
+        stop: E,
+    },
 }
 
 /// Reuse one runner across all commands to enforce an overall route deadline.
@@ -90,7 +94,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
         max_gap: Duration,
         route_timeout: Duration,
     ) -> Result<Self, AutonError<R::Error>> {
-        if !options.valid() || period.is_zero() || max_gap < period || route_timeout < period {
+        if !Self::valid_configuration(options, period, max_gap, route_timeout) {
             return Err(AutonError::Configuration);
         }
         Ok(Self {
@@ -104,16 +108,31 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
         })
     }
 
+    pub fn valid_configuration(
+        options: DriveOptions,
+        period: Duration,
+        max_gap: Duration,
+        route_timeout: Duration,
+    ) -> bool {
+        options.valid()
+            && CommandClock::new(period).is_some()
+            && max_gap >= period
+            && route_timeout >= period
+    }
+
     pub(super) fn check_active(&mut self) -> Result<(), AutonError<R::Error>> {
         if self.failed {
-            let _ = self.robot.stop();
-            return Err(AutonError::Cancelled);
+            return Err(self.finish_error(AutonError::Cancelled));
         }
         if self.started.elapsed() >= self.route_timeout {
-            let _ = self.robot.stop();
-            return Err(AutonError::RouteTimeout);
+            return Err(self.finish_error(AutonError::RouteTimeout));
         }
         Ok(())
+    }
+
+    /// Inspect the robot without exclusive access to the runner.
+    pub fn robot_ref(&self) -> &R {
+        self.robot
     }
 
     /// Change retained mechanism goals between commands.
@@ -221,10 +240,13 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             return Ok(false);
         }
         self.failed = true;
-        match stopped {
-            Err(stop_error) if can_skip => Err(AutonError::StopFailed(stop_error)),
-            _ => Err(error),
-        }
+        Err(match stopped {
+            Ok(()) => error,
+            Err(stop) => AutonError::StopFailedAfter {
+                cause: Box::new(error),
+                stop,
+            },
+        })
     }
 
     /// Returns false after a clean alignment timeout. The next command can run
@@ -279,11 +301,19 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
         let result = self
             .execute(command, timeout, enabled, recover_timeout)
             .await;
-        if result.is_err() {
-            self.failed = true;
-            let _ = self.robot.stop();
+        result.map_err(|error| self.finish_error(error))
+    }
+
+    pub(super) fn finish_error(&mut self, error: AutonError<R::Error>) -> AutonError<R::Error> {
+        self.failed = true;
+        self.robot.cancel_distance_reset();
+        match self.robot.stop() {
+            Ok(()) => error,
+            Err(stop) => AutonError::StopFailedAfter {
+                cause: Box::new(error),
+                stop,
+            },
         }
-        result
     }
 
     async fn execute(
@@ -303,164 +333,183 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             robot: self.robot,
             completed: false,
         };
-        let status = command.status();
-        active.robot.show_status(status);
-        ozton_runtime::diagnostic_event!("auton_command={status}");
-        let started = Instant::now();
-        let mut state = State::default();
-        let mut initialized = false;
-        let mut retry_since = None;
-        let mut mechanism_retry_since = None;
-        let mut output_retry_since = None;
-        let mut progress_pose: Option<Pose> = None;
-        let mut progress_elapsed = Duration::ZERO;
-        loop {
-            let dt = self.clock.tick().await;
-            let elapsed = started.elapsed();
-            if !enabled() {
-                return Err(AutonError::Cancelled);
-            }
-            if self.started.elapsed() >= self.route_timeout {
-                return Err(AutonError::RouteTimeout);
-            }
-            if dt.is_zero() || dt > self.max_gap {
-                return Err(AutonError::ControlGap);
-            }
-            if elapsed >= timeout {
-                if recover_timeout {
-                    if matches!(command, Command::DistanceReset) {
-                        active.robot.cancel_distance_reset();
+        let outcome = async {
+            let status = command.status();
+            active.robot.show_status(status);
+            ozton_runtime::diagnostic_event!("auton_command={status}");
+            let started = Instant::now();
+            let mut state = State::default();
+            let mut initialized = false;
+            let mut retry_since = None;
+            let mut mechanism_retry_since = None;
+            let mut output_retry_since = None;
+            let mut progress_pose: Option<Pose> = None;
+            let mut progress_elapsed = Duration::ZERO;
+            loop {
+                let dt = self.clock.tick().await;
+                let elapsed = started.elapsed();
+                if !enabled() {
+                    return Err(AutonError::Cancelled);
+                }
+                if self.started.elapsed() >= self.route_timeout {
+                    return Err(AutonError::RouteTimeout);
+                }
+                if dt.is_zero() || dt > self.max_gap {
+                    return Err(AutonError::ControlGap);
+                }
+                if elapsed >= timeout {
+                    if recover_timeout {
+                        if matches!(command, Command::DistanceReset) {
+                            active.robot.cancel_distance_reset();
+                        }
+                        active.robot.stop_drive().map_err(AutonError::StopFailed)?;
+                        return Ok(false);
                     }
-                    active.robot.stop_drive().map_err(AutonError::StopFailed)?;
-                    active.completed = true;
-                    return Ok(false);
+                    return Err(AutonError::CommandTimeout);
                 }
-                return Err(AutonError::CommandTimeout);
-            }
-            if matches!(command, Command::DistanceReset) {
-                active.robot.request_distance_reset();
-            }
-            let feedback = match active.robot.sample() {
-                Ok(value) => {
-                    retry_since = None;
-                    value
+                if matches!(command, Command::DistanceReset) {
+                    active.robot.request_distance_reset();
                 }
-                Err(error) if active.robot.recoverable(&error) => {
-                    let since = *retry_since.get_or_insert(Instant::now());
-                    active.robot.pause().map_err(AutonError::StopFailed)?;
-                    if since.elapsed() >= Duration::from_millis(300) {
-                        return Err(AutonError::Robot(error));
+                let feedback = match active.robot.sample() {
+                    Ok(value) => {
+                        retry_since = None;
+                        value
                     }
-                    continue;
-                }
-                Err(error) => return Err(AutonError::Robot(error)),
-            };
-            let Some(feedback) = feedback else {
-                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
-                continue;
-            };
-            if !feedback.pose.is_finite()
-                || ![
-                    feedback.forward_travel.value,
-                    feedback.forward_velocity.value,
-                    feedback.lateral_velocity.value,
-                    feedback.angular_velocity.value,
-                ]
-                .iter()
-                .all(|value| value.is_finite())
-            {
-                return Err(AutonError::InvalidFeedback);
-            }
-            if command.requires_field_pose() && !active.robot.pose_trusted() {
-                return Err(AutonError::UntrustedPose);
-            }
-            if !initialized {
-                if let Some((path, reverse)) = command.path_start() {
-                    let start = path.start();
-                    let heading = start.heading + if reverse { core::f64::consts::PI } else { 0.0 };
-                    if feedback.pose.position.distance(start.position) > 0.15
-                        || wrap_heading(ozton_math::si(feedback.pose.heading - heading)).abs()
-                            > 1.05
-                    {
-                        return Err(AutonError::PathStart);
-                    }
-                }
-                initialized = true;
-            }
-            let step = state.step(
-                &mut command,
-                active.robot,
-                feedback,
-                elapsed,
-                dt,
-                self.options,
-            );
-            if step.lost {
-                return Err(AutonError::PathLost);
-            }
-            if let Err(error) = active.robot.update_custom(dt) {
-                if active.robot.recoverable(&error) {
-                    let since = *mechanism_retry_since.get_or_insert(Instant::now());
-                    active.robot.pause().map_err(AutonError::StopFailed)?;
-                    if since.elapsed() < Duration::from_millis(300) {
-                        continue;
-                    }
-                }
-                return Err(AutonError::Robot(error));
-            }
-            mechanism_retry_since = None;
-            if step.wheels.iter().any(|v| v.abs() > 0.08) {
-                let anchor = *progress_pose.get_or_insert(feedback.pose);
-                if feedback.pose.position.distance(anchor.position) > 0.008
-                    || wrap_heading(ozton_math::si(feedback.pose.heading - anchor.heading)).abs()
-                        > 0.025
-                {
-                    progress_pose = Some(feedback.pose);
-                    progress_elapsed = Duration::ZERO;
-                } else {
-                    progress_elapsed += dt;
-                    if progress_elapsed >= Duration::from_millis(800) {
-                        return Err(AutonError::NoProgress);
-                    }
-                }
-            } else {
-                progress_pose = None;
-                progress_elapsed = Duration::ZERO;
-            }
-            if step.complete || step.wheels == [0.0; 2] {
-                active.robot.stop_drive().map_err(AutonError::StopFailed)?;
-            } else {
-                match active.robot.drive(step.wheels.map(ozton_math::si), dt) {
-                    Ok(()) => output_retry_since = None,
                     Err(error) if active.robot.recoverable(&error) => {
-                        let since = *output_retry_since.get_or_insert(Instant::now());
+                        let since = *retry_since.get_or_insert(Instant::now());
                         active.robot.pause().map_err(AutonError::StopFailed)?;
                         if since.elapsed() >= Duration::from_millis(300) {
                             return Err(AutonError::Robot(error));
                         }
+                        state.pause();
+                        progress_pose = None;
+                        progress_elapsed = Duration::ZERO;
+                        continue;
                     }
                     Err(error) => return Err(AutonError::Robot(error)),
+                };
+                let Some(feedback) = feedback else {
+                    active.robot.pause().map_err(AutonError::StopFailed)?;
+                    state.pause();
+                    progress_pose = None;
+                    progress_elapsed = Duration::ZERO;
+                    continue;
+                };
+                if !feedback.pose.is_finite()
+                    || ![
+                        feedback.forward_travel.value,
+                        feedback.forward_velocity.value,
+                        feedback.lateral_velocity.value,
+                        feedback.angular_velocity.value,
+                    ]
+                    .iter()
+                    .all(|value| value.is_finite())
+                {
+                    return Err(AutonError::InvalidFeedback);
                 }
-            }
-            // Serial diagnostics can be slower than feedback. Publish the
-            // actuator command before offering this sample to a reporter.
-            active.robot.log_step(
-                self.started.elapsed(),
-                dt,
-                ozton_math::si(step.progress),
-                step.wheels.map(ozton_math::si),
-            );
-            if step.complete {
-                if let Command::Contact(contact) = command {
-                    active
-                        .robot
-                        .set_pose(contact.known_pose)
-                        .map_err(AutonError::Robot)?;
+                if command.requires_field_pose() && !active.robot.pose_trusted() {
+                    return Err(AutonError::UntrustedPose);
                 }
-                active.completed = true;
-                return Ok(true);
+                if !initialized {
+                    if let Some((path, reverse)) = command.path_start() {
+                        let start = path.start();
+                        let heading =
+                            start.heading + if reverse { core::f64::consts::PI } else { 0.0 };
+                        if feedback.pose.position.distance(start.position) > 0.15
+                            || wrap_heading(ozton_math::si(feedback.pose.heading - heading)).abs()
+                                > 1.05
+                        {
+                            return Err(AutonError::PathStart);
+                        }
+                    }
+                    initialized = true;
+                }
+                let step = state.step(
+                    &mut command,
+                    active.robot,
+                    feedback,
+                    elapsed,
+                    dt,
+                    self.options,
+                );
+                if step.lost {
+                    return Err(AutonError::PathLost);
+                }
+                if let Err(error) = active.robot.update_custom(dt) {
+                    if active.robot.recoverable(&error) {
+                        let since = *mechanism_retry_since.get_or_insert(Instant::now());
+                        active.robot.pause().map_err(AutonError::StopFailed)?;
+                        if since.elapsed() < Duration::from_millis(300) {
+                            state.pause();
+                            progress_pose = None;
+                            progress_elapsed = Duration::ZERO;
+                            continue;
+                        }
+                    }
+                    return Err(AutonError::Robot(error));
+                }
+                mechanism_retry_since = None;
+                if step.complete || step.wheels == [0.0; 2] {
+                    active.robot.stop_drive().map_err(AutonError::StopFailed)?;
+                } else {
+                    match active.robot.drive(step.wheels.map(ozton_math::si), dt) {
+                        Ok(()) => output_retry_since = None,
+                        Err(error) if active.robot.recoverable(&error) => {
+                            let since = *output_retry_since.get_or_insert(Instant::now());
+                            active.robot.pause().map_err(AutonError::StopFailed)?;
+                            if since.elapsed() >= Duration::from_millis(300) {
+                                return Err(AutonError::Robot(error));
+                            }
+                            state.pause();
+                            progress_pose = None;
+                            progress_elapsed = Duration::ZERO;
+                            continue;
+                        }
+                        Err(error) => return Err(AutonError::Robot(error)),
+                    }
+                }
+                if step.wheels.iter().any(|v| v.abs() > 0.08) {
+                    let anchor = *progress_pose.get_or_insert(feedback.pose);
+                    if feedback.pose.position.distance(anchor.position) > 0.008
+                        || wrap_heading(ozton_math::si(feedback.pose.heading - anchor.heading))
+                            .abs()
+                            > 0.025
+                    {
+                        progress_pose = Some(feedback.pose);
+                        progress_elapsed = Duration::ZERO;
+                    } else {
+                        progress_elapsed += dt;
+                        if progress_elapsed >= Duration::from_millis(800) {
+                            return Err(AutonError::NoProgress);
+                        }
+                    }
+                } else {
+                    progress_pose = None;
+                    progress_elapsed = Duration::ZERO;
+                }
+                // Serial diagnostics can be slower than feedback. Publish the
+                // actuator command before offering this sample to a reporter.
+                active.robot.log_step(
+                    self.started.elapsed(),
+                    dt,
+                    ozton_math::si(step.progress),
+                    step.wheels.map(ozton_math::si),
+                );
+                if step.complete {
+                    if let Command::Contact(contact) = command {
+                        active
+                            .robot
+                            .set_pose(contact.known_pose)
+                            .map_err(AutonError::Robot)?;
+                    }
+                    return Ok(true);
+                }
             }
         }
+        .await;
+        // Regular exits are finalized by the command policy. The guard owns cancellation cleanup.
+        active.completed = true;
+        outcome
     }
 }
 

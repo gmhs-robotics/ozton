@@ -22,7 +22,7 @@ pub fn parse_lemlib_path(
             .into_iter()
             .map(|point| Waypoint {
                 position: point.position,
-                velocity: point.speed_fraction,
+                speed_fraction: point.speed_fraction,
             })
             .collect()
     })
@@ -34,8 +34,8 @@ pub struct Waypoint {
     /// Position of the robot at this point along the path.
     pub position: Vec2,
 
-    /// Linear velocity of the robot at this point along the path.
-    pub velocity: f64,
+    /// Normalized forward output at this point along the path, from zero to one.
+    pub speed_fraction: f64,
 }
 
 /// Adaptive pure pursuit controller.

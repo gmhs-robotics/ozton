@@ -44,9 +44,9 @@ impl<D: AxisDimension> PositionLimits<D> {
     }
 }
 
-pub const fn valid_range<D: Dimension + ?Sized>(
-    range: Option<(Quantity<D, SI<f64>, f64>, Quantity<D, SI<f64>, f64>)>,
-) -> bool {
+type Bounds<D> = (Quantity<D, SI<f64>, f64>, Quantity<D, SI<f64>, f64>);
+
+pub const fn valid_range<D: Dimension + ?Sized>(range: Option<Bounds<D>>) -> bool {
     match range {
         Some((min, max)) => min.value.is_finite() && max.value.is_finite() && min.value < max.value,
         None => true,
@@ -55,7 +55,7 @@ pub const fn valid_range<D: Dimension + ?Sized>(
 
 pub fn clamp_target<D: Dimension + ?Sized>(
     target: Quantity<D, SI<f64>, f64>,
-    range: Option<(Quantity<D, SI<f64>, f64>, Quantity<D, SI<f64>, f64>)>,
+    range: Option<Bounds<D>>,
 ) -> Quantity<D, SI<f64>, f64> {
     if !target.value.is_finite() {
         return target;

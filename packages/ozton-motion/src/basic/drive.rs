@@ -22,8 +22,8 @@ pub(crate) struct DriveState {
     pub initial_forward_travel: f64,
     pub start_time: Instant,
     pub prev_time: Instant,
-    pub linear_settled: bool,
-    pub angular_settled: bool,
+    pub linear_settling: ozton_control::Settling,
+    pub angular_settling: ozton_control::Settling,
 }
 
 /// Drives the robot forward or backwards for a distance at a given heading.
@@ -50,6 +50,20 @@ where
 
 // MARK: Future Poll
 
+impl<M, L, A, T> Drop for DriveFuture<'_, M, L, A, T>
+where
+    M: Arcade,
+    L: Feedback<State = f64, Signal = f64> + Unpin,
+    A: Feedback<State = Angle, Signal = f64> + Unpin,
+    T: TracksForwardTravel + TracksHeading + TracksVelocity,
+{
+    fn drop(&mut self) {
+        if self.state.is_some() {
+            let _ = self.drivetrain.model.drive_arcade(0.0, 0.0);
+        }
+    }
+}
+
 impl<M, L, A, T> Future for DriveFuture<'_, M, L, A, T>
 where
     M: Arcade,
@@ -57,7 +71,7 @@ where
     A: Feedback<State = Angle, Signal = f64> + Unpin,
     T: TracksForwardTravel + TracksHeading + TracksVelocity,
 {
-    type Output = ();
+    type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -68,8 +82,8 @@ where
                 initial_forward_travel: this.drivetrain.tracking.forward_travel(),
                 start_time: now,
                 prev_time: now,
-                linear_settled: false,
-                angular_settled: false,
+                linear_settling: Default::default(),
+                angular_settling: Default::default(),
             }
         });
 
@@ -77,7 +91,8 @@ where
             return Poll::Pending;
         }
 
-        let dt = state.prev_time.elapsed();
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(state.prev_time);
 
         let forward_travel = this.drivetrain.tracking.forward_travel();
         let heading = this.drivetrain.tracking.heading();
@@ -87,26 +102,34 @@ where
 
         // println!("{}", linear_error);
 
-        if this.linear_tolerances.check(
+        let linear_settled = this.linear_tolerances.check_with(
+            &mut state.linear_settling,
             ozton_math::si(linear_error),
             ozton_math::si(this.drivetrain.tracking.linear_velocity()),
-        ) {
-            state.linear_settled = true;
-        }
-        if this.angular_tolerances.check(
+            now,
+        );
+        let angular_settled = this.angular_tolerances.check_with(
+            &mut state.angular_settling,
             ozton_math::si(angular_error.as_radians()),
             ozton_math::si(this.drivetrain.tracking.angular_velocity()),
-        ) {
-            state.angular_settled = true;
-        }
+            now,
+        );
 
-        if (state.linear_settled && state.angular_settled)
-            || this
-                .timeout
-                .is_some_and(|timeout| state.start_time.elapsed() > timeout)
-        {
-            drop(this.drivetrain.model.drive_arcade(0.0, 0.0));
-            return Poll::Ready(());
+        let settled = linear_settled && angular_settled;
+        let timed_out = this
+            .timeout
+            .is_some_and(|timeout| now.saturating_duration_since(state.start_time) >= timeout);
+        if settled || timed_out {
+            this.state = None;
+            let outcome = if settled {
+                crate::MotionOutcome::Settled
+            } else {
+                crate::MotionOutcome::TimedOut
+            };
+            return Poll::Ready(crate::finish_motion(
+                this.drivetrain.model.drive_arcade(0.0, 0.0),
+                outcome,
+            ));
         }
 
         let linear_output = this.linear_controller.update(
@@ -118,11 +141,17 @@ where
             .angular_controller
             .update(heading, this.target_heading, dt);
 
-        drop(
-            this.drivetrain
-                .model
-                .drive_arcade(linear_output, angular_output),
-        );
+        if let Err(output) = this
+            .drivetrain
+            .model
+            .drive_arcade(linear_output, angular_output)
+        {
+            this.state = None;
+            return Poll::Ready(Err(crate::motion_output_error(
+                output,
+                this.drivetrain.model.drive_arcade(0.0, 0.0),
+            )));
+        }
 
         state.sleep = sleep(Duration::from_millis(5));
         state.prev_time = Instant::now();

@@ -589,22 +589,6 @@ impl WheeledTracking {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use vexide::math::Angle;
-
-    use super::WheeledTracking;
-
-    #[test]
-    fn heading_stays_continuous_when_sensor_origin_changes() {
-        let offset = Angle::from_degrees(20.0);
-        let previous = Angle::from_degrees(90.0);
-        let wheel = Angle::from_degrees(-30.0);
-        let aligned = WheeledTracking::aligned_heading_offset(offset, previous, wheel);
-        assert!(((wheel + aligned) - (previous + offset)).as_degrees().abs() < 1e-10);
-    }
-}
-
 // MARK: Tracking Traits
 
 impl Tracking for WheeledTracking {}
@@ -637,5 +621,21 @@ impl TracksVelocity for WheeledTracking {
 
     fn linear_velocity(&self) -> f64 {
         self.data.borrow().linear_velocity
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vexide::math::Angle;
+
+    use super::WheeledTracking;
+
+    #[test]
+    fn heading_stays_continuous_when_sensor_origin_changes() {
+        let offset = Angle::from_degrees(20.0);
+        let previous = Angle::from_degrees(90.0);
+        let wheel = Angle::from_degrees(-30.0);
+        let aligned = WheeledTracking::aligned_heading_offset(offset, previous, wheel);
+        assert!(((wheel + aligned) - (previous + offset)).as_degrees().abs() < 1e-10);
     }
 }

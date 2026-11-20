@@ -35,6 +35,41 @@ pub enum CalibrationSample {
 }
 
 impl CalibrationSample {
+    pub fn parse(kind: &str, values: [Option<f64>; 3]) -> Result<Option<Self>, InvalidSample> {
+        let [a, b, c] = values;
+        let required =
+            |value: Option<f64>| value.filter(|value| value.is_finite()).ok_or(InvalidSample);
+        let sample = match kind {
+            "straight" => Self::Straight {
+                meters: required(a)?,
+                wheel_turns: [required(b)?, required(c)?],
+            },
+            "turn" => Self::Turn {
+                radians: required(a)?,
+                wheel_travel: [required(b)?, required(c)?],
+            },
+            "forward-offset" => Self::ForwardOffset {
+                radians: required(a)?,
+                pod_travel: required(b)?,
+            },
+            "lateral-offset" => Self::LateralOffset {
+                radians: required(a)?,
+                pod_travel: required(b)?,
+            },
+            "range-calibration" => Self::Range {
+                reference: required(a)?,
+                measured: required(b)?,
+            },
+            "voltage" => Self::Voltage {
+                speed: required(a)?,
+                acceleration: required(b)?,
+                volts: required(c)?,
+            },
+            _ => return Ok(None),
+        };
+        Ok(Some(sample))
+    }
+
     pub fn event(self, time: Duration, name: &'static str) -> Event {
         let missing = f64::NAN;
         let (kind, values) = match self {
@@ -76,3 +111,6 @@ impl CalibrationSample {
         Event::new(time, kind, name, values)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSample;

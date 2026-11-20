@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use ozton_control::lift::{LiftController, LiftProfile};
+use ozton_control::lift::{LiftController, LiftDirection, LiftProfile, LiftTarget};
 use ozton_math::uom::si::{angle::degree, f64::Angle};
 use rkyv::{Archive, Deserialize, Serialize};
 use vexide::{
@@ -75,6 +75,11 @@ impl MirroredLift {
 impl RecordField for MirroredLift {
     type Output = LiftFrame;
 
+    fn playback_ready(&self) -> bool {
+        self.position_degrees()
+            .is_ok_and(|(first, second)| first.is_finite() && second.is_finite())
+    }
+
     async fn finalize_frame_value(&self, frame: &LiftFrame) -> LiftFrame {
         let mut out = frame.clone();
         if let Ok((first, second)) = self.position_degrees() {
@@ -103,13 +108,15 @@ impl RecordField for MirroredLift {
                 .ok()
                 .map(|(first, second)| (first + second) / 2.0)
         };
-        let target = (mode == RecordMode::Playback).then_some(frame.position_degrees);
-        let command = self.controller.update(
-            frame.direction,
-            target.map(Angle::new::<degree>),
-            position.map(Angle::new::<degree>),
-            dt,
-        );
+        let target = match mode {
+            RecordMode::Live => LiftTarget::Manual(LiftDirection::from_signed(frame.direction)),
+            RecordMode::Playback => {
+                LiftTarget::Position(Angle::new::<degree>(frame.position_degrees))
+            }
+        };
+        let command = self
+            .controller
+            .update_target(target, position.map(Angle::new::<degree>), dt);
         if command == 0.0 {
             return self.hold();
         }

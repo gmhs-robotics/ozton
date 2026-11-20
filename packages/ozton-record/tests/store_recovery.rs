@@ -47,7 +47,10 @@ fn reads_legacy_route_and_recovers_an_interrupted_overwrite() {
     let index_path = root.join(RouteIndex::INDEX_PATH);
     let legacy_path = root.join(RouteIndex::path_for(1));
     fs::write(&index_path, "1\tOriginal\n").unwrap();
-    recording(0.25).save(&legacy_path).unwrap();
+    let legacy =
+        ozton_record::rkyv::to_bytes::<ozton_record::rkyv::rancor::Error>(&recording(0.25))
+            .unwrap();
+    fs::write(&legacy_path, &legacy).unwrap();
     let old = fs::read(&legacy_path).unwrap();
     let maximum = Duration::from_secs(15);
     let check = |value: &f64| value.is_finite();
@@ -116,4 +119,38 @@ fn saving_another_route_does_not_commit_an_unterminated_overwrite() {
         reopened.load::<f64>(new, maximum, check).unwrap().frames[0].frame,
         0.5
     );
+}
+
+#[test]
+fn versioned_recording_rejects_an_equally_sized_different_frame() {
+    let directory = Directory::new();
+    let path = directory.0.join("schema.route");
+    recording(1.0).save(&path).unwrap();
+    assert!(matches!(
+        Recording::<u64>::load(&path),
+        Err(ozton_record::frame::RecordingError::IncompatibleSchema),
+    ));
+}
+
+#[test]
+fn a_prepared_save_cannot_be_retried_against_another_store() {
+    let first = Directory::new();
+    let second = Directory::new();
+    let mut source = RouteStore::open(&first.0).unwrap();
+    let mut destination = RouteStore::open(&second.0).unwrap();
+    let index = first.0.join(RouteIndex::INDEX_PATH);
+    fs::create_dir(&index).unwrap();
+    let mut pending = Pending::new(RecordTarget::New, recording(0.5));
+    let maximum = Duration::from_secs(1);
+    let valid = |value: &f64| value.is_finite();
+
+    assert!(source.save(&mut pending, maximum, valid).is_err());
+    assert!(first.0.join(RouteIndex::path_for(1)).is_file());
+    assert!(matches!(
+        destination.save(&mut pending, maximum, valid),
+        Err(ozton_record::store::StoreError::StalePending),
+    ));
+    assert_eq!(destination.iter().count(), 0);
+    fs::remove_dir(&index).unwrap();
+    assert_eq!(source.save(&mut pending, maximum, valid).unwrap(), 1);
 }

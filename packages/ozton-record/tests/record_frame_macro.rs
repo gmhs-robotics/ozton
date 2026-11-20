@@ -36,3 +36,19 @@ fn record_frame_macro_generates_interpolation() {
     assert!(!mid.nested.enabled);
     assert!((mid.power - 0.25).abs() < 1e-9);
 }
+
+record_frame! {
+    struct ConditionalFrame {
+        #[cfg(any())]
+        excluded: f64,
+        #[doc = "A retained value"]
+        value: f64,
+    }
+}
+
+#[test]
+fn interpolation_omits_disabled_fields() {
+    let start = ConditionalFrame { value: 0.0 };
+    let end = ConditionalFrame { value: 2.0 };
+    assert_eq!(ConditionalFrame::interpolate(&start, &end, 0.5).value, 1.0);
+}

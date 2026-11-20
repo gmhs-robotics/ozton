@@ -20,7 +20,6 @@ impl<A: Copy> SelectorItem for Choice<A> {
 pub struct RouteMenu<A: Copy + 'static> {
     _selector: Selector<Choice<A>>,
     status: StatusHandle<Choice<A>>,
-    choices: Vec<Choice<A>>,
     last_selection: usize,
     last_status: String,
 }
@@ -43,7 +42,7 @@ impl<A: Copy + 'static> RouteMenu<A> {
             label: label.into(),
             action,
         }));
-        let selector = Selector::new(display, choices.clone(), 0);
+        let selector = Selector::new(display, choices, 0);
         let status = selector.status_handle();
         status.set_selection_enabled(
             vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,
@@ -51,18 +50,15 @@ impl<A: Copy + 'static> RouteMenu<A> {
         Self {
             _selector: selector,
             status,
-            choices,
             last_selection: 0,
             last_status: String::new(),
         }
     }
     pub fn add(&mut self, label: impl Into<String>, action: A) {
-        self.choices.push(Choice {
+        self.status.add_option(Choice {
             label: label.into(),
             action,
         });
-        self.status
-            .replace_options(self.choices.clone(), self.status.selection_index());
     }
     pub fn action(&self) -> A {
         self.status.with_selection(|choice| choice.action)
