@@ -30,7 +30,7 @@ pub mod prelude {
     };
     #[cfg(feature = "programmed")]
     pub use crate::runtime::{
-        Custom, CustomAt, CustomList, Latest, Previous, Robot,
+        Custom, CustomList, Robot,
         competition::{CompetitionControls, CompetitionRobot},
     };
     pub use crate::{

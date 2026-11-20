@@ -47,8 +47,8 @@ struct Intake {
     on: bool,
 }
 
-impl<Earlier> Custom<(), ChassisError, Earlier> for Intake {
-    fn update(&mut self, _: &mut (), _: &mut Earlier) -> Result<(), ChassisError> {
+impl Custom<(), ChassisError> for Intake {
+    fn update(&mut self, _: &mut ()) -> Result<(), ChassisError> {
         self.motor
             .set_voltage(if self.on { 5.0 } else { 0.0 })
             .map_err(ChassisError::Output)
@@ -62,19 +62,15 @@ impl<Earlier> Custom<(), ChassisError, Earlier> for Intake {
     }
 }
 
-impl<Earlier> Custom<ControllerState, RouteError, Earlier> for Intake {
-    fn update(
-        &mut self,
-        state: &mut ControllerState,
-        earlier: &mut Earlier,
-    ) -> Result<(), RouteError> {
+impl Custom<ControllerState, RouteError> for Intake {
+    fn update(&mut self, state: &mut ControllerState) -> Result<(), RouteError> {
         self.on = state.button_r1.is_pressed();
-        self.update(&mut (), earlier)
+        self.update(&mut ())
             .map_err(|error| RouteError(AutonError::Robot(error)))
     }
 
     fn stop(&mut self) -> Result<(), RouteError> {
-        <Self as Custom<(), ChassisError, Earlier>>::stop(self)
+        <Self as Custom<(), ChassisError>>::stop(self)
             .map_err(|error| RouteError(AutonError::StopFailed(error)))
     }
 }

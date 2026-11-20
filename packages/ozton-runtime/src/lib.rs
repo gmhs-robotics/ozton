@@ -30,6 +30,4 @@ impl StartupReference {
 
 pub mod menu;
 
-pub use robot::{
-    CompetitionBot, Custom, CustomAt, CustomList, Latest, Previous, Robot, RobotLayout,
-};
+pub use robot::{CompetitionBot, Custom, CustomList, Robot, RobotLayout};

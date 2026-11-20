@@ -63,36 +63,14 @@ is `runtime::competition::Autonomous<Route>` with just a menu, or
 
 ## Register subsystems
 
-Implement `runtime::Custom<Input, Error, Earlier>` on each subsystem and add it
+Implement `runtime::Custom<Input, Error>` on each subsystem and add it
 with `.with_custom(Intake { … })`. The driver loop and autonomous runner update
 the registered customs in order using the input supplied by their control hooks.
 Implement `Custom::stop` to brake any outputs the subsystem owns.
 
-A custom can use controller state or targets supplied as tick input. If a
-feeder also needs the intake itself, register the intake before the feeder and
-borrow it by compile-time index:
-
-```rust,ignore
-impl<Earlier> Custom<DriverInput, RobotError, Earlier> for Feeder
-where
-    Earlier: CustomAt<Latest, Value = Intake>,
-{
-    fn update(
-        &mut self,
-        input: &mut DriverInput,
-        earlier: &mut Earlier,
-    ) -> Result<(), RobotError> {
-        self.feed(input, earlier.get())
-    }
-}
-
-// Robot::new().with_custom(intake).with_custom(feeder)
-```
-
-`Latest` selects the immediately preceding custom. `Previous<Latest>` skips
-one more. The compiler checks that the index exists and selects the expected
-type when you run the robot. These indices resolve to tuple field accesses.
-An independent custom can leave its `Earlier` type parameter unconstrained.
+When mechanisms need to coordinate, give one custom ownership of those
+mechanisms. For example, register
+`.with_custom(Scoring::new(intake, intake_pivot, lift))`.
 
 ## Complete example
 

@@ -43,7 +43,7 @@ impl<X> Robot<X> {
     /// Append a subsystem. Configure range occlusion after registering customs.
     pub fn with_custom<N>(self, subsystem: N) -> Robot<(X, N)>
     where
-        for<'a> N: Custom<StockTick<'a>, PortError, X>,
+        for<'a> N: Custom<StockTick<'a>, PortError>,
     {
         Robot {
             drive: self.drive,

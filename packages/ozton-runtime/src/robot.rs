@@ -36,42 +36,13 @@ impl<L: RobotLayout> Robot<L::Drivetrain, Controller, L::Tracking, L::Customs, L
 }
 
 /// An application-owned subsystem. The tick input can hold controller state
-/// and shared commands. Earlier customs can be borrowed directly through
-/// [`CustomAt`]. Independent customs can leave `Earlier` unconstrained.
-pub trait Custom<Input, Error, Earlier = ()> {
-    fn update(&mut self, input: &mut Input, earlier: &mut Earlier) -> Result<(), Error>;
+/// and commands from the robot's control policy.
+pub trait Custom<Input, Error> {
+    fn update(&mut self, input: &mut Input) -> Result<(), Error>;
 
     /// Bring this subsystem's outputs to a safe state.
     fn stop(&mut self) -> Result<(), Error> {
         Ok(())
-    }
-}
-
-/// Select the most recently registered custom in a list.
-pub struct Latest;
-
-/// Select an index in the prefix before the most recently registered custom.
-pub struct Previous<Index>(core::marker::PhantomData<Index>);
-
-/// Borrow a registered subsystem at a compile-time index.
-pub trait CustomAt<Index> {
-    type Value;
-    fn get(&mut self) -> &mut Self::Value;
-}
-
-impl<Earlier, Last> CustomAt<Latest> for (Earlier, Last) {
-    type Value = Last;
-
-    fn get(&mut self) -> &mut Last {
-        &mut self.1
-    }
-}
-
-impl<Earlier: CustomAt<Index>, Last, Index> CustomAt<Previous<Index>> for (Earlier, Last) {
-    type Value = Earlier::Value;
-
-    fn get(&mut self) -> &mut Self::Value {
-        self.0.get()
     }
 }
 
@@ -91,10 +62,10 @@ impl<I, E> CustomList<I, E> for () {
     }
 }
 
-impl<I, E, A: CustomList<I, E>, B: Custom<I, E, A>> CustomList<I, E> for (A, B) {
+impl<I, E, A: CustomList<I, E>, B: Custom<I, E>> CustomList<I, E> for (A, B) {
     fn update_all(&mut self, input: &mut I) -> Result<(), E> {
         self.0.update_all(input)?;
-        self.1.update(input, &mut self.0)
+        self.1.update(input)
     }
 
     fn stop_all(&mut self) -> Result<(), E> {
@@ -174,23 +145,6 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
     }
 
     /// Append a subsystem to the custom tick chain. Earlier subsystems run first.
-    ///
-    /// Missing dependencies are rejected when the chain is used.
-    ///
-    /// ```compile_fail
-    /// use ozton_runtime::{Custom, CustomAt, CustomList, Latest, Robot};
-    ///
-    /// struct Intake;
-    /// struct Feeder;
-    /// impl<E: CustomAt<Latest, Value = Intake>> Custom<(), (), E> for Feeder {
-    ///     fn update(&mut self, _: &mut (), earlier: &mut E) -> Result<(), ()> {
-    ///         let _intake = earlier.get();
-    ///         Ok(())
-    ///     }
-    /// }
-    ///
-    /// Robot::new().with_custom(Feeder).custom.update_all(&mut ()).unwrap();
-    /// ```
     pub fn with_custom<N>(self, subsystem: N) -> Robot<D, C, T, (X, N), P, A> {
         let Self {
             drivetrain,
@@ -271,11 +225,9 @@ where
 mod tests {
     use super::*;
 
-    #[derive(Default)]
-    struct Publish(i32);
-    impl Custom<i32, &'static str> for Publish {
-        fn update(&mut self, input: &mut i32, _: &mut ()) -> Result<(), &'static str> {
-            self.0 = *input * 2;
+    struct First;
+    impl Custom<i32, &'static str> for First {
+        fn update(&mut self, input: &mut i32) -> Result<(), &'static str> {
             if *input < 0 {
                 Err("update failed")
             } else {
@@ -293,11 +245,9 @@ mod tests {
         input: i32,
         stopped: bool,
     }
-    impl<Earlier: CustomAt<Previous<Latest>, Value = Publish>> Custom<i32, &'static str, Earlier>
-        for Read
-    {
-        fn update(&mut self, _: &mut i32, earlier: &mut Earlier) -> Result<(), &'static str> {
-            self.input = earlier.get().0;
+    impl Custom<i32, &'static str> for Read {
+        fn update(&mut self, input: &mut i32) -> Result<(), &'static str> {
+            self.input = *input;
             Ok(())
         }
 
@@ -308,25 +258,25 @@ mod tests {
     }
 
     struct Independent;
-    impl<Earlier> Custom<i32, &'static str, Earlier> for Independent {
-        fn update(&mut self, _: &mut i32, _: &mut Earlier) -> Result<(), &'static str> {
+    impl Custom<i32, &'static str> for Independent {
+        fn update(&mut self, _: &mut i32) -> Result<(), &'static str> {
             Ok(())
         }
     }
 
     #[test]
-    fn customs_borrow_earlier_subsystems_and_all_stop_after_failure() {
+    fn customs_update_in_order_and_all_stop_after_failure() {
         let mut robot = Robot::new()
             .with_drivetrain(2)
-            .with_custom(Publish::default())
+            .with_custom(First)
             .with_custom(Independent)
             .with_controller("controller")
             .with_custom(Read::default());
 
         assert_eq!(robot.custom.update_all(&mut 3), Ok(()));
-        assert_eq!(robot.custom.1.input, 6);
+        assert_eq!(robot.custom.1.input, 3);
         assert_eq!(robot.custom.update_all(&mut -1), Err("update failed"));
-        assert_eq!(robot.custom.1.input, 6);
+        assert_eq!(robot.custom.1.input, 3);
         assert_eq!((robot.drivetrain, robot.controller), (2, "controller"));
         assert_eq!(robot.custom.stop_all(), Err("first stop failed"));
         assert!(robot.custom.1.stopped);
