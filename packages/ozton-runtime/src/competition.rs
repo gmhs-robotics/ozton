@@ -34,8 +34,26 @@ pub trait Routes<R, E>: RouteSet {
     async fn run(self, robot: &mut R) -> Result<(), E>;
 }
 
+#[doc(hidden)]
+pub trait IntoRouteResult<E> {
+    fn into_route_result(self) -> Result<(), E>;
+}
+
+impl<E> IntoRouteResult<E> for () {
+    fn into_route_result(self) -> Result<(), E> {
+        Ok(())
+    }
+}
+
+impl<E> IntoRouteResult<E> for Result<(), E> {
+    fn into_route_result(self) -> Result<(), E> {
+        self
+    }
+}
+
 /// Define the Brain choices and dispatch ordinary async functions. Different
 /// route future types are compiled into one enum dispatch, with no boxed futures.
+/// A routine can return unit or report a failure.
 ///
 /// ```
 /// use ozton_runtime::{Robot, autonomous_routes};
@@ -70,7 +88,11 @@ macro_rules! autonomous_routes {
         impl $crate::competition::Routes<$robot, $error> for $name {
             #[allow(unused_variables)]
             async fn run(self, robot: &mut $robot) -> Result<(), $error> {
-                match self { $(Self::$variant => $route(robot).await),* }
+                match self {
+                    $(Self::$variant => $crate::competition::IntoRouteResult::into_route_result(
+                        $route(robot).await
+                    )),*
+                }
             }
         }
     };
@@ -92,6 +114,7 @@ impl Tick {
 /// Opt-in competition hooks for an application with its own robot and controls.
 /// Implementations own device errors and drive/motor policy. The loop owns mode
 /// transitions, route selection, disable handling and the periodic tick.
+#[allow(async_fn_in_trait)]
 pub trait CompetitionRobot: Sized {
     type Error: std::fmt::Display;
     type Route: Routes<Self, Self::Error>;
@@ -100,6 +123,11 @@ pub trait CompetitionRobot: Sized {
     fn menu(&mut self) -> &mut RouteMenu<Option<Self::Route>>;
     fn stop(&mut self) -> Result<(), Self::Error>;
     fn driver_tick(&mut self, tick: Tick);
+
+    /// Run a driver-triggered routine after the ordinary tick. Returns whether it ran.
+    async fn driver_action(&mut self) -> bool {
+        false
+    }
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
@@ -167,6 +195,7 @@ pub const DRIVER_STATUS: &str = "Driver control";
 /// Application-specific competition behavior for an Ozton [`Robot`].
 /// Install its state with `Robot::with_controls`. The hooks receive the
 /// assembled robot and can borrow its concrete parts and controls independently.
+#[allow(async_fn_in_trait)]
 pub trait CompetitionControls<R> {
     type Error: std::fmt::Display;
     type SubsystemInput;
@@ -177,6 +206,11 @@ pub trait CompetitionControls<R> {
     /// Read the controller and update the drivetrain and subsystems together.
     /// A failed tick stops outputs before the next controller sample.
     fn driver_tick(robot: &mut R, tick: Tick) -> Result<(), Self::Error>;
+
+    /// Run a driver-triggered routine when the most recent tick started it.
+    async fn driver_action(_robot: &mut R) -> bool {
+        false
+    }
 
     /// Optional tracking work runs after driver outputs and within the tick budget.
     fn poll_tracking(_robot: &mut R, _mode: CompetitionMode) {}
@@ -215,6 +249,10 @@ where
             crate::diagnostic_event!("driver_tick_failed,error={error}");
             let _ = self.stop();
         }
+    }
+
+    async fn driver_action(&mut self) -> bool {
+        P::driver_action(self).await
     }
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
@@ -368,7 +406,39 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         }
         robot.menu().poll(disabled);
         robot.after_tick(mode, tick);
+        if mode == CompetitionMode::Driver
+            && competition::mode() == mode
+            && robot.driver_action().await
+        {
+            last_tick = Instant::now();
+            if competition::mode() == mode {
+                sleep(R::CONTROL_PERIOD).await;
+            }
+            continue;
+        }
         sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
+    }
+}
+
+/// Keep normal driver control and telemetry running during a driver routine.
+/// Return as soon as the routine finishes or the field leaves driver mode.
+pub async fn drive_while<R: CompetitionRobot>(robot: &mut R, active: impl Fn(&R) -> bool) {
+    let mut previous = Instant::now();
+    let mut delay = R::CONTROL_PERIOD;
+    while active(robot) && competition::mode() == CompetitionMode::Driver {
+        sleep(delay).await;
+        if competition::mode() != CompetitionMode::Driver {
+            break;
+        }
+        let started = Instant::now();
+        let tick = Tick {
+            started,
+            elapsed: started.saturating_duration_since(previous),
+        };
+        previous = started;
+        robot.driver_tick(tick);
+        robot.after_tick(CompetitionMode::Driver, tick);
+        delay = control_sleep(R::CONTROL_PERIOD, tick.work());
     }
 }
 
@@ -432,9 +502,8 @@ mod tests {
 
     type TestRobot = Robot<(), (), (), (), i32>;
 
-    async fn add(robot: &mut TestRobot) -> Result<(), &'static str> {
+    async fn add(robot: &mut TestRobot) {
         robot.controls += 2;
-        Ok(())
     }
 
     async fn multiply(robot: &mut TestRobot) -> Result<(), &'static str> {
