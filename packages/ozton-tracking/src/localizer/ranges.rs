@@ -8,8 +8,14 @@ use ozton_math::{
         Constraint, Mount, RangeGate, RangeReading, Rejection, Surface, constrain_masked,
         fit_translation,
     },
-    si,
-    uom::si::f64::{Length, Time},
+    uom::{
+        ConstZero,
+        si::{
+            angle::radian,
+            f64::{Angle, Length, Time},
+            time::second,
+        },
+    },
 };
 
 pub const MAX_RANGES: usize = 8;
@@ -31,8 +37,11 @@ impl RangeSensorConfig {
         Self {
             mount,
             gate: RangeGate::DEFAULT,
-            bias: si(0.0),
-            sigma: si(0.025),
+            bias: Length::ZERO,
+            sigma: Length {
+                value: 0.025,
+                ..Length::ZERO
+            },
             surface: None,
             surface_mask: u32::MAX,
         }
@@ -56,7 +65,7 @@ impl RangeSensorConfig {
         now: Duration,
     ) -> Result<Length, Rejection> {
         let age = now.checked_sub(sample.timestamp).ok_or(Rejection::Stale)?;
-        let reading = self.reading(sample, si(age.as_secs_f64()));
+        let reading = self.reading(sample, Time::new::<second>(age.as_secs_f64()));
         reading.validate(self.gate)?;
         Ok(reading.distance)
     }
@@ -145,7 +154,7 @@ fn constrain_sample(
     sample: RangeObservation,
     age: f64,
 ) -> Result<Constraint, Rejection> {
-    let reading = sensor.reading(sample, si(age));
+    let reading = sensor.reading(sample, Time::new::<second>(age));
     constrain_masked(
         pose,
         sensor.mount,
@@ -230,7 +239,7 @@ impl ResetWindow {
         }
         if self.anchor.is_some_and(|(_, anchor)| {
             pose.position.distance(anchor.position) > 0.012
-                || wrap_heading(ozton_math::si(pose.heading - anchor.heading)).abs() > 0.02
+                || wrap_heading(Angle::new::<radian>(pose.heading - anchor.heading)).abs() > 0.02
         }) {
             self.restart();
         }

@@ -54,9 +54,11 @@ impl HeadingHold {
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::si::angle::{degree, radian};
+
     use super::*;
     fn angle(degrees: f64) -> Option<Angle> {
-        Some(Angle::new::<ozton_math::uom::si::angle::degree>(degrees))
+        Some(Angle::new::<degree>(degrees))
     }
     fn hold() -> HeadingHold {
         HeadingHold::new(1.5, 0.2)
@@ -83,7 +85,10 @@ mod tests {
         assert_eq!(hold.turn(0.6, 0.0, angle(50.0)), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, None), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(60.0)), 0.0);
-        assert_eq!(hold.turn(0.6, 0.0, Some(ozton_math::si(f64::NAN))), 0.0);
+        assert_eq!(
+            hold.turn(0.6, 0.0, Some(Angle::new::<radian>(f64::NAN))),
+            0.0
+        );
         assert_eq!(hold.turn(0.6, 0.0, angle(70.0)), 0.0);
         hold.reset();
         assert_eq!(hold.turn(0.6, 0.0, angle(80.0)), 0.0);

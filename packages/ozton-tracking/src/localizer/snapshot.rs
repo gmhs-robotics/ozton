@@ -5,7 +5,11 @@ use std::time::Duration;
 use ozton_math::{
     geometry::{BodyDelta, Pose, wrap_heading},
     localization::odometry::body_delta,
-    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
+    uom::si::{
+        angle::radian,
+        f64::{Angle, AngularVelocity, Length, Velocity},
+        length::meter,
+    },
 };
 
 /// A GPS fix and its estimated position error, in meters.
@@ -46,12 +50,12 @@ pub struct OdometryConfig {
 impl OdometryConfig {
     /// Creates odometry settings from physical lengths, speeds, and the sample gap.
     pub const fn from_units(
-        track_width: ozton_math::uom::si::f64::Length,
-        forward_offset: ozton_math::uom::si::f64::Length,
-        lateral_offset: ozton_math::uom::si::f64::Length,
+        track_width: Length,
+        forward_offset: Length,
+        lateral_offset: Length,
         require_lateral: bool,
-        max_linear_speed: ozton_math::uom::si::f64::Velocity,
-        max_angular_speed: ozton_math::uom::si::f64::AngularVelocity,
+        max_linear_speed: Velocity,
+        max_angular_speed: AngularVelocity,
         max_gap: Duration,
     ) -> Self {
         Self {
@@ -109,7 +113,7 @@ pub(crate) fn delta(
     let heading = previous
         .imu
         .zip(next.imu)
-        .map(|(before, after)| wrap_heading(ozton_math::si(after.value - before.value)))
+        .map(|(before, after)| wrap_heading(Angle::new::<radian>(after.value - before.value)))
         .filter(|angle| angle.abs() <= config.max_angular_speed.value * seconds)
         .or_else(|| {
             if config.track_width.value == 0.0 {
@@ -149,12 +153,12 @@ pub(crate) fn delta(
     if config.require_lateral && lateral.is_none() {
         return Err(Fault::Lateral);
     }
-    let lengths = |(travel, offset)| (ozton_math::si(travel), ozton_math::si(offset));
+    let lengths = |(travel, offset)| (Length::new::<meter>(travel), Length::new::<meter>(offset));
     Ok((
         body_delta(
             lengths(forward),
             lateral.map(lengths),
-            ozton_math::si(heading),
+            Angle::new::<radian>(heading),
         ),
         dt,
     ))

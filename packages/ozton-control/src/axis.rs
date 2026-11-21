@@ -2,9 +2,8 @@
 
 use core::time::Duration;
 
-use ozton_math::{
-    si,
-    uom::si::{self, Dimension, Quantity, SI, f64::ElectricPotential},
+use ozton_math::uom::si::{
+    self, Dimension, Quantity, SI, electric_potential::volt, f64::ElectricPotential,
 };
 
 use crate::loops::{Feedforward, MotorFeedforward, MotorFeedforwardSetpoint, Pid};
@@ -82,9 +81,9 @@ impl<D: AxisDimension> AxisConfig<D> {
     fn with_defaults() -> Self {
         Self {
             pid: Pid::new(0.0, 0.0, 0.0, None),
-            feedforward: MotorFeedforward::new(si(0.0), 0.0, 0.0),
+            feedforward: MotorFeedforward::new(ElectricPotential::new::<volt>(0.0), 0.0, 0.0),
             derivative_filter: Duration::ZERO,
-            maximum_voltage: si(12.0),
+            maximum_voltage: ElectricPotential::new::<volt>(12.0),
             position_limits: None,
         }
     }
@@ -285,7 +284,7 @@ impl<D: AxisDimension> AxisController<D> {
             && acceleration.value == 0.0
         {
             self.config.pid.reset();
-            return Some(si(0.0));
+            return Some(ElectricPotential::new::<volt>(0.0));
         }
         let feedforward = self.config.feedforward.update(
             MotorFeedforwardSetpoint {
@@ -314,63 +313,88 @@ impl<D: AxisDimension> AxisController<D> {
         });
         if limited {
             self.config.pid.reset();
-            Some(si(0.0))
+            Some(ElectricPotential::new::<volt>(0.0))
         } else {
-            Some(si(output))
+            Some(ElectricPotential::new::<volt>(output))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::{
+        ConstZero,
+        si::{
+            angle::radian,
+            angular_acceleration::radian_per_second_squared,
+            angular_velocity::radian_per_second,
+            f64::{Angle, AngularAcceleration, AngularVelocity},
+        },
+    };
+
     use super::*;
 
     const TICK: Duration = Duration::from_millis(10);
     const SAMPLE: AxisSample = AxisSample {
-        position: si(0.5),
-        velocity: si(0.0),
+        position: Angle {
+            value: 0.5,
+            ..Angle::ZERO
+        },
+        velocity: AngularVelocity::ZERO,
     };
 
     fn target(position: f64) -> Target {
         Target::Position {
-            position: si(position),
-            velocity: si(0.0),
-            acceleration: si(0.0),
+            position: Angle::new::<radian>(position),
+            velocity: AngularVelocity::new::<radian_per_second>(0.0),
+            acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         }
     }
 
     fn controller() -> AxisController {
         AxisConfig::new()
             .with_pid(Pid::new(10.0, 0.0, 0.0, None))
-            .with_maximum_voltage(si(4.0))
-            .with_position_limits(si(0.0), si(1.0))
+            .with_maximum_voltage(ElectricPotential::new::<volt>(4.0))
+            .with_position_limits(Angle::new::<radian>(0.0), Angle::new::<radian>(1.0))
             .build()
             .unwrap()
-            .with_position_tolerance(si(0.01))
+            .with_position_tolerance(Angle::new::<radian>(0.01))
             .with_maximum_gap(Duration::from_millis(100))
     }
 
     #[test]
     fn builder_limits_voltage_travel_and_timing_and_recovers_after_faults() {
         let mut axis = controller();
-        assert_eq!(axis.update(SAMPLE, target(100.0), TICK), Some(si(4.0)));
-        assert_eq!(axis.update(SAMPLE, target(-100.0), TICK), Some(si(-4.0)));
-        assert_eq!(axis.update(SAMPLE, target(0.505), TICK), Some(si(0.0)));
+        assert_eq!(
+            axis.update(SAMPLE, target(100.0), TICK),
+            Some(ElectricPotential::new::<volt>(4.0))
+        );
+        assert_eq!(
+            axis.update(SAMPLE, target(-100.0), TICK),
+            Some(ElectricPotential::new::<volt>(-4.0))
+        );
+        assert_eq!(
+            axis.update(SAMPLE, target(0.505), TICK),
+            Some(ElectricPotential::new::<volt>(0.0))
+        );
         for dt in [Duration::ZERO, Duration::from_millis(101)] {
             assert!(axis.update(SAMPLE, target(1.0), dt).is_none());
         }
-        assert_eq!(axis.update(SAMPLE, target(1.0), TICK), Some(si(4.0)));
+        assert_eq!(
+            axis.update(SAMPLE, target(1.0), TICK),
+            Some(ElectricPotential::new::<volt>(4.0))
+        );
         // An axis outside its measured limits must still be allowed to return.
         assert_eq!(
             axis.update(
                 AxisSample {
-                    position: si(1.5),
-                    velocity: si(0.0)
+                    position: Angle::new::<radian>(1.5),
+                    velocity: AngularVelocity::new::<radian_per_second>(0.0)
                 },
                 target(1.0),
                 TICK
             ),
-            Some(si(-4.0))
+            Some(ElectricPotential::new::<volt>(-4.0))
         );
     }
 
@@ -382,8 +406,8 @@ mod tests {
             assert!(
                 axis.update(
                     AxisSample {
-                        position: si(invalid),
-                        velocity: si(0.0)
+                        position: Angle::new::<radian>(invalid),
+                        velocity: AngularVelocity::new::<radian_per_second>(0.0)
                     },
                     target(1.0),
                     TICK
@@ -393,19 +417,19 @@ mod tests {
         }
         assert!(
             AxisConfig::new()
-                .with_maximum_voltage(si(f64::NAN))
+                .with_maximum_voltage(ElectricPotential::new::<volt>(f64::NAN))
                 .build()
                 .is_none()
         );
         assert!(
             AxisConfig::new()
-                .with_position_limits(si(1.0), si(0.0))
+                .with_position_limits(Angle::new::<radian>(1.0), Angle::new::<radian>(0.0))
                 .build()
                 .is_none()
         );
         assert!(
             controller()
-                .with_position_tolerance(si(-1.0))
+                .with_position_tolerance(Angle::new::<radian>(-1.0))
                 .update(SAMPLE, target(0.5), TICK)
                 .is_none()
         );

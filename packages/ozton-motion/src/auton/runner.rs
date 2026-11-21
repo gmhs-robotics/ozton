@@ -3,7 +3,12 @@ use std::time::{Duration, Instant};
 
 use ozton_math::{
     geometry::{Pose, wrap_heading},
-    uom::si::f64::{Length, Velocity},
+    uom::si::{
+        angle::radian,
+        f64::{Angle, Length, Velocity},
+        length::meter,
+        velocity::meter_per_second,
+    },
 };
 use ozton_runtime::clock::CommandClock;
 use vexide::competition::{self, CompetitionMode};
@@ -16,7 +21,7 @@ pub trait AutonRobot {
 
     /// Capture tracking once. None is a stopped initialization/rebaseline tick.
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error>;
-    fn update_custom(&mut self, dt: Duration) -> Result<(), Self::Error>;
+    fn update_subsystems(&mut self, dt: Duration) -> Result<(), Self::Error>;
     fn drive(&mut self, meters_per_second: [Velocity; 2], dt: Duration) -> Result<(), Self::Error>;
     fn stop_drive(&mut self) -> Result<(), Self::Error>;
     /// Stop every output, even when an individual device fails.
@@ -416,7 +421,8 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                         let heading =
                             start.heading + if reverse { core::f64::consts::PI } else { 0.0 };
                         if feedback.pose.position.distance(start.position) > 0.15
-                            || wrap_heading(ozton_math::si(feedback.pose.heading - heading)).abs()
+                            || wrap_heading(Angle::new::<radian>(feedback.pose.heading - heading))
+                                .abs()
                                 > 1.05
                         {
                             return Err(AutonError::PathStart);
@@ -435,7 +441,7 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 if step.lost {
                     return Err(AutonError::PathLost);
                 }
-                if let Err(error) = active.robot.update_custom(dt) {
+                if let Err(error) = active.robot.update_subsystems(dt) {
                     if active.robot.recoverable(&error) {
                         let since = *mechanism_retry_since.get_or_insert(Instant::now());
                         active.robot.pause().map_err(AutonError::StopFailed)?;
@@ -452,7 +458,10 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 if step.complete || step.wheels == [0.0; 2] {
                     active.robot.stop_drive().map_err(AutonError::StopFailed)?;
                 } else {
-                    match active.robot.drive(step.wheels.map(ozton_math::si), dt) {
+                    match active
+                        .robot
+                        .drive(step.wheels.map(Velocity::new::<meter_per_second>), dt)
+                    {
                         Ok(()) => output_retry_since = None,
                         Err(error) if active.robot.recoverable(&error) => {
                             let since = *output_retry_since.get_or_insert(Instant::now());
@@ -471,8 +480,10 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 if step.wheels.iter().any(|v| v.abs() > 0.08) {
                     let anchor = *progress_pose.get_or_insert(feedback.pose);
                     if feedback.pose.position.distance(anchor.position) > 0.008
-                        || wrap_heading(ozton_math::si(feedback.pose.heading - anchor.heading))
-                            .abs()
+                        || wrap_heading(Angle::new::<radian>(
+                            feedback.pose.heading - anchor.heading,
+                        ))
+                        .abs()
                             > 0.025
                     {
                         progress_pose = Some(feedback.pose);
@@ -492,8 +503,8 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
                 active.robot.log_step(
                     self.started.elapsed(),
                     dt,
-                    ozton_math::si(step.progress),
-                    step.wheels.map(ozton_math::si),
+                    Length::new::<meter>(step.progress),
+                    step.wheels.map(Velocity::new::<meter_per_second>),
                 );
                 if step.complete {
                     if let Command::Contact(contact) = command {

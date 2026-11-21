@@ -83,20 +83,20 @@ pub trait MechanismActions {
 }
 impl<A, M: MechanismActions> MechanismRobot for super::Robot<(A, M)>
 where
-    (A, M): for<'a> ozton_runtime::CustomList<super::StockTick<'a>, vexide::smart::PortError>,
+    (A, M): for<'a> ozton_runtime::SubsystemList<super::StockTick<'a>, vexide::smart::PortError>,
 {
     type Target = M::Target;
     fn set_target(&mut self, target: Self::Target) -> Result<(), Self::Error> {
-        self.custom
+        self.subsystems
             .1
             .set_target(target)
             .map_err(super::chassis::ChassisError::Output)
     }
     fn at_target(&self) -> bool {
-        self.custom.1.at_target()
+        self.subsystems.1.at_target()
     }
     fn set_action(&mut self, enabled: bool) -> Result<(), Self::Error> {
-        self.custom
+        self.subsystems
             .1
             .set_action(enabled)
             .map_err(super::chassis::ChassisError::Output)

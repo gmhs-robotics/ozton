@@ -6,6 +6,7 @@ use std::{
 
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drivetrain, model::Tank};
+use ozton_math::uom::si::{f64::Length, length::meter};
 use ozton_tracking::{TracksHeading, TracksPosition};
 use vexide::{
     math::Angle,
@@ -259,10 +260,7 @@ where
     I: Iterator<Item = Waypoint> + Unpin,
 {
     /// Modifies this motion's track width.
-    pub const fn with_track_width(
-        &mut self,
-        track_width: ozton_math::uom::si::f64::Length,
-    ) -> &mut Self {
+    pub const fn with_track_width(&mut self, track_width: Length) -> &mut Self {
         self.track_width = track_width.value;
         self
     }
@@ -279,10 +277,7 @@ where
     }
 
     /// Modifies this motion's lookahead distance.
-    pub const fn with_lookahead_distance(
-        &mut self,
-        lookahead_distance: ozton_math::uom::si::f64::Length,
-    ) -> &mut Self {
+    pub const fn with_lookahead_distance(&mut self, lookahead_distance: Length) -> &mut Self {
         self.lookahead_distance = lookahead_distance.value;
         self
     }
@@ -307,9 +302,13 @@ fn line_segment_circle_intersections(
     start: Vec2,
     end: Vec2,
 ) -> (Option<Vec2>, Option<Vec2>) {
-    let [first, last] =
-        ozton_math::geometry::circle_segment_fractions(center, ozton_math::si(radius), start, end)
-            .map(|fraction| fraction.map(|value| start.lerp(end, value)));
+    let [first, last] = ozton_math::geometry::circle_segment_fractions(
+        center,
+        Length::new::<meter>(radius),
+        start,
+        end,
+    )
+    .map(|fraction| fraction.map(|value| start.lerp(end, value)));
     (first, last)
 }
 

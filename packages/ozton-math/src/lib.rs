@@ -9,26 +9,6 @@ pub mod localization;
 pub mod path;
 
 pub use uom;
-use uom::{
-    ConstZero,
-    si::{Dimension, Quantity, SI},
-};
-
-/// Build an SI quantity in a constant. In runtime code use uom's `new::<Unit>`.
-///
-/// ```
-/// use ozton_math::{geometry::INCH, si, uom::si::{f64::Length, length::inch}};
-///
-/// const WHEEL: Length = si(2.25 * INCH);
-/// assert_eq!(WHEEL, Length::new::<inch>(2.25));
-/// ```
-pub const fn si<D: Dimension + ?Sized>(value: f64) -> Quantity<D, SI<f64>, f64> {
-    Quantity {
-        value,
-        ..Quantity::ZERO
-    }
-}
-
 /// Scales down the values in an array so that none exceed a given maximum magnitude.
 ///
 /// This function checks the element with the largest absolute value in the input array.

@@ -3,7 +3,14 @@
 use core::f64::consts::PI;
 
 use glam::DVec2;
-use uom::si::f64::{Length, Time};
+use uom::si::{
+    angle::radian,
+    angular_velocity::radian_per_second,
+    f64::{Angle, AngularVelocity, Length, Time, Velocity},
+    length::meter,
+    time::second,
+    velocity::meter_per_second,
+};
 
 use super::Path;
 use crate::{
@@ -50,8 +57,10 @@ impl<'path> Progress<'path> {
     pub fn update(&mut self, position: DVec2, advance_limit: Length) {
         let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
-        let mut best_error =
-            position.distance_squared(path.at_distance(crate::si(self.distance)).position);
+        let mut best_error = position.distance_squared(
+            path.at_distance(Length::new::<meter>(self.distance))
+                .position,
+        );
         let mut best_distance = self.distance;
         for pair in path.samples[self.segment(path)..].windows(2).take(64) {
             let (a, b) = (pair[0], pair[1]);
@@ -83,15 +92,20 @@ impl<'path> Progress<'path> {
         let path = self.path;
         for pair in path.samples[self.segment(path)..].windows(2).take(128) {
             let (a, b) = (pair[0], pair[1]);
-            let [_, exit] =
-                circle_segment_fractions(position, crate::si(radius), a.position, b.position);
+            let [_, exit] = circle_segment_fractions(
+                position,
+                Length::new::<meter>(radius),
+                a.position,
+                b.position,
+            );
             if let Some(exit) = exit
                 && a.distance + (b.distance - a.distance) * exit >= self.distance
             {
                 return a.position.lerp(b.position, exit);
             }
         }
-        path.at_distance(crate::si(self.distance + radius)).position
+        path.at_distance(Length::new::<meter>(self.distance + radius))
+            .position
     }
 }
 
@@ -129,8 +143,8 @@ pub fn command(
                 ..pose
             };
             let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-            let reference = path.at_distance(crate::si(progress.distance));
-            let speed = path.at_time(crate::si(reference.time + dt)).speed;
+            let reference = path.at_distance(Length::new::<meter>(progress.distance));
+            let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
             if target.y < 0.0 {
                 (0.0, 2.0 * crate::geometry::bearing(target))
             } else {
@@ -138,9 +152,11 @@ pub fn command(
             }
         }
         Follower::Ramsete { b, zeta } => {
-            let reference = path.at_time(crate::si(elapsed + dt));
+            let reference = path.at_time(Time::new::<second>(elapsed + dt));
             let error = pose.to_local(reference.position);
-            let heading_error = wrap_heading(crate::si(reference.heading + facing - pose.heading));
+            let heading_error = wrap_heading(Angle::new::<radian>(
+                reference.heading + facing - pose.heading,
+            ));
             let velocity = sign * reference.speed;
             let omega = reference.speed * reference.curvature;
             let gain = 2.0 * zeta * libm::sqrt(omega * omega + b * velocity * velocity);
@@ -163,12 +179,14 @@ pub fn command(
     };
     let (linear, angular) = if terminal {
         let error = pose.to_local(end.position);
-        let heading_error = wrap_heading(crate::si(end.heading + facing - pose.heading));
+        let heading_error = wrap_heading(Angle::new::<radian>(end.heading + facing - pose.heading));
         let distance = error.length();
         if distance > position_tolerance {
             let travel_heading = crate::geometry::bearing(error);
             let backward = travel_heading.abs() > PI / 2.0;
-            let bearing = wrap_heading(crate::si(travel_heading + if backward { PI } else { 0.0 }));
+            let bearing = wrap_heading(Angle::new::<radian>(
+                travel_heading + if backward { PI } else { 0.0 },
+            ));
             let terminal_speed = (2.0 * distance).min(limits.linear_speed.value * 0.4);
             (
                 terminal_speed * libm::cos(bearing) * if backward { -1.0 } else { 1.0 },
@@ -181,8 +199,12 @@ pub fn command(
         (linear, angular)
     };
     desaturate(
-        wheel_speeds(crate::si(linear), crate::si(angular), limits.track_width)
-            .map(|speed| speed.value),
+        wheel_speeds(
+            Velocity::new::<meter_per_second>(linear),
+            AngularVelocity::new::<radian_per_second>(angular),
+            limits.track_width,
+        )
+        .map(|speed| speed.value),
         limits.wheel_speed.value,
     )
 }

@@ -6,7 +6,7 @@ use ozton_math::{
     uom::si::f64::{Length, Velocity},
 };
 use ozton_runtime::{
-    CustomList, Robot,
+    Robot, SubsystemList,
     diagnostics::{MotionSample, Sample, Telemetry},
 };
 
@@ -17,12 +17,12 @@ use super::{AutonRobot, Feedback, MechanismRobot};
 /// devices. The runner owns timing, cancellation, retries and motion algorithms.
 pub trait AutonomousControls<R> {
     type Error;
-    type CustomInput;
+    type SubsystemInput;
 
     /// Capture one feedback sample. None requests a neutral rebaseline tick.
     fn sample(robot: &mut R) -> Result<Option<Feedback>, Self::Error>;
-    /// Supply shared input for the registered customs on a runner tick.
-    fn custom_input(robot: &mut R, dt: Duration) -> Result<Self::CustomInput, Self::Error>;
+    /// Supply shared input for the registered subsystems on a runner tick.
+    fn subsystem_input(robot: &mut R, dt: Duration) -> Result<Self::SubsystemInput, Self::Error>;
     fn drive(robot: &mut R, wheel_speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error>;
     fn stop_drive(robot: &mut R) -> Result<(), Self::Error>;
     /// Stop application-controlled outputs and clear retained goals.
@@ -57,16 +57,16 @@ impl<D, C, T, X, P, A> AutonRobot for Robot<D, C, T, X, P, A>
 where
     P: AutonomousControls<Self>,
     A: Telemetry<Self>,
-    X: CustomList<P::CustomInput, P::Error>,
+    X: SubsystemList<P::SubsystemInput, P::Error>,
 {
     type Error = P::Error;
 
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
         P::sample(self)
     }
-    fn update_custom(&mut self, dt: Duration) -> Result<(), Self::Error> {
-        let mut input = P::custom_input(self, dt)?;
-        self.custom.update_all(&mut input)
+    fn update_subsystems(&mut self, dt: Duration) -> Result<(), Self::Error> {
+        let mut input = P::subsystem_input(self, dt)?;
+        self.subsystems.update_all(&mut input)
     }
     fn drive(&mut self, wheel_speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error> {
         P::drive(self, wheel_speeds, dt)
@@ -75,7 +75,7 @@ where
         P::stop_drive(self)
     }
     fn stop(&mut self) -> Result<(), Self::Error> {
-        P::stop(self).and(self.custom.stop_all())
+        P::stop(self).and(self.subsystems.stop_all())
     }
     fn set_pose(&mut self, pose: Pose) -> Result<(), Self::Error> {
         P::set_pose(self, pose)
@@ -93,7 +93,7 @@ where
         P::can_skip_failure(self, error)
     }
     fn pause(&mut self) -> Result<(), Self::Error> {
-        P::pause(self).and(self.custom.stop_all())
+        P::pause(self).and(self.subsystems.stop_all())
     }
     fn cancel_distance_reset(&mut self) {
         P::cancel_distance_reset(self);
@@ -134,7 +134,7 @@ impl<D, C, T, X, P, A> MechanismRobot for Robot<D, C, T, X, P, A>
 where
     P: ScoringControls<Self>,
     A: Telemetry<Self>,
-    X: CustomList<P::CustomInput, P::Error>,
+    X: SubsystemList<P::SubsystemInput, P::Error>,
 {
     type Target = P::Target;
 

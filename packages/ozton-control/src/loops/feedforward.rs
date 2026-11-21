@@ -2,9 +2,9 @@
 
 use core::marker::PhantomData;
 
-use ozton_math::{
-    si,
-    uom::si::f64::{
+use ozton_math::uom::si::{
+    electric_potential::volt,
+    f64::{
         Acceleration as LinearAcceleration, Angle, AngularAcceleration, AngularVelocity,
         ElectricPotential, Velocity as LinearVelocity,
     },
@@ -119,9 +119,11 @@ impl<D: AxisDimension> Feedforward for MotorFeedforward<D> {
         } else {
             static_voltage(self.ks.value, setpoint.velocity.value)
         };
-        si(static_voltage
-            + self.kv * setpoint.velocity.value
-            + self.ka * setpoint.acceleration.value)
+        ElectricPotential::new::<volt>(
+            static_voltage
+                + self.kv * setpoint.velocity.value
+                + self.ka * setpoint.acceleration.value,
+        )
     }
 }
 
@@ -228,10 +230,12 @@ impl Feedforward for ArmFeedforward {
         setpoint: ArmFeedforwardSetpoint,
         _dt: core::time::Duration,
     ) -> ElectricPotential {
-        si(self.kg.value * setpoint.position.value.cos()
-            + static_voltage(self.ks.value, setpoint.velocity.value)
-            + self.kv * setpoint.velocity.value
-            + self.ka * setpoint.acceleration.value)
+        ElectricPotential::new::<volt>(
+            self.kg.value * setpoint.position.value.cos()
+                + static_voltage(self.ks.value, setpoint.velocity.value)
+                + self.kv * setpoint.velocity.value
+                + self.ka * setpoint.acceleration.value,
+        )
     }
 }
 
@@ -333,10 +337,12 @@ impl Feedforward for ElevatorFeedforward {
         setpoint: ElevatorFeedforwardSetpoint,
         _dt: core::time::Duration,
     ) -> ElectricPotential {
-        si(self.kg.value
-            + static_voltage(self.ks.value, setpoint.velocity.value)
-            + self.kv * setpoint.velocity.value
-            + self.ka * setpoint.acceleration.value)
+        ElectricPotential::new::<volt>(
+            self.kg.value
+                + static_voltage(self.ks.value, setpoint.velocity.value)
+                + self.kv * setpoint.velocity.value
+                + self.ka * setpoint.acceleration.value,
+        )
     }
 }
 

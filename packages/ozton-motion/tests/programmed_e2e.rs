@@ -7,20 +7,47 @@ use glam::DVec2;
 use ozton_math::{
     geometry::{BodyDelta, Pose},
     path::{Limits, Path, Waypoint, follower::Follower},
-    si,
-    uom::si::f64::Velocity,
+    uom::{
+        ConstZero,
+        si::{
+            acceleration::meter_per_second_squared,
+            angle::radian,
+            angular_velocity::radian_per_second,
+            f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
+            length::meter,
+            velocity::meter_per_second,
+        },
+    },
 };
 use ozton_motion::auton::{AutonError, AutonRobot, Command, DriveOptions, Feedback, Runner};
 use vex_sdk_mock as _;
 use vexide::runtime::block_on;
 
 const OPTIONS: DriveOptions = DriveOptions {
-    track_width: si(0.3),
-    maximum_wheel_speed: si(1.0),
-    position_tolerance: si(0.018),
-    heading_tolerance: si(0.09),
-    speed_tolerance: si(0.03),
-    angular_speed_tolerance: si(0.08),
+    track_width: Length {
+        value: 0.3,
+        ..Length::ZERO
+    },
+    maximum_wheel_speed: Velocity {
+        value: 1.0,
+        ..Velocity::ZERO
+    },
+    position_tolerance: Length {
+        value: 0.018,
+        ..Length::ZERO
+    },
+    heading_tolerance: Angle {
+        value: 0.09,
+        ..Angle::ZERO
+    },
+    speed_tolerance: Velocity {
+        value: 0.03,
+        ..Velocity::ZERO
+    },
+    angular_speed_tolerance: AngularVelocity {
+        value: 0.08,
+        ..AngularVelocity::ZERO
+    },
     settle: Duration::from_millis(40),
 };
 
@@ -47,9 +74,9 @@ impl Sim {
     fn new(reverse: bool) -> Self {
         Self {
             pose: Pose::new(
-                ozton_math::si(0.0),
-                ozton_math::si(0.0),
-                ozton_math::si(if reverse { PI } else { 0.0 }),
+                Length::new::<meter>(0.0),
+                Length::new::<meter>(0.0),
+                Angle::new::<radian>(if reverse { PI } else { 0.0 }),
             ),
             travel: 0.0,
             last: Instant::now(),
@@ -114,16 +141,16 @@ impl AutonRobot for Sim {
         Ok(Some(Feedback {
             time: now.saturating_duration_since(self.started),
             pose: self.pose,
-            forward_travel: si(self.travel),
-            forward_velocity: si(speed),
-            lateral_velocity: si(0.0),
-            angular_velocity: si(angular_speed),
+            forward_travel: Length::new::<meter>(self.travel),
+            forward_velocity: Velocity::new::<meter_per_second>(speed),
+            lateral_velocity: Velocity::new::<meter_per_second>(0.0),
+            angular_velocity: AngularVelocity::new::<radian_per_second>(angular_speed),
             ranges: [None; 8],
             reset_accepted: false,
         }))
     }
 
-    fn update_custom(&mut self, _: Duration) -> Result<(), Self::Error> {
+    fn update_subsystems(&mut self, _: Duration) -> Result<(), Self::Error> {
         if self.score_goal {
             self.scoring_ticks += 1;
         }
@@ -175,18 +202,22 @@ fn route() -> Path {
     let points: Vec<_> = (0..=12)
         .map(|index| {
             let x = f64::from(index) * 0.05;
-            Waypoint::new(ozton_math::si(-0.22 * x.powi(2)), ozton_math::si(x), 0.8)
+            Waypoint::new(
+                Length::new::<meter>(-0.22 * x.powi(2)),
+                Length::new::<meter>(x),
+                0.8,
+            )
         })
         .collect();
     Path::new(
         &points,
         Limits {
-            track_width: ozton_math::si(OPTIONS.track_width.value),
-            linear_speed: ozton_math::si(0.8),
-            wheel_speed: ozton_math::si(1.0),
-            acceleration: ozton_math::si(2.0),
-            deceleration: ozton_math::si(2.0),
-            lateral_acceleration: ozton_math::si(1.0),
+            track_width: Length::new::<meter>(OPTIONS.track_width.value),
+            linear_speed: Velocity::new::<meter_per_second>(0.8),
+            wheel_speed: Velocity::new::<meter_per_second>(1.0),
+            acceleration: Acceleration::new::<meter_per_second_squared>(2.0),
+            deceleration: Acceleration::new::<meter_per_second_squared>(2.0),
+            lateral_acceleration: Acceleration::new::<meter_per_second_squared>(1.0),
         },
     )
     .unwrap()
@@ -199,7 +230,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
         for (follower, reverse) in [
             (
                 Follower::PurePursuit {
-                    lookahead: si(0.14),
+                    lookahead: Length::new::<meter>(0.14),
                 },
                 false,
             ),
@@ -222,7 +253,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                             follower,
                             reverse,
                             trigger: Some(ozton_motion::auton::PathMarker::new(
-                                si(0.12),
+                                Length::new::<meter>(0.12),
                                 |robot: &mut Sim| robot.intake = true,
                             )),
                         },
@@ -244,9 +275,11 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                 let outcome = runner
                     .run_while(
                         Command::DriveDistance {
-                            meters: si(0.4),
-                            heading: si(path.end().heading + if reverse { PI } else { 0.0 }),
-                            maximum_speed: si(0.4),
+                            meters: Length::new::<meter>(0.4),
+                            heading: Angle::new::<radian>(
+                                path.end().heading + if reverse { PI } else { 0.0 },
+                            ),
+                            maximum_speed: Velocity::new::<meter_per_second>(0.4),
                         },
                         Duration::from_secs(1),
                         || {
@@ -280,8 +313,10 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
         )
         .unwrap();
         let markers = [
-            PathMarker::new(si(0.10), |robot: &mut Sim| robot.intake = true),
-            PathMarker::new(si(0.40), |robot: &mut Sim| {
+            PathMarker::new(Length::new::<meter>(0.10), |robot: &mut Sim| {
+                robot.intake = true
+            }),
+            PathMarker::new(Length::new::<meter>(0.40), |robot: &mut Sim| {
                 assert!(robot.intake_moving_ticks > 0);
                 robot.intake = false;
             }),
@@ -291,7 +326,7 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
                 Command::FollowMarked {
                     path: &path,
                     follower: Follower::PurePursuit {
-                        lookahead: si(0.14),
+                        lookahead: Length::new::<meter>(0.14),
                     },
                     reverse: false,
                     markers: &markers,
@@ -307,9 +342,9 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
                 .try_align_while(
                     Alignment {
                         sensor: RangeId::from_index(0).unwrap(),
-                        distance: si(0.12),
-                        heading: si(0.0),
-                        maximum_speed: si(0.2),
+                        distance: Length::new::<meter>(0.12),
+                        heading: Angle::new::<radian>(0.0),
+                        maximum_speed: Velocity::new::<meter_per_second>(0.2),
                         facing: RangeFacing::Front,
                     },
                     Duration::from_millis(30),
@@ -357,9 +392,9 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
             runner
                 .run_while(
                     Command::DriveToPoint {
-                        target: [si(-0.10), si(0.20)],
+                        target: [Length::new::<meter>(-0.10), Length::new::<meter>(0.20)],
                         reverse,
-                        maximum_speed: si(0.5),
+                        maximum_speed: Velocity::new::<meter_per_second>(0.5),
                     },
                     Duration::from_secs(4),
                     || true,
@@ -415,9 +450,9 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         let moved = runner
             .try_run_while(
                 Command::DriveToPoint {
-                    target: [si(0.0), si(0.1)],
+                    target: [Length::new::<meter>(0.0), Length::new::<meter>(0.1)],
                     reverse: false,
-                    maximum_speed: si(0.3),
+                    maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },
                 Duration::from_secs(1),
                 || true,
@@ -430,9 +465,9 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         runner
             .run_while(
                 Command::DriveToPoint {
-                    target: [si(0.0), si(0.1)],
+                    target: [Length::new::<meter>(0.0), Length::new::<meter>(0.1)],
                     reverse: false,
-                    maximum_speed: si(0.3),
+                    maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },
                 Duration::from_secs(3),
                 || true,
@@ -459,9 +494,9 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
         let completed = runner
             .try_run_while(
                 Command::DriveDistance {
-                    meters: si(0.2),
-                    heading: si(0.0),
-                    maximum_speed: si(0.3),
+                    meters: Length::new::<meter>(0.2),
+                    heading: Angle::new::<radian>(0.0),
+                    maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },
                 Duration::from_secs(2),
                 || true,
@@ -639,8 +674,8 @@ fn contact_approach_brakes_without_changing_the_field_reference() {
         runner
             .run_while(
                 Command::ApproachContact {
-                    heading: si(0.0),
-                    speed: si(creep_speed),
+                    heading: Angle::new::<radian>(0.0),
+                    speed: Velocity::new::<meter_per_second>(creep_speed),
                     settle: Duration::from_millis(60),
                     touched: &mut touched,
                 },

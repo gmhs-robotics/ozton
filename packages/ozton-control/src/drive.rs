@@ -86,3 +86,30 @@ impl AntiTip {
             .clamp(-self.maximum_correction, self.maximum_correction)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ozton_math::uom::si::angle::radian;
+
+    use super::*;
+
+    #[test]
+    fn anti_tip_is_neutral_near_level_and_recovers_in_both_directions() {
+        let mut control = AntiTip::new(
+            Pid::new(1.35, 0.0, 0.03, None),
+            Angle::new::<radian>(0.16),
+            1.0,
+            0.35,
+        );
+        let dt = Duration::from_millis(10);
+        for tilt in [-0.1, 0.0, 0.1] {
+            assert_eq!(control.correction(Angle::new::<radian>(tilt), dt), 0.0);
+        }
+        for tilt in [-0.3, 0.3] {
+            let correction = control.correction(Angle::new::<radian>(tilt), dt);
+            assert!(correction * tilt < 0.0);
+            assert!(correction.abs() <= 0.35);
+            assert_eq!(control.correction(Angle::new::<radian>(0.0), dt), 0.0);
+        }
+    }
+}

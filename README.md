@@ -51,7 +51,7 @@ second. Each program run has a session marker. An unavailable card leaves a
 bounded backlog in memory, and a gap marker records losses when writing resumes.
 VEXos writes are synchronous, so check the `LOOP` records for timing on your card.
 
-Robots assembled with `with_competition_ui` or `with_diagnostics` capture
+Robots assembled with `with_diagnostics` capture
 periodic frames in release builds too. The default UI captures at 20 ms on SD
 and 250 ms over USB in debug firmware. Boot, mode changes, faults, recoveries,
 and autonomous command transitions are also logged. Use `Report` to add fields

@@ -3,7 +3,11 @@
 use alloc::vec::Vec;
 
 use glam::{DVec2, DVec3};
-use uom::si::f64::{Angle, Length};
+use uom::si::{
+    angle::radian,
+    f64::{Angle, Length},
+    length::meter,
+};
 
 use super::range::{Mount, Surface, cast_masked};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
@@ -29,7 +33,7 @@ impl Default for ParticleConfig {
             seed: 1,
             initial_spread: DVec3::new(0.09, 0.09, 0.03),
             motion_noise: DVec3::new(0.04, 0.04, 0.03),
-            range_sigma: crate::si(0.025),
+            range_sigma: Length::new::<meter>(0.025),
             outlier_weight: 0.08,
         }
     }
@@ -117,9 +121,11 @@ impl ParticleFilter {
             let noise = self.random.normal3() * self.config.initial_spread;
             self.particles.push(Particle {
                 pose: Pose::new(
-                    crate::si(pose.position.x + noise.x),
-                    crate::si(pose.position.y + noise.y),
-                    crate::si(wrap_heading(crate::si(pose.heading + noise.z))),
+                    Length::new::<meter>(pose.position.x + noise.x),
+                    Length::new::<meter>(pose.position.y + noise.y),
+                    Angle::new::<radian>(wrap_heading(Angle::new::<radian>(
+                        pose.heading + noise.z,
+                    ))),
                 ),
                 weight,
             });
@@ -218,7 +224,7 @@ impl ParticleFilter {
         let mut headings = DVec2::ZERO;
         for particle in &self.particles {
             position += particle.pose.position * particle.weight;
-            headings += direction(crate::si(particle.pose.heading)) * particle.weight;
+            headings += direction(Angle::new::<radian>(particle.pose.heading)) * particle.weight;
         }
         let heading = bearing(headings);
         let mut variance = DVec3::ZERO;
@@ -227,7 +233,7 @@ impl ParticleFilter {
             let difference = DVec3::new(
                 error.x,
                 error.y,
-                wrap_heading(crate::si(particle.pose.heading - heading)),
+                wrap_heading(Angle::new::<radian>(particle.pose.heading - heading)),
             );
             variance += difference * difference * particle.weight;
         }
@@ -275,7 +281,9 @@ impl Random {
 
     fn normal_pair(&mut self) -> DVec2 {
         let radius = libm::sqrt(-2.0 * libm::log(self.uniform()));
-        rotation(crate::si(core::f64::consts::TAU * self.uniform())) * radius
+        rotation(Angle::new::<radian>(
+            core::f64::consts::TAU * self.uniform(),
+        )) * radius
     }
 
     fn normal3(&mut self) -> DVec3 {
@@ -291,15 +299,19 @@ mod tests {
     #[test]
     fn transaction_copy_reuses_particle_and_resampling_storage() {
         let map = [Surface::new(
-            crate::si(-2.0),
-            crate::si(1.0),
-            crate::si(2.0),
-            crate::si(1.0),
+            Length::new::<meter>(-2.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(2.0),
+            Length::new::<meter>(1.0),
         )];
         let beams = [Beam {
-            mount: Mount::new(crate::si(0.0), crate::si(0.0), crate::si(0.0)),
-            distance: crate::si(1.0),
-            max_range: crate::si(2.0),
+            mount: Mount::new(
+                Length::new::<meter>(0.0),
+                Length::new::<meter>(0.0),
+                Angle::new::<radian>(0.0),
+            ),
+            distance: Length::new::<meter>(1.0),
+            max_range: Length::new::<meter>(2.0),
             surface_mask: 1,
         }];
         let mut source = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
@@ -347,11 +359,15 @@ mod tests {
                 offset: DVec2::ZERO,
                 heading,
             },
-            distance: crate::si(1.0),
-            max_range: crate::si(2.0),
+            distance: Length::new::<meter>(1.0),
+            max_range: Length::new::<meter>(2.0),
             surface_mask: u32::MAX,
         });
-        let start = Pose::new(crate::si(0.09), crate::si(0.08), crate::si(0.0));
+        let start = Pose::new(
+            Length::new::<meter>(0.09),
+            Length::new::<meter>(0.08),
+            Angle::new::<radian>(0.0),
+        );
         let mut filter = ParticleFilter::new(start, ParticleConfig::default()).unwrap();
         let estimate = filter.observe(&beams, &map).unwrap();
         assert!(estimate.pose.position.length() < start.position.length() * 0.6);

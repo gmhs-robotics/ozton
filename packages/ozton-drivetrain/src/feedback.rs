@@ -1,7 +1,11 @@
-//! Continuous side odometry from all geared motors, with reconnect baselines.
+//! Continuous side odometry from all drive motors, with reconnect baselines.
 use core::time::Duration;
 
-use ozton_math::si;
+use ozton_math::uom::si::{
+    f64::{Length, Velocity},
+    length::meter,
+    velocity::meter_per_second,
+};
 
 use crate::model::WheelFeedback;
 
@@ -75,8 +79,8 @@ impl EncoderConsensus {
             self.position += delta;
         }
         Some(WheelFeedback {
-            position: si(self.position),
-            velocity: si(velocity),
+            position: Length::new::<meter>(self.position),
+            velocity: Velocity::new::<meter_per_second>(velocity),
         })
     }
 }
@@ -93,8 +97,8 @@ mod tests {
     use super::*;
     fn sample(position: f64) -> Option<WheelFeedback> {
         Some(WheelFeedback {
-            position: si(position),
-            velocity: si(0.1),
+            position: Length::new::<meter>(position),
+            velocity: Velocity::new::<meter_per_second>(0.1),
         })
     }
     #[test]

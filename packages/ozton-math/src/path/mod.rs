@@ -3,7 +3,10 @@
 use alloc::vec::Vec;
 
 use glam::DVec2;
-use uom::si::f64::{Acceleration, Length, Time, Velocity};
+use uom::si::{
+    angle::radian,
+    f64::{Acceleration, Angle, Length, Time, Velocity},
+};
 
 pub mod follower;
 pub mod jerryio;
@@ -258,8 +261,10 @@ fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> 
     let fraction = (distance - a.distance) / (b.distance - a.distance);
     PathSample {
         position: a.position.lerp(b.position, fraction),
-        heading: crate::geometry::wrap_heading(crate::si(
-            a.heading + crate::geometry::wrap_heading(crate::si(b.heading - a.heading)) * fraction,
+        heading: crate::geometry::wrap_heading(Angle::new::<radian>(
+            a.heading
+                + crate::geometry::wrap_heading(Angle::new::<radian>(b.heading - a.heading))
+                    * fraction,
         )),
         curvature: a.curvature + (b.curvature - a.curvature) * fraction,
         speed,

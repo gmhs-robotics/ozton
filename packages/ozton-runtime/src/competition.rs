@@ -14,7 +14,7 @@ use vexide::{
 };
 
 use crate::{
-    CustomList, Robot,
+    Robot, SubsystemList,
     clock::CONTROL_PERIOD,
     diagnostics::{Report, Sample, Sampler, Telemetry},
     menu::RouteMenu,
@@ -41,7 +41,7 @@ pub trait Routes<R, E>: RouteSet {
 /// use ozton_runtime::{Robot, autonomous_routes};
 /// type PracticeBot = Robot<(), (), (), ((), usize)>;
 /// async fn practice(robot: &mut PracticeBot) -> Result<(), ()> {
-///     robot.custom.1 += 1;
+///     robot.subsystems.1 += 1;
 ///     Ok(())
 /// }
 /// autonomous_routes! {
@@ -109,6 +109,11 @@ pub trait CompetitionRobot: Sized {
     }
 }
 
+/// The interface used to select a route and display competition status.
+pub enum Ui {
+    Brain(Display),
+}
+
 /// Brain selection and status for an assembled robot.
 pub struct Autonomous<R: Copy + 'static, S = ()> {
     menu: RouteMenu<Option<R>>,
@@ -164,20 +169,17 @@ pub const DRIVER_STATUS: &str = "Driver control";
 /// assembled robot and can borrow its concrete parts and controls independently.
 pub trait CompetitionControls<R> {
     type Error: std::fmt::Display;
-    type CustomInput;
+    type SubsystemInput;
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
     /// Stop application-controlled outputs and clear application state.
     fn stop(robot: &mut R) -> Result<(), Self::Error>;
-    /// Write driver outputs and supply this tick's shared custom input.
-    /// Return None to skip the custom chain for this tick.
-    fn driver_tick(robot: &mut R, tick: Tick) -> Option<Self::CustomInput>;
+    /// Read the controller and update the drivetrain and subsystems together.
+    /// A failed tick stops outputs before the next controller sample.
+    fn driver_tick(robot: &mut R, tick: Tick) -> Result<(), Self::Error>;
 
-    fn after_custom_update(_robot: &mut R) {}
-    /// Optional operator-facing status for application hardware.
-    fn driver_status(_robot: &R) -> Option<&'static str> {
-        None
-    }
+    /// Optional tracking work runs after driver outputs and within the tick budget.
+    fn poll_tracking(_robot: &mut R, _mode: CompetitionMode) {}
     fn mode_changed(_robot: &mut R, _mode: CompetitionMode) {}
     fn after_tick(_robot: &mut R, _mode: CompetitionMode, _tick: Tick) {}
     fn autonomous_error(
@@ -192,7 +194,7 @@ pub trait CompetitionControls<R> {
 impl<D, C, T, X, P, R, S> CompetitionRobot for Robot<D, C, T, X, P, Autonomous<R, S>>
 where
     P: CompetitionControls<Self>,
-    X: CustomList<P::CustomInput, P::Error>,
+    X: SubsystemList<P::SubsystemInput, P::Error>,
     R: Routes<Self, P::Error>,
     Autonomous<R, S>: Telemetry<Self>,
 {
@@ -205,22 +207,13 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        P::stop(self).and(self.custom.stop_all())
+        P::stop(self).and(self.subsystems.stop_all())
     }
 
     fn driver_tick(&mut self, tick: Tick) {
-        if let Some(mut input) = P::driver_tick(self, tick) {
-            match self.custom.update_all(&mut input) {
-                Ok(()) => {
-                    P::after_custom_update(self);
-                    if let Some(status) = P::driver_status(self) {
-                        self.autonomous.status(status);
-                    }
-                }
-                Err(_) => {
-                    let _ = self.stop();
-                }
-            }
+        if let Err(error) = P::driver_tick(self, tick) {
+            crate::diagnostic_event!("driver_tick_failed,error={error}");
+            let _ = self.stop();
         }
     }
 
@@ -229,6 +222,9 @@ where
     }
 
     fn after_tick(&mut self, mode: CompetitionMode, tick: Tick) {
+        if tracking_poll_due(mode, tick.work(), Self::CONTROL_PERIOD) {
+            P::poll_tracking(self, mode);
+        }
         P::after_tick(self, mode, tick);
         self.record_diagnostics(Sample {
             mode,
@@ -247,15 +243,32 @@ where
     }
 }
 
+fn tracking_poll_due(mode: CompetitionMode, work: Duration, period: Duration) -> bool {
+    match mode {
+        CompetitionMode::Disabled => false,
+        CompetitionMode::Driver => work < period,
+        CompetitionMode::Autonomous => true,
+    }
+}
+
 /// Build the Brain menu once, with Disable selected before any user route.
 pub fn autonomous_menu<R: RouteSet>(display: Display) -> Autonomous<R> {
+    autonomous_ui(
+        Ui::Brain(display),
+        R::CHOICES.iter().map(|&(_, route)| route),
+    )
+}
+
+pub(crate) fn autonomous_ui<R: RouteSet>(
+    ui: Ui,
+    routes: impl IntoIterator<Item = R>,
+) -> Autonomous<R> {
+    let Ui::Brain(display) = ui;
     Autonomous {
         menu: RouteMenu::with_choices(
             display,
             None,
-            R::CHOICES
-                .iter()
-                .map(|&(label, route)| (label, Some(route))),
+            routes.into_iter().map(|route| (route.label(), Some(route))),
         ),
         sampler: (),
     }
@@ -392,6 +405,30 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn overrunning_driver_tick_skips_optional_tracking() {
+        assert!(tracking_poll_due(
+            CompetitionMode::Driver,
+            Duration::ZERO,
+            CONTROL_PERIOD
+        ));
+        assert!(!tracking_poll_due(
+            CompetitionMode::Driver,
+            CONTROL_PERIOD,
+            CONTROL_PERIOD
+        ));
+        assert!(!tracking_poll_due(
+            CompetitionMode::Disabled,
+            Duration::ZERO,
+            CONTROL_PERIOD
+        ));
+        assert!(tracking_poll_due(
+            CompetitionMode::Autonomous,
+            CONTROL_PERIOD,
+            CONTROL_PERIOD
+        ));
+    }
 
     type TestRobot = Robot<(), (), (), (), i32>;
 

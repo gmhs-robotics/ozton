@@ -67,7 +67,7 @@ fn import(path: &Path, mut writer: impl Write) -> Result<(), Box<dyn Error>> {
     for point in waypoints {
         writeln!(
             writer,
-            "    ozton::math::path::Waypoint::new(ozton_math::si({:?}), ozton_math::si({:?}), {:?}),",
+            "    ozton::math::path::Waypoint::new(ozton::uom::si::f64::Length {{ value: {:?}, ..<ozton::uom::si::f64::Length as ozton::uom::ConstZero>::ZERO }}, ozton::uom::si::f64::Length {{ value: {:?}, ..<ozton::uom::si::f64::Length as ozton::uom::ConstZero>::ZERO }}, {:?}),",
             point.position.x, point.position.y, point.speed_fraction
         )?;
     }

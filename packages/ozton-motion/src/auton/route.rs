@@ -5,9 +5,16 @@ use std::{convert::Infallible, future::Future, pin::Pin, time::Duration};
 use ozton_math::{
     geometry::Pose,
     path::{Limits, Path, PathError, follower::Follower, jerryio},
-    uom::si::f64::{Angle, Length, Velocity},
+    uom::{
+        ConstZero,
+        si::{
+            f64::{Angle, Length, Velocity},
+            length::meter,
+            velocity::meter_per_second,
+        },
+    },
 };
-use ozton_runtime::{CustomList, clock::CONTROL_PERIOD};
+use ozton_runtime::{SubsystemList, clock::CONTROL_PERIOD};
 use vexide::{display::Display, prelude::Controller, smart::PortError};
 
 use super::{
@@ -21,12 +28,12 @@ use super::{
 pub type RouteResult<T = ()> = Result<T, AutonError<ChassisError>>;
 type RouteFuture<'a> = Pin<Box<dyn Future<Output = RouteResult> + 'a>>;
 
-trait RunRoute<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
+trait RunRoute<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> {
     fn run<'a>(&'a self, auton: Auton<'a, M>) -> RouteFuture<'a>;
 }
 
 impl<
-    M: for<'tick> CustomList<StockTick<'tick>, PortError>,
+    M: for<'tick> SubsystemList<StockTick<'tick>, PortError>,
     F: for<'a> AsyncFn(Auton<'a, M>) -> RouteResult,
 > RunRoute<M> for F
 {
@@ -42,14 +49,14 @@ enum Asset {
 }
 
 /// A menu label, starting pose, optional path asset and ordinary Rust route function.
-pub struct Route<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
+pub struct Route<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> {
     name: &'static str,
     start: Pose,
     asset: Asset,
     run: Box<dyn RunRoute<M>>,
 }
 
-impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Route<M> {
+impl<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> Route<M> {
     pub fn new(
         name: &'static str,
         start: Pose,
@@ -152,13 +159,16 @@ impl AlignTarget {
         Self {
             distance,
             heading,
-            maximum_speed: ozton_math::si(0.2),
+            maximum_speed: Velocity {
+                value: 0.2,
+                ..Velocity::ZERO
+            },
             rear_facing: false,
         }
     }
 }
 
-struct Prepared<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
+struct Prepared<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> {
     name: &'static str,
     start: Pose,
     path: Option<Path>,
@@ -166,14 +176,14 @@ struct Prepared<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
 }
 
 /// Route-local commands with a shared deadline and a prepared primary path.
-pub struct Auton<'a, M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
+pub struct Auton<'a, M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> {
     runner: Runner<'a, Robot<M>>,
     path: Option<&'a Path>,
 }
 
-impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
-    pub fn customs(&mut self) -> &mut M {
-        &mut self.runner.robot().custom
+impl<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> Auton<'_, M> {
+    pub fn subsystems(&mut self) -> &mut M {
+        &mut self.runner.robot().subsystems
     }
     pub fn range(&mut self, name: &str) -> RouteResult<RangeId> {
         self.runner
@@ -185,7 +195,7 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
     pub async fn follow(&mut self, timeout: Duration) -> RouteResult {
         self.follow_with(
             Follower::PurePursuit {
-                lookahead: ozton_math::si(0.16),
+                lookahead: Length::new::<meter>(0.16),
             },
             false,
             &[],
@@ -239,7 +249,7 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
                     sensor,
                     distance: target.distance,
                     heading: target.heading,
-                    maximum_speed: ozton_math::si(
+                    maximum_speed: Velocity::new::<meter_per_second>(
                         target.maximum_speed.value.min(maximum_speed.value),
                     ),
                     facing: if target.rear_facing {
@@ -295,7 +305,7 @@ impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> Auton<'_, M> {
 
 impl<A, M: super::MechanismActions> Auton<'_, (A, M)>
 where
-    (A, M): for<'tick> CustomList<StockTick<'tick>, PortError>,
+    (A, M): for<'tick> SubsystemList<StockTick<'tick>, PortError>,
 {
     pub async fn perform(
         &mut self,
@@ -308,7 +318,7 @@ where
 }
 
 /// Prepare all assets before competition starts and show the named routes on the Brain.
-pub async fn compete_routes<M: for<'tick> CustomList<StockTick<'tick>, PortError> + 'static>(
+pub async fn compete_routes<M: for<'tick> SubsystemList<StockTick<'tick>, PortError> + 'static>(
     robot: Robot<M>,
     display: Display,
     controller: Controller,
@@ -319,7 +329,7 @@ pub async fn compete_routes<M: for<'tick> CustomList<StockTick<'tick>, PortError
 
 /// Add supervised driver-mode calibration entries to the Brain selector.
 pub async fn compete_with_calibration<
-    M: for<'tick> CustomList<StockTick<'tick>, PortError> + 'static,
+    M: for<'tick> SubsystemList<StockTick<'tick>, PortError> + 'static,
 >(
     robot: Robot<M>,
     display: Display,
@@ -385,7 +395,7 @@ enum Menu {
     Calibration(usize),
 }
 
-struct Registered<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
+struct Registered<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> {
     robot: Robot<M>,
     controller: Controller,
     prepared: Vec<Prepared<M>>,
@@ -393,7 +403,7 @@ struct Registered<M: for<'tick> CustomList<StockTick<'tick>, PortError>> {
     sampling: Option<CalibrationRun>,
 }
 
-impl<M: for<'tick> CustomList<StockTick<'tick>, PortError>> CompetitionApp for Registered<M> {
+impl<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> CompetitionApp for Registered<M> {
     type Route = Menu;
     type Error = ChassisError;
 

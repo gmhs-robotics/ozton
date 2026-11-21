@@ -3,7 +3,10 @@
 use std::{f64::consts::PI, fs::File, time::Duration};
 
 use ozton_diagnostics::{Journal, calibration::CalibrationSample};
-use ozton_math::uom::si::f64::{Angle, Length};
+use ozton_math::uom::si::{
+    electric_potential::volt,
+    f64::{Angle, ElectricPotential, Length},
+};
 use ozton_tracking::localizer::Snapshot;
 use vexide::controller::ControllerState;
 
@@ -227,8 +230,8 @@ impl CalibrationRun {
                 .drivetrain
                 .model
                 .drive_volts(
-                    ozton_math::si(left * MAX_DRIVE_VOLTS),
-                    ozton_math::si(right * MAX_DRIVE_VOLTS),
+                    ElectricPotential::new::<volt>(left * MAX_DRIVE_VOLTS),
+                    ElectricPotential::new::<volt>(right * MAX_DRIVE_VOLTS),
                 )
                 .map_err(|_| ())
         };
@@ -305,21 +308,26 @@ impl CalibrationRun {
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::si::length::meter;
+
     use super::*;
 
     #[test]
     fn travel_trials_use_signed_references_and_write_pod_offsets() {
         let start = Snapshot {
-            drive: [Some(ozton_math::si(0.0)); 2],
-            forward: Some(ozton_math::si(0.0)),
-            lateral: Some(ozton_math::si(0.0)),
+            drive: [Some(Length::new::<meter>(0.0)); 2],
+            forward: Some(Length::new::<meter>(0.0)),
+            lateral: Some(Length::new::<meter>(0.0)),
             ..Snapshot::default()
         };
         let end = Snapshot {
             time: Duration::from_millis(100),
-            drive: [Some(ozton_math::si(0.5)), Some(ozton_math::si(-0.5))],
-            forward: Some(ozton_math::si(0.04)),
-            lateral: Some(ozton_math::si(-0.03)),
+            drive: [
+                Some(Length::new::<meter>(0.5)),
+                Some(Length::new::<meter>(-0.5)),
+            ],
+            forward: Some(Length::new::<meter>(0.04)),
+            lateral: Some(Length::new::<meter>(-0.03)),
             ..start
         };
         let mut run = CalibrationRun::new();

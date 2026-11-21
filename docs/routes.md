@@ -12,7 +12,7 @@ robot's starting pose, field map, and route points.
 3. Parse the export with `jerryio::parse` and profile it with `Path::new` and
    the chassis limits before entering competition.
 4. Register an async route with `autonomous_routes!` and install the route set
-   with `Robot::with_autonomous::<Route>(display)`. A registered function
+   with `.with_auton([Route::Practice]).with_ui(Ui::Brain(display))`. A registered function
    receives `&mut CompetitionBot` and returns a `Result` using the error type
    from its `CompetitionControls` implementation.
 5. While disabled, select the route on the Brain. Place the robot at the surveyed
@@ -59,7 +59,7 @@ the travel direction.
 
 Set retained mechanism goals through `runner.robot()` or from a marker.
 During movement and waits, the runner gets tick input from
-`AutonomousControls::custom_input` and updates the registered subsystems. Use `wait_until(predicate, stable, timeout)` for a measured condition
+`AutonomousControls::subsystem_input` and updates the registered subsystems. Use `wait_until(predicate, stable, timeout)` for a measured condition
 such as a lift staying within tolerance for a settling interval. The predicate
 can capture thresholds, reads robot state, and should complete quickly.
 

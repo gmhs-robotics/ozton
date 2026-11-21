@@ -5,14 +5,20 @@ use std::{rc::Rc, time::Duration};
 use ozton_control::drive::AntiTip;
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, DriveMotor, GearRatio, TipAngleAxis},
+    model::{Differential, TipAngleAxis},
 };
 use ozton_math::{
     geometry::Pose,
     localization::range::Surface,
     path::Limits,
-    si,
-    uom::si::f64::{Acceleration, Angle, Length, Velocity},
+    uom::{
+        ConstZero,
+        si::{
+            angular_velocity::radian_per_second,
+            f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
+            length::meter,
+        },
+    },
 };
 use ozton_tracking::localizer::{
     Config, Estimator, Localizer, MAX_RANGES, OdometryConfig, RangeSensorConfig, Tracking,
@@ -33,6 +39,7 @@ use super::{
 pub struct DifferentialConfig {
     pub wheel_diameter: Length,
     pub track_width: Length,
+    pub free_wheel_speed: AngularVelocity,
     pub maximum_wheel_speed: Velocity,
     pub acceleration: Acceleration,
     pub deceleration: Acceleration,
@@ -49,14 +56,25 @@ impl DifferentialConfig {
         wheel_diameter: Length,
         track_width: Length,
         maximum_wheel_speed: Velocity,
+        free_wheel_speed: AngularVelocity,
     ) -> Self {
         Self {
             wheel_diameter,
             track_width,
+            free_wheel_speed,
             maximum_wheel_speed,
-            acceleration: si(1.0),
-            deceleration: si(1.0),
-            lateral_acceleration: si(1.0),
+            acceleration: Acceleration {
+                value: 1.0,
+                ..Acceleration::ZERO
+            },
+            deceleration: Acceleration {
+                value: 1.0,
+                ..Acceleration::ZERO
+            },
+            lateral_acceleration: Acceleration {
+                value: 1.0,
+                ..Acceleration::ZERO
+            },
             max_control_gap: Duration::from_millis(100),
             route_timeout: Duration::from_secs(15),
             journal_capacity: 0,
@@ -78,8 +96,8 @@ impl DifferentialConfig {
 
     pub async fn build(
         mut self,
-        left: impl IntoIterator<Item = (Motor, GearRatio)>,
-        right: impl IntoIterator<Item = (Motor, GearRatio)>,
+        left: impl IntoIterator<Item = Motor>,
+        right: impl IntoIterator<Item = Motor>,
         tracking: TrackingSetup,
     ) -> Result<ConfiguredChassis, SetupError> {
         if !self.path_limits().is_valid()
@@ -90,13 +108,12 @@ impl DifferentialConfig {
         {
             return Err(SetupError::DriveGeometry);
         }
-        let build_side = |(motor, ratio)| {
-            DriveMotor::new(motor, ratio, self.wheel_diameter).ok_or(SetupError::DriveGeometry)
-        };
-        let left = build_motor_side(left, build_side)?;
-        let right = build_motor_side(right, build_side)?;
-        let mut model = Differential::geared(left, right, Some(self.maximum_wheel_speed))
-            .ok_or(SetupError::EmptyMotorSide)?;
+        let left = build_motor_side(left)?;
+        let right = build_motor_side(right)?;
+        let mut model = Differential::new(left, right)
+            .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)
+            .and_then(|model| model.with_native_speed_limit(self.maximum_wheel_speed))
+            .ok_or(SetupError::DriveGeometry)?;
 
         let TrackingSetup {
             mut sensors,
@@ -133,8 +150,8 @@ impl DifferentialConfig {
                     lateral_offset,
                     require_lateral,
                     max_linear_speed: self.maximum_wheel_speed * 2.0,
-                    max_angular_speed: si(
-                        self.maximum_wheel_speed.value * 3.0 / self.track_width.value
+                    max_angular_speed: AngularVelocity::new::<radian_per_second>(
+                        self.maximum_wheel_speed.value * 3.0 / self.track_width.value,
                     ),
                     max_gap: self.max_control_gap,
                 },
@@ -205,10 +222,10 @@ impl Default for TrackingSetup {
             sensors: Sensors::default(),
             estimator: Estimator::Odometry,
             shadow: false,
-            forward_offset: si(0.0),
-            lateral_offset: si(0.0),
+            forward_offset: Length::new::<meter>(0.0),
+            lateral_offset: Length::new::<meter>(0.0),
             require_lateral: false,
-            max_correction: si(0.16),
+            max_correction: Length::new::<meter>(0.16),
             imu: None,
             map: Vec::new(),
             ranges: Vec::new(),
@@ -321,16 +338,13 @@ impl ConfiguredChassis {
     }
 }
 
-fn build_motor_side(
-    motors: impl IntoIterator<Item = (Motor, GearRatio)>,
-    build: impl Fn((Motor, GearRatio)) -> Result<DriveMotor, SetupError>,
-) -> Result<Vec<DriveMotor>, SetupError> {
+fn build_motor_side(motors: impl IntoIterator<Item = Motor>) -> Result<Vec<Motor>, SetupError> {
     let mut side = Vec::new();
     for motor in motors {
         if side.len() == ozton_drivetrain::feedback::MAX_SIDE_MOTORS {
             return Err(SetupError::TooManyMotors);
         }
-        side.push(build(motor)?);
+        side.push(motor);
     }
     if side.is_empty() {
         return Err(SetupError::EmptyMotorSide);

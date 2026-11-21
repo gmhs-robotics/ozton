@@ -1,8 +1,11 @@
 //! Shared actuator and position feedback interfaces for mechanisms.
 
-use ozton_math::{
-    si,
-    uom::si::f64::{Angle, AngularVelocity, ElectricPotential, Torque},
+use ozton_math::uom::si::{
+    angle::radian,
+    angular_velocity::radian_per_second,
+    electric_potential::volt,
+    f64::{Angle, AngularVelocity, ElectricPotential, Torque},
+    torque::newton_meter,
 };
 use vexide::{
     math::Angle as VexAngle,
@@ -21,7 +24,7 @@ pub trait MotorDevice {
 
 impl MotorDevice for Motor {
     fn position(&self) -> Result<Angle, PortError> {
-        Motor::position(self).map(|position| si(position.as_radians()))
+        Motor::position(self).map(|position| Angle::new::<radian>(position.as_radians()))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         Motor::set_position(self, VexAngle::from_radians(position.value))
@@ -30,7 +33,7 @@ impl MotorDevice for Motor {
         Motor::brake(self, mode)
     }
     fn max_voltage(&self) -> ElectricPotential {
-        si(Motor::max_voltage(self))
+        ElectricPotential::new::<volt>(Motor::max_voltage(self))
     }
     fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError> {
         Motor::set_voltage(self, voltage.value)
@@ -45,7 +48,7 @@ pub trait PositionSensor {
 
 impl PositionSensor for RotationSensor {
     fn position(&self) -> Result<Angle, PortError> {
-        RotationSensor::position(self).map(|position| si(position.as_radians()))
+        RotationSensor::position(self).map(|position| Angle::new::<radian>(position.as_radians()))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         RotationSensor::set_position(self, VexAngle::from_radians(position.value))
@@ -59,7 +62,9 @@ pub trait VelocityMotor: MotorDevice {
 
 impl VelocityMotor for Motor {
     fn velocity(&self) -> Result<AngularVelocity, PortError> {
-        Motor::velocity(self).map(|rpm| si(rpm * (core::f64::consts::TAU / 60.0)))
+        Motor::velocity(self).map(|rpm| {
+            AngularVelocity::new::<radian_per_second>(rpm * (core::f64::consts::TAU / 60.0))
+        })
     }
 }
 
@@ -70,6 +75,6 @@ pub trait TorqueMotor: MotorDevice {
 
 impl TorqueMotor for Motor {
     fn torque(&self) -> Result<Torque, PortError> {
-        Motor::torque(self).map(si)
+        Motor::torque(self).map(Torque::new::<newton_meter>)
     }
 }

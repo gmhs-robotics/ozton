@@ -4,6 +4,11 @@ use glam::DVec3;
 use ozton_math::{
     geometry::{BodyDelta, Pose, direction, wrap_heading},
     localization::ekf::PoseEkf,
+    uom::si::{
+        angle::radian,
+        f64::{Angle, Length},
+        length::meter,
+    },
 };
 
 use super::{Observations, PoseEstimator};
@@ -13,7 +18,7 @@ pub struct EkfConfig {
     pub initial_variance: DVec3,
     pub process_variance_per_second: DVec3,
     pub gate_squared: f64,
-    pub gps_max_error: ozton_math::uom::si::f64::Length,
+    pub gps_max_error: Length,
 }
 
 impl Default for EkfConfig {
@@ -22,7 +27,7 @@ impl Default for EkfConfig {
             initial_variance: DVec3::splat(0.01),
             process_variance_per_second: DVec3::new(0.002, 0.002, 0.001),
             gate_squared: 9.0,
-            gps_max_error: ozton_math::si(0.06),
+            gps_max_error: Length::new::<meter>(0.06),
         }
     }
 }
@@ -100,7 +105,7 @@ impl PoseEstimator for Ekf {
         for (sensor, constraint, distance) in observations.measurements() {
             let normal = constraint.hit.normal;
             let pose = candidate.pose();
-            let beam = direction(ozton_math::si(pose.heading + sensor.mount.heading));
+            let beam = direction(Angle::new::<radian>(pose.heading + sensor.mount.heading));
             let endpoint = pose.transform_point(sensor.mount.offset) + beam * distance;
             let surface = map[constraint.hit.surface];
             // The published orientation is independently tracked. Condition
@@ -123,5 +128,5 @@ impl PoseEstimator for Ekf {
 fn bounded(from: Pose, to: Pose, maximum: f64) -> bool {
     to.is_finite()
         && from.position.distance(to.position) <= maximum
-        && wrap_heading(ozton_math::si(to.heading - from.heading)).abs() <= 0.12
+        && wrap_heading(Angle::new::<radian>(to.heading - from.heading)).abs() <= 0.12
 }

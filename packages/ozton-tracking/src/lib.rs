@@ -128,27 +128,6 @@ pub trait TracksForwardTravel: Tracking {
     fn forward_travel(&self) -> f64;
 }
 
-/// Creates a shared motor array.
-///
-/// This macro simplifies the creation of an `Rc<RefCell<[Motor; N]>>` array, which is a shareable
-/// wrapper around vexide's non-copyable [`Motor`](vexide::devices::smart::motor::Motor) struct.
-///
-/// # Examples
-///
-/// ```ignore
-/// let motors = shared_motors![motor1, motor2, motor3];
-/// ```
-#[macro_export]
-macro_rules! shared_motors {
-    ( $( $item:expr ),* $(,)?) => {
-        {
-            use ::std::{cell::RefCell, rc::Rc};
-
-            Rc::new(RefCell::new([$($item,)*]))
-        }
-    };
-}
-
 pub mod mount;
 
 /// Define sensor IDs, ordered mounts and named device wiring from one layout.

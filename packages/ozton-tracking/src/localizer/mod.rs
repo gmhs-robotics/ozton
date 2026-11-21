@@ -6,6 +6,10 @@ use glam::DVec2;
 use ozton_math::{
     geometry::{Pose, wrap_heading},
     localization::range::Surface,
+    uom::si::{
+        angle::radian,
+        f64::{Angle as UomAngle, Length, Time},
+    },
 };
 use vexide::math::Angle;
 
@@ -39,7 +43,7 @@ pub struct Config {
     pub estimator: Estimator,
     /// Run the estimator for diagnostics while motion uses dead reckoning.
     pub shadow: bool,
-    pub max_correction: ozton_math::uom::si::f64::Length,
+    pub max_correction: Length,
 }
 
 impl Config {
@@ -48,7 +52,7 @@ impl Config {
         odometry: OdometryConfig,
         estimator: Estimator,
         shadow: bool,
-        max_correction: ozton_math::uom::si::f64::Length,
+        max_correction: Length,
     ) -> Self {
         Self {
             odometry,
@@ -151,7 +155,7 @@ impl<'a> Localizer<'a> {
             return None;
         }
         let pose = Pose {
-            heading: wrap_heading(ozton_math::si(pose.heading)),
+            heading: wrap_heading(UomAngle::new::<radian>(pose.heading)),
             ..pose
         };
         Some(Self {
@@ -249,7 +253,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.filter.name(self.config.shadow)
     }
 
-    pub fn range_max_age(&self, index: usize) -> Option<ozton_math::uom::si::f64::Time> {
+    pub fn range_max_age(&self, index: usize) -> Option<Time> {
         self.sensors.get(index).map(|sensor| sensor.gate.max_age)
     }
 
@@ -267,7 +271,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             return false;
         }
         let pose = Pose {
-            heading: wrap_heading(ozton_math::si(pose.heading)),
+            heading: wrap_heading(UomAngle::new::<radian>(pose.heading)),
             ..pose
         };
         self.trust = PoseTrust::Trusted;

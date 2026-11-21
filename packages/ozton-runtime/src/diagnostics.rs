@@ -1,14 +1,18 @@
 //! Opt-in USB and SD sampling for competition and autonomous runner ticks.
 
-#[cfg(any(debug_assertions, feature = "sd-logging"))]
-use std::time::Instant;
-use std::{marker::PhantomData, time::Duration};
+use std::{
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 
 use ozton_diagnostics::serial;
 pub use ozton_diagnostics::serial::FaultLog;
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+use ozton_math::uom::si::f64::Length;
+use ozton_math::uom::si::f64::Velocity;
 use vexide::smart::SmartDevice;
 
-pub(crate) const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 #[cfg(feature = "sd-logging")]
 const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -63,8 +67,8 @@ use vexide::{competition::CompetitionMode, prelude::Motor, smart::motor::MotorCo
 #[derive(Clone, Copy)]
 pub struct MotionSample {
     pub elapsed: Duration,
-    pub progress: ozton_math::uom::si::f64::Length,
-    pub wheel_targets: [ozton_math::uom::si::f64::Velocity; 2],
+    pub progress: Length,
+    pub wheel_targets: [Velocity; 2],
 }
 
 /// Shared context for all rows of a robot sample.

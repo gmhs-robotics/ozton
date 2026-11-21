@@ -24,11 +24,11 @@ with +X forward and +Y left, enter the same mount as follows.
 
 ```rust
 # extern crate ozton;
-use ozton::math::si;
+use ozton::uom::si::{f64::Length, length::meter};
 use ozton::tracking::mount::{MountAxes, MountDirection};
 
 const AXES: MountAxes = MountAxes::new(MountDirection::Forward, MountDirection::Left);
-let mount = AXES.point(si(0.12), si(0.05), si(0.08));
+let mount = AXES.point(Length::new::<meter>(0.12), Length::new::<meter>(0.05), Length::new::<meter>(0.08));
 ```
 
 `point` converts the lengths to the right/forward/up convention used by
@@ -52,7 +52,7 @@ and [registering GPS](localization.md#register-gps).
 
 Use native `uom` types such as `ozton::uom::si::f64::Length` for physical
 settings. Construct quantities in the units you measured and pass them directly
-to Ozton. Use `ozton::math::si` for SI quantities in constants.
+to Ozton. For constants, use a typed quantity literal with its value in the SI base unit.
 
 ```rust
 # extern crate ozton;

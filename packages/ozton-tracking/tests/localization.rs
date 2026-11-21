@@ -7,6 +7,15 @@ use ozton_math::{
         mcl::ParticleConfig,
         range::{Mount, RangeGate, Rejection, Surface},
     },
+    uom::{
+        ConstZero,
+        si::{
+            angle::radian,
+            f64::{Angle, AngularVelocity, Length, Time, Velocity},
+            length::meter,
+            time::second,
+        },
+    },
 };
 use ozton_tracking::{
     TracksForwardTravel,
@@ -17,37 +26,69 @@ use ozton_tracking::{
 };
 
 const CONFIG: OdometryConfig = OdometryConfig {
-    track_width: ozton_math::si(0.3),
-    forward_offset: ozton_math::si(0.0),
-    lateral_offset: ozton_math::si(0.0),
+    track_width: Length {
+        value: 0.3,
+        ..Length::ZERO
+    },
+    forward_offset: Length::ZERO,
+    lateral_offset: Length::ZERO,
     require_lateral: false,
-    max_linear_speed: ozton_math::si(3.0),
-    max_angular_speed: ozton_math::si(8.0),
+    max_linear_speed: Velocity {
+        value: 3.0,
+        ..Velocity::ZERO
+    },
+    max_angular_speed: AngularVelocity {
+        value: 8.0,
+        ..AngularVelocity::ZERO
+    },
     max_gap: Duration::from_millis(100),
 };
 const MAP: [Surface; 2] = [
     Surface::new(
-        ozton_math::si(1.0),
-        ozton_math::si(1.0),
-        ozton_math::si(-1.0),
-        ozton_math::si(1.0),
+        Length {
+            value: 1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: 1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: -1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: 1.0,
+            ..Length::ZERO
+        },
     ),
     Surface::new(
-        ozton_math::si(-1.0),
-        ozton_math::si(1.0),
-        ozton_math::si(-1.0),
-        ozton_math::si(-1.0),
+        Length {
+            value: -1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: 1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: -1.0,
+            ..Length::ZERO
+        },
+        Length {
+            value: -1.0,
+            ..Length::ZERO
+        },
     ),
 ];
 const SENSOR: RangeSensorConfig = RangeSensorConfig {
-    mount: Mount::new(
-        ozton_math::si(0.0),
-        ozton_math::si(0.0),
-        ozton_math::si(0.0),
-    ),
+    mount: Mount::new(Length::ZERO, Length::ZERO, Angle::ZERO),
     gate: RangeGate::DEFAULT,
-    bias: ozton_math::si(0.0),
-    sigma: ozton_math::si(0.02),
+    bias: Length::ZERO,
+    sigma: Length {
+        value: 0.02,
+        ..Length::ZERO
+    },
     surface: Some(0),
     surface_mask: u32::MAX,
 };
@@ -55,9 +96,12 @@ const SENSORS: [RangeSensorConfig; 2] = [
     SENSOR,
     RangeSensorConfig {
         mount: Mount::new(
-            ozton_math::si(0.0),
-            ozton_math::si(0.0),
-            ozton_math::si(std::f64::consts::FRAC_PI_2),
+            Length::ZERO,
+            Length::ZERO,
+            Angle {
+                value: std::f64::consts::FRAC_PI_2,
+                ..Angle::ZERO
+            },
         ),
         surface: Some(1),
         ..SENSOR
@@ -70,12 +114,12 @@ fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
             odometry: CONFIG,
             estimator,
             shadow,
-            max_correction: ozton_math::si(0.2),
+            max_correction: Length::new::<meter>(0.2),
         },
         Pose::new(
-            ozton_math::si(-0.08),
-            ozton_math::si(0.08),
-            ozton_math::si(0.0),
+            Length::new::<meter>(-0.08),
+            Length::new::<meter>(0.08),
+            Angle::new::<radian>(0.0),
         ),
         &MAP,
         &SENSORS,
@@ -86,8 +130,8 @@ fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
 fn snapshot(t: u64) -> Snapshot {
     Snapshot {
         time: Duration::from_millis(t),
-        drive: [Some(ozton_math::si(0.0)); 2],
-        imu: Some(ozton_math::si(0.0)),
+        drive: [Some(Length::new::<meter>(0.0)); 2],
+        imu: Some(Angle::new::<radian>(0.0)),
         ..Snapshot::default()
     }
 }
@@ -95,7 +139,7 @@ fn snapshot(t: u64) -> Snapshot {
 fn reading(t: u64, occluded: bool) -> Option<RangeObservation> {
     Some(RangeObservation {
         timestamp: Duration::from_millis(t),
-        distance: ozton_math::si(1.0),
+        distance: Length::new::<meter>(1.0),
         confidence: 1.0,
         occluded,
     })
@@ -118,7 +162,7 @@ fn driver_odometry_ignores_corrections_and_resumes_filters_at_current_pose() {
             Fault::Initializing
         );
         let mut moving = snapshot(20);
-        moving.drive = [Some(ozton_math::si(0.01)); 2];
+        moving.drive = [Some(Length::new::<meter>(0.01)); 2];
         let update = tracking.update(moving, &[reading(20, false); 2]).unwrap();
         assert!((update.pose.position.y - 0.01).abs() < 1e-12);
         assert!(update.ranges.iter().all(Option::is_none));
@@ -199,7 +243,7 @@ fn full_dsr_waits_for_second_axis_and_retains_requirement_after_motion() {
         assert!(!update.distance_reset);
     }
     let mut moved = snapshot(250);
-    moved.drive = [Some(ozton_math::si(0.01)); 2];
+    moved.drive = [Some(Length::new::<meter>(0.01)); 2];
     assert!(
         !tracking
             .update(moved, &[reading(250, false), None])
@@ -240,7 +284,7 @@ fn rejected_full_dsr_does_not_downgrade_to_a_partial_retry() {
     for time in (20..=190).step_by(10) {
         tracking.request_distance_reset();
         let large = Some(RangeObservation {
-            distance: ozton_math::si(1.09),
+            distance: Length::new::<meter>(1.09),
             ..reading(time, false).unwrap()
         });
         let update = tracking.update(snapshot(time), &[large; 2]).unwrap();
@@ -318,24 +362,24 @@ fn both_estimators_improve_a_known_bias_and_shadow_never_moves_the_output() {
 fn loss_and_reconnection_use_only_common_motion_intervals() {
     let mut localizer = localizer(Estimator::Odometry, false);
     let mut sample = snapshot(10);
-    sample.forward = Some(ozton_math::si(100.0));
+    sample.forward = Some(Length::new::<meter>(100.0));
     assert_eq!(
         localizer.update(sample, &[]).unwrap_err(),
         Fault::Initializing
     );
     sample.time += Duration::from_millis(10);
-    sample.drive = [Some(ozton_math::si(0.01)); 2];
+    sample.drive = [Some(Length::new::<meter>(0.01)); 2];
     sample.forward = None;
     sample.imu = None;
     assert!(localizer.update(sample, &[]).is_ok());
     sample.time += Duration::from_millis(10);
-    sample.drive = [Some(ozton_math::si(0.02)); 2];
-    sample.forward = Some(ozton_math::si(999.0));
-    sample.imu = Some(ozton_math::si(1.5));
+    sample.drive = [Some(Length::new::<meter>(0.02)); 2];
+    sample.forward = Some(Length::new::<meter>(999.0));
+    sample.imu = Some(Angle::new::<radian>(1.5));
     assert!(localizer.update(sample, &[]).is_ok());
     sample.time += Duration::from_millis(10);
-    sample.drive = [Some(ozton_math::si(0.03)); 2];
-    sample.forward = Some(ozton_math::si(999.01));
+    sample.drive = [Some(Length::new::<meter>(0.03)); 2];
+    sample.forward = Some(Length::new::<meter>(999.01));
     assert!(localizer.update(sample, &[]).is_ok());
     assert!((localizer.forward_travel() - 0.03).abs() < 1e-10);
     assert_eq!(localizer.pose().heading, 0.0);
@@ -349,7 +393,10 @@ fn loss_and_reconnection_use_only_common_motion_intervals() {
 fn relative_alignment_does_not_depend_on_pose_association() {
     let raw = reading(15, false).unwrap();
     let now = Duration::from_millis(20);
-    assert_eq!(SENSOR.relative_distance(raw, now), Ok(ozton_math::si(1.0)));
+    assert_eq!(
+        SENSOR.relative_distance(raw, now),
+        Ok(Length::new::<meter>(1.0))
+    );
     assert_eq!(
         SENSOR.relative_distance(
             RangeObservation {
@@ -367,15 +414,15 @@ fn relative_alignment_does_not_depend_on_pose_association() {
     assert_eq!(
         ozton_math::localization::range::constrain(
             Pose::new(
-                ozton_math::si(0.0),
-                ozton_math::si(0.5),
-                ozton_math::si(0.0)
+                Length::new::<meter>(0.0),
+                Length::new::<meter>(0.5),
+                Angle::new::<radian>(0.0)
             ),
             SENSOR.mount,
             ozton_math::localization::range::RangeReading {
-                distance: ozton_math::si(1.0),
+                distance: Length::new::<meter>(1.0),
                 confidence: 1.0,
-                age: ozton_math::si(0.005),
+                age: Time::new::<second>(0.005),
                 occluded: false,
             },
             SENSOR.gate,
@@ -389,13 +436,13 @@ fn relative_alignment_does_not_depend_on_pose_association() {
 #[test]
 fn zero_track_width_requires_imu_instead_of_guessing_wheel_heading() {
     let mut config = CONFIG;
-    config.track_width = ozton_math::si(0.0);
+    config.track_width = Length::new::<meter>(0.0);
     let mut tracker = Localizer::new(
         Config {
             odometry: config,
             estimator: Estimator::Odometry,
             shadow: false,
-            max_correction: ozton_math::si(0.2),
+            max_correction: Length::new::<meter>(0.2),
         },
         Pose::default(),
         &[],
@@ -412,16 +459,16 @@ fn zero_track_width_requires_imu_instead_of_guessing_wheel_heading() {
 fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range() {
     let map = [
         Surface::new(
-            ozton_math::si(1.0),
-            ozton_math::si(0.5),
-            ozton_math::si(-1.0),
-            ozton_math::si(0.5),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(0.5),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(0.5),
         ),
         Surface::new(
-            ozton_math::si(1.0),
-            ozton_math::si(1.0),
-            ozton_math::si(-1.0),
-            ozton_math::si(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(1.0),
         ),
     ];
     let sensor = RangeSensorConfig {
@@ -435,7 +482,7 @@ fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range()
             odometry: CONFIG,
             estimator: Estimator::Odometry,
             shadow: false,
-            max_correction: ozton_math::si(0.2),
+            max_correction: Length::new::<meter>(0.2),
         },
         Pose::default(),
         &map,
@@ -450,7 +497,7 @@ fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range()
         sensor
             .relative_distance(sample.unwrap(), Duration::from_millis(20))
             .unwrap(),
-        ozton_math::si(1.0)
+        Length::new::<meter>(1.0)
     );
 }
 
@@ -465,13 +512,13 @@ fn dsr_rejects_translation_lateral_and_rotation_until_rest_dwell_and_fresh_colle
             raw.time = Duration::from_millis(time);
             match direction {
                 0 => {
-                    raw.drive = [Some(ozton_math::si(time as f64 / 1000.0)); 2];
+                    raw.drive = [Some(Length::new::<meter>(time as f64 / 1000.0)); 2];
                 }
                 1 => {
-                    raw.lateral = Some(ozton_math::si(time as f64 / 1000.0));
+                    raw.lateral = Some(Length::new::<meter>(time as f64 / 1000.0));
                 }
                 _ => {
-                    raw.imu = Some(ozton_math::si(time as f64 / 1000.0));
+                    raw.imu = Some(Angle::new::<radian>(time as f64 / 1000.0));
                 }
             }
             let result = tracker
@@ -500,9 +547,9 @@ fn dsr_rejects_translation_lateral_and_rotation_until_rest_dwell_and_fresh_colle
 fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
     let opposite = RangeSensorConfig {
         mount: Mount::new(
-            ozton_math::si(0.0),
-            ozton_math::si(0.0),
-            ozton_math::si(std::f64::consts::PI),
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.0),
+            Angle::new::<radian>(std::f64::consts::PI),
         ),
         surface: None,
         ..SENSOR
@@ -513,16 +560,16 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
     };
     let map = [
         Surface::new(
-            ozton_math::si(1.0),
-            ozton_math::si(1.0),
-            ozton_math::si(-1.0),
-            ozton_math::si(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(1.0),
         ),
         Surface::new(
-            ozton_math::si(-1.0),
-            ozton_math::si(-1.0),
-            ozton_math::si(1.0),
-            ozton_math::si(-1.0),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(-1.0),
         ),
     ];
     for sensors in [[forward, opposite], [opposite, forward]] {
@@ -531,7 +578,7 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
                 odometry: CONFIG,
                 estimator: Estimator::Odometry,
                 shadow: false,
-                max_correction: ozton_math::si(0.2),
+                max_correction: Length::new::<meter>(0.2),
             },
             Pose::default(),
             &map,
@@ -544,7 +591,7 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
         for time in (10..=220).step_by(10) {
             let samples = sensors.map(|_| {
                 Some(RangeObservation {
-                    distance: ozton_math::si(0.85),
+                    distance: Length::new::<meter>(0.85),
                     timestamp: Duration::from_millis(time),
                     confidence: 1.0,
                     occluded: false,
@@ -580,9 +627,9 @@ fn reconnect_and_distance_reset_do_not_restore_pose_trust() {
     tracker.update(snapshot(40), &[]).unwrap();
     assert_eq!(tracker.pose_trust(), PoseTrust::NeedsRelocalization);
     tracker.set_pose(Pose::new(
-        ozton_math::si(-0.1),
-        ozton_math::si(0.2),
-        ozton_math::si(0.0),
+        Length::new::<meter>(-0.1),
+        Length::new::<meter>(0.2),
+        Angle::new::<radian>(0.0),
     ));
     assert_eq!(tracker.pose_trust(), PoseTrust::Trusted);
 }
@@ -591,16 +638,16 @@ fn reconnect_and_distance_reset_do_not_restore_pose_trust() {
 fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
     let map = [
         Surface::new(
-            ozton_math::si(1.0),
-            ozton_math::si(0.5),
-            ozton_math::si(-1.0),
-            ozton_math::si(0.5),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(0.5),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(0.5),
         ),
         Surface::new(
-            ozton_math::si(1.0),
-            ozton_math::si(1.0),
-            ozton_math::si(-1.0),
-            ozton_math::si(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(-1.0),
+            Length::new::<meter>(1.0),
         ),
     ];
     let sensors = [RangeSensorConfig {
@@ -613,12 +660,12 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
             odometry: CONFIG,
             estimator: Estimator::Mcl(ParticleConfig::default()),
             shadow: false,
-            max_correction: ozton_math::si(0.2),
+            max_correction: Length::new::<meter>(0.2),
         },
         Pose::new(
-            ozton_math::si(0.0),
-            ozton_math::si(0.08),
-            ozton_math::si(0.0),
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.08),
+            Angle::new::<radian>(0.0),
         ),
         &map,
         &sensors,

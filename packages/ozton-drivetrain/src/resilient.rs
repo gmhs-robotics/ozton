@@ -25,10 +25,7 @@ impl DriveGeometry {
     }
 
     /// Geometry and maximum wheel speed in physical units.
-    pub const fn from_units(
-        maximum_wheel_speed: ozton_math::uom::si::f64::Velocity,
-        wheel_diameter: ozton_math::uom::si::f64::Length,
-    ) -> Self {
+    pub const fn from_units(maximum_wheel_speed: Velocity, wheel_diameter: Length) -> Self {
         match Self::try_from_units(maximum_wheel_speed, wheel_diameter) {
             Some(geometry) => geometry,
             None => panic!("invalid drivetrain geometry"),
@@ -69,7 +66,7 @@ impl AdjustableDrive for Differential {
     }
 }
 
-/// Configurable differential output, boost and fault reporting for any geared chassis.
+/// Configurable differential output, boost and fault reporting for a differential chassis.
 /// Mechanism-dependent limits are supplied by the application as a speed scale.
 pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     model: M,
@@ -221,7 +218,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
 }
 
 impl ResilientDrive {
-    /// Read geared-side load telemetry without advancing odometry.
+    /// Read wheel-side load telemetry without advancing odometry.
     pub fn wheel_load(&self) -> [Option<crate::model::WheelLoad>; 2] {
         self.model.wheel_load()
     }
@@ -320,12 +317,14 @@ impl<M: AdjustableDrive> Tank for ResilientDrive<M> {
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::si::{length::meter, velocity::meter_per_second};
+
     use super::*;
 
     fn geometry() -> DriveGeometry {
         DriveGeometry {
-            maximum_wheel_speed: ozton_math::si(1.0),
-            wheel_diameter: ozton_math::si(0.1),
+            maximum_wheel_speed: Velocity::new::<meter_per_second>(1.0),
+            wheel_diameter: Length::new::<meter>(0.1),
         }
     }
     #[derive(Default)]

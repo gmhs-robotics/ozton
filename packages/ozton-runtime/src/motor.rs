@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use ozton_control::axis::{AxisController, AxisSample, Target};
-use ozton_math::{si, uom::si::f64::ElectricPotential};
+use ozton_math::uom::si::{electric_potential::volt, f64::ElectricPotential};
 use vexide::{
     prelude::Motor,
     smart::{PortError, motor::BrakeMode},
@@ -64,7 +64,8 @@ impl<M: MotorDevice> PidMotor<M> {
             self.stop().map_err(MotorError::Port)?;
             return Err(MotorError::InvalidFeedback);
         }
-        let voltage = si(volts.value.clamp(-maximum.value, maximum.value));
+        let voltage =
+            ElectricPotential::new::<volt>(volts.value.clamp(-maximum.value, maximum.value));
         if let Err(error) = self.motor.set_voltage(voltage) {
             let _ = self.stop();
             return Err(MotorError::Port(error));
@@ -142,7 +143,12 @@ impl<M: MotorDevice> PidMotorBuilder<M> {
 #[cfg(test)]
 mod tests {
     use ozton_control::{axis::AxisConfig, loops::Pid};
-    use ozton_math::uom::si::f64::{Angle, AngularVelocity};
+    use ozton_math::uom::si::{
+        angle::radian,
+        angular_acceleration::radian_per_second_squared,
+        angular_velocity::radian_per_second,
+        f64::{Angle, AngularAcceleration, AngularVelocity},
+    };
 
     use super::*;
 
@@ -157,7 +163,7 @@ mod tests {
 
     impl MotorDevice for FakeMotor {
         fn position(&self) -> Result<Angle, PortError> {
-            Ok(si(self.position))
+            Ok(Angle::new::<radian>(self.position))
         }
         fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
             self.position = position.value;
@@ -169,7 +175,7 @@ mod tests {
             Ok(())
         }
         fn max_voltage(&self) -> ElectricPotential {
-            si(self.maximum)
+            ElectricPotential::new::<volt>(self.maximum)
         }
         fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError> {
             self.voltage = voltage.value;
@@ -179,7 +185,9 @@ mod tests {
 
     impl VelocityMotor for FakeMotor {
         fn velocity(&self) -> Result<AngularVelocity, PortError> {
-            Ok(si(self.rpm * (core::f64::consts::TAU / 60.0)))
+            Ok(AngularVelocity::new::<radian_per_second>(
+                self.rpm * (core::f64::consts::TAU / 60.0),
+            ))
         }
     }
 
@@ -205,30 +213,33 @@ mod tests {
             .unwrap();
         let dt = Duration::from_millis(10);
         let position = Target::Position {
-            position: si(2.0),
-            velocity: si(0.0),
-            acceleration: si(0.0),
+            position: Angle::new::<radian>(2.0),
+            velocity: AngularVelocity::new::<radian_per_second>(0.0),
+            acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         };
-        assert_eq!(axis.update(position, dt).unwrap(), si(1.0));
+        assert_eq!(
+            axis.update(position, dt).unwrap(),
+            ElectricPotential::new::<volt>(1.0)
+        );
         let velocity = Target::Velocity {
-            velocity: si(core::f64::consts::TAU * 0.25),
-            acceleration: si(0.0),
+            velocity: AngularVelocity::new::<radian_per_second>(core::f64::consts::TAU * 0.25),
+            acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         };
         assert!(axis.update(velocity, dt).unwrap().value.abs() < 1e-12);
         assert_eq!(
             axis.apply(
                 AxisSample {
-                    position: si(0.0),
-                    velocity: si(0.0)
+                    position: Angle::new::<radian>(0.0),
+                    velocity: AngularVelocity::new::<radian_per_second>(0.0)
                 },
                 Target::Velocity {
-                    velocity: si(100.0),
-                    acceleration: si(0.0)
+                    velocity: AngularVelocity::new::<radian_per_second>(100.0),
+                    acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0)
                 },
                 dt
             )
             .unwrap(),
-            si(8.0)
+            ElectricPotential::new::<volt>(8.0)
         );
         axis.stop().unwrap();
         assert_eq!(axis.motor.voltage, 0.0);
@@ -249,8 +260,8 @@ mod tests {
             .build()
             .unwrap();
         let target = Target::Velocity {
-            velocity: si(1.0),
-            acceleration: si(0.0),
+            velocity: AngularVelocity::new::<radian_per_second>(1.0),
+            acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         };
         assert!(matches!(
             axis.update(target, Duration::from_millis(10)),

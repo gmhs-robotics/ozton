@@ -9,7 +9,14 @@ use ozton_drivetrain::{
 };
 use ozton_math::{
     geometry::Pose,
-    uom::si::f64::{Length, Velocity},
+    uom::si::{
+        acceleration::meter_per_second_squared,
+        angular_velocity::radian_per_second,
+        electric_potential::volt,
+        f64::{Acceleration, AngularVelocity, ElectricPotential, Length, Velocity},
+        length::meter,
+        velocity::meter_per_second,
+    },
 };
 use ozton_tracking::{
     TracksForwardTravel,
@@ -150,10 +157,12 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         Ok(Some(Feedback {
             time: snapshot.time,
             pose: update.pose,
-            forward_velocity: ozton_math::si(update.forward_velocity),
-            lateral_velocity: ozton_math::si(update.lateral_velocity),
-            forward_travel: ozton_math::si(self.drivetrain.tracking.localizer.forward_travel()),
-            angular_velocity: ozton_math::si(update.angular_velocity),
+            forward_velocity: Velocity::new::<meter_per_second>(update.forward_velocity),
+            lateral_velocity: Velocity::new::<meter_per_second>(update.lateral_velocity),
+            forward_travel: Length::new::<meter>(
+                self.drivetrain.tracking.localizer.forward_travel(),
+            ),
+            angular_velocity: AngularVelocity::new::<radian_per_second>(update.angular_velocity),
             ranges: self.range,
             reset_accepted: update.distance_reset,
         }))
@@ -194,8 +203,10 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                             .update(
                                 sample,
                                 Target::Velocity {
-                                    velocity: ozton_math::si(target[index]),
-                                    acceleration: ozton_math::si(acceleration),
+                                    velocity: Velocity::new::<meter_per_second>(target[index]),
+                                    acceleration: Acceleration::new::<meter_per_second_squared>(
+                                        acceleration,
+                                    ),
                                 },
                                 dt,
                             )
@@ -213,7 +224,10 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     ));
                     self.drivetrain
                         .model
-                        .drive_volts(ozton_math::si(voltage[0]), ozton_math::si(voltage[1]))
+                        .drive_volts(
+                            ElectricPotential::new::<volt>(voltage[0]),
+                            ElectricPotential::new::<volt>(voltage[1]),
+                        )
                         .map_err(ChassisError::Output)
                 })
             }

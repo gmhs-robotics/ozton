@@ -5,9 +5,10 @@ use std::time::Duration;
 use glam::DVec2 as Vec2;
 use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
-use ozton_math::{
-    si,
-    uom::si::f64::{Angle as UnitAngle, Length},
+use ozton_math::uom::si::{
+    angle::radian,
+    f64::{Angle as UnitAngle, Length},
+    length::meter,
 };
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
 use vexide::math::Angle;
@@ -88,7 +89,7 @@ where
         self.drive_distance_at_heading(
             drivetrain,
             distance,
-            si(drivetrain.tracking.heading().as_radians()),
+            UnitAngle::new::<radian>(drivetrain.tracking.heading().as_radians()),
         )
     }
 
@@ -102,7 +103,7 @@ where
         drivetrain: &'a mut Drivetrain<M, T>,
         heading: UnitAngle,
     ) -> DriveFuture<'a, M, L, A, T> {
-        self.drive_distance_at_heading(drivetrain, si(0.0), heading)
+        self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
     }
 
     /// Turns the robot in place to face a 2D point.

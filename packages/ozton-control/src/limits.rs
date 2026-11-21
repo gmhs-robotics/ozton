@@ -1,9 +1,6 @@
 //! Finite travel and arrival limits for position-controlled mechanisms.
 
-use ozton_math::{
-    si,
-    uom::si::{Dimension, Quantity, SI},
-};
+use ozton_math::uom::si::{Dimension, Quantity, SI};
 
 use crate::axis::{AxisDimension, Position, Rotary};
 
@@ -61,8 +58,14 @@ pub fn clamp_target<D: Dimension + ?Sized>(
         return target;
     }
     match range {
-        Some((min, max)) if valid_range(range) => si(target.value.clamp(min.value, max.value)),
-        Some(_) => si(f64::NAN),
+        Some((min, max)) if valid_range(range) => Quantity {
+            value: target.value.clamp(min.value, max.value),
+            ..target
+        },
+        Some(_) => Quantity {
+            value: f64::NAN,
+            ..target
+        },
         None => target,
     }
 }

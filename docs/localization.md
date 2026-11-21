@@ -98,7 +98,7 @@ nonfinite data. A new/rejoined motor receives its own baseline. Common-mode whee
 slip remains unobservable without an independent pod or valid external references.
 
 All filter positions and innovations use X right and Y forward. The geometry
-helper returns `direction(si(0.0)) = (0, 1)`. A field pose transforms a body mount by
+helper returns `(0, 1)` for a zero heading. A field pose transforms a body mount by
 rotating its offset counterclockwise about The Origin and translating it to
 the robot's field position.
 

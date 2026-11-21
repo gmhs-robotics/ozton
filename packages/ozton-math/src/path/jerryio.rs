@@ -139,6 +139,8 @@ pub fn parse_chain(segments: &[&[u8]]) -> Result<Vec<Waypoint>, ChainError> {
 
 #[cfg(test)]
 mod tests {
+    use uom::si::length::meter;
+
     use super::*;
 
     #[test]
@@ -152,8 +154,8 @@ mod tests {
         assert_eq!(
             points[2],
             Waypoint::new(
-                crate::si(0.0),
-                crate::si(Length::new::<inch>(12.0).value),
+                Length::new::<meter>(0.0),
+                Length::new::<meter>(Length::new::<inch>(12.0).value),
                 0.0
             )
         );

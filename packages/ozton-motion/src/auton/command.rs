@@ -9,8 +9,17 @@ use ozton_math::{
         Path,
         follower::{self, Follower, FollowerSample, Progress},
     },
-    si,
-    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
+    uom::{
+        ConstZero,
+        si::{
+            angle::radian,
+            angular_velocity::radian_per_second,
+            f64::{Angle, AngularVelocity, Length, Time, Velocity},
+            length::meter,
+            time::second,
+            velocity::meter_per_second,
+        },
+    },
 };
 use ozton_tracking::localizer::MAX_RANGES;
 
@@ -69,10 +78,22 @@ impl DriveOptions {
         Self {
             track_width,
             maximum_wheel_speed,
-            position_tolerance: si(0.025),
-            heading_tolerance: si(0.06),
-            speed_tolerance: si(0.04),
-            angular_speed_tolerance: si(0.12),
+            position_tolerance: Length {
+                value: 0.025,
+                ..Length::ZERO
+            },
+            heading_tolerance: Angle {
+                value: 0.06,
+                ..Angle::ZERO
+            },
+            speed_tolerance: Velocity {
+                value: 0.04,
+                ..Velocity::ZERO
+            },
+            angular_speed_tolerance: AngularVelocity {
+                value: 0.12,
+                ..AngularVelocity::ZERO
+            },
             settle: Duration::from_millis(120),
         }
     }
@@ -365,10 +386,16 @@ impl<'path> State<'path> {
             .hypot(feedback.lateral_velocity.value)
             <= options.speed_tolerance.value
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
-        let error_at = |heading| wrap_heading(ozton_math::si(heading - feedback.pose.heading));
+        let error_at =
+            |heading| wrap_heading(Angle::new::<radian>(heading - feedback.pose.heading));
         let drive = |linear, angular| {
             desaturate(
-                wheel_speeds(si(linear), si(angular), options.track_width).map(|speed| speed.value),
+                wheel_speeds(
+                    Velocity::new::<meter_per_second>(linear),
+                    AngularVelocity::new::<radian_per_second>(angular),
+                    options.track_width,
+                )
+                .map(|speed| speed.value),
                 options.maximum_wheel_speed.value,
             )
         };
@@ -403,11 +430,13 @@ impl<'path> State<'path> {
                 let progress = self.progress.get_or_insert_with(|| Progress::new(path));
                 progress.update(
                     feedback.pose.position,
-                    ozton_math::si(options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0),
+                    Length::new::<meter>(
+                        options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
+                    ),
                 );
                 let end = path.end();
                 let tracking_error = path
-                    .at_distance(ozton_math::si(progress.distance()))
+                    .at_distance(Length::new::<meter>(progress.distance()))
                     .position
                     .distance(feedback.pose.position);
                 lost = tracking_error > 0.35
@@ -427,8 +456,8 @@ impl<'path> State<'path> {
                         progress,
                         FollowerSample {
                             pose: feedback.pose,
-                            elapsed: ozton_math::si(elapsed.as_secs_f64()),
-                            period: ozton_math::si(dt.as_secs_f64()),
+                            elapsed: Time::new::<second>(elapsed.as_secs_f64()),
+                            period: Time::new::<second>(dt.as_secs_f64()),
                         },
                         *reverse,
                         options.position_tolerance,
@@ -458,10 +487,13 @@ impl<'path> State<'path> {
                 reverse,
                 maximum_speed,
             } => {
-                let delta =
-                    ozton_math::geometry::Pose::new(target[0], target[1], ozton_math::si(0.0))
-                        .position
-                        - feedback.pose.position;
+                let delta = ozton_math::geometry::Pose::new(
+                    target[0],
+                    target[1],
+                    Angle::new::<radian>(0.0),
+                )
+                .position
+                    - feedback.pose.position;
                 let distance = delta.length();
                 let reached = distance <= options.position_tolerance.value;
                 let heading = error_at(
@@ -641,15 +673,18 @@ mod settling_tests {
             ready: &mut ready,
             stable: Duration::from_millis(30),
         };
-        let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
+        let options = DriveOptions::differential(
+            Length::new::<meter>(0.3),
+            Velocity::new::<meter_per_second>(1.0),
+        );
         let mut state = State::default();
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: si(0.0),
-            forward_velocity: si(0.0),
-            lateral_velocity: si(0.0),
-            angular_velocity: si(0.0),
+            forward_travel: Length::new::<meter>(0.0),
+            forward_velocity: Velocity::new::<meter_per_second>(0.0),
+            lateral_velocity: Velocity::new::<meter_per_second>(0.0),
+            angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),
             ranges: [None; MAX_RANGES],
             reset_accepted: false,
         };
@@ -660,7 +695,7 @@ mod settling_tests {
             assert!(!step.complete);
             assert_eq!(step.wheels, [0.0; 2]);
         }
-        feedback.angular_velocity = si(0.5);
+        feedback.angular_velocity = AngularVelocity::new::<radian_per_second>(0.5);
         for _ in 0..5 {
             assert!(
                 !state
@@ -668,7 +703,7 @@ mod settling_tests {
                     .complete
             );
         }
-        feedback.angular_velocity = si(0.0);
+        feedback.angular_velocity = AngularVelocity::new::<radian_per_second>(0.0);
         for expected in [false, false, true] {
             assert_eq!(
                 state
@@ -682,14 +717,17 @@ mod settling_tests {
     fn sideways_motion_prevents_arrival_even_with_correct_position_and_heading() {
         let mut state = State::default();
         let mut command = Command::WaitUntil(|_: &()| true);
-        let options = DriveOptions::differential(ozton_math::si(0.3), ozton_math::si(1.0));
+        let options = DriveOptions::differential(
+            Length::new::<meter>(0.3),
+            Velocity::new::<meter_per_second>(1.0),
+        );
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: si(0.0),
-            forward_velocity: si(0.0),
-            lateral_velocity: si(0.2),
-            angular_velocity: si(0.0),
+            forward_travel: Length::new::<meter>(0.0),
+            forward_velocity: Velocity::new::<meter_per_second>(0.0),
+            lateral_velocity: Velocity::new::<meter_per_second>(0.2),
+            angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),
             ranges: [None; MAX_RANGES],
             reset_accepted: false,
         };
@@ -701,7 +739,7 @@ mod settling_tests {
                     .complete
             );
         }
-        feedback.lateral_velocity = si(0.0);
+        feedback.lateral_velocity = Velocity::new::<meter_per_second>(0.0);
         let mut completed = false;
         for _ in 0..12 {
             completed = state

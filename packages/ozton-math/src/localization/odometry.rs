@@ -25,6 +25,8 @@ pub fn body_delta(
 
 #[cfg(test)]
 mod tests {
+    use uom::si::{angle::radian, length::meter};
+
     use super::*;
     #[test]
     fn wheel_positions_use_right_forward_offsets_and_cancel_pure_rotation() {
@@ -32,15 +34,27 @@ mod tests {
             for forward_x in [-0.15, 0.15] {
                 for lateral_y in [-0.08, 0.08] {
                     let stationary = body_delta(
-                        (crate::si(forward_x * yaw), crate::si(forward_x)),
-                        Some((crate::si(-lateral_y * yaw), crate::si(lateral_y))),
-                        crate::si(yaw),
+                        (
+                            Length::new::<meter>(forward_x * yaw),
+                            Length::new::<meter>(forward_x),
+                        ),
+                        Some((
+                            Length::new::<meter>(-lateral_y * yaw),
+                            Length::new::<meter>(lateral_y),
+                        )),
+                        Angle::new::<radian>(yaw),
                     );
                     assert!(stationary.translation.length() < 1e-12);
                     let moving = body_delta(
-                        (crate::si(0.3 + forward_x * yaw), crate::si(forward_x)),
-                        Some((crate::si(0.2 - lateral_y * yaw), crate::si(lateral_y))),
-                        crate::si(yaw),
+                        (
+                            Length::new::<meter>(0.3 + forward_x * yaw),
+                            Length::new::<meter>(forward_x),
+                        ),
+                        Some((
+                            Length::new::<meter>(0.2 - lateral_y * yaw),
+                            Length::new::<meter>(lateral_y),
+                        )),
+                        Angle::new::<radian>(yaw),
                     );
                     assert!(moving.translation.distance(DVec2::new(0.2, 0.3)) < 1e-12);
                 }

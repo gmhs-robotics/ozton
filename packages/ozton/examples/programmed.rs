@@ -4,41 +4,74 @@ use std::{fmt, fs::File, rc::Rc, time::Duration};
 
 use ozton::{
     autonomous_routes,
-    drivetrain::model::{DriverFaultPolicy, GearRatio},
+    drivetrain::model::DriverFaultPolicy,
     math::{
-        geometry::{INCH, Pose},
+        geometry::Pose,
         localization::range::Surface,
         path::{Path, follower::Follower, jerryio},
-        si,
     },
     motion::auton::{
         Alignment, AutonError, AutonomousControls, Command, ConfiguredChassis, DifferentialConfig,
         Feedback, Runner, TrackingSetup, chassis::ChassisError,
     },
     runtime::{
-        Custom, Robot,
+        Robot, Subsystem, SubsystemList,
         clock::CONTROL_PERIOD,
-        competition::{Autonomous, CompetitionControls, CompetitionRobot, Tick},
+        competition::{Autonomous, CompetitionControls, CompetitionRobot, RouteSet, Tick},
         diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
     },
     tracking::{localizer::RangeSensorConfig, mount::RobotPoint},
-    uom::si::f64::{Angle, Length, Velocity},
+    uom::{
+        ConstZero,
+        si::{
+            angle::radian,
+            f64::{Angle, AngularVelocity, Length, Velocity},
+            length::meter,
+            velocity::meter_per_second,
+        },
+    },
 };
 use vexide::{
     competition::CompetitionMode, controller::ControllerState, prelude::*, smart::motor::BrakeMode,
 };
 
 // Embedded path moves right (+X), so begin facing right (-90 degrees).
-const START_HEADING: Angle = si(-core::f64::consts::FRAC_PI_2);
-const START: Pose = Pose::new(si(0.0), si(0.0), START_HEADING);
-const GEARED: GearRatio = GearRatio::from_teeth(36, 48);
+const START_HEADING: Angle = Angle {
+    value: -core::f64::consts::FRAC_PI_2,
+    ..Angle::ZERO
+};
+const START: Pose = Pose::new(Length::ZERO, Length::ZERO, START_HEADING);
 const DRIVER_FAULT_POLICY: DriverFaultPolicy = DriverFaultPolicy::Stop;
 const CONFIG: DifferentialConfig = {
-    let mut config = DifferentialConfig::new(si(2.25 * INCH), si(0.30), si(0.50));
+    let mut config = DifferentialConfig::new(
+        Length {
+            value: 0.05715,
+            ..Length::ZERO
+        },
+        Length {
+            value: 0.30,
+            ..Length::ZERO
+        },
+        Velocity {
+            value: 0.50,
+            ..Velocity::ZERO
+        },
+        AngularVelocity {
+            value: 200.0 * core::f64::consts::TAU / 60.0,
+            ..AngularVelocity::ZERO
+        },
+    );
     config.journal_capacity = 2048;
     config
 };
-const FRONT_MOUNT: RobotPoint = RobotPoint::new(si(0.0), si(0.15), si(0.0));
+const FRONT_MOUNT: RobotPoint = RobotPoint::new(
+    Length::ZERO,
+    Length {
+        value: 0.15,
+        ..Length::ZERO
+    },
+    Length::ZERO,
+);
 // `front` is the first (and only) range registered with `TrackingSetup` below.
 const FRONT_RANGE_INDEX: usize = 0;
 
@@ -47,7 +80,7 @@ struct Intake {
     on: bool,
 }
 
-impl Custom<(), ChassisError> for Intake {
+impl Subsystem<(), ChassisError> for Intake {
     fn update(&mut self, _: &mut ()) -> Result<(), ChassisError> {
         self.motor
             .set_voltage(if self.on { 5.0 } else { 0.0 })
@@ -62,7 +95,7 @@ impl Custom<(), ChassisError> for Intake {
     }
 }
 
-impl Custom<ControllerState, RouteError> for Intake {
+impl Subsystem<ControllerState, RouteError> for Intake {
     fn update(&mut self, state: &mut ControllerState) -> Result<(), RouteError> {
         self.on = state.button_r1.is_pressed();
         self.update(&mut ())
@@ -70,7 +103,7 @@ impl Custom<ControllerState, RouteError> for Intake {
     }
 
     fn stop(&mut self) -> Result<(), RouteError> {
-        <Self as Custom<(), ChassisError>>::stop(self)
+        <Self as Subsystem<(), ChassisError>>::stop(self)
             .map_err(|error| RouteError(AutonError::StopFailed(error)))
     }
 }
@@ -92,7 +125,7 @@ struct IntakeReport;
 
 impl Report<CompetitionBot> for IntakeReport {
     fn collect(robot: &CompetitionBot, frame: Frame, _: Sample) {
-        MotorSample::read(&robot.custom.1.motor).write(frame, "intake");
+        MotorSample::read(&robot.subsystems.1.motor).write(frame, "intake");
     }
 }
 
@@ -114,17 +147,16 @@ impl From<AutonError<ChassisError>> for RouteError {
 
 impl CompetitionControls<CompetitionBot> for Controls {
     type Error = RouteError;
-    type CustomInput = ControllerState;
+    type SubsystemInput = ControllerState;
 
     fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
         <Self as AutonomousControls<_>>::stop(robot)
             .map_err(|error| RouteError(AutonError::StopFailed(error)))
     }
 
-    fn driver_tick(robot: &mut CompetitionBot, tick: Tick) -> Option<ControllerState> {
-        let Ok(state) = robot.controller.state() else {
-            let _ = CompetitionRobot::stop(robot);
-            return None;
+    fn driver_tick(robot: &mut CompetitionBot, tick: Tick) -> Result<(), Self::Error> {
+        let Ok(mut state) = robot.controller.state() else {
+            return CompetitionRobot::stop(robot);
         };
         let drive = robot.drivetrain.drive_driver_arcade(
             state.left_stick.y(),
@@ -133,10 +165,9 @@ impl CompetitionControls<CompetitionBot> for Controls {
         );
         robot.mark_driver_output(tick);
         if drive.is_err() && matches!(DRIVER_FAULT_POLICY, DriverFaultPolicy::Stop) {
-            let _ = CompetitionRobot::stop(robot);
-            return None;
+            return CompetitionRobot::stop(robot);
         }
-        Some(state)
+        robot.subsystems.update_all(&mut state)
     }
 
     fn mode_changed(robot: &mut CompetitionBot, mode: CompetitionMode) {
@@ -152,13 +183,13 @@ impl CompetitionControls<CompetitionBot> for Controls {
 
 impl AutonomousControls<CompetitionBot> for Controls {
     type Error = ChassisError;
-    type CustomInput = ();
+    type SubsystemInput = ();
 
     fn sample(robot: &mut CompetitionBot) -> Result<Option<Feedback>, Self::Error> {
         robot.drivetrain.sample(0)
     }
 
-    fn custom_input(_: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
+    fn subsystem_input(_: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -223,13 +254,13 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
         CONFIG.route_timeout,
     )?;
     auton.confirm_start(START)?;
-    auton.robot().custom.1.on = true;
+    auton.robot().subsystems.1.on = true;
     auton
         .run(
             Command::Follow {
                 path: &path,
                 follower: Follower::PurePursuit {
-                    lookahead: si(0.16),
+                    lookahead: Length::new::<meter>(0.16),
                 },
                 reverse: false,
                 trigger: None,
@@ -237,16 +268,16 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
             Duration::from_secs(5),
         )
         .await?;
-    auton.robot().custom.1.on = false;
+    auton.robot().subsystems.1.on = false;
     // This alignment is optional. The route can continue after a clean timeout.
     auton
         .try_align(
             Alignment {
                 sensor: ozton::motion::auton::RangeId::from_index(FRONT_RANGE_INDEX)
                     .ok_or(RouteError(AutonError::Configuration))?,
-                distance: si(1.10),
+                distance: Length::new::<meter>(1.10),
                 heading: START_HEADING,
-                maximum_speed: si(0.20),
+                maximum_speed: Velocity::new::<meter_per_second>(0.20),
                 facing: ozton::motion::auton::RangeFacing::Front,
             },
             Duration::from_secs(2),
@@ -263,23 +294,28 @@ async fn main(p: Peripherals) {
     let straight_path =
         Rc::new(Path::new(&points, CONFIG.path_limits()).expect("valid profiled path"));
     // ANCHOR_END: prepare_path
-    let side = |direct, geared, direction| {
+    let side = |first, second, direction| {
         [
-            (Motor::new_exp(direct, direction), GearRatio::DIRECT),
-            (Motor::new(geared, Gearset::Blue, direction), GEARED),
+            Motor::new(first, Gearset::Green, direction),
+            Motor::new(second, Gearset::Green, direction),
         ]
     };
     let left = side(p.port_1, p.port_2, Direction::Reverse);
     let right = side(p.port_3, p.port_4, Direction::Forward);
     let tracking = TrackingSetup {
         imu: Some(InertialSensor::new(p.port_7)),
-        map: vec![Surface::new(si(1.8), si(-1.8), si(1.8), si(1.8))],
+        map: vec![Surface::new(
+            Length::new::<meter>(1.8),
+            Length::new::<meter>(-1.8),
+            Length::new::<meter>(1.8),
+            Length::new::<meter>(1.8),
+        )],
         ranges: vec![(
             "front",
             DistanceSensor::new(p.port_8),
             RangeSensorConfig::new(
                 FRONT_MOUNT
-                    .horizontal_range_mount(si(0.0))
+                    .horizontal_range_mount(Angle::new::<radian>(0.0))
                     .expect("valid range mount"),
             ),
         )],
@@ -297,9 +333,10 @@ async fn main(p: Peripherals) {
     Robot::new()
         .with_controller(p.primary_controller)
         .with_drivetrain(drive)
-        .with_custom(intake)
+        .add_subsystem(intake)
         .with_controls(Controls { straight_path })
-        .with_autonomous::<Route>(p.display)
+        .with_auton(Route::CHOICES.iter().map(|&(_, route)| route))
+        .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
         .with_diagnostics::<IntakeReport>(Duration::from_millis(250))
         .compete()
         .await;

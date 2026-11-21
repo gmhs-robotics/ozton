@@ -7,13 +7,11 @@ use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
 mod differential;
-mod gearing;
 mod mecanum;
 
 pub use differential::{
     Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback, WheelLoad, WheelSpeedError,
 };
-pub use gearing::{DriveMotor, DriveMotorCalibration, GearRatio};
 pub use mecanum::Mecanum;
 
 /// A collection of motors driving a wheeled mobile robot.

@@ -6,8 +6,11 @@ mod command;
 mod competition;
 mod controls;
 mod convenience;
+mod localization;
 mod robot;
 mod route;
+mod routine_error;
+pub mod routine_settings;
 mod runner;
 mod sequence;
 mod setup;
@@ -18,11 +21,13 @@ pub use command::{
 };
 pub use competition::{ProgrammedRobot, compete};
 pub use controls::{AutonomousControls, ScoringControls};
+pub use localization::DifferentialLocalization;
 pub use robot::{Robot, StockTick};
 pub use route::{
     AlignTarget, Auton, RegistrationError, RegistrationProblem, Route, RouteResult, compete_routes,
     compete_with_calibration,
 };
+pub use routine_error::RoutineError;
 pub use runner::{AutonError, AutonRobot, Runner};
 pub use sequence::{MechanismActions, MechanismRobot};
 pub use setup::{ConfiguredChassis, DifferentialConfig, RangeId, SetupError, TrackingSetup};

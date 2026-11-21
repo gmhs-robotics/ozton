@@ -6,13 +6,13 @@ use ozton_math::{
     geometry::Pose,
     uom::si::f64::{Length, Velocity},
 };
-use ozton_runtime::{Custom, CustomList};
+use ozton_runtime::{Subsystem, SubsystemList};
 use vexide::{controller::ControllerState, smart::PortError};
 
 use super::{AutonRobot, ConfiguredChassis, Feedback, RangeId, chassis::ChassisError};
 
-/// Shared input for stock chassis customs. A controller sample is available
-/// during driver control. Autonomous routines set goals directly on their customs.
+/// Shared input for stock chassis subsystems. A controller sample is available
+/// during driver control. Autonomous routines set goals directly on their subsystems.
 pub struct StockTick<'a> {
     pub controller: Option<&'a ControllerState>,
     pub elapsed: Duration,
@@ -21,7 +21,7 @@ pub struct StockTick<'a> {
 /// The standard differential chassis and its registered application subsystems.
 pub struct Robot<X = ()> {
     pub drive: ConfiguredChassis,
-    pub custom: X,
+    pub subsystems: X,
     range_occlusion: fn(&X) -> u8,
     fault_policy: DriverFaultPolicy,
     log_file: Option<&'static str>,
@@ -31,7 +31,7 @@ impl Robot {
     pub fn new(drive: ConfiguredChassis) -> Self {
         Self {
             drive,
-            custom: (),
+            subsystems: (),
             range_occlusion: |_| 0,
             fault_policy: DriverFaultPolicy::Stop,
             log_file: None,
@@ -40,14 +40,14 @@ impl Robot {
 }
 
 impl<X> Robot<X> {
-    /// Append a subsystem. Configure range occlusion after registering customs.
-    pub fn with_custom<N>(self, subsystem: N) -> Robot<(X, N)>
+    /// Append a subsystem. Configure range occlusion after registering subsystems.
+    pub fn add_subsystem<N>(self, subsystem: N) -> Robot<(X, N)>
     where
-        for<'a> N: Custom<StockTick<'a>, PortError>,
+        for<'a> N: Subsystem<StockTick<'a>, PortError>,
     {
         Robot {
             drive: self.drive,
-            custom: (self.custom, subsystem),
+            subsystems: (self.subsystems, subsystem),
             range_occlusion: |_| 0,
             fault_policy: self.fault_policy,
             log_file: self.log_file,
@@ -81,7 +81,7 @@ impl<X> Robot<X> {
 
     pub(super) fn driver_tick(&mut self, state: &ControllerState, dt: Duration)
     where
-        for<'a> X: CustomList<StockTick<'a>, PortError>,
+        for<'a> X: SubsystemList<StockTick<'a>, PortError>,
     {
         let result = self.drive.chassis.drivetrain.model.drive_driver_arcade(
             state.left_stick.y(),
@@ -90,7 +90,7 @@ impl<X> Robot<X> {
         );
         if (result.is_err() && matches!(self.fault_policy, DriverFaultPolicy::Stop))
             || self
-                .custom
+                .subsystems
                 .update_all(&mut StockTick {
                     controller: Some(state),
                     elapsed: dt,
@@ -120,7 +120,7 @@ impl<X> Robot<X> {
 
 impl<X> AutonRobot for Robot<X>
 where
-    for<'a> X: CustomList<StockTick<'a>, PortError>,
+    for<'a> X: SubsystemList<StockTick<'a>, PortError>,
 {
     type Error = ChassisError;
 
@@ -136,11 +136,11 @@ where
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
         self.drive
             .chassis
-            .sample((self.range_occlusion)(&self.custom))
+            .sample((self.range_occlusion)(&self.subsystems))
     }
 
-    fn update_custom(&mut self, dt: Duration) -> Result<(), Self::Error> {
-        self.custom
+    fn update_subsystems(&mut self, dt: Duration) -> Result<(), Self::Error> {
+        self.subsystems
             .update_all(&mut StockTick {
                 controller: None,
                 elapsed: dt,
@@ -158,7 +158,7 @@ where
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.stop_drive()
-            .and(self.custom.stop_all().map_err(ChassisError::Output))
+            .and(self.subsystems.stop_all().map_err(ChassisError::Output))
     }
 
     fn set_pose(&mut self, pose: Pose) -> Result<(), Self::Error> {

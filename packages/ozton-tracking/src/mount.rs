@@ -1,8 +1,10 @@
 //! Installation coordinates measured from the chassis center of rotation.
 use ozton_math::{
     localization::range::Mount,
-    si,
-    uom::si::f64::{Angle, Length},
+    uom::{
+        ConstZero,
+        si::f64::{Angle, Length},
+    },
 };
 
 /// A chassis direction used to label a horizontal measurement axis.
@@ -56,34 +58,43 @@ impl MountAxes {
         let (x_right, x_forward) = self.x.right_forward();
         let (y_right, y_forward) = self.y.right_forward();
         RobotPoint {
-            right: si(x.value * x_right + y.value * y_right),
-            forward: si(x.value * x_forward + y.value * y_forward),
+            right: Length {
+                value: x.value * x_right + y.value * y_right,
+                ..Length::ZERO
+            },
+            forward: Length {
+                value: x.value * x_forward + y.value * y_forward,
+                ..Length::ZERO
+            },
             up,
         }
     }
 }
 
-/// A sensor or wheel position relative to The Origin, preserving its mounting height.
-/// This is a location, not an IMU attitude or an inferred odometry measurement.
+/// Three coordinates in the right/forward/up chassis frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RobotPoint {
-    pub right: Length,
-    pub forward: Length,
-    pub up: Length,
+pub struct Vec3<T> {
+    pub right: T,
+    pub forward: T,
+    pub up: T,
 }
+
+impl<T> Vec3<T> {
+    pub const fn new(right: T, forward: T, up: T) -> Self {
+        Self { right, forward, up }
+    }
+}
+
+/// Sensor or wheel location relative to the chassis center of rotation.
+pub type RobotPoint = Vec3<Length>;
 
 impl RobotPoint {
     /// The Origin, at the chassis center of rotation in the robot frame.
     pub const ORIGIN: Self = Self {
-        right: si(0.0),
-        forward: si(0.0),
-        up: si(0.0),
+        right: Length::ZERO,
+        forward: Length::ZERO,
+        up: Length::ZERO,
     };
-
-    /// Creates a right/forward/up point relative to The Origin from physical lengths.
-    pub const fn new(right: Length, forward: Length, up: Length) -> Self {
-        Self { right, forward, up }
-    }
 
     /// Validates coordinates before a static mount is used.
     pub const fn is_finite(self) -> bool {
@@ -115,7 +126,7 @@ impl RobotPoint {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::si;
+    use ozton_math::uom::si::{angle::radian, length::meter};
 
     use super::*;
 
@@ -139,15 +150,33 @@ mod tests {
                 -0.2,
             ),
         ] {
-            assert_eq!(axes.point(si(0.0), si(0.0), si(0.0)), RobotPoint::ORIGIN);
-            let point = axes.point(si(x), si(y), si(0.3));
-            assert_eq!(point, RobotPoint::new(si(-0.1), si(0.2), si(0.3)));
+            assert_eq!(
+                axes.point(
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0)
+                ),
+                RobotPoint::ORIGIN
+            );
+            let point = axes.point(
+                Length::new::<meter>(x),
+                Length::new::<meter>(y),
+                Length::new::<meter>(0.3),
+            );
+            assert_eq!(
+                point,
+                RobotPoint::new(
+                    Length::new::<meter>(-0.1),
+                    Length::new::<meter>(0.2),
+                    Length::new::<meter>(0.3)
+                )
+            );
 
             let yaw = 0.4;
             let delta = ozton_math::localization::odometry::body_delta(
-                (si(-0.1 * yaw), point.right),
-                Some((si(-0.2 * yaw), point.forward)),
-                si(yaw),
+                (Length::new::<meter>(-0.1 * yaw), point.right),
+                Some((Length::new::<meter>(-0.2 * yaw), point.forward)),
+                Angle::new::<radian>(yaw),
             );
             assert_eq!(delta.translation.length(), 0.0);
         }
@@ -161,12 +190,18 @@ mod tests {
 
     #[test]
     fn mounting_positions_convert_axes_without_losing_height() {
-        let point = RobotPoint::new(si(-0.1), si(0.2), si(0.3));
-        let mount = point.horizontal_range_mount(si(0.0)).unwrap();
+        let point = RobotPoint::new(
+            Length::new::<meter>(-0.1),
+            Length::new::<meter>(0.2),
+            Length::new::<meter>(0.3),
+        );
+        let mount = point
+            .horizontal_range_mount(Angle::new::<radian>(0.0))
+            .unwrap();
         assert_eq!(mount.offset.x, -0.1);
         assert_eq!(mount.offset.y, 0.2);
         assert_eq!(mount.heading, 0.0);
-        assert_eq!(point.up, si(0.3));
+        assert_eq!(point.up, Length::new::<meter>(0.3));
         assert_eq!(point.right.value, -0.1);
         assert_eq!(point.forward.value, 0.2);
         assert_eq!(RobotPoint::ORIGIN.right.value, 0.0);
@@ -177,16 +212,41 @@ mod tests {
         let point = RobotPoint::ORIGIN;
         assert_eq!(
             point
-                .horizontal_range_mount(si(-core::f64::consts::FRAC_PI_2))
+                .horizontal_range_mount(Angle::new::<radian>(-core::f64::consts::FRAC_PI_2))
                 .unwrap()
                 .heading,
             -core::f64::consts::FRAC_PI_2
         );
-        assert!(point.horizontal_range_mount(si(f64::NAN)).is_none());
+        assert!(
+            point
+                .horizontal_range_mount(Angle::new::<radian>(f64::NAN))
+                .is_none()
+        );
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(!RobotPoint::new(si(invalid), si(0.0), si(0.0)).is_finite());
-            assert!(!RobotPoint::new(si(0.0), si(invalid), si(0.0)).is_finite());
-            assert!(!RobotPoint::new(si(0.0), si(0.0), si(invalid)).is_finite());
+            assert!(
+                !RobotPoint::new(
+                    Length::new::<meter>(invalid),
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0)
+                )
+                .is_finite()
+            );
+            assert!(
+                !RobotPoint::new(
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(invalid),
+                    Length::new::<meter>(0.0)
+                )
+                .is_finite()
+            );
+            assert!(
+                !RobotPoint::new(
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(invalid)
+                )
+                .is_finite()
+            );
         }
     }
 }

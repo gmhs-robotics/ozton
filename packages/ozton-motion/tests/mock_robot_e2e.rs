@@ -15,6 +15,13 @@ use ozton_drivetrain::{
     Drivetrain,
     model::{Arcade, DrivetrainModel},
 };
+use ozton_math::uom::si::{
+    angle::radian,
+    angular_velocity::radian_per_second,
+    f64::{Angle as UomAngle, AngularVelocity, Length, Velocity},
+    length::meter,
+    velocity::meter_per_second,
+};
 use ozton_motion::{Basic, Seeking};
 use ozton_tracking::{
     Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
@@ -69,8 +76,9 @@ impl SimState {
         }
 
         self.heading_radians = wrap_radians(self.heading_radians + self.angular_velocity * dt);
-        let displacement = ozton_math::geometry::direction(ozton_math::si(self.heading_radians))
-            * (self.linear_velocity * dt);
+        let displacement =
+            ozton_math::geometry::direction(UomAngle::new::<radian>(self.heading_radians))
+                * (self.linear_velocity * dt);
         self.position += displacement;
         self.forward_travel += self.linear_velocity * dt;
     }
@@ -174,24 +182,24 @@ fn new_drivetrain() -> Drivetrain<MockArcadeModel, MockTracking> {
 
 fn linear_tolerances() -> Tolerances<Linear> {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(ozton_math::si(0.04));
-    tolerances.velocity_tolerance = Some(ozton_math::si(0.05));
+    tolerances.error_tolerance = Some(Length::new::<meter>(0.04));
+    tolerances.velocity_tolerance = Some(Velocity::new::<meter_per_second>(0.05));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
 
 fn angular_tolerances() -> Tolerances {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(ozton_math::si(0.05));
-    tolerances.velocity_tolerance = Some(ozton_math::si(0.08));
+    tolerances.error_tolerance = Some(UomAngle::new::<radian>(0.05));
+    tolerances.velocity_tolerance = Some(AngularVelocity::new::<radian_per_second>(0.08));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
 
 fn point_tolerances() -> Tolerances<Linear> {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(ozton_math::si(0.05));
-    tolerances.velocity_tolerance = Some(ozton_math::si(0.06));
+    tolerances.error_tolerance = Some(Length::new::<meter>(0.05));
+    tolerances.velocity_tolerance = Some(Velocity::new::<meter_per_second>(0.06));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
 }
@@ -234,11 +242,14 @@ fn basic_motion_reaches_distance_and_heading_goals() {
 
     block_on(async {
         motion
-            .drive_distance(&mut drivetrain, ozton_math::si(1.2))
+            .drive_distance(&mut drivetrain, Length::new::<meter>(1.2))
             .await
             .expect("motion output succeeds");
         motion
-            .turn_to_point(&mut drivetrain, [ozton_math::si(-1.2), ozton_math::si(1.2)])
+            .turn_to_point(
+                &mut drivetrain,
+                [Length::new::<meter>(-1.2), Length::new::<meter>(1.2)],
+            )
             .await
             .expect("motion output succeeds");
     });
@@ -274,15 +285,24 @@ fn seeking_motion_reaches_multiple_waypoints() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
+            .move_to_point(
+                &mut drivetrain,
+                [Length::new::<meter>(0.0), Length::new::<meter>(1.0)],
+            )
             .await
             .expect("motion output succeeds");
         motion
-            .move_to_point(&mut drivetrain, [ozton_math::si(-1.0), ozton_math::si(1.0)])
+            .move_to_point(
+                &mut drivetrain,
+                [Length::new::<meter>(-1.0), Length::new::<meter>(1.0)],
+            )
             .await
             .expect("motion output succeeds");
         motion
-            .move_to_point(&mut drivetrain, [ozton_math::si(-1.4), ozton_math::si(0.4)])
+            .move_to_point(
+                &mut drivetrain,
+                [Length::new::<meter>(-1.4), Length::new::<meter>(0.4)],
+            )
             .await
             .expect("motion output succeeds");
     });
@@ -311,7 +331,10 @@ fn reverse_seeking_drives_backward_to_target() {
 
     block_on(async {
         motion
-            .move_to_point(&mut drivetrain, [ozton_math::si(0.0), ozton_math::si(1.0)])
+            .move_to_point(
+                &mut drivetrain,
+                [Length::new::<meter>(0.0), Length::new::<meter>(1.0)],
+            )
             .reverse()
             .await
             .expect("motion output succeeds");

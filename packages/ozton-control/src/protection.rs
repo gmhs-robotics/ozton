@@ -1,7 +1,7 @@
 //! Bounded progress and encoder checks shared by mechanisms and motion executors.
 use core::{marker::PhantomData, time::Duration};
 
-use ozton_math::si;
+use ozton_math::uom::ConstZero;
 
 use crate::axis::{AxisDimension, Position, Rotary, Velocity};
 
@@ -26,7 +26,7 @@ pub struct ProgressGuard<D: AxisDimension = Rotary> {
     elapsed: Duration,
     direction: f64,
     fault: Option<ProgressFault>,
-    velocity: f64,
+    velocity: Velocity<D>,
 }
 impl<D: AxisDimension> ProgressGuard<D> {
     pub fn new(
@@ -44,7 +44,7 @@ impl<D: AxisDimension> ProgressGuard<D> {
             elapsed: Duration::ZERO,
             direction: 0.0,
             fault: None,
-            velocity: 0.0,
+            velocity: Velocity::<D>::ZERO,
         }
     }
     pub fn reset(&mut self) {
@@ -53,10 +53,10 @@ impl<D: AxisDimension> ProgressGuard<D> {
         self.elapsed = Duration::ZERO;
         self.direction = 0.0;
         self.fault = None;
-        self.velocity = 0.0;
+        self.velocity = Velocity::<D>::ZERO;
     }
     pub fn velocity(&self) -> Velocity<D> {
-        si(self.velocity)
+        self.velocity
     }
     pub fn fault(&self) -> Option<ProgressFault> {
         self.fault
@@ -95,7 +95,7 @@ impl<D: AxisDimension> ProgressGuard<D> {
                 self.fault = Some(ProgressFault::EncoderJump);
                 return Err(ProgressFault::EncoderJump);
             }
-            self.velocity = velocity;
+            self.velocity.value = velocity;
         }
         self.previous = Some(position);
         if command.abs() < 0.05 {
@@ -135,33 +135,51 @@ impl<D: AxisDimension> ProgressGuard<D> {
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::si::{
+        angle::radian,
+        angular_velocity::radian_per_second,
+        f64::{Angle, AngularVelocity},
+    };
+
     use super::*;
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
-        let mut guard = ProgressGuard::<Rotary>::new(si(0.01), si(2.0), Duration::from_millis(100));
+        let mut guard = ProgressGuard::<Rotary>::new(
+            Angle::new::<radian>(0.01),
+            AngularVelocity::new::<radian_per_second>(2.0),
+            Duration::from_millis(100),
+        );
         let tick = Duration::from_millis(10);
         for _ in 0..9 {
-            assert!(guard.update(si(0.0), 1.0, tick).is_ok());
+            assert!(guard.update(Angle::new::<radian>(0.0), 1.0, tick).is_ok());
         }
         assert_eq!(
-            guard.update(si(0.0), 1.0, tick),
+            guard.update(Angle::new::<radian>(0.0), 1.0, tick),
             Err(ProgressFault::NoProgress)
         );
-        assert!(guard.update(si(0.0), 0.0, tick).is_ok());
-        assert!(guard.update(si(0.01), 1.0, tick).is_ok());
+        assert!(guard.update(Angle::new::<radian>(0.0), 0.0, tick).is_ok());
+        assert!(guard.update(Angle::new::<radian>(0.01), 1.0, tick).is_ok());
         assert_eq!(
-            guard.update(si(1.0), 1.0, tick),
+            guard.update(Angle::new::<radian>(1.0), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
-        assert!(guard.update(si(1.0), 0.0, tick).is_err());
+        assert!(guard.update(Angle::new::<radian>(1.0), 0.0, tick).is_err());
         guard.reset();
-        assert!(guard.update(si(1.0), 0.0, tick).is_ok());
+        assert!(guard.update(Angle::new::<radian>(1.0), 0.0, tick).is_ok());
     }
     #[test]
     fn wrong_direction_does_not_count_as_progress() {
-        let mut guard = ProgressGuard::<Rotary>::new(si(0.01), si(2.0), Duration::from_millis(100));
+        let mut guard = ProgressGuard::<Rotary>::new(
+            Angle::new::<radian>(0.01),
+            AngularVelocity::new::<radian_per_second>(2.0),
+            Duration::from_millis(100),
+        );
         for i in 0..10 {
-            let _ = guard.update(si(-0.01 * i as f64), 1.0, Duration::from_millis(10));
+            let _ = guard.update(
+                Angle::new::<radian>(-0.01 * i as f64),
+                1.0,
+                Duration::from_millis(10),
+            );
         }
         assert_eq!(guard.fault(), Some(ProgressFault::NoProgress));
     }

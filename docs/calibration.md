@@ -48,7 +48,7 @@ disables logging. A full buffer overwrites its oldest records and reports how
 many it dropped. Size the buffer for the sample frequency and experiment length.
 
 For live serial diagnostics, call `with_diagnostics::<MyReport>(interval)`
-after `with_autonomous`. Implement `runtime::diagnostics::Report<CompetitionBot>`
+after `with_ui`. Implement `runtime::diagnostics::Report<CompetitionBot>`
 to select the data to emit. Ozton schedules the report in debug builds after
 competition ticks and during runner steps. Use `Frame::row` to give related
 rows a common sequence and timestamp. The programmed example uses

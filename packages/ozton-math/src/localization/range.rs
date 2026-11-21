@@ -1,12 +1,15 @@
 //! Ray casting and distance-sensor resets against known field surfaces.
 
 use glam::DVec2;
-use uom::si::f64::{Angle, Length, Time};
-
-use crate::{
-    geometry::{Pose, direction, rotation},
-    si,
+use uom::{
+    ConstZero,
+    si::{
+        angle::radian,
+        f64::{Angle, Length, Time},
+    },
 };
+
+use crate::geometry::{Pose, direction, rotation};
 
 /// A finite, stationary reflecting surface in the field plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,7 +68,7 @@ pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u32) ->
 
 fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>) -> Option<Hit> {
     let origin = pose.transform_point(mount.offset);
-    let beam = direction(crate::si(pose.heading + mount.heading));
+    let beam = direction(Angle::new::<radian>(pose.heading + mount.heading));
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
     for (index, surface) in surfaces.iter().enumerate() {
@@ -123,13 +126,28 @@ impl Default for RangeGate {
 
 impl RangeGate {
     pub const DEFAULT: Self = Self {
-        min_range: si(0.05),
-        max_range: si(2.0),
+        min_range: Length {
+            value: 0.05,
+            ..Length::ZERO
+        },
+        max_range: Length {
+            value: 2.0,
+            ..Length::ZERO
+        },
         min_confidence: 0.5,
-        max_age: si(0.08),
+        max_age: Time {
+            value: 0.08,
+            ..Time::ZERO
+        },
         min_incidence: 0.6,
-        edge_margin: si(0.1),
-        max_residual: si(0.18),
+        edge_margin: Length {
+            value: 0.1,
+            ..Length::ZERO
+        },
+        max_residual: Length {
+            value: 0.18,
+            ..Length::ZERO
+        },
     };
 
     pub fn is_valid(self) -> bool {
@@ -310,7 +328,7 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
     } else {
         // Principal direction of the symmetric normal matrix; sign does not matter.
         let angle = 0.5 * libm::atan2(2.0 * xy, xx - yy);
-        let n = rotation(crate::si(angle));
+        let n = rotation(Angle::new::<radian>(angle));
         let eigenvalue = xx * n.x * n.x + 2.0 * xy * n.x * n.y + yy * n.y * n.y;
         (n * (rhs.dot(n) / eigenvalue), 1)
     };
@@ -326,44 +344,54 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
 
 #[cfg(test)]
 mod tests {
+    use uom::si::{length::meter, time::second as time_second};
+
     use super::*;
 
     #[test]
     fn masked_cast_matches_independent_segment_casts_and_preserves_indices() {
         let mut map = [Surface::new(
-            crate::si(0.0),
-            crate::si(0.0),
-            crate::si(0.0),
-            crate::si(0.0),
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.0),
         ); 33];
         map[0] = Surface::new(
-            crate::si(-2.0),
-            crate::si(0.8),
-            crate::si(2.0),
-            crate::si(0.8),
+            Length::new::<meter>(-2.0),
+            Length::new::<meter>(0.8),
+            Length::new::<meter>(2.0),
+            Length::new::<meter>(0.8),
         );
         map[4] = Surface::new(
-            crate::si(-2.0),
-            crate::si(1.0),
-            crate::si(2.0),
-            crate::si(1.0),
+            Length::new::<meter>(-2.0),
+            Length::new::<meter>(1.0),
+            Length::new::<meter>(2.0),
+            Length::new::<meter>(1.0),
         );
         map[31] = Surface::new(
-            crate::si(-2.0),
-            crate::si(1.2),
-            crate::si(2.0),
-            crate::si(1.2),
+            Length::new::<meter>(-2.0),
+            Length::new::<meter>(1.2),
+            Length::new::<meter>(2.0),
+            Length::new::<meter>(1.2),
         );
         map[32] = Surface::new(
-            crate::si(-2.0),
-            crate::si(0.5),
-            crate::si(2.0),
-            crate::si(0.5),
+            Length::new::<meter>(-2.0),
+            Length::new::<meter>(0.5),
+            Length::new::<meter>(2.0),
+            Length::new::<meter>(0.5),
         );
         for yaw in [-0.3, 0.0, 0.3] {
             for mask in [0, 1, 1 << 4, 1 << 31, (1 << 4) | (1 << 31), u32::MAX] {
-                let pose = Pose::new(crate::si(0.1), crate::si(-0.2), crate::si(yaw));
-                let mount = Mount::new(crate::si(0.05), crate::si(-0.03), crate::si(0.1));
+                let pose = Pose::new(
+                    Length::new::<meter>(0.1),
+                    Length::new::<meter>(-0.2),
+                    Angle::new::<radian>(yaw),
+                );
+                let mount = Mount::new(
+                    Length::new::<meter>(0.05),
+                    Length::new::<meter>(-0.03),
+                    Angle::new::<radian>(0.1),
+                );
                 let expected = map
                     .iter()
                     .enumerate()
@@ -382,7 +410,11 @@ mod tests {
         assert_eq!(
             cast(
                 Pose::default(),
-                Mount::new(crate::si(0.0), crate::si(0.0), crate::si(0.0)),
+                Mount::new(
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0),
+                    Angle::new::<radian>(0.0)
+                ),
                 &map
             )
             .unwrap()
@@ -392,7 +424,11 @@ mod tests {
         assert_eq!(
             cast_masked(
                 Pose::default(),
-                Mount::new(crate::si(0.0), crate::si(0.0), crate::si(0.0)),
+                Mount::new(
+                    Length::new::<meter>(0.0),
+                    Length::new::<meter>(0.0),
+                    Angle::new::<radian>(0.0)
+                ),
                 &map,
                 u32::MAX
             )
@@ -408,17 +444,25 @@ mod tests {
             start: DVec2::new(1.0, -1.0),
             end: DVec2::new(1.0, 1.0),
         };
-        let pose = Pose::new(crate::si(0.1), crate::si(0.1), crate::si(0.3));
+        let pose = Pose::new(
+            Length::new::<meter>(0.1),
+            Length::new::<meter>(0.1),
+            Angle::new::<radian>(0.3),
+        );
         let mount = Mount {
             offset: DVec2::new(0.1, 0.0),
             heading: -core::f64::consts::FRAC_PI_2,
         };
-        let true_pose = Pose::new(crate::si(0.0), crate::si(0.1), crate::si(0.3));
+        let true_pose = Pose::new(
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.1),
+            Angle::new::<radian>(0.3),
+        );
         let distance = cast(true_pose, mount, &[surface]).unwrap().distance;
         let reading = RangeReading {
-            distance: si(distance),
+            distance: Length::new::<meter>(distance),
             confidence: 1.0,
-            age: si(0.0),
+            age: Time::new::<time_second>(0.0),
             occluded: false,
         };
         let constraint = constrain(

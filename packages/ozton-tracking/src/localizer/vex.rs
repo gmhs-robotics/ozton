@@ -5,7 +5,11 @@ use std::{rc::Rc, time::Duration};
 use arrayvec::ArrayVec;
 use ozton_math::{
     geometry::{Pose, compass_heading},
-    uom::si::{f64::Length, length::millimeter},
+    uom::si::{
+        angle::radian,
+        f64::{Angle as UomAngle, Length},
+        length::{meter, millimeter},
+    },
 };
 use vexide::{
     prelude::{DistanceSensor, GpsSensor, InertialSensor},
@@ -218,7 +222,7 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
             if imu.is_calibrating().ok()? {
                 return None;
             }
-            Some(compass_heading(ozton_math::si(
+            Some(compass_heading(UomAngle::new::<radian>(
                 imu.heading().ok()?.as_radians(),
             )))
         });
@@ -305,7 +309,7 @@ fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation>
 fn gps_fix(sensor: &GpsSensor) -> Option<GpsFix> {
     let before = sensor.timestamp().ok()?;
     let position = sensor.position().ok()?;
-    let heading = compass_heading(ozton_math::si(sensor.heading().ok()?.as_radians()));
+    let heading = compass_heading(UomAngle::new::<radian>(sensor.heading().ok()?.as_radians()));
     let position_error = sensor.error().ok()?;
     let after = sensor.timestamp().ok()?;
     if before != after {
@@ -313,11 +317,11 @@ fn gps_fix(sensor: &GpsSensor) -> Option<GpsFix> {
     }
     Some(GpsFix {
         pose: Pose::new(
-            ozton_math::si(position.x),
-            ozton_math::si(position.y),
+            Length::new::<meter>(position.x),
+            Length::new::<meter>(position.y),
             heading,
         ),
-        position_error: ozton_math::si(position_error),
+        position_error: Length::new::<meter>(position_error),
         timestamp: stamp(after),
     })
 }
@@ -342,21 +346,21 @@ mod tests {
     fn concrete_wheels_sample_each_axis_without_callbacks() {
         let wheel = TrackingWheel::new(
             Encoder(-2.0),
-            ozton_math::si(0.1),
-            ozton_math::si(0.0),
+            Length::new::<meter>(0.1),
+            Length::new::<meter>(0.0),
             Some(0.5),
         );
         let sensors = Sensors::with_wheel_sources((), wheel).unwrap();
-        let sample = sensors.capture_odometry([Some(ozton_math::si(0.1)), None]);
-        assert_eq!(sample.drive, [Some(ozton_math::si(0.1)), None]);
+        let sample = sensors.capture_odometry([Some(Length::new::<meter>(0.1)), None]);
+        assert_eq!(sample.drive, [Some(Length::new::<meter>(0.1)), None]);
         assert_eq!(sample.forward, None);
         assert!((sample.lateral.unwrap().value + 0.1 * core::f64::consts::PI).abs() < 1e-12);
 
         for diameter in [0.0, -0.1, f64::NAN] {
             let wheel = TrackingWheel::new(
                 Encoder(1.0),
-                ozton_math::si(diameter),
-                ozton_math::si(0.0),
+                Length::new::<meter>(diameter),
+                Length::new::<meter>(0.0),
                 None,
             );
             assert!(Sensors::with_wheel_sources(wheel, ()).is_none());
@@ -366,13 +370,16 @@ mod tests {
     #[test]
     fn existing_callback_sources_can_still_be_replaced() {
         let sensors = Sensors::default()
-            .with_forward(|| Some(ozton_math::si(1.0)))
-            .with_forward(|| Some(ozton_math::si(2.0)))
-            .with_lateral(|| Some(ozton_math::si(-3.0)));
+            .with_forward(|| Some(Length::new::<meter>(1.0)))
+            .with_forward(|| Some(Length::new::<meter>(2.0)))
+            .with_lateral(|| Some(Length::new::<meter>(-3.0)));
         let sample = sensors.capture_odometry([None; 2]);
         assert_eq!(
             (sample.forward, sample.lateral),
-            (Some(ozton_math::si(2.0)), Some(ozton_math::si(-3.0)))
+            (
+                Some(Length::new::<meter>(2.0)),
+                Some(Length::new::<meter>(-3.0))
+            )
         );
     }
 }

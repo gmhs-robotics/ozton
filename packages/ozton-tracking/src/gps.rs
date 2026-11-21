@@ -3,7 +3,10 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use glam::DVec2 as Vec2;
-use ozton_math::{geometry::Pose, si, uom::si::f64::Length};
+use ozton_math::{
+    geometry::Pose,
+    uom::si::{f64::Length, length::meter},
+};
 use vexide::{
     math::Angle,
     smart::{PortError, SmartDevice, gps::GpsSensor},
@@ -180,7 +183,7 @@ impl GpsTracking {
                         timestamp,
                         position,
                         heading,
-                        si(position_error),
+                        Length::new::<meter>(position_error),
                         rate,
                         status,
                     ))
