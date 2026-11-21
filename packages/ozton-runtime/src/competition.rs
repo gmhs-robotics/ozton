@@ -47,9 +47,9 @@ impl<E> IntoRouteResult<E> for () {
     }
 }
 
-impl<E> IntoRouteResult<E> for Result<(), E> {
+impl<E, F: Into<E>> IntoRouteResult<E> for Result<(), F> {
     fn into_route_result(self) -> Result<(), E> {
-        self
+        self.map_err(Into::into)
     }
 }
 
@@ -110,7 +110,7 @@ impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L
     }
 }
 
-/// Name an async robot function in the builder's autonomous list.
+/// Name an async robot function for autonomous selection or driver dispatch.
 #[macro_export]
 macro_rules! route {
     ($label:expr, $handler:path $(,)?) => {
@@ -172,18 +172,26 @@ pub trait CompetitionRobot: Sized {
     /// Dispatch a driver binding after the ordinary tick.
     async fn driver_action(&mut self) {}
 
+    fn driver_route_active(&self) -> bool {
+        false
+    }
+
+    /// Release the active driver route's mechanism outputs before manual control resumes.
+    fn cancel_driver_route(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     /// Service driver outputs while a routine waits for its next condition.
     async fn driver_wait_until(
         &mut self,
         timeout: Duration,
-        active: impl Fn(&Self) -> bool,
         ready: impl Fn(&Self) -> bool,
     ) -> Result<(), DriverWaitError> {
         let started = Instant::now();
         let mut clock = crate::clock::CommandClock::new(Self::CONTROL_PERIOD)
             .ok_or(DriverWaitError::Cancelled)?;
         loop {
-            if competition::mode() != CompetitionMode::Driver || !active(self) {
+            if competition::mode() != CompetitionMode::Driver || !self.driver_route_active() {
                 return Err(DriverWaitError::Cancelled);
             }
             if ready(self) {
@@ -206,13 +214,9 @@ pub trait CompetitionRobot: Sized {
     }
 
     /// Hold the currently commanded outputs for a duration while driver control continues.
-    async fn driver_wait(
-        &mut self,
-        duration: Duration,
-        active: impl Fn(&Self) -> bool,
-    ) -> Result<(), DriverWaitError> {
+    async fn driver_wait(&mut self, duration: Duration) -> Result<(), DriverWaitError> {
         let started = Instant::now();
-        self.driver_wait_until(duration, active, |_| started.elapsed() >= duration)
+        self.driver_wait_until(duration, |_| started.elapsed() >= duration)
             .await
     }
 
@@ -234,6 +238,31 @@ pub struct Autonomous<R: Copy + 'static, S = ()> {
     menu: RouteMenu<Option<R>>,
     sampler: S,
     started: Option<Instant>,
+    driver_routes: DriverRoutes<R>,
+}
+
+struct DriverRoutes<R> {
+    queued: Option<R>,
+    active: Option<R>,
+}
+
+impl<R: Copy> DriverRoutes<R> {
+    fn queue(&mut self, route: R) {
+        if self.active.is_none() {
+            self.queued = Some(route);
+        }
+    }
+
+    fn start(&mut self) -> Option<R> {
+        let route = self.queued.take()?;
+        self.active = Some(route);
+        Some(route)
+    }
+
+    fn finish(&mut self) -> bool {
+        self.queued = None;
+        self.active.take().is_some()
+    }
 }
 
 impl<R: Copy + 'static, S> Autonomous<R, S> {
@@ -255,11 +284,17 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
             menu: self.menu,
             sampler: Sampler::new(interval),
             started: self.started,
+            driver_routes: self.driver_routes,
         }
     }
 }
 
 impl<R: RouteSet, S> Autonomous<R, S> {
+    /// Schedule a registered route after this driver tick's outputs.
+    pub fn queue_driver_route(&mut self, route: R) {
+        self.driver_routes.queue(route);
+    }
+
     pub fn selected_label(&self) -> Option<&'static str> {
         self.menu.action().map(RouteSet::label)
     }
@@ -342,15 +377,18 @@ pub trait Program<R, D: ProgramDrive> {
         Self::stop_mechanisms(robot)
     }
 
-    /// Dispatch a driver binding after controller outputs have been written.
-    async fn driver_action(_robot: &mut R) {}
+    /// Release a finished driver's mechanism commands. The drive remains under joystick control.
+    fn finish_driver_route(robot: &mut R) -> Result<(), Self::Error> {
+        Self::stop_mechanisms(robot)
+    }
 
     /// Optional tracking work runs after driver outputs and within the tick budget.
     fn poll_tracking(_robot: &mut R, _mode: CompetitionMode) {}
     fn mode_changed(_robot: &mut R, _mode: CompetitionMode) {}
     fn after_tick(_robot: &mut R, _mode: CompetitionMode, _tick: Tick) {}
-    fn autonomous_error(
+    fn route_error(
         _robot: &mut R,
+        _mode: CompetitionMode,
         _name: &'static str,
         _error: &Self::Error,
     ) -> Option<&'static str> {
@@ -374,6 +412,7 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
+        self.autonomous.driver_routes.finish();
         stop_program(self)
     }
 
@@ -383,15 +422,59 @@ where
 
     fn driver_tick(&mut self, tick: Tick) {
         let input = self.controller.state().ok();
+        let active = self.autonomous.driver_routes.active;
+        if input.is_none() && self.autonomous.driver_routes.finish() {
+            self.autonomous.status("Controller unavailable");
+        }
         let result = dispatch_driver(self, input, tick);
         if let Err(error) = result {
             crate::diagnostic_event!("driver_tick_failed,error={error}");
-            let _ = self.stop();
+            let stopped = self.stop();
+            if let Some(route) = active {
+                report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
+                if let Err(stop) = stopped {
+                    report_route_error::<D, _, P>(
+                        self,
+                        CompetitionMode::Driver,
+                        route.label(),
+                        &stop,
+                    );
+                }
+            }
+        }
+    }
+
+    fn driver_route_active(&self) -> bool {
+        self.autonomous.driver_routes.active.is_some()
+    }
+
+    fn cancel_driver_route(&mut self) -> Result<(), Self::Error> {
+        if self.autonomous.driver_routes.finish() {
+            P::finish_driver_route(self)
+        } else {
+            Ok(())
         }
     }
 
     async fn driver_action(&mut self) {
-        P::driver_action(self).await
+        let Some(route) = self.autonomous.driver_routes.start() else {
+            return;
+        };
+        let result = while_in_mode(
+            route.run(self),
+            CompetitionMode::Driver,
+            Self::CONTROL_PERIOD,
+        )
+        .await;
+        let was_active = self.driver_route_active();
+        let stopped = self.cancel_driver_route();
+        if was_active && let Some(Err(error)) = result {
+            report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
+        }
+        if let Err(error) = stopped {
+            let _ = self.stop();
+            report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
+        }
     }
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
@@ -411,12 +494,25 @@ where
     }
 
     fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
-        crate::diagnostic_event!("auton_route={},error={error}", route.label());
-        if let Some(status) = P::autonomous_error(self, route.label(), &error) {
-            self.autonomous.status(status);
-        } else {
-            self.autonomous.status("Autonomous stopped");
-        }
+        report_route_error::<D, _, P>(self, CompetitionMode::Autonomous, route.label(), &error);
+    }
+}
+
+fn report_route_error<D, R, P>(
+    robot: &mut R,
+    mode: CompetitionMode,
+    name: &'static str,
+    error: &P::Error,
+) where
+    D: ProgramDrive,
+    P: Program<R, D>,
+    R: CompetitionRobot,
+{
+    crate::diagnostic_event!("route={name},mode={mode:?},error={error}");
+    if let Some(status) = P::route_error(robot, mode, name, error) {
+        robot.menu().status(status);
+    } else {
+        robot.menu().status(&error.to_string());
     }
 }
 
@@ -483,6 +579,10 @@ pub(crate) fn autonomous_ui<R: RouteSet>(
         ),
         sampler: (),
         started: None,
+        driver_routes: DriverRoutes {
+            queued: None,
+            active: None,
+        },
     }
 }
 
@@ -537,7 +637,12 @@ pub(crate) async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
                     let result = match robot.stop() {
                         Ok(()) => {
                             robot.set_autonomous_start(Some(Instant::now()));
-                            while_autonomous(route.run(&mut robot), R::CONTROL_PERIOD).await
+                            while_in_mode(
+                                route.run(&mut robot),
+                                CompetitionMode::Autonomous,
+                                R::CONTROL_PERIOD,
+                            )
+                            .await
                         }
                         Err(error) => Some(Err(error)),
                     };
@@ -594,12 +699,16 @@ pub(crate) async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
     }
 }
 
-async fn while_autonomous<T>(route: impl Future<Output = T>, period: Duration) -> Option<T> {
+async fn while_in_mode<T>(
+    route: impl Future<Output = T>,
+    mode: CompetitionMode,
+    period: Duration,
+) -> Option<T> {
     let mut route = pin!(route);
     let interval = period.clamp(Duration::from_millis(1), CONTROL_PERIOD);
     let mut mode_check = sleep(interval);
     poll_fn(|cx| {
-        if competition::mode() != CompetitionMode::Autonomous {
+        if competition::mode() != mode {
             return Poll::Ready(None);
         }
         if let Poll::Ready(result) = route.as_mut().poll(cx) {
@@ -693,6 +802,26 @@ mod tests {
             robot.drivetrain.writes.push("stop mechanisms");
             Ok(())
         }
+    }
+
+    #[test]
+    fn queued_driver_route_starts_once_and_clears_on_cancellation() {
+        let mut routes = DriverRoutes {
+            queued: None,
+            active: None,
+        };
+        routes.queue("score");
+        assert_eq!(routes.start(), Some("score"));
+        routes.queue("other");
+        assert_eq!(routes.start(), None);
+        assert_eq!(routes.active, Some("score"));
+        assert!(routes.finish());
+        assert!(!routes.finish());
+        assert_eq!(routes.start(), None);
+
+        routes.queue("score");
+        assert!(!routes.finish());
+        assert_eq!(routes.start(), None);
     }
 
     #[test]

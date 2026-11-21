@@ -24,6 +24,8 @@ pub enum RoutineError<M> {
     PathLost,
     NoProgress,
     Cancelled,
+    DriverCancelled,
+    DriverTimeout,
     RouteTimeout,
     CommandTimeout,
     ControlDelay,
@@ -100,6 +102,8 @@ impl<M> RoutineError<M> {
             Self::PathLost => "STOP: path lost",
             Self::NoProgress => "STOP: no autonomous progress",
             Self::Cancelled => "Autonomous cancelled",
+            Self::DriverCancelled => "Driver routine cancelled",
+            Self::DriverTimeout => "Driver routine timed out",
             Self::RouteTimeout => "STOP: autonomous total timeout",
             Self::CommandTimeout => "STOP: autonomous command timeout",
             Self::ControlDelay => "STOP: autonomous control delay",
@@ -121,6 +125,16 @@ impl<M> RoutineError<M> {
 impl<M: fmt::Debug> From<super::AutonError<Self>> for RoutineError<M> {
     fn from(error: super::AutonError<Self>) -> Self {
         Self::from_runner(error)
+    }
+}
+
+impl<M> From<ozton_runtime::competition::DriverWaitError> for RoutineError<M> {
+    fn from(error: ozton_runtime::competition::DriverWaitError) -> Self {
+        use ozton_runtime::competition::DriverWaitError;
+        match error {
+            DriverWaitError::Cancelled => Self::DriverCancelled,
+            DriverWaitError::Timeout => Self::DriverTimeout,
+        }
     }
 }
 

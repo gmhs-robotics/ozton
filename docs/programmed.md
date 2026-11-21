@@ -29,6 +29,22 @@ the mechanism code so both modes enforce them. Apply driver-only speed shaping
 when you build the driver command. Implement `stop_mechanisms` to bring custom
 actuators to rest and discard stale goals.
 
+## Run a route from a button
+
+On the button press, call
+`robot.autonomous.queue_driver_route(route!("Score", score))` from the driver
+callback. Write `score` as a straight-line async function. Use
+`robot.driver_wait(duration).await?` and
+`robot.driver_wait_until(timeout, predicate).await?` to keep servicing the
+joysticks and mechanisms between steps. Call `robot.cancel_driver_route()?`
+when manual input takes over. Ozton releases the routine's mechanism outputs on
+completion, error, or cancellation. Override `Program::finish_driver_route`
+when your mechanism needs a different release behavior.
+
+Return errors with `?` in both modes. Ozton reports failures to the Brain and
+runs the mode's stop or release path. A route can return the program's error or
+any error convertible to it.
+
 ## Choose a drivetrain
 
 `DifferentialConfig::build` sets up a differential chassis with known wheel

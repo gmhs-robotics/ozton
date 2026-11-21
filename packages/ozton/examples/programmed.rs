@@ -10,8 +10,8 @@ use ozton::{
         path::{Path, jerryio},
     },
     motion::auton::{
-        Alignment, ChassisDriverCommand, ConfiguredChassis, DifferentialConfig, RobotMotion,
-        RoutineError, TrackingSetup, TravelDirection, chassis::ChassisError,
+        Alignment, AutonError, ChassisDriverCommand, ConfiguredChassis, DifferentialConfig,
+        RobotMotion, RoutineError, TrackingSetup, TravelDirection, chassis::ChassisError,
     },
     position, route,
     runtime::{
@@ -169,16 +169,11 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
 }
 
 // ANCHOR: route
-async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
+async fn straight(robot: &mut CompetitionBot) -> Result<(), AutonError<RouteError>> {
     let path = Rc::clone(&robot.program.straight_path);
-    robot
-        .confirm_start(START)
-        .map_err(RouteError::from_runner)?;
+    robot.confirm_start(START)?;
     robot.mechanisms.intake.on = true;
-    robot
-        .follow_path(&path, TravelDirection::Forward)
-        .await
-        .map_err(RouteError::from_runner)?;
+    robot.follow_path(&path, TravelDirection::Forward).await?;
     robot.mechanisms.intake.on = false;
     robot
         .try_align(
@@ -191,8 +186,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
             },
             Duration::from_secs(2),
         )
-        .await
-        .map_err(RouteError::from_runner)?;
+        .await?;
     Ok(())
 }
 // ANCHOR_END: route
