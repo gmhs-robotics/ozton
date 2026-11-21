@@ -72,33 +72,3 @@ impl<R: MechanismRobot> Runner<'_, R> {
         result.and(stopped)
     }
 }
-
-/// Goal/action adapter for the stock Ozton robot. Implement on the last registered subsystem;
-/// the chassis, selector, cancellation and route clock stay in Ozton.
-pub trait MechanismActions {
-    type Target;
-    fn set_target(&mut self, target: Self::Target) -> Result<(), vexide::smart::PortError>;
-    fn at_target(&self) -> bool;
-    fn set_action(&mut self, enabled: bool) -> Result<(), vexide::smart::PortError>;
-}
-impl<A, M: MechanismActions> MechanismRobot for super::Robot<(A, M)>
-where
-    (A, M): for<'a> ozton_runtime::SubsystemList<super::StockTick<'a>, vexide::smart::PortError>,
-{
-    type Target = M::Target;
-    fn set_target(&mut self, target: Self::Target) -> Result<(), Self::Error> {
-        self.subsystems
-            .1
-            .set_target(target)
-            .map_err(super::chassis::ChassisError::Output)
-    }
-    fn at_target(&self) -> bool {
-        self.subsystems.1.at_target()
-    }
-    fn set_action(&mut self, enabled: bool) -> Result<(), Self::Error> {
-        self.subsystems
-            .1
-            .set_action(enabled)
-            .map_err(super::chassis::ChassisError::Output)
-    }
-}

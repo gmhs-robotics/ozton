@@ -7,14 +7,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ozton_drivetrain::model::ProgramDrive;
 use vexide::{
     competition::{self, CompetitionMode},
+    controller::{Controller, ControllerState},
     display::Display,
     time::sleep,
 };
 
 use crate::{
-    Robot, SubsystemList,
+    Robot,
     clock::CONTROL_PERIOD,
     diagnostics::{Report, Sample, Sampler, Telemetry},
     menu::RouteMenu,
@@ -22,16 +24,16 @@ use crate::{
 
 /// The available choices, shared by the Brain selector and route dispatch.
 pub trait RouteSet: Copy + 'static {
-    const CHOICES: &'static [(&'static str, Self)];
-
     fn label(self) -> &'static str;
 }
 
-/// The async routines for a route set. Define both traits with
-/// [`crate::autonomous_routes`] alongside the routine functions.
+/// Dispatch the selected async routine.
 #[allow(async_fn_in_trait)]
 pub trait Routes<R, E>: RouteSet {
     async fn run(self, robot: &mut R) -> Result<(), E>;
+    fn allows_autonomous(self) -> bool {
+        true
+    }
 }
 
 #[doc(hidden)]
@@ -58,13 +60,24 @@ type RouteHandler<L, E> = for<'a> fn(
 /// One named async routine registered with the robot builder.
 pub struct RegisteredRoute<L: crate::RobotLayout, E> {
     label: &'static str,
-    handler: RouteHandler<L, E>,
+    handler: Option<RouteHandler<L, E>>,
 }
 
 impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
     #[doc(hidden)]
     pub const fn new(label: &'static str, handler: RouteHandler<L, E>) -> Self {
-        Self { label, handler }
+        Self {
+            label,
+            handler: Some(handler),
+        }
+    }
+
+    /// A selectable driver tool, such as a supervised calibration trial.
+    pub const fn driver_only(label: &'static str) -> Self {
+        Self {
+            label,
+            handler: None,
+        }
     }
 }
 
@@ -76,8 +89,6 @@ impl<L: crate::RobotLayout, E> Clone for RegisteredRoute<L, E> {
 }
 
 impl<L: crate::RobotLayout + 'static, E: 'static> RouteSet for RegisteredRoute<L, E> {
-    const CHOICES: &'static [(&'static str, Self)] = &[];
-
     fn label(self) -> &'static str {
         self.label
     }
@@ -87,7 +98,15 @@ impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L
     for RegisteredRoute<L, E>
 {
     async fn run(self, robot: &mut crate::CompetitionBot<L>) -> Result<(), E> {
-        (self.handler)(robot).await
+        if let Some(handler) = self.handler {
+            handler(robot).await
+        } else {
+            Ok(())
+        }
+    }
+
+    fn allows_autonomous(self) -> bool {
+        self.handler.is_some()
     }
 }
 
@@ -103,53 +122,6 @@ macro_rules! route {
     };
 }
 
-/// Define the Brain choices and dispatch ordinary async functions. Different
-/// route future types are compiled into one enum dispatch, with no boxed futures.
-/// A routine can return unit or report a failure.
-///
-/// ```
-/// use ozton_runtime::{Robot, autonomous_routes};
-/// type PracticeBot = Robot<(), (), (), ((), usize)>;
-/// async fn practice(robot: &mut PracticeBot) -> Result<(), ()> {
-///     robot.subsystems.1 += 1;
-///     Ok(())
-/// }
-/// autonomous_routes! {
-///     enum Route for PracticeBot => () {
-///         Practice("Practice") => practice,
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! autonomous_routes {
-    ($visibility:vis enum $name:ident for $robot:ty => $error:ty {
-        $($variant:ident($label:literal) => $route:path),* $(,)?
-    }) => {
-        #[derive(Clone, Copy)]
-        $visibility enum $name { $($variant),* }
-
-        impl $crate::competition::RouteSet for $name {
-            const CHOICES: &'static [(&'static str, Self)] = &[$(($label, Self::$variant)),*];
-
-            fn label(self) -> &'static str {
-                match self { $(Self::$variant => $label),* }
-            }
-
-        }
-
-        impl $crate::competition::Routes<$robot, $error> for $name {
-            #[allow(unused_variables)]
-            async fn run(self, robot: &mut $robot) -> Result<(), $error> {
-                match self {
-                    $(Self::$variant => $crate::competition::IntoRouteResult::into_route_result(
-                        $route(robot).await
-                    )),*
-                }
-            }
-        }
-    };
-}
-
 /// Timing for the current control tick, including time spent in application hooks.
 #[derive(Clone, Copy)]
 pub struct Tick {
@@ -158,6 +130,13 @@ pub struct Tick {
 }
 
 impl Tick {
+    pub fn start(elapsed: Duration) -> Self {
+        Self {
+            started: Instant::now(),
+            elapsed,
+        }
+    }
+
     pub fn work(self) -> Duration {
         self.started.elapsed()
     }
@@ -183,6 +162,12 @@ pub trait CompetitionRobot: Sized {
     fn stop(&mut self) -> Result<(), Self::Error>;
     fn driver_tick(&mut self, tick: Tick);
     fn set_autonomous_start(&mut self, _started: Option<Instant>) {}
+
+    fn selected_autonomous(&mut self) -> Option<Self::Route> {
+        self.menu()
+            .action()
+            .filter(|route| route.allows_autonomous())
+    }
 
     /// Dispatch a driver binding after the ordinary tick.
     async fn driver_action(&mut self) {}
@@ -274,6 +259,12 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
     }
 }
 
+impl<R: RouteSet, S> Autonomous<R, S> {
+    pub fn selected_label(&self) -> Option<&'static str> {
+        self.menu.action().map(RouteSet::label)
+    }
+}
+
 impl<R: RouteSet, D, C, T, X, P> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R> {
     fn record(_: &mut Robot<D, C, T, X, P, Self>, _: Sample) {}
 
@@ -305,20 +296,51 @@ where
 /// Displayed during ordinary driver control.
 pub const DRIVER_STATUS: &str = "Driver control";
 
-/// Application-specific competition behavior for an Ozton [`Robot`].
-/// Install its state with `Robot::with_controls`. The hooks receive the
-/// assembled robot and can borrow its concrete parts and controls independently.
+/// Application hooks invoked by the programmed competition loop.
 #[allow(async_fn_in_trait)]
-pub trait CompetitionControls<R> {
+pub trait Program<R, D: ProgramDrive> {
     type Error: std::fmt::Display;
-    type SubsystemInput;
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
+    const AUTON_TIMEOUT: Duration = Duration::from_secs(15);
+    const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
-    /// Stop application-controlled outputs and clear application state.
-    fn stop(robot: &mut R) -> Result<(), Self::Error>;
-    /// Read the controller and update the drivetrain and subsystems together.
-    /// A failed tick stops outputs before the next controller sample.
-    fn driver_tick(robot: &mut R, tick: Tick) -> Result<(), Self::Error>;
+    /// Translate a drive failure into the program's error type.
+    fn drive_error(error: D::Error, stopping: bool) -> Self::Error;
+
+    /// Map one sampled controller state into an output. None stops the drive.
+    /// Mechanism requests are applied in `update_mechanisms` after the drive write.
+    fn driver(
+        robot: &mut R,
+        input: ControllerState,
+        elapsed: Duration,
+    ) -> Result<Option<D::DriverCommand>, Self::Error>;
+
+    /// Refresh lightweight inputs needed by a driver callback.
+    fn before_driver(_robot: &mut R) {}
+
+    /// Bit mask of beams blocked by the current mechanism pose.
+    fn range_occlusion(_robot: &R) -> u8 {
+        0
+    }
+
+    /// Service the same mechanism coordinator during driver and autonomous ticks.
+    fn update_mechanisms(
+        _robot: &mut R,
+        _mode: CompetitionMode,
+        _dt: Duration,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Stop custom actuators and clear pending requests. Ozton stops the drive separately.
+    fn stop_mechanisms(_robot: &mut R) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Remove actuator output for a recoverable motion failure.
+    fn pause_mechanisms(robot: &mut R) -> Result<(), Self::Error> {
+        Self::stop_mechanisms(robot)
+    }
 
     /// Dispatch a driver binding after controller outputs have been written.
     async fn driver_action(_robot: &mut R) {}
@@ -336,10 +358,10 @@ pub trait CompetitionControls<R> {
     }
 }
 
-impl<D, C, T, X, P, R, S> CompetitionRobot for Robot<D, C, T, X, P, Autonomous<R, S>>
+impl<D, T, X, P, R, S> CompetitionRobot for Robot<D, Controller, T, X, P, Autonomous<R, S>>
 where
-    P: CompetitionControls<Self>,
-    X: SubsystemList<P::SubsystemInput, P::Error>,
+    D: ProgramDrive,
+    P: Program<Self, D>,
     R: Routes<Self, P::Error>,
     Autonomous<R, S>: Telemetry<Self>,
 {
@@ -352,7 +374,7 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        P::stop(self).and(self.subsystems.stop_all())
+        stop_program(self)
     }
 
     fn set_autonomous_start(&mut self, started: Option<Instant>) {
@@ -360,7 +382,9 @@ where
     }
 
     fn driver_tick(&mut self, tick: Tick) {
-        if let Err(error) = P::driver_tick(self, tick) {
+        let input = self.controller.state().ok();
+        let result = dispatch_driver(self, input, tick);
+        if let Err(error) = result {
             crate::diagnostic_event!("driver_tick_failed,error={error}");
             let _ = self.stop();
         }
@@ -396,20 +420,54 @@ where
     }
 }
 
+fn stop_program<D, C, T, X, P, A>(robot: &mut Robot<D, C, T, X, P, A>) -> Result<(), P::Error>
+where
+    D: ProgramDrive,
+    P: Program<Robot<D, C, T, X, P, A>, D>,
+{
+    robot.driver_input = None;
+    let drive = robot
+        .drivetrain
+        .stop()
+        .map_err(|error| P::drive_error(error, true));
+    drive.and(P::stop_mechanisms(robot))
+}
+
+fn dispatch_driver<D, C, T, X, P, A>(
+    robot: &mut Robot<D, C, T, X, P, A>,
+    input: Option<ControllerState>,
+    tick: Tick,
+) -> Result<(), P::Error>
+where
+    D: ProgramDrive,
+    P: Program<Robot<D, C, T, X, P, A>, D>,
+    A: Telemetry<Robot<D, C, T, X, P, A>>,
+{
+    let Some(input) = input else {
+        return stop_program(robot);
+    };
+    robot.driver_input = Some(input);
+    P::before_driver(robot);
+    match P::driver(robot, input, tick.elapsed)? {
+        Some(command) => robot
+            .drivetrain
+            .apply_driver(command, tick.elapsed)
+            .map_err(|error| P::drive_error(error, false))?,
+        None => robot
+            .drivetrain
+            .stop()
+            .map_err(|error| P::drive_error(error, true))?,
+    }
+    robot.mark_driver_output(tick);
+    P::update_mechanisms(robot, CompetitionMode::Driver, tick.elapsed)
+}
+
 fn tracking_poll_due(mode: CompetitionMode, work: Duration, period: Duration) -> bool {
     match mode {
         CompetitionMode::Disabled => false,
         CompetitionMode::Driver => work < period,
         CompetitionMode::Autonomous => true,
     }
-}
-
-/// Build the Brain menu once, with Disable selected before any user route.
-pub fn autonomous_menu<R: RouteSet>(display: Display) -> Autonomous<R> {
-    autonomous_ui(
-        Ui::Brain(display),
-        R::CHOICES.iter().map(|&(_, route)| route),
-    )
 }
 
 pub(crate) fn autonomous_ui<R: RouteSet>(
@@ -428,13 +486,8 @@ pub(crate) fn autonomous_ui<R: RouteSet>(
     }
 }
 
-/// Menu construction for a custom robot using [`CompetitionRobot`] directly.
-pub fn route_menu<R: CompetitionRobot>(display: Display) -> RouteMenu<Option<R::Route>> {
-    autonomous_menu(display).menu
-}
-
 /// Run the common mode loop, cancelling any route when autonomous ends.
-pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
+pub(crate) async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
     let _sd_writer = crate::diagnostics::start_sd_logging();
     crate::diagnostic_event!("boot,control_period_us={}", R::CONTROL_PERIOD.as_micros());
     let mut previous_mode = None;
@@ -467,7 +520,7 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         match mode {
             CompetitionMode::Disabled => {
                 let _ = robot.stop();
-                let status = if robot.menu().action().is_some() {
+                let status = if robot.selected_autonomous().is_some() {
                     "Ready for autonomous"
                 } else {
                     "Autonomous disabled"
@@ -476,7 +529,7 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
             }
             CompetitionMode::Driver => robot.driver_tick(tick),
             CompetitionMode::Autonomous if entering => {
-                if let Some(route) = robot.menu().action() {
+                if let Some(route) = robot.selected_autonomous() {
                     robot
                         .menu()
                         .status(&format!("Autonomous: {}", route.label()));
@@ -567,13 +620,119 @@ fn control_sleep(period: Duration, work: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        future::Future,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
     use super::*;
+
+    struct FakeDrive {
+        writes: Vec<&'static str>,
+        fail_stop: bool,
+    }
+
+    impl ozton_drivetrain::model::DrivetrainModel for FakeDrive {
+        type Error = &'static str;
+    }
+
+    impl ProgramDrive for FakeDrive {
+        type DriverCommand = bool;
+        type AutonCommand = i32;
+
+        fn apply_driver(&mut self, command: bool, _: Duration) -> Result<(), Self::Error> {
+            assert!(command);
+            self.writes.push("drive");
+            Ok(())
+        }
+
+        fn apply_auton(&mut self, command: i32, _: Duration) -> Result<(), Self::Error> {
+            assert_eq!(command, 7);
+            self.writes.push("auton");
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<(), Self::Error> {
+            self.writes.push("stop drive");
+            if self.fail_stop { Err("port") } else { Ok(()) }
+        }
+    }
+
+    struct FakeProgram;
+    struct NoTelemetry;
+    type TestRobot = Robot<FakeDrive, (), (), (), FakeProgram, NoTelemetry>;
+
+    impl Telemetry<TestRobot> for NoTelemetry {
+        fn record(_: &mut TestRobot, _: Sample) {}
+        fn status(_: &mut TestRobot, _: &str) {}
+    }
+
+    impl Program<TestRobot, FakeDrive> for FakeProgram {
+        type Error = &'static str;
+
+        fn drive_error(error: &'static str, _: bool) -> Self::Error {
+            error
+        }
+
+        fn driver(
+            robot: &mut TestRobot,
+            input: ControllerState,
+            _: Duration,
+        ) -> Result<Option<bool>, Self::Error> {
+            assert_eq!(robot.driver_input(), Some(input));
+            robot.drivetrain.writes.push("driver");
+            Ok(Some(true))
+        }
+
+        fn update_mechanisms(
+            robot: &mut TestRobot,
+            mode: CompetitionMode,
+            _: Duration,
+        ) -> Result<(), Self::Error> {
+            assert_eq!(mode, CompetitionMode::Driver);
+            robot.drivetrain.writes.push("mechanisms");
+            Ok(())
+        }
+
+        fn stop_mechanisms(robot: &mut TestRobot) -> Result<(), Self::Error> {
+            robot.drivetrain.writes.push("stop mechanisms");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn driver_dispatch_and_disconnect_stop_use_the_installed_drive() {
+        let mut robot = TestRobot {
+            drivetrain: FakeDrive {
+                writes: Vec::new(),
+                fail_stop: false,
+            },
+            controller: (),
+            tracking: (),
+            mechanisms: (),
+            program: FakeProgram,
+            autonomous: NoTelemetry,
+            driver_input: None,
+        };
+        let tick = Tick {
+            started: Instant::now(),
+            elapsed: CONTROL_PERIOD,
+        };
+        assert_eq!(
+            dispatch_driver(&mut robot, Some(ControllerState::default()), tick),
+            Ok(())
+        );
+        assert_eq!(robot.drivetrain.apply_auton(7, CONTROL_PERIOD), Ok(()));
+        robot.drivetrain.fail_stop = true;
+        assert_eq!(dispatch_driver(&mut robot, None, tick), Err("port"));
+        assert_eq!(robot.driver_input(), None);
+        assert_eq!(
+            robot.drivetrain.writes,
+            [
+                "driver",
+                "drive",
+                "mechanisms",
+                "auton",
+                "stop drive",
+                "stop mechanisms"
+            ]
+        );
+    }
 
     #[test]
     fn overrunning_driver_tick_skips_optional_tracking() {
@@ -597,41 +756,6 @@ mod tests {
             CONTROL_PERIOD,
             CONTROL_PERIOD
         ));
-    }
-
-    type TestRobot = Robot<(), (), (), (), i32>;
-
-    async fn add(robot: &mut TestRobot) {
-        robot.controls += 2;
-    }
-
-    async fn multiply(robot: &mut TestRobot) -> Result<(), &'static str> {
-        robot.controls *= 3;
-        Err("test fault")
-    }
-
-    autonomous_routes! {
-        enum TestRoute for TestRobot => &'static str {
-            Add("Add") => add,
-            Multiply("Multiply") => multiply,
-        }
-    }
-
-    #[test]
-    fn macro_registers_and_dispatches_distinct_route_futures() {
-        let mut robot = crate::RobotBuilder::new().with_controls(1).build();
-        let mut context = Context::from_waker(Waker::noop());
-        assert_eq!(TestRoute::CHOICES[0].0, "Add");
-        assert_eq!(TestRoute::CHOICES[1].1.label(), "Multiply");
-        assert_eq!(
-            pin!(TestRoute::Add.run(&mut robot)).poll(&mut context),
-            Poll::Ready(Ok(()))
-        );
-        assert_eq!(
-            pin!(TestRoute::Multiply.run(&mut robot)).poll(&mut context),
-            Poll::Ready(Err("test fault"))
-        );
-        assert_eq!(robot.controls, 9);
     }
 
     #[test]

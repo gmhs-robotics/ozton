@@ -7,25 +7,13 @@ tests in both directions.
 
 ## Run a Brain calibration trial
 
-Use `compete_with_calibration` with a trial fixture built from `motion::auton::Robot<M>`.
-Pass the regular `Route<M>` entries and the trials your hardware supports.
-Each trial has a label and a dedicated CSV path on the SD card.
-
-```rust,ignore
-use ozton::motion::auton::{Calibration, CalibrationTrial, compete_with_calibration};
-use ozton::uom::si::{angle::degree, f64::{Angle, Length}, length::meter};
-
-let trials = [
-    Calibration::new("Straight 1 m", "straight.csv",
-        CalibrationTrial::Straight { distance: Length::new::<meter>(1.0) }),
-    Calibration::new("Turn 180°", "turn.csv",
-        CalibrationTrial::Turn { angle: Angle::new::<degree>(180.0) }),
-    Calibration::new("Front range", "range.csv",
-        CalibrationTrial::Range { sensor: 0, reference: Length::new::<meter>(0.50) }),
-    Calibration::new("Drive feedforward", "voltage.csv", CalibrationTrial::Feedforward),
-];
-compete_with_calibration(robot, display, controller, routes, trials).await?;
-```
+Create a `CalibrationSession` for each supervised trial and register its
+label with `RegisteredRoute::driver_only(label)` alongside the ordinary routes.
+In `Program::driver`, match `robot.autonomous.selected_label()` and call
+`session.driver(&mut robot.drivetrain, &input, elapsed)` for the selected trial.
+Show its returned status and return its command to the loop. Call
+`session.cancel()` when stopping mechanisms and `session.save()` on disable.
+Each trial needs its own CSV path.
 
 1. Choose the trial while disabled, then enter driver mode in a clear area.
 2. Hold **A** to sample. Straight and feedforward use the left stick Y.
@@ -42,7 +30,7 @@ compete_with_calibration(robot, display, controller, routes, trials).await?;
 ## Collect reference samples
 
 The [programmed example](programmed.md#complete-example) saves a bounded journal
-to `auton.csv` in its `CompetitionControls::mode_changed` hook on disable.
+to `auton.csv` in its `Program::mode_changed` hook on disable.
 `Journal::write_csv` also accepts a serial or file writer. A capacity of zero
 disables logging. A full buffer overwrites its oldest records and reports how
 many it dropped. Size the buffer for the sample frequency and experiment length.
@@ -52,8 +40,7 @@ after `with_ui`. Implement `runtime::diagnostics::Report<CompetitionBot>`
 to select the data to emit. Ozton schedules the report in debug builds after
 competition ticks and during runner steps. Use `Frame::row` to give related
 rows a common sequence and timestamp. The programmed example uses
-`MotorSample::read` to report the intake, and `mark_driver_output(tick)`
-after the drive write to populate `max_driver_output_us` in `DBG,LOOP`.
+`MotorSample::read` to report the intake, and Ozton times the drive write to populate `max_driver_output_us` in `DBG,LOOP`.
 Use the SD journal or typed trial CSV for `ozton-tools calibrate`.
 
 Add typed calibration rows with `diagnostics::calibration::CalibrationSample`.

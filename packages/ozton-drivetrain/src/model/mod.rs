@@ -10,7 +10,7 @@ mod differential;
 mod mecanum;
 
 pub use differential::{
-    Differential, DriverFaultPolicy, TipAngleAxis, WheelFeedback, WheelLoad, WheelSpeedError,
+    Differential, DriverFaultPolicy, WheelFeedback, WheelLoad, WheelSpeedError,
 };
 pub use mecanum::Mecanum;
 
@@ -24,6 +24,37 @@ pub use mecanum::Mecanum;
 pub trait DrivetrainModel {
     /// Error type returned when the robot fails to move.
     type Error;
+}
+
+/// Commands consumed by a drivetrain during an Ozton competition.
+pub trait ProgramDrive: DrivetrainModel {
+    type DriverCommand;
+    type AutonCommand;
+
+    fn apply_driver(
+        &mut self,
+        command: Self::DriverCommand,
+        dt: std::time::Duration,
+    ) -> Result<(), Self::Error>;
+    fn apply_auton(
+        &mut self,
+        command: Self::AutonCommand,
+        dt: std::time::Duration,
+    ) -> Result<(), Self::Error>;
+    fn stop(&mut self) -> Result<(), Self::Error>;
+}
+
+/// Normalized forward and turn inputs for an arcade drivetrain.
+#[derive(Clone, Copy, Debug)]
+pub struct ArcadeInput {
+    pub throttle: f64,
+    pub turn: f64,
+}
+
+impl ArcadeInput {
+    pub const fn new(throttle: f64, turn: f64) -> Self {
+        Self { throttle, turn }
+    }
 }
 
 /// A drivetrain model that supports holonomic inverse kinematics.

@@ -1,11 +1,10 @@
 //! Build the stock differential chassis from one set of physical limits.
 
-use std::{rc::Rc, time::Duration};
+use std::time::Duration;
 
-use ozton_control::drive::AntiTip;
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, TipAngleAxis},
+    model::{ArcadeInput, Differential, DriverFaultPolicy, DrivetrainModel, ProgramDrive},
 };
 use ozton_math::{
     geometry::Pose,
@@ -15,19 +14,17 @@ use ozton_math::{
         ConstZero,
         si::{
             angular_velocity::radian_per_second,
-            f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
+            electric_potential::volt,
+            f64::{Acceleration, AngularVelocity, ElectricPotential, Length, Velocity},
             length::meter,
         },
     },
 };
 use ozton_tracking::localizer::{
-    Config, Estimator, Localizer, MAX_RANGES, OdometryConfig, RangeSensorConfig, Tracking,
-    vex::{Distances, Sensors},
+    Config, Estimator, Localizer, OdometryConfig, Tracking,
+    vex::{DistanceTracker, Distances, Sensors},
 };
-use vexide::{
-    prelude::{DistanceSensor, InertialSensor, Motor},
-    smart::imu::CalibrateError,
-};
+use vexide::prelude::{InertialSensor, Motor};
 
 use super::{
     DriveOptions, Feedback,
@@ -48,7 +45,6 @@ pub struct DifferentialConfig {
     pub route_timeout: Duration,
     pub journal_capacity: usize,
     pub wheel_control: WheelControl,
-    pub anti_tip: Option<(AntiTip, TipAngleAxis, Angle)>,
 }
 
 impl DifferentialConfig {
@@ -79,7 +75,6 @@ impl DifferentialConfig {
             route_timeout: Duration::from_secs(15),
             journal_capacity: 0,
             wheel_control: WheelControl::Native,
-            anti_tip: None,
         }
     }
 
@@ -110,7 +105,7 @@ impl DifferentialConfig {
         }
         let left = build_motor_side(left)?;
         let right = build_motor_side(right)?;
-        let mut model = Differential::new(left, right)
+        let model = Differential::new(left, right)
             .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)
             .and_then(|model| model.with_native_speed_limit(self.maximum_wheel_speed))
             .ok_or(SetupError::DriveGeometry)?;
@@ -127,11 +122,8 @@ impl DifferentialConfig {
             require_lateral,
             max_correction,
         } = tracking;
-        if ranges.len() > MAX_RANGES {
-            return Err(SetupError::Tracking);
-        }
-        let (ports, mounts): (Vec<_>, Vec<_>) = ranges.into_iter().unzip();
-        let distances = Distances::new(ports).ok_or(SetupError::Tracking)?;
+        let distances = Distances::new(ranges).ok_or(SetupError::Tracking)?;
+        let mounts = distances.configs().to_vec();
         let localizer = Localizer::new_owned(
             Config {
                 odometry: OdometryConfig {
@@ -154,13 +146,8 @@ impl DifferentialConfig {
             mounts,
         )
         .ok_or(SetupError::Tracking)?;
-        if let Some(mut imu) = imu {
-            imu.calibrate().await.map_err(SetupError::Imu)?;
-            sensors.imu = Some(Rc::new(imu));
-        }
-        if let Some((controller, axis, level)) = self.anti_tip {
-            let imu = sensors.imu.clone().ok_or(SetupError::MissingTipImu)?;
-            model = model.with_anti_tip(imu, controller, axis, level);
+        if let Some(imu) = imu {
+            sensors = sensors.with_imu(imu);
         }
         let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
         let chassis = Chassis::new(
@@ -184,8 +171,6 @@ pub enum SetupError {
     EmptyMotorSide,
     TooManyMotors,
     Tracking,
-    MissingTipImu,
-    Imu(CalibrateError),
 }
 
 /// VEX sensors, stationary reflecting surfaces and localization choices.
@@ -201,8 +186,8 @@ pub struct TrackingSetup {
     pub max_correction: Length,
     pub imu: Option<InertialSensor>,
     pub map: Vec<Surface>,
-    /// Sensor/config pairs in the order used by route indices.
-    pub ranges: Vec<(DistanceSensor, RangeSensorConfig)>,
+    /// Mounted sensors in route index order.
+    pub ranges: Vec<DistanceTracker>,
 }
 
 impl Default for TrackingSetup {
@@ -298,6 +283,59 @@ impl ConfiguredChassis {
         }
         self.drive_options = options;
         Ok(())
+    }
+}
+
+/// Manual arcade input or bounded output from a supervised calibration.
+pub enum ChassisDriverCommand {
+    Arcade(ArcadeInput),
+    Calibration(super::calibration::CalibrationOutput),
+}
+
+impl From<ArcadeInput> for ChassisDriverCommand {
+    fn from(input: ArcadeInput) -> Self {
+        Self::Arcade(input)
+    }
+}
+
+impl DrivetrainModel for ConfiguredChassis {
+    type Error = ChassisError;
+}
+
+impl ProgramDrive for ConfiguredChassis {
+    type DriverCommand = ChassisDriverCommand;
+    type AutonCommand = [Velocity; 2];
+
+    fn apply_driver(
+        &mut self,
+        command: Self::DriverCommand,
+        _: Duration,
+    ) -> Result<(), Self::Error> {
+        match command {
+            ChassisDriverCommand::Arcade(input) => self
+                .drive_driver_arcade(input.throttle, input.turn, DriverFaultPolicy::Stop)
+                .map_err(ChassisError::Output),
+            ChassisDriverCommand::Calibration(output) => {
+                let [left, right] = output.volts().map(ElectricPotential::new::<volt>);
+                self.chassis
+                    .drivetrain
+                    .model
+                    .drive_volts(left, right)
+                    .map_err(ChassisError::Output)
+            }
+        }
+    }
+
+    fn apply_auton(
+        &mut self,
+        command: Self::AutonCommand,
+        dt: Duration,
+    ) -> Result<(), Self::Error> {
+        self.drive(command, dt)
+    }
+
+    fn stop(&mut self) -> Result<(), Self::Error> {
+        ConfiguredChassis::stop(self)
     }
 }
 

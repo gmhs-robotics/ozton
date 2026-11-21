@@ -18,12 +18,12 @@ and both sides remain observable.
 
 ## Add field references
 
-Pass stationary reflecting segments as the map.
-A mount uses X right, Y forward, and a CCW beam bearing from +Y.
-Pair each device with `RangeSensorConfig::at_mount(position, bearing)`. Use
-`position!(right, forward, up)` with a unit on each coordinate, such as
-`position!(-2 in, 0.1 m, 8 cm)`. The list order
-assigns zero-based indices.
+Pass stationary reflecting segments as the map. Register each VEX range
+sensor as `DistanceTracker::new(port, position, bearing)`. Position uses
+right, forward, up from The Origin. Bearing is counterclockwise from forward.
+Use `position!(-2 in, 0.1 m, 8 cm)` for the mount. Wiring order fixes the
+zero-based indices. Ozton waits for each sensor in the background and retries
+after disconnection. Missing sensors contribute no observations.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
 `AutonomousControls::sample` when a mechanism blocks a beam. Use
 `1u8 << index` to get a sensor’s bit.

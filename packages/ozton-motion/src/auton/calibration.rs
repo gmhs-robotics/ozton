@@ -3,14 +3,11 @@
 use std::{f64::consts::PI, fs::File, time::Duration};
 
 use ozton_diagnostics::{Journal, calibration::CalibrationSample};
-use ozton_math::uom::si::{
-    electric_potential::volt,
-    f64::{Angle, ElectricPotential, Length},
-};
+use ozton_math::uom::si::f64::{Angle, Length};
 use ozton_tracking::localizer::Snapshot;
 use vexide::controller::ControllerState;
 
-use super::ConfiguredChassis;
+use super::{ConfiguredChassis, setup::ChassisDriverCommand};
 
 const MAX_HOLD: Duration = Duration::from_secs(8);
 const MAX_DRIVE_VOLTS: f64 = 3.0;
@@ -50,7 +47,7 @@ enum Trial {
     Feedforward,
 }
 
-pub(super) struct PreparedCalibration {
+struct PreparedCalibration {
     pub name: &'static str,
     pub file: &'static str,
     trial: Trial,
@@ -83,7 +80,42 @@ impl PreparedCalibration {
     }
 }
 
-pub(super) struct CalibrationRun {
+/// A supervised trial for a driver-only choice in the programmed selector.
+pub struct CalibrationSession {
+    case: PreparedCalibration,
+    run: CalibrationRun,
+}
+
+impl CalibrationSession {
+    pub fn new(config: Calibration, drive: &ConfiguredChassis) -> Option<Self> {
+        Some(Self {
+            case: PreparedCalibration::new(config, drive)?,
+            run: CalibrationRun::new(),
+        })
+    }
+
+    /// Evaluate one A-held calibration sample and return the drive command to apply.
+    pub fn driver(
+        &mut self,
+        drive: &mut ConfiguredChassis,
+        input: &ControllerState,
+        dt: Duration,
+    ) -> (Option<ChassisDriverCommand>, &'static str) {
+        self.run.tick(&self.case, drive, input, dt)
+    }
+
+    /// Call on disable or controller loss. A new trial requires A to be released.
+    pub fn cancel(&mut self) {
+        self.run.cancel();
+    }
+
+    /// Save collected samples on disable. Failed saves retain the samples for retry.
+    pub fn save(&mut self) -> Option<&'static str> {
+        self.run.save()
+    }
+}
+
+struct CalibrationRun {
     journal: Journal,
     file: Option<&'static str>,
     start: Option<Snapshot>,
@@ -133,42 +165,40 @@ impl CalibrationRun {
         drive: &mut ConfiguredChassis,
         state: &ControllerState,
         dt: Duration,
-    ) -> Option<&'static str> {
+    ) -> (Option<ChassisDriverCommand>, &'static str) {
         if self.file.is_some_and(|file| file != case.file) {
-            let _ = drive.chassis.stop();
-            return Some("Save previous calibration first");
+            return (None, "Save previous calibration first");
         }
         let pressed = state.button_a.is_pressed();
         if !pressed && self.start.is_none() {
-            if self.require_release && drive.chassis.stop().is_err() {
-                return Some("Calibration output fault");
-            }
             self.require_release = false;
-            return Some("Hold A to sample");
+            return (None, "Hold A to sample");
         }
         if self.require_release || dt.is_zero() || dt > drive.settings.max_control_gap {
-            return self.abort(drive, "Release A to restart");
-        }
-        if !pressed && drive.chassis.stop().is_err() {
-            return self.abort(drive, "Calibration output fault");
+            return self.abort("Release A to restart");
         }
         let result = drive.chassis.sample(0);
         let Some(sample) = drive.chassis.last_snapshot.filter(|_| result.is_ok()) else {
-            return self.abort(drive, "Calibration feedback lost");
+            return self.abort("Calibration feedback lost");
         };
         if !pressed {
-            let start = self.start.take()?;
+            let Some(start) = self.start.take() else {
+                return (None, "Hold A to sample");
+            };
             let travel = self.record_travel(
                 case.trial,
                 start,
                 sample,
                 drive.settings.wheel_diameter.value,
             );
-            return Some(if travel || self.samples_this_hold > 0 {
-                "Sample saved in memory"
-            } else {
-                "No valid sample"
-            });
+            return (
+                None,
+                if travel || self.samples_this_hold > 0 {
+                    "Sample saved in memory"
+                } else {
+                    "No valid sample"
+                },
+            );
         }
         if self.start.is_none() {
             self.start = Some(sample);
@@ -180,7 +210,7 @@ impl CalibrationRun {
             .start
             .is_some_and(|start| sample.time.saturating_sub(start.time) >= MAX_HOLD)
         {
-            return self.abort(drive, "Trial expired. Release A.");
+            return self.abort("Trial expired. Release A.");
         }
         let [left, right] = match case.trial {
             Trial::Range(index, reference) => {
@@ -221,33 +251,17 @@ impl CalibrationRun {
                 }
             }
         }
-        let result = if left.abs().max(right.abs()) <= 0.04 {
-            drive.chassis.stop().map_err(|_| ())
-        } else {
-            drive
-                .chassis
-                .drivetrain
-                .model
-                .drive_volts(
-                    ElectricPotential::new::<volt>(left * MAX_DRIVE_VOLTS),
-                    ElectricPotential::new::<volt>(right * MAX_DRIVE_VOLTS),
-                )
-                .map_err(|_| ())
-        };
-        if result.is_err() {
-            return self.abort(drive, "Calibration output fault");
-        }
-        Some("Calibration sampling")
+        let command = (left.abs().max(right.abs()) > 0.04).then(|| {
+            ChassisDriverCommand::Calibration(CalibrationOutput(
+                [left, right].map(|input| input * MAX_DRIVE_VOLTS),
+            ))
+        });
+        (command, "Calibration sampling")
     }
 
-    fn abort(
-        &mut self,
-        drive: &mut ConfiguredChassis,
-        status: &'static str,
-    ) -> Option<&'static str> {
-        let _ = drive.chassis.stop();
+    fn abort(&mut self, status: &'static str) -> (Option<ChassisDriverCommand>, &'static str) {
         self.cancel();
-        Some(status)
+        (None, status)
     }
 
     fn record_travel(
@@ -338,5 +352,14 @@ mod tests {
         assert!(csv.contains("forward-offset,drive,-2,0.04"));
         assert!(csv.contains("lateral-offset,drive,-2,-0.03"));
         assert!(!run.record_travel(Trial::Straight(1.0), start, start, 0.06));
+    }
+}
+
+/// Bounded motor voltage from a supervised calibration sample.
+pub struct CalibrationOutput([f64; 2]);
+
+impl CalibrationOutput {
+    pub(super) fn volts(&self) -> [f64; 2] {
+        self.0
     }
 }

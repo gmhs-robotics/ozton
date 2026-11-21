@@ -13,9 +13,11 @@
 
 ## Overview
 
-`ozton` is a VEX V5 framework with programmed and recording competition loops.
-`programmed` is the default. Build with `--no-default-features --features recording`
-for recording only. Test each mode separately and check feature unification.
+Ozton runs programmed VEX V5 competitions. Use `RobotBuilder`, `Program`, and
+`route!` for application assembly. See [programmed.md](docs/programmed.md) when
+changing competition hooks, device ownership, or route registration.
+
+## Workspace Layout
 
 Workspace crates live under `packages/`.
 
@@ -25,16 +27,6 @@ Workspace crates live under `packages/`.
   - meta crate
   - re-exports the workspace crates behind features
   - provides the public prelude
-- `packages/ozton-derive`
-  - proc-macro crate for auto-generating recording frame/application glue
-- `packages/ozton-record`
-  - recording/playback runtime and frame abstractions
-  - user-facing recording API should center on:
-    - `#[derive(RecordedRobot)]` on the robot struct
-    - `#[record(skip)]` for non-recorded fields like controllers
-    - implementing only `get_new_frame`
-  - live-vs-playback behavior belongs in field/device types, not in user robot
-    code
 - `packages/ozton-math`
   - hardware-independent geometry, localization, and path math
 - `packages/ozton-control`
@@ -59,10 +51,6 @@ Workspace crates live under `packages/`.
 - Drivetrain code should depend on model traits, not specific autonomous
   routines.
   - The `ozton` crate should stay a thin re-export/meta crate.
-- Recording should not force users to hand-write transform/apply boilerplate.
-- Tracking-corrected drivetrain replay is a separate recording workflow from
-  plain open-loop drivetrain replay.
-
 ## Conventions
 
 This codebase should operate in SI units unless an external API or device forces

@@ -1,26 +1,25 @@
 //! One mixed-gear chassis, one intake, and one embedded PATH.JERRYIO route.
 
-use std::{fmt, fs::File, rc::Rc, time::Duration};
+use std::{convert::Infallible, fs::File, rc::Rc, time::Duration};
 
 use ozton::{
-    drivetrain::model::DriverFaultPolicy,
+    drivetrain::model::ArcadeInput,
     math::{
         geometry::Pose,
         localization::range::Surface,
         path::{Path, jerryio},
     },
     motion::auton::{
-        Alignment, AutonError, AutonomousControls, ConfiguredChassis, DifferentialConfig, Feedback,
-        RobotMotion, TrackingSetup, TravelDirection, chassis::ChassisError,
-        routine_settings::SessionLimits,
+        Alignment, ChassisDriverCommand, ConfiguredChassis, DifferentialConfig, RobotMotion,
+        RoutineError, TrackingSetup, TravelDirection, chassis::ChassisError,
     },
     position, route,
     runtime::{
-        CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout, Subsystem, SubsystemList,
-        competition::{CompetitionControls, CompetitionRobot, RegisteredRoute, Tick},
+        CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
+        competition::{Program, RegisteredRoute},
         diagnostics::{Frame, MotorSample, Report, Sample},
     },
-    tracking::{localizer::RangeSensorConfig, mount::Vec3},
+    tracking::{localizer::vex::DistanceTracker, mount::Vec3},
     uom::{
         ConstZero,
         si::{
@@ -41,7 +40,6 @@ const START_HEADING: Angle = Angle {
     ..Angle::ZERO
 };
 const START: Pose = Pose::new(Length::ZERO, Length::ZERO, START_HEADING);
-const DRIVER_FAULT_POLICY: DriverFaultPolicy = DriverFaultPolicy::Stop;
 const CONFIG: DifferentialConfig = {
     let mut config = DifferentialConfig::new(
         Length {
@@ -73,8 +71,8 @@ struct Intake {
     on: bool,
 }
 
-impl Subsystem<(), ChassisError> for Intake {
-    fn update(&mut self, _: &mut ()) -> Result<(), ChassisError> {
+impl Intake {
+    fn update(&mut self) -> Result<(), ChassisError> {
         self.motor
             .set_voltage(if self.on { 5.0 } else { 0.0 })
             .map_err(ChassisError::Output)
@@ -88,17 +86,8 @@ impl Subsystem<(), ChassisError> for Intake {
     }
 }
 
-impl Subsystem<ControllerState, RouteError> for Intake {
-    fn update(&mut self, state: &mut ControllerState) -> Result<(), RouteError> {
-        self.on = state.button_r1.is_pressed();
-        self.update(&mut ())
-            .map_err(|error| RouteError(AutonError::Robot(error)))
-    }
-
-    fn stop(&mut self) -> Result<(), RouteError> {
-        <Self as Subsystem<(), ChassisError>>::stop(self)
-            .map_err(|error| RouteError(AutonError::StopFailed(error)))
-    }
+struct Mechanisms {
+    intake: Intake,
 }
 
 struct Controls {
@@ -110,7 +99,7 @@ type CompetitionBot = ConfiguredBot<Controls>;
 impl RobotLayout for Controls {
     type Drivetrain = ConfiguredChassis;
     type Tracking = ();
-    type Subsystems = ((), Intake);
+    type Mechanisms = Mechanisms;
     type Routes = RegisteredRoute<Self, RouteError>;
     type Report = IntakeReport;
 }
@@ -119,49 +108,53 @@ struct IntakeReport;
 
 impl Report<CompetitionBot> for IntakeReport {
     fn collect(robot: &CompetitionBot, frame: Frame, _: Sample) {
-        MotorSample::read(&robot.subsystems.1.motor).write(frame, "intake");
+        MotorSample::read(&robot.mechanisms.intake.motor).write(frame, "intake");
     }
 }
 
-// The competition runtime displays route failures. The runner's errors implement Debug.
-#[derive(Debug)]
-struct RouteError(AutonError<ChassisError>);
+type RouteError = RoutineError<Infallible>;
 
-impl fmt::Display for RouteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl From<AutonError<ChassisError>> for RouteError {
-    fn from(error: AutonError<ChassisError>) -> Self {
-        Self(error)
-    }
-}
-
-impl CompetitionControls<CompetitionBot> for Controls {
+impl Program<CompetitionBot, ConfiguredChassis> for Controls {
     type Error = RouteError;
-    type SubsystemInput = ControllerState;
 
-    fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
-        <Self as AutonomousControls<_>>::stop(robot)
-            .map_err(|error| RouteError(AutonError::StopFailed(error)))
+    fn drive_error(error: ChassisError, stopping: bool) -> RouteError {
+        match error {
+            ChassisError::Output(port) if stopping => RouteError::DriveBrake(port),
+            ChassisError::Output(port) => RouteError::DriveOutput(port),
+            ChassisError::Tracking(fault) => RouteError::Tracking(fault),
+            _ => RouteError::MotionFault,
+        }
     }
 
-    fn driver_tick(robot: &mut CompetitionBot, tick: Tick) -> Result<(), Self::Error> {
-        let Ok(mut state) = robot.controller.state() else {
-            return CompetitionRobot::stop(robot);
-        };
-        let drive = robot.drivetrain.drive_driver_arcade(
-            state.left_stick.y(),
-            state.right_stick.x(),
-            DRIVER_FAULT_POLICY,
-        );
-        robot.mark_driver_output(tick);
-        if drive.is_err() && matches!(DRIVER_FAULT_POLICY, DriverFaultPolicy::Stop) {
-            return CompetitionRobot::stop(robot);
-        }
-        robot.subsystems.update_all(&mut state)
+    fn driver(
+        robot: &mut CompetitionBot,
+        input: ControllerState,
+        _: Duration,
+    ) -> Result<Option<ChassisDriverCommand>, RouteError> {
+        robot.mechanisms.intake.on = input.button_r1.is_pressed();
+        Ok(Some(
+            ArcadeInput::new(input.left_stick.y(), input.right_stick.x()).into(),
+        ))
+    }
+
+    fn update_mechanisms(
+        robot: &mut CompetitionBot,
+        _: CompetitionMode,
+        _: Duration,
+    ) -> Result<(), RouteError> {
+        robot
+            .mechanisms
+            .intake
+            .update()
+            .map_err(|error| Self::drive_error(error, false))
+    }
+
+    fn stop_mechanisms(robot: &mut CompetitionBot) -> Result<(), RouteError> {
+        robot
+            .mechanisms
+            .intake
+            .stop()
+            .map_err(|error| Self::drive_error(error, true))
     }
 
     fn mode_changed(robot: &mut CompetitionBot, mode: CompetitionMode) {
@@ -175,83 +168,18 @@ impl CompetitionControls<CompetitionBot> for Controls {
     }
 }
 
-impl AutonomousControls<CompetitionBot> for Controls {
-    type Error = ChassisError;
-    type SubsystemInput = ();
-
-    fn drive_options(robot: &CompetitionBot) -> Option<ozton::motion::auton::DriveOptions> {
-        Some(robot.drivetrain.drive_options())
-    }
-
-    fn session_limits(_: &CompetitionBot) -> SessionLimits {
-        SessionLimits {
-            total: CONFIG.route_timeout,
-            stage: Duration::from_secs(5),
-        }
-    }
-
-    fn maximum_motion_gap(_: &CompetitionBot) -> Duration {
-        CONFIG.max_control_gap
-    }
-
-    fn sample(robot: &mut CompetitionBot) -> Result<Option<Feedback>, Self::Error> {
-        robot.drivetrain.sample(0)
-    }
-
-    fn subsystem_input(_: &mut CompetitionBot, _: Duration) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn drive(
-        robot: &mut CompetitionBot,
-        wheels: [Velocity; 2],
-        dt: Duration,
-    ) -> Result<(), Self::Error> {
-        robot.drivetrain.drive(wheels, dt)
-    }
-
-    fn stop_drive(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
-        robot.drivetrain.stop()
-    }
-
-    fn stop(robot: &mut CompetitionBot) -> Result<(), Self::Error> {
-        Self::stop_drive(robot)
-    }
-
-    fn set_pose(robot: &mut CompetitionBot, pose: Pose) -> Result<(), Self::Error> {
-        robot.drivetrain.set_pose(pose)
-    }
-
-    fn pose_trusted(robot: &CompetitionBot) -> bool {
-        robot.drivetrain.chassis().pose_trusted()
-    }
-
-    fn request_distance_reset(robot: &mut CompetitionBot) {
-        robot.drivetrain.request_distance_reset();
-    }
-
-    fn cancel_distance_reset(robot: &mut CompetitionBot) {
-        robot.drivetrain.cancel_distance_reset();
-    }
-
-    fn log_step(
-        robot: &mut CompetitionBot,
-        elapsed: Duration,
-        dt: Duration,
-        progress: Length,
-        wheels: [Velocity; 2],
-    ) {
-        robot.drivetrain.log_step(elapsed, dt, progress, wheels);
-    }
-}
-
 // ANCHOR: route
 async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
-    let path = Rc::clone(&robot.controls.straight_path);
-    robot.confirm_start(START)?;
-    robot.subsystem().on = true;
-    robot.follow_path(&path, TravelDirection::Forward).await?;
-    robot.subsystem().on = false;
+    let path = Rc::clone(&robot.program.straight_path);
+    robot
+        .confirm_start(START)
+        .map_err(RouteError::from_runner)?;
+    robot.mechanisms.intake.on = true;
+    robot
+        .follow_path(&path, TravelDirection::Forward)
+        .await
+        .map_err(RouteError::from_runner)?;
+    robot.mechanisms.intake.on = false;
     robot
         .try_align(
             Alignment {
@@ -263,7 +191,8 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
             },
             Duration::from_secs(2),
         )
-        .await?;
+        .await
+        .map_err(RouteError::from_runner)?;
     Ok(())
 }
 // ANCHOR_END: route
@@ -291,9 +220,10 @@ async fn main(p: Peripherals) {
             Length::new::<meter>(1.8),
             Length::new::<meter>(1.8),
         )],
-        ranges: vec![(
-            DistanceSensor::new(p.port_8),
-            RangeSensorConfig::at_mount(FRONT_MOUNT, Angle::new::<radian>(0.0)),
+        ranges: vec![DistanceTracker::new(
+            p.port_8,
+            FRONT_MOUNT,
+            Angle::new::<radian>(0.0),
         )],
         ..TrackingSetup::default()
     };
@@ -309,8 +239,8 @@ async fn main(p: Peripherals) {
     RobotBuilder::new()
         .with_controller(p.primary_controller)
         .with_drivetrain(drive)
-        .add_subsystem(intake)
-        .with_controls(Controls { straight_path })
+        .with_mechanisms(Mechanisms { intake })
+        .with_program(Controls { straight_path })
         .with_auton([route!("Straight", straight)])
         .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
         .with_diagnostics::<IntakeReport>(Duration::from_millis(250))

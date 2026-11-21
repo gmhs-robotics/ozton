@@ -1,15 +1,12 @@
 //! Opt-in USB and SD sampling for competition and autonomous runner ticks.
 
-use std::{
-    marker::PhantomData,
-    time::{Duration, Instant},
-};
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+use std::time::Instant;
+use std::{marker::PhantomData, time::Duration};
 
 use ozton_diagnostics::serial;
 pub use ozton_diagnostics::serial::FaultLog;
-#[cfg(any(debug_assertions, feature = "sd-logging"))]
-use ozton_math::uom::si::f64::Length;
-use ozton_math::uom::si::f64::Velocity;
+use ozton_math::uom::si::f64::{Length, Velocity};
 use vexide::smart::SmartDevice;
 
 pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
@@ -280,23 +277,17 @@ pub fn report_controller(frame: Frame, input: Option<&vexide::controller::Contro
         ));
 }
 
-/// Report the live IMU orientation, angular rates, and acceleration.
-pub fn report_imu(frame: Frame, imu: &vexide::prelude::InertialSensor) {
-    let orientation = imu.euler();
-    let orientation = orientation
-        .map(|a| [a.a.as_radians(), a.c.as_radians(), a.b.as_radians()])
-        .unwrap_or([f64::NAN; 3]);
-    let rate = imu
-        .gyro_rate()
-        .map(|v| [v.x, v.y, v.z])
-        .unwrap_or([f64::NAN; 3]);
-    let acceleration = imu
-        .acceleration()
-        .map(|v| [v.x, v.y, v.z])
-        .unwrap_or([f64::NAN; 3]);
+/// Report the tracking IMU's sampled orientation and diagnostic telemetry.
+pub fn report_imu(
+    frame: Frame,
+    port: u8,
+    orientation: [f64; 3],
+    rate: [f64; 3],
+    acceleration: [f64; 3],
+) {
     frame.row("IMU", format_args!(
         "port={},pitch_rad={:.5},roll_rad={:.5},yaw_rad={:.5},rate_x_dps={:.4},rate_y_dps={:.4},rate_z_dps={:.4},accel_x_g={:.5},accel_y_g={:.5},accel_z_g={:.5}",
-        imu.port_number(), orientation[0], orientation[1], orientation[2],
+        port, orientation[0], orientation[1], orientation[2],
         rate[0], rate[1], rate[2], acceleration[0], acceleration[1], acceleration[2],
     ));
 }

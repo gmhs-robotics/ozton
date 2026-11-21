@@ -9,29 +9,22 @@ selector for autonomous routines.
 ## Get started
 
 Read [The Ozton Book](https://ozton.eli.best/) for examples, route writing, and calibration.
-Use the `programmed` feature (enabled by default) for routines written in Rust.
-Use `recording` with default features disabled to capture and replay routes.
-Choose one mode per firmware build.
 
 ## Guides
 
-- [Choose a firmware mode](docs/introduction.md#choose-a-firmware-mode)
 - [Build a programmed robot](docs/programmed.md)
 - [Import PATH.JERRYIO routes and write autonomous](docs/routes.md)
 - [The Origin and field coordinates](docs/coordinates.md)
 - [Configure odometry, DSR, EKF and MCL](docs/localization.md)
 - [Build mechanisms](docs/mechanisms.md)
-- [Record and replay routes](docs/recording.md)
 - [Run calibration trials and fit telemetry](docs/calibration.md)
 - [Troubleshooting](docs/development.md)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks to run before opening a pull request.
 
 The [programmed example](packages/ozton/examples/programmed.rs) assembles a
-`runtime::Robot`, registers a named route with `autonomous_routes!`, and uses
-`Runner` for path following and range alignment. The recording examples derive
-`RecordedRobot` for [open-loop playback](packages/ozton/examples/full.rs) and
-[GPS-corrected playback](packages/ozton/examples/gps_voltage_tracking.rs).
+robot, registers a named route with `route!`, and uses `RobotMotion` for path
+following and range alignment.
 
 Ozton draws on [Evian](https://github.com/vexide/evian),
 [LemLib](https://github.com/LemLib/LemLib),

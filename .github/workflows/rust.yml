@@ -21,17 +21,12 @@ jobs:
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test --workspace --all-targets --locked
       - run: cargo test --workspace --doc --locked
-      - run: cargo check --workspace --all-targets --locked --no-default-features --features ozton/recording
-      - run: cargo test --workspace --all-targets --locked --no-default-features --features ozton/recording
 
       - run: cargo check -p ozton --locked --all-features
       - run: cargo check -p ozton --locked --no-default-features
 
   v5:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        mode: [programmed, recording]
     steps:
       - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
         with:
@@ -41,7 +36,7 @@ jobs:
           profile: minimal
           toolchain: nightly-2026-11-07
           components: rust-src
-      - run: cargo check -p ozton --examples --locked --target thumbv7a-vex-v5 --no-default-features --features ${{ matrix.mode }}
+      - run: cargo check -p ozton --examples --locked --target thumbv7a-vex-v5
 
   book:
     runs-on: ubuntu-latest

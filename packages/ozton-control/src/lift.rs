@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ozton_math::uom::si::{angle::degree, f64::Angle};
 
-/// Voltage limits and recorded-position control for a mirrored lift.
+/// Voltage limits and position control for a mirrored lift.
 #[derive(Debug, Clone, Copy)]
 pub struct LiftProfile {
     pub bottom: Angle,
@@ -87,7 +87,7 @@ impl LiftController {
         self.command = 0.0;
     }
 
-    /// Live control follows the button directly. Playback follows the recorded position.
+    /// Manual control uses a signed direction. Position control follows a target.
     pub fn update(
         &mut self,
         requested_direction: i8,
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn playback_respects_position_command_and_ramp() {
+    fn position_control_respects_command_and_ramp() {
         let mut lift = controller();
         let step = Duration::from_millis(100);
         assert!(

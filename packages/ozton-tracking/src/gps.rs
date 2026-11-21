@@ -87,8 +87,8 @@ impl GpsTracking {
             config.required_stable_samples,
             config.max_position_error
         );
-        if let Err(error) = gps.set_data_interval(config.update_interval) {
-            log!("gps.with_config: device interval rejected: {error:?}");
+        if let Err(_error) = gps.set_data_interval(config.update_interval) {
+            log!("gps.with_config: device interval rejected: {_error:?}");
         }
 
         let data = Rc::new(RefCell::new(GpsTrackingData {

@@ -1,6 +1,6 @@
 [package]
 name = "ozton"
-description = "Programmed autonomous, recording, and robot control for VEX V5 with vexide."
+description = "Programmed autonomous and robot control for VEX V5 with vexide."
 repository.workspace = true
 authors = ["elijah629"]
 license.workspace = true
@@ -17,35 +17,10 @@ vexide = { workspace = true, features = ["full", "default-sdk"] }
 ozton-control = { workspace = true }
 ozton-diagnostics = { workspace = true }
 ozton-runtime = { workspace = true }
-ozton-derive = { workspace = true, optional = true }
 ozton-drivetrain = { workspace = true }
 ozton-math = { workspace = true }
-ozton-motion = { workspace = true, optional = true }
-ozton-record = { workspace = true, optional = true }
+ozton-motion = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [features]
-default = ["programmed"]
-programmed = ["dep:ozton-motion"]
 sd-logging = ["ozton-runtime/sd-logging"]
-recording = ["dep:ozton-derive", "dep:ozton-record"]
-
-[[example]]
-name = "full"
-required-features = ["recording"]
-
-[[example]]
-name = "gps_voltage_tracking"
-required-features = ["recording"]
-
-[[test]]
-name = "recordable_drivetrain_public_usage"
-required-features = ["recording"]
-
-[[test]]
-name = "recorded_robot_public_usage"
-required-features = ["recording"]
-
-[[example]]
-name = "programmed"
-required-features = ["programmed"]

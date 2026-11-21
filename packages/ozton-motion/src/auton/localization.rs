@@ -1,6 +1,4 @@
 //! Live differential odometry and range correction shared by competition robots.
-use std::rc::Rc;
-
 use ozton_math::{
     geometry::Pose,
     uom::si::{
@@ -15,10 +13,10 @@ use ozton_tracking::{
     localizer::{
         DistanceReset, Estimator, Fault, Localizer, MAX_RANGES, RangeObservation,
         RangeSensorConfig, Snapshot, Tracking,
-        vex::{Distances, SharedSensors, WheelSource},
+        vex::{Distances, Orientation, SharedSensors, WheelSource},
     },
 };
-use vexide::{competition::CompetitionMode, prelude::InertialSensor};
+use vexide::competition::CompetitionMode;
 
 use super::{Feedback, RangeFeedback};
 
@@ -60,11 +58,10 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         }
     }
 
-    /// Poll enabled odometry, attaching the IMU when background calibration completes.
+    /// Poll enabled odometry. Driver control samples orientation before writing outputs.
     /// Range corrections run only outside driver mode.
     pub fn poll(
         &mut self,
-        imu: Option<Rc<InertialSensor>>,
         mode: CompetitionMode,
         mechanism_occluded: u8,
         drive_positions: impl FnOnce() -> [Option<Length>; 2],
@@ -72,12 +69,24 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         if mode == CompetitionMode::Disabled {
             return Ok(None);
         }
-        if self.sensors.imu.is_none() {
-            self.sensors.imu = imu;
+        if mode == CompetitionMode::Autonomous {
+            self.sensors.refresh_orientation();
         }
         self.set_driver_control(mode == CompetitionMode::Driver);
         self.mechanism_occluded = mechanism_occluded;
         self.sample(drive_positions())
+    }
+
+    pub fn refresh_orientation(&mut self) -> Option<Orientation> {
+        self.sensors.refresh_orientation()
+    }
+
+    pub fn orientation(&self) -> Option<Orientation> {
+        self.sensors.orientation()
+    }
+
+    pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
+        self.sensors.imu_telemetry()
     }
 
     /// Replace the field model and rebaseline at the route's surveyed start.
@@ -98,7 +107,9 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         true
     }
     pub fn latest_range(&self, index: usize) -> Option<RangeFeedback> {
-        self.last?.ranges.get(index).copied().flatten()
+        let raw = self.tracking.distances.latest(index)?;
+        let feedback = self.last?.ranges.get(index).copied().flatten()?;
+        (!raw.occluded && raw.timestamp == feedback.timestamp).then_some(feedback)
     }
 
     /// Number of configured range indices, in wiring order.

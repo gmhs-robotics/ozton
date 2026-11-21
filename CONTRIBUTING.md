@@ -7,7 +7,6 @@ Use the Rust nightly pinned in `rust-toolchain.toml` with `rust-src` and
 cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo test --workspace --all-targets --locked
-cargo test --workspace --all-targets --locked --no-default-features --features ozton/recording
 cargo test --workspace --doc --locked
 mdbook build
 mdbook test

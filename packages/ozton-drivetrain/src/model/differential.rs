@@ -1,23 +1,20 @@
 //! Differential voltage output and optional wheel-speed feedback.
 
-use std::{rc::Rc, time::Instant};
+use std::time::Instant;
 
-use ozton_control::drive::{AntiTip, SlewLimiter};
+use ozton_control::drive::SlewLimiter;
 use ozton_math::{
     desaturate,
     uom::si::{
-        angle::radian,
         electric_current::ampere,
         electric_potential::volt,
-        f64::{
-            Angle, AngularVelocity, ElectricCurrent, ElectricPotential, Frequency, Length, Velocity,
-        },
+        f64::{AngularVelocity, ElectricCurrent, ElectricPotential, Frequency, Length, Velocity},
         length::meter,
         velocity::meter_per_second,
     },
 };
 use vexide::{
-    prelude::{InertialSensor, Motor},
+    prelude::Motor,
     smart::{PortError, motor::BrakeMode},
 };
 
@@ -131,26 +128,12 @@ pub enum WheelSpeedError {
     Port(PortError),
 }
 
-/// Measured fore-aft tilt axis.
-#[derive(Debug, Clone, Copy)]
-pub enum TipAngleAxis {
-    Pitch,
-    Roll,
-}
-
 /// Driver-only choice after a failed port write. Autonomous always receives the
 /// original error and stops in the runner.
 #[derive(Debug, Clone, Copy)]
 pub enum DriverFaultPolicy {
     KeepAvailableMotors,
     Stop,
-}
-
-struct TipControl {
-    imu: Rc<InertialSensor>,
-    controller: AntiTip,
-    axis: TipAngleAxis,
-    level: Angle,
 }
 
 /// One differential drivetrain for voltage and matched wheel-speed control.
@@ -160,7 +143,6 @@ pub struct Differential {
     wheel_speed_limit: Option<Velocity>,
     scale: f64,
     slew: Option<[SlewLimiter; 2]>,
-    anti_tip: Option<TipControl>,
     previous: Instant,
     brake: BrakeMode,
     consensus: [crate::feedback::EncoderConsensus; 2],
@@ -180,7 +162,6 @@ impl Differential {
             wheel_speed_limit: None,
             scale: 1.0,
             slew: None,
-            anti_tip: None,
             previous: Instant::now(),
             brake: BrakeMode::Brake,
             consensus: core::array::from_fn(|_| crate::feedback::EncoderConsensus::default()),
@@ -221,22 +202,6 @@ impl Differential {
         }
         self.wheel_speed_limit = Some(limit);
         Some(self)
-    }
-
-    pub fn with_anti_tip(
-        mut self,
-        imu: Rc<InertialSensor>,
-        controller: AntiTip,
-        axis: TipAngleAxis,
-        level: Angle,
-    ) -> Self {
-        self.anti_tip = Some(TipControl {
-            imu,
-            controller,
-            axis,
-            level,
-        });
-        self
     }
 
     pub fn with_slew(
@@ -314,13 +279,10 @@ impl Differential {
         })
     }
 
-    /// Stops both sides immediately, bypassing slew and anti-tip.
+    /// Stops both sides immediately, bypassing slew.
     pub fn brake_now(&mut self, brake: BrakeMode) -> Result<(), PortError> {
         if let Some(slew) = &mut self.slew {
             slew.iter_mut().for_each(SlewLimiter::reset);
-        }
-        if let Some(tip) = &mut self.anti_tip {
-            tip.controller.reset();
         }
         self.previous = Instant::now();
         each(&mut self.sides, |side| {
@@ -334,7 +296,7 @@ impl Differential {
     }
 
     /// Applies volts to every motor on each side, limited by each motor's rating.
-    /// Optional output scaling, slew limiting and tilt protection still apply.
+    /// Optional output scaling and slew limiting still apply.
     pub fn drive_volts(
         &mut self,
         left: ElectricPotential,
@@ -393,25 +355,6 @@ impl Differential {
             .min(std::time::Duration::from_millis(100));
         self.previous = now;
         let mut command = desaturate(input, 1.0);
-        if let Some(tip) = &mut self.anti_tip {
-            if let Ok(angles) = tip.imu.euler() {
-                let tilt = match tip.axis {
-                    TipAngleAxis::Pitch => angles.a,
-                    TipAngleAxis::Roll => angles.c,
-                };
-                let correction = tip.controller.correction(
-                    Angle::new::<radian>(
-                        (tilt - vexide::math::Angle::from_radians(tip.level.value))
-                            .wrapped_half()
-                            .as_radians(),
-                    ),
-                    dt,
-                );
-                command = desaturate(command.map(|power| power + correction), 1.0);
-            } else {
-                tip.controller.reset();
-            }
-        }
         if let Some(slew) = &mut self.slew {
             command = [
                 slew[0].update(command[0], dt),

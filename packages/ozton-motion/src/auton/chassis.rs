@@ -118,6 +118,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
         self.wheels = self.drivetrain.model.sample_feedback();
+        self.sensors.refresh_orientation();
         let (snapshot, ranges) = self.sensors.capture_with_distances(
             &mut self.drivetrain.tracking.distances,
             self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),

@@ -74,6 +74,7 @@ pub struct ResilientDrive<M: AdjustableDrive = Differential> {
     normal_scale: f64,
     driver_scale: f64,
     speed_scale: f64,
+    driver_speed_scale: f64,
     geometry: DriveGeometry,
     #[cfg(any(debug_assertions, feature = "sd-logging"))]
     debug_command: (f64, f64, f64),
@@ -103,6 +104,7 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             normal_scale,
             driver_scale: normal_scale,
             speed_scale: 1.0,
+            driver_speed_scale: 1.0,
             geometry,
             #[cfg(any(debug_assertions, feature = "sd-logging"))]
             debug_command: (0.0, 0.0, normal_scale),
@@ -134,6 +136,15 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
     /// impose mechanism geometry, or decide when a mechanism is raised.
     pub fn set_speed_scale(&mut self, scale: f64) {
         self.speed_scale = if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+    }
+
+    /// Apply an envelope to manual driving only. Closed-loop targets use the shared cap.
+    pub fn set_driver_speed_scale(&mut self, scale: f64) {
+        self.driver_speed_scale = if scale.is_finite() {
             scale.clamp(0.0, 1.0)
         } else {
             0.0
@@ -195,7 +206,8 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
             1.0
         } else {
             self.driver_scale
-        } * self.speed_scale;
+        } * self.driver_speed_scale
+            * self.speed_scale;
         let left = if left.is_finite() { left } else { 0.0 };
         let right = if right.is_finite() { right } else { 0.0 };
         self.send_tank(left, right, scale)
@@ -425,6 +437,16 @@ mod tests {
         assert!(drive.drive_tank(1.0, 1.0).is_err());
         assert_eq!(drive.model.scale, 0.70);
     }
+    #[test]
+    fn driver_envelope_does_not_reduce_autonomous_output() {
+        let mut drive = ResilientDrive::new_local(FakeDrive::default(), 0.75, geometry());
+        drive.set_driver_speed_scale(0.5);
+        assert!(drive.live_drive(1.0, 1.0).is_err());
+        assert_eq!(drive.model.scale, 0.375);
+        assert!(drive.autonomous_drive(1.0, 1.0).is_err());
+        assert_eq!(drive.model.scale, 0.75);
+    }
+
     #[test]
     fn application_speed_scale_affects_driver_and_autonomous() {
         let mut drive = ResilientDrive::new(

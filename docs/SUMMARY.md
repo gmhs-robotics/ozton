@@ -8,9 +8,7 @@
 - [Write autonomous routes](routes.md)
 - [Build mechanisms](mechanisms.md)
 
-# Recording
 
-- [Record and replay](recording.md)
 
 # Coordinates and tuning
 

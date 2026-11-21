@@ -4,7 +4,6 @@ pub mod clock;
 pub mod competition;
 pub mod device;
 pub mod diagnostics;
-pub mod imu;
 pub mod motor;
 mod robot;
 pub mod selector;
@@ -31,4 +30,4 @@ impl StartupReference {
 
 pub mod menu;
 
-pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout, Subsystem, SubsystemList};
+pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout};

@@ -2,14 +2,15 @@
 
 use std::time::Duration;
 
+use ozton_drivetrain::model::ProgramDrive;
 use ozton_math::{
     geometry::Pose,
     path::{Limits, Path, Waypoint, follower::Follower, jerryio},
-    uom::si::f64::{Angle, Length},
+    uom::si::f64::{Angle, Length, Velocity},
 };
 use ozton_runtime::{
-    Robot, SubsystemList,
-    competition::{Autonomous, RouteSet},
+    Robot,
+    competition::{Autonomous, Program, RouteSet},
     diagnostics::Telemetry,
 };
 
@@ -95,15 +96,15 @@ pub trait RobotMotion: Sized {
 
 impl<D, C, T, X, P, R, S> RobotMotion for Robot<D, C, T, X, P, Autonomous<R, S>>
 where
-    P: AutonomousControls<Self>,
-    X: SubsystemList<P::SubsystemInput, P::Error>,
+    D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    P: AutonomousControls<Self> + Program<Self, D, Error = <P as AutonomousControls<Self>>::Error>,
     R: RouteSet,
     Autonomous<R, S>: Telemetry<Self>,
 {
-    type Error = P::Error;
+    type Error = <P as AutonomousControls<Self>>::Error;
 
     fn confirm_start(&mut self, pose: Pose) -> Result<(), AutonError<Self::Error>> {
-        P::stop_drive(self).map_err(AutonError::StopFailed)?;
+        super::AutonRobot::stop_drive(self).map_err(AutonError::StopFailed)?;
         P::set_pose(self, pose).map_err(AutonError::Robot)
     }
 
@@ -242,10 +243,18 @@ where
 
 fn route_runner<D, C, T, X, P, R, S>(
     robot: &mut Robot<D, C, T, X, P, Autonomous<R, S>>,
-) -> Result<(Runner<'_, Robot<D, C, T, X, P, Autonomous<R, S>>>, Duration), AutonError<P::Error>>
+) -> Result<
+    (Runner<'_, Robot<D, C, T, X, P, Autonomous<R, S>>>, Duration),
+    AutonError<<P as AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error>,
+>
 where
     P: AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>,
-    X: SubsystemList<P::SubsystemInput, P::Error>,
+    D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    P: Program<
+            Robot<D, C, T, X, P, Autonomous<R, S>>,
+            D,
+            Error = <P as AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+        >,
     R: RouteSet,
     Autonomous<R, S>: Telemetry<Robot<D, C, T, X, P, Autonomous<R, S>>>,
 {

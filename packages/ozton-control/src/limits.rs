@@ -22,6 +22,22 @@ impl<D: AxisDimension> PositionLimits<D> {
         }
     }
 
+    /// Intersect an optional requested window with fixed hardware endpoints.
+    /// A disjoint intersection is invalid and will be rejected by the caller.
+    pub fn within(mut self, minimum: Position<D>, maximum: Position<D>) -> Self {
+        if !self.valid() {
+            return self;
+        }
+        self.travel = Some(match self.travel {
+            Some((lower, upper)) => (
+                if lower < minimum { minimum } else { lower },
+                if upper > maximum { maximum } else { upper },
+            ),
+            None => (minimum, maximum),
+        });
+        self
+    }
+
     pub const fn valid(&self) -> bool {
         valid_range(self.travel)
             && self.arrival_tolerance.value.is_finite()

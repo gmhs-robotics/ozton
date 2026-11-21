@@ -14,7 +14,7 @@ robot's starting pose, field map, and route points.
 4. Register an async function by name in the builder
    with `.with_auton([route!("Practice", practice)]).with_ui(Ui::Brain(display))`. A registered function
    receives `&mut CompetitionBot` and returns a `Result` using the error type
-   from its `CompetitionControls` implementation.
+   from its `Program` implementation.
 5. While disabled, select the route on the Brain. Place the robot at the surveyed
    starting pose, facing along the path for forward travel.
 

@@ -14,7 +14,6 @@ impl<A: Copy> SelectorItem for Choice<A> {
     }
 }
 
-/// Reuses the same rendering and status handling as recording and programmed menus.
 /// Call `poll` every tick to lock selection while enabled. No routine is registered
 /// implicitly; construction provides only the caller's disabled action.
 pub struct RouteMenu<A: Copy + 'static> {

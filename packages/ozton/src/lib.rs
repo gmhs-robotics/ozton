@@ -1,49 +1,34 @@
-//! Ozton's programmed and recording competition framework.
+//! Ozton's programmed competition framework.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use ozton_control as control;
-#[cfg(feature = "recording")]
-pub use ozton_derive as derive;
 pub use ozton_diagnostics as diagnostics;
 pub use ozton_drivetrain as drivetrain;
 pub use ozton_math as math;
 pub use ozton_math::uom;
-#[cfg(feature = "programmed")]
 pub use ozton_motion as motion;
-#[cfg(feature = "recording")]
-pub use ozton_record as record;
-#[cfg(feature = "recording")]
-pub use ozton_record::{log, record_frame};
 pub use ozton_runtime as runtime;
-#[cfg(feature = "programmed")]
-pub use ozton_runtime::{autonomous_routes, route};
+pub use ozton_runtime::route;
 pub use ozton_tracking::{self as tracking, position, sensor_layout};
 
 pub mod prelude {
-    #[cfg(feature = "programmed")]
-    pub use crate::motion::auton::{
-        AutonomousControls, Follower, RobotMotion, ScoringControls, TravelDirection,
-    };
-    #[cfg(feature = "recording")]
-    pub use crate::record::{
-        DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
-        DifferentialVoltagePlayback, Recordable, RecordableDrivetrain, frame::RecordMode,
-    };
-    #[cfg(feature = "programmed")]
-    pub use crate::runtime::{
-        Robot, RobotBuilder, Subsystem, SubsystemList,
-        competition::{CompetitionControls, CompetitionRobot},
-    };
     pub use crate::{
         control::Tolerances,
         drivetrain::{
             Drivetrain,
-            model::{Arcade, Holonomic, Tank},
+            model::{Arcade, ArcadeInput, Holonomic, ProgramDrive, Tank},
+        },
+        motion::auton::{
+            Auton, AutonomousControls, Follower, RobotMotion, ScoringControls, TravelDirection,
+        },
+        runtime::{
+            CompetitionBot, Robot, RobotBuilder, RobotLayout,
+            competition::{Program, Ui},
         },
         tracking::{
             DummyTracking, NoTracking, TracksForwardTravel, TracksHeading, TracksPosition,
-            TracksVelocity,
+            TracksVelocity, localizer::vex::DistanceTracker,
         },
     };
 }

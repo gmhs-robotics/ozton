@@ -1,6 +1,6 @@
-//! Typed composition for robots with stock or application-owned hardware.
+//! Typed composition for robots with application-owned hardware.
 
-use vexide::prelude::Controller;
+use vexide::{controller::ControllerState, prelude::Controller};
 
 use crate::{
     competition::{Autonomous, RouteSet, Ui},
@@ -12,7 +12,7 @@ use crate::{
 pub trait RobotLayout: Sized {
     type Drivetrain;
     type Tracking;
-    type Subsystems;
+    type Mechanisms;
     type Routes: RouteSet;
     type Report;
 }
@@ -22,48 +22,10 @@ pub type CompetitionBot<L> = Robot<
     <L as RobotLayout>::Drivetrain,
     Controller,
     <L as RobotLayout>::Tracking,
-    <L as RobotLayout>::Subsystems,
+    <L as RobotLayout>::Mechanisms,
     L,
     Autonomous<<L as RobotLayout>::Routes, Sampler<<L as RobotLayout>::Report>>,
 >;
-
-/// An application-owned subsystem. The tick input can hold controller state
-/// and commands from the robot's control policy.
-pub trait Subsystem<Input, Error> {
-    fn update(&mut self, input: &mut Input) -> Result<(), Error>;
-
-    /// Bring this subsystem's outputs to a safe state.
-    fn stop(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-/// Lifecycle of the subsystem list built by [`RobotBuilder::add_subsystem`].
-pub trait SubsystemList<Input, Error> {
-    fn update_all(&mut self, input: &mut Input) -> Result<(), Error>;
-    fn stop_all(&mut self) -> Result<(), Error>;
-}
-
-impl<I, E> SubsystemList<I, E> for () {
-    fn update_all(&mut self, _: &mut I) -> Result<(), E> {
-        Ok(())
-    }
-
-    fn stop_all(&mut self) -> Result<(), E> {
-        Ok(())
-    }
-}
-
-impl<I, E, A: SubsystemList<I, E>, B: Subsystem<I, E>> SubsystemList<I, E> for (A, B) {
-    fn update_all(&mut self, input: &mut I) -> Result<(), E> {
-        self.0.update_all(input)?;
-        self.1.update(input)
-    }
-
-    fn stop_all(&mut self) -> Result<(), E> {
-        self.0.stop_all().and(self.1.stop())
-    }
-}
 
 /// An assembled robot. Components are stored inline and dispatched statically.
 #[must_use]
@@ -71,15 +33,16 @@ pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
     pub drivetrain: D,
     pub controller: C,
     pub tracking: T,
-    pub subsystems: X,
-    pub controls: P,
+    pub mechanisms: X,
+    pub program: P,
     pub autonomous: A,
+    pub(crate) driver_input: Option<ControllerState>,
 }
 
-impl<D, C, T, S, P, A> Robot<D, C, T, ((), S), P, A> {
-    /// Access the single installed subsystem.
-    pub fn subsystem(&mut self) -> &mut S {
-        &mut self.subsystems.1
+impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
+    /// Last controller snapshot supplied to the driver callback.
+    pub fn driver_input(&self) -> Option<ControllerState> {
+        self.driver_input
     }
 }
 
@@ -89,8 +52,8 @@ pub struct RobotBuilder<D = (), C = (), T = (), X = (), P = (), A = ()> {
     drivetrain: D,
     controller: C,
     tracking: T,
-    subsystems: X,
-    controls: P,
+    mechanisms: X,
+    program: P,
     autonomous: A,
 }
 
@@ -100,8 +63,8 @@ impl RobotBuilder {
             drivetrain: (),
             controller: (),
             tracking: (),
-            subsystems: (),
-            controls: (),
+            mechanisms: (),
+            program: (),
             autonomous: (),
         }
     }
@@ -139,24 +102,25 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous,
         } = self;
         Robot {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous,
+            driver_input: None,
         }
     }
 
-    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, T, X, P, A>, controller, tracking, subsystems, controls, autonomous);
-    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, T, X, P, A>, drivetrain, tracking, subsystems, controls, autonomous);
-    with_component!("Install the owned tracking value.", with_tracking, tracking, RobotBuilder<D, C, N, X, P, A>, drivetrain, controller, subsystems, controls, autonomous);
-    with_component!("Install application-wide control state and behavior.", with_controls, controls, RobotBuilder<D, C, T, X, N, A>, drivetrain, controller, tracking, subsystems, autonomous);
+    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, T, X, P, A>, controller, tracking, mechanisms, program, autonomous);
+    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, T, X, P, A>, drivetrain, tracking, mechanisms, program, autonomous);
+    with_component!("Install the owned tracking value.", with_tracking, tracking, RobotBuilder<D, C, N, X, P, A>, drivetrain, controller, mechanisms, program, autonomous);
+    with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, T, X, N, A>, drivetrain, controller, tracking, mechanisms, autonomous);
 
     /// Register the selectable routes in menu order.
     pub fn with_auton<R: RouteSet>(
@@ -167,39 +131,21 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             ..
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous: AutonSelection(routes.into_iter().collect()),
         }
     }
 
-    /// Append a subsystem to the statically dispatched update list.
-    pub fn add_subsystem<N>(self, subsystem: N) -> RobotBuilder<D, C, T, (X, N), P, A> {
-        let Self {
-            drivetrain,
-            controller,
-            tracking,
-            subsystems,
-            controls,
-            autonomous,
-        } = self;
-        RobotBuilder {
-            drivetrain,
-            controller,
-            tracking,
-            subsystems: (subsystems, subsystem),
-            controls,
-            autonomous,
-        }
-    }
+    with_component!("Install the application's named mechanism aggregate.", with_mechanisms, mechanisms, RobotBuilder<D, C, T, N, P, A>, drivetrain, controller, tracking, program, autonomous);
 }
 
 /// The selectable routes before a competition UI is installed.
@@ -212,16 +158,16 @@ impl<D, C, T, X, P, R: RouteSet> RobotBuilder<D, C, T, X, P, AutonSelection<R>> 
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous,
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous: crate::competition::autonomous_ui(ui, autonomous.0),
         }
     }
@@ -247,16 +193,16 @@ impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous,
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
             tracking,
-            subsystems,
-            controls,
+            mechanisms,
+            program,
             autonomous: autonomous.with_diagnostics(interval),
         }
     }
@@ -293,65 +239,18 @@ where
 mod tests {
     use super::*;
 
-    struct First;
-    impl Subsystem<i32, &'static str> for First {
-        fn update(&mut self, input: &mut i32) -> Result<(), &'static str> {
-            if *input < 0 {
-                Err("update failed")
-            } else {
-                Ok(())
-            }
-        }
-
-        fn stop(&mut self) -> Result<(), &'static str> {
-            Err("first stop failed")
-        }
-    }
-
-    #[derive(Default)]
-    struct Read {
-        input: i32,
-        stopped: bool,
-    }
-    impl Subsystem<i32, &'static str> for Read {
-        fn update(&mut self, input: &mut i32) -> Result<(), &'static str> {
-            self.input = *input;
-            Ok(())
-        }
-
-        fn stop(&mut self) -> Result<(), &'static str> {
-            self.stopped = true;
-            Ok(())
-        }
-    }
-
-    struct Independent;
-    impl Subsystem<i32, &'static str> for Independent {
-        fn update(&mut self, _: &mut i32) -> Result<(), &'static str> {
-            Ok(())
-        }
-    }
-
     #[test]
-    fn customs_update_in_order_and_all_stop_after_failure() {
-        let mut robot = RobotBuilder::new()
+    fn builder_keeps_named_hardware_inline() {
+        struct Mechanisms {
+            intake: i32,
+            lift: i32,
+        }
+        let robot = RobotBuilder::new()
             .with_drivetrain(2)
-            .add_subsystem(First)
-            .add_subsystem(Independent)
+            .with_mechanisms(Mechanisms { intake: 3, lift: 4 })
             .with_controller("controller")
-            .add_subsystem(Read::default())
             .build();
-
-        assert_eq!(robot.subsystems.update_all(&mut 3), Ok(()));
-        assert_eq!(robot.subsystems.1.input, 3);
-        assert_eq!(robot.subsystems.update_all(&mut -1), Err("update failed"));
-        assert_eq!(robot.subsystems.1.input, 3);
+        assert_eq!((robot.mechanisms.intake, robot.mechanisms.lift), (3, 4));
         assert_eq!((robot.drivetrain, robot.controller), (2, "controller"));
-        assert_eq!(robot.subsystems.stop_all(), Err("first stop failed"));
-        assert!(robot.subsystems.1.stopped);
-        assert_eq!(
-            std::mem::size_of::<Robot<(), (), (), ((), Independent)>>(),
-            0
-        );
     }
 }

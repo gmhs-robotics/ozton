@@ -1,6 +1,13 @@
 //! Vexide adapters. Call capture once per control tick.
 
-use std::{rc::Rc, time::Duration};
+use std::{
+    cell::Cell,
+    future::Future,
+    pin::pin,
+    rc::Rc,
+    task::{Context, Poll, Waker},
+    time::Duration,
+};
 
 use arrayvec::ArrayVec;
 use ozton_math::{
@@ -13,12 +20,17 @@ use ozton_math::{
 };
 use vexide::{
     prelude::{DistanceSensor, GpsSensor, InertialSensor},
-    smart::SmartDevice,
+    smart::{SmartDevice, SmartPort},
+    task::Task,
     time::LowResolutionTime,
 };
 
-use super::{GpsFix, MAX_RANGES, RangeObservation, Snapshot};
-use crate::{RotarySensor, wheeled::TrackingWheel};
+use super::{GpsFix, MAX_RANGES, RangeObservation, RangeSensorConfig, Snapshot};
+use crate::{RotarySensor, mount::Vec3, wheeled::TrackingWheel};
+
+mod imu;
+use imu::CalibratedImu;
+pub use imu::Orientation;
 
 const RANGE_PERIOD: Duration = Duration::from_millis(33);
 
@@ -56,24 +68,114 @@ impl WheelSource for TravelCallback {
     }
 }
 
+/// An owned distance sensor and its surveyed right/forward/up mounting point.
+pub struct DistanceTracker {
+    sensor: DistanceSensor,
+    config: RangeSensorConfig,
+}
+
+impl DistanceTracker {
+    /// Bearing is counterclockwise from forward.
+    pub fn new(port: SmartPort, position: Vec3<Length>, bearing: UomAngle) -> Self {
+        Self {
+            sensor: DistanceSensor::new(port),
+            config: RangeSensorConfig::at_mount(position, bearing),
+        }
+    }
+
+    /// Change measurement tuning without replacing the surveyed mount.
+    pub fn with_tuning(
+        mut self,
+        gate: ozton_math::localization::range::RangeGate,
+        bias: Length,
+        sigma: Length,
+    ) -> Self {
+        self.config.gate = gate;
+        self.config.bias = bias;
+        self.config.sigma = sigma;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct RangeReadiness {
+    ready: bool,
+    generation: u32,
+}
+
+impl RangeReadiness {
+    fn set(&mut self, ready: bool) {
+        if self.ready && !ready {
+            self.generation = self.generation.wrapping_add(1);
+        }
+        self.ready = ready;
+    }
+
+    fn current<T>(self, cached: Option<(u32, T)>) -> Option<T> {
+        let (generation, value) = cached?;
+        (self.ready && self.generation == generation).then_some(value)
+    }
+}
+
+struct DistanceDevice {
+    sensor: DistanceSensor,
+    readiness: Cell<RangeReadiness>,
+}
+
+impl DistanceDevice {
+    fn set_ready(&self, ready: bool) {
+        let mut readiness = self.readiness.get();
+        readiness.set(ready);
+        self.readiness.set(readiness);
+    }
+}
+
 /// Distance devices polled once per packet window and shared by higher-level
 /// consumers through the cached observations.
 #[derive(Default)]
 pub struct Distances {
-    devices: ArrayVec<DistanceSensor, MAX_RANGES>,
+    devices: ArrayVec<Rc<DistanceDevice>, MAX_RANGES>,
+    configs: ArrayVec<RangeSensorConfig, MAX_RANGES>,
+    _readiness: Option<Task<()>>,
     last_poll: Option<Duration>,
     last_occluded: u8,
-    cached: [Option<RangeObservation>; MAX_RANGES],
+    cached: [Option<(u32, RangeObservation)>; MAX_RANGES],
 }
 
 impl Distances {
-    /// Keep devices in the same order as the localizer's range configurations.
-    pub fn new(devices: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
+    /// Register mounts in route index order and start background readiness checks.
+    pub fn new(devices: impl IntoIterator<Item = DistanceTracker>) -> Option<Self> {
         let mut distances = Self::default();
-        for device in devices {
-            distances.devices.try_push(device).ok()?;
+        for DistanceTracker { sensor, config } in devices {
+            distances
+                .devices
+                .try_push(Rc::new(DistanceDevice {
+                    sensor,
+                    readiness: Cell::default(),
+                }))
+                .ok()?;
+            distances.configs.push(config);
+        }
+        if !distances.is_empty() {
+            let devices = distances.devices.clone();
+            distances._readiness = Some(vexide::task::spawn(async move {
+                loop {
+                    for device in &devices {
+                        // The SDK future wakes itself while initializing. Pace it
+                        // here so an unready sensor cannot busy-loop the executor.
+                        let mut ready = pin!(device.sensor.wait_ready());
+                        let result = ready.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+                        device.set_ready(matches!(result, Poll::Ready(Ok(()))));
+                    }
+                    vexide::time::sleep(RANGE_PERIOD).await;
+                }
+            }));
         }
         Some(distances)
+    }
+
+    pub fn configs(&self) -> &[RangeSensorConfig] {
+        &self.configs
     }
 
     pub fn len(&self) -> usize {
@@ -88,13 +190,14 @@ impl Distances {
     pub fn ready_count(&self) -> usize {
         self.devices
             .iter()
-            .filter(|sensor| sensor.object().is_ok())
+            .filter(|device| device.readiness.get().ready)
             .count()
     }
 
     /// Return the most recent packet without another device read.
     pub fn latest(&self, index: usize) -> Option<RangeObservation> {
-        let mut observation = self.cached.get(index).copied().flatten()?;
+        let readiness = self.devices.get(index)?.readiness.get();
+        let mut observation = readiness.current(self.cached[index])?;
         observation.occluded |= self.last_occluded & (1 << index) != 0;
         Some(observation)
     }
@@ -105,8 +208,19 @@ impl Distances {
             .last_poll
             .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
         {
-            for (index, sensor) in self.devices.iter().enumerate() {
-                self.cached[index] = distance(sensor, occluded & (1 << index) != 0);
+            for (index, device) in self.devices.iter().enumerate() {
+                let readiness = device.readiness.get();
+                self.cached[index] = if readiness.ready {
+                    match distance(&device.sensor, occluded & (1 << index) != 0) {
+                        Ok(observation) => observation.map(|value| (readiness.generation, value)),
+                        Err(()) => {
+                            device.set_ready(false);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
             }
             self.last_poll = Some(time);
         }
@@ -118,7 +232,8 @@ impl Distances {
 /// VEX sensor ownership and polling. Use [`Self::with_wheel_sources`] for
 /// concrete wheel sources held inline and read through static dispatch.
 pub struct Sensors<F = TravelCallback, L = TravelCallback, D = Distances> {
-    pub imu: Option<Rc<InertialSensor>>,
+    imu: Option<CalibratedImu>,
+    orientation: Option<Orientation>,
     pub gps: Option<GpsSensor>,
     field_origin: Pose,
     forward: F,
@@ -139,6 +254,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     fn from_sources(forward: F, lateral: L) -> Self {
         Self {
             imu: None,
+            orientation: None,
             gps: None,
             field_origin: Pose::default(),
             forward,
@@ -153,7 +269,10 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     }
 
     /// Give this reader its own distance devices when no other component uses them.
-    pub fn with_ranges(mut self, ranges: impl IntoIterator<Item = DistanceSensor>) -> Option<Self> {
+    pub fn with_ranges(
+        mut self,
+        ranges: impl IntoIterator<Item = DistanceTracker>,
+    ) -> Option<Self> {
         self.distances = Distances::new(ranges)?;
         Some(self)
     }
@@ -168,6 +287,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
         drive: [Option<Length>; 2],
         occluded: u8,
     ) -> (Snapshot, [Option<RangeObservation>; MAX_RANGES]) {
+        self.refresh_orientation();
         let ranges = self.distances.capture(occluded);
         (self.capture_snapshot(drive), ranges)
     }
@@ -177,6 +297,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     pub fn into_shared_reader(self) -> SharedSensors<F, L> {
         let Self {
             imu,
+            orientation,
             gps,
             field_origin,
             forward,
@@ -185,6 +306,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
         } = self;
         Sensors {
             imu,
+            orientation,
             gps,
             field_origin,
             forward,
@@ -195,6 +317,28 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
 }
 
 impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
+    /// Start background calibration of the tracking IMU.
+    pub fn with_imu(mut self, imu: InertialSensor) -> Self {
+        self.imu = Some(CalibratedImu::start(imu));
+        self.orientation = None;
+        self
+    }
+
+    pub fn refresh_orientation(&mut self) -> Option<Orientation> {
+        self.orientation = self.imu.as_ref().and_then(CalibratedImu::sample);
+        self.orientation
+    }
+
+    pub fn orientation(&self) -> Option<Orientation> {
+        self.orientation
+    }
+
+    pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
+        self.imu
+            .as_ref()
+            .map_or(([f64::NAN; 3], [f64::NAN; 3]), CalibratedImu::telemetry)
+    }
+
     /// Align centered GPS readings with the same surveyed route origin used by
     /// walls, targets and the localizer. Default is the centered GPS field frame.
     pub fn set_field_origin(&mut self, origin: Pose) -> bool {
@@ -218,14 +362,10 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
     /// Read only the travel and heading required for low-latency driver odometry.
     /// No range or GPS device calls occur on this path.
     pub fn capture_odometry(&self, drive: [Option<Length>; 2]) -> Snapshot {
-        let imu = self.imu.as_deref().and_then(|imu| {
-            if imu.is_calibrating().ok()? {
-                return None;
-            }
-            Some(compass_heading(UomAngle::new::<radian>(
-                imu.heading().ok()?.as_radians(),
-            )))
-        });
+        let imu = self
+            .orientation
+            .and_then(|sample| sample.heading)
+            .map(compass_heading);
         let forward = self.forward.read_travel();
         let lateral = self.lateral.read_travel();
         Snapshot {
@@ -291,19 +431,18 @@ fn stamp(time: LowResolutionTime) -> Duration {
     time.duration_since(LowResolutionTime::EPOCH)
 }
 
-fn distance(sensor: &DistanceSensor, occluded: bool) -> Option<RangeObservation> {
-    let before = sensor.timestamp().ok()?;
-    let reading = sensor.object().ok()??;
-    let after = sensor.timestamp().ok()?;
-    if before != after {
-        return None;
-    }
-    Some(RangeObservation {
+fn distance(sensor: &DistanceSensor, occluded: bool) -> Result<Option<RangeObservation>, ()> {
+    let before = sensor.timestamp().map_err(|_| ())?;
+    let Some(reading) = sensor.object().map_err(|_| ())? else {
+        return Ok(None);
+    };
+    let after = sensor.timestamp().map_err(|_| ())?;
+    Ok((before == after).then(|| RangeObservation {
         timestamp: stamp(after),
         distance: Length::new::<millimeter>(f64::from(reading.distance)),
         confidence: reading.confidence,
         occluded,
-    })
+    }))
 }
 
 fn gps_fix(sensor: &GpsSensor) -> Option<GpsFix> {
@@ -340,6 +479,21 @@ mod tests {
         fn position(&self) -> Result<Angle, Self::Error> {
             Ok(Angle::from_turns(self.0))
         }
+    }
+
+    #[test]
+    fn packets_from_before_a_disconnect_do_not_become_ready_again() {
+        let mut readiness = RangeReadiness::default();
+        let packet = Some((readiness.generation, 7));
+        assert_eq!(readiness.current(packet), None);
+        readiness.set(true);
+        assert_eq!(readiness.current(packet), Some(7));
+        readiness.set(false);
+        assert_eq!(readiness.current(packet), None);
+        readiness.set(true);
+        assert_eq!(readiness.current(packet), None);
+        let new_packet = Some((readiness.generation, 8));
+        assert_eq!(readiness.current(new_packet), Some(8));
     }
 
     #[test]
