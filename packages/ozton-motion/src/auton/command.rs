@@ -178,6 +178,10 @@ pub enum Command<'a, R> {
     Turn {
         heading: Angle,
     },
+    /// Aim toward a surveyed field point while holding translation stopped.
+    TurnToPoint {
+        target: [Length; 2],
+    },
     /// Closed-loop field-point navigation using full planar pose, including lateral drift.
     DriveToPoint {
         target: [Length; 2],
@@ -186,7 +190,8 @@ pub enum Command<'a, R> {
     },
     DriveDistance {
         meters: Length,
-        heading: Angle,
+        /// None holds the heading of the first valid feedback sample.
+        heading: Option<Angle>,
         maximum_speed: Velocity,
     },
     Align(Alignment),
@@ -212,7 +217,7 @@ pub enum Command<'a, R> {
 impl<R> Command<'_, R> {
     pub(super) fn status(&self) -> &'static str {
         match self {
-            Self::Turn { .. } => "Autonomous: turn",
+            Self::Turn { .. } | Self::TurnToPoint { .. } => "Autonomous: turn",
             Self::DriveToPoint { .. } => "Autonomous: drive to point",
             Self::DriveDistance { .. } => "Autonomous: drive distance",
             Self::DistanceReset => "Autonomous: distance reset",
@@ -227,7 +232,7 @@ impl<R> Command<'_, R> {
     pub const fn drive_distance(distance: Length, heading: Angle, maximum_speed: Velocity) -> Self {
         Self::DriveDistance {
             meters: distance,
-            heading,
+            heading: Some(heading),
             maximum_speed,
         }
     }
@@ -249,6 +254,7 @@ impl<R> Command<'_, R> {
         matches!(
             self,
             Self::DriveToPoint { .. }
+                | Self::TurnToPoint { .. }
                 | Self::Follow { .. }
                 | Self::FollowMarked { .. }
                 | Self::ApproachContact { .. }
@@ -296,6 +302,7 @@ impl<R> Command<'_, R> {
                         .all(|pair| pair[0].distance <= pair[1].distance)
             }
             Self::Turn { heading } => heading.value.is_finite(),
+            Self::TurnToPoint { target } => target.iter().all(|coord| coord.value.is_finite()),
             Self::DriveToPoint {
                 target,
                 maximum_speed,
@@ -312,7 +319,7 @@ impl<R> Command<'_, R> {
                 maximum_speed,
             } => {
                 meters.value.is_finite()
-                    && heading.value.is_finite()
+                    && heading.is_none_or(|angle| angle.value.is_finite())
                     && maximum_speed.value > 0.0
                     && maximum_speed.value <= options.maximum_wheel_speed.value
             }
@@ -356,6 +363,7 @@ pub(super) struct State<'path> {
     range_elapsed: Duration,
     settled_range: Option<Duration>,
     start_travel: Option<f64>,
+    start_heading: Option<f64>,
     next_marker: usize,
 }
 
@@ -484,6 +492,21 @@ impl<'path> State<'path> {
                     options.settle,
                 )
             }
+            Command::TurnToPoint { target } => {
+                let delta =
+                    glam::DVec2::new(target[0].value, target[1].value) - feedback.pose.position;
+                let error = if delta.length() <= options.position_tolerance.value {
+                    0.0
+                } else {
+                    error_at(ozton_math::geometry::bearing(delta))
+                };
+                let ready = error.abs() <= options.heading_tolerance.value;
+                (
+                    drive(0.0, if ready { 0.0 } else { 3.0 * error }),
+                    ready && slow,
+                    options.settle,
+                )
+            }
             Command::DriveToPoint {
                 target,
                 reverse,
@@ -522,7 +545,10 @@ impl<'path> State<'path> {
                     .start_travel
                     .get_or_insert(feedback.forward_travel.value);
                 let error = meters.value - (feedback.forward_travel.value - start);
-                let heading = error_at(heading.value);
+                let heading = error_at(heading.map_or_else(
+                    || *self.start_heading.get_or_insert(feedback.pose.heading),
+                    |angle| angle.value,
+                ));
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let speed = if reached || heading.abs() > 0.35 {

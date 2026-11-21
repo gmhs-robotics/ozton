@@ -1,8 +1,8 @@
 # Build a programmed robot
 
-Use `ozton::runtime::Robot` to assemble your drivetrain, controller, tracking,
+Use `ozton::runtime::RobotBuilder` to assemble your drivetrain, controller, tracking,
 subsystems, and control state. The builder stores each component in a typed
-field. Unused slots default to `()`. In the example below, the
+field. Unused slots default to `()`. Call `.build()` to produce the robot used by driver and autonomous routines. In the example below, the
 `ConfiguredChassis` already owns the localizer, so the separate tracking slot
 is unused.
 

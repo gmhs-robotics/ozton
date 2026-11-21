@@ -123,11 +123,10 @@ pub trait CompetitionRobot: Sized {
     fn menu(&mut self) -> &mut RouteMenu<Option<Self::Route>>;
     fn stop(&mut self) -> Result<(), Self::Error>;
     fn driver_tick(&mut self, tick: Tick);
+    fn set_autonomous_start(&mut self, _started: Option<Instant>) {}
 
-    /// Run a driver-triggered routine after the ordinary tick. Returns whether it ran.
-    async fn driver_action(&mut self) -> bool {
-        false
-    }
+    /// Dispatch a driver binding after the ordinary tick.
+    async fn driver_action(&mut self) {}
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
@@ -146,9 +145,19 @@ pub enum Ui {
 pub struct Autonomous<R: Copy + 'static, S = ()> {
     menu: RouteMenu<Option<R>>,
     sampler: S,
+    started: Option<Instant>,
 }
 
 impl<R: Copy + 'static, S> Autonomous<R, S> {
+    pub fn started_at(&self) -> Option<Instant> {
+        self.started
+    }
+
+    /// Prevent further motion commands after a terminal failure in this route.
+    pub fn cancel_motion(&mut self) {
+        self.started = None;
+    }
+
     pub fn status(&mut self, message: &str) {
         self.menu.status(message);
     }
@@ -157,6 +166,7 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
         Autonomous {
             menu: self.menu,
             sampler: Sampler::new(interval),
+            started: self.started,
         }
     }
 }
@@ -207,10 +217,8 @@ pub trait CompetitionControls<R> {
     /// A failed tick stops outputs before the next controller sample.
     fn driver_tick(robot: &mut R, tick: Tick) -> Result<(), Self::Error>;
 
-    /// Run a driver-triggered routine when the most recent tick started it.
-    async fn driver_action(_robot: &mut R) -> bool {
-        false
-    }
+    /// Dispatch a driver binding after controller outputs have been written.
+    async fn driver_action(_robot: &mut R) {}
 
     /// Optional tracking work runs after driver outputs and within the tick budget.
     fn poll_tracking(_robot: &mut R, _mode: CompetitionMode) {}
@@ -244,6 +252,10 @@ where
         P::stop(self).and(self.subsystems.stop_all())
     }
 
+    fn set_autonomous_start(&mut self, started: Option<Instant>) {
+        self.autonomous.started = started;
+    }
+
     fn driver_tick(&mut self, tick: Tick) {
         if let Err(error) = P::driver_tick(self, tick) {
             crate::diagnostic_event!("driver_tick_failed,error={error}");
@@ -251,7 +263,7 @@ where
         }
     }
 
-    async fn driver_action(&mut self) -> bool {
+    async fn driver_action(&mut self) {
         P::driver_action(self).await
     }
 
@@ -309,6 +321,7 @@ pub(crate) fn autonomous_ui<R: RouteSet>(
             routes.into_iter().map(|route| (route.label(), Some(route))),
         ),
         sampler: (),
+        started: None,
     }
 }
 
@@ -366,9 +379,13 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
                         .status(&format!("Autonomous: {}", route.label()));
                     crate::diagnostic_event!("auton_route={},state=start", route.label());
                     let result = match robot.stop() {
-                        Ok(()) => while_autonomous(route.run(&mut robot), R::CONTROL_PERIOD).await,
+                        Ok(()) => {
+                            robot.set_autonomous_start(Some(Instant::now()));
+                            while_autonomous(route.run(&mut robot), R::CONTROL_PERIOD).await
+                        }
                         Err(error) => Some(Err(error)),
                     };
+                    robot.set_autonomous_start(None);
                     let stopped = robot.stop();
                     match (result, stopped) {
                         (Some(Ok(())), Ok(())) => {
@@ -406,39 +423,10 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         }
         robot.menu().poll(disabled);
         robot.after_tick(mode, tick);
-        if mode == CompetitionMode::Driver
-            && competition::mode() == mode
-            && robot.driver_action().await
-        {
-            last_tick = Instant::now();
-            if competition::mode() == mode {
-                sleep(R::CONTROL_PERIOD).await;
-            }
-            continue;
+        if mode == CompetitionMode::Driver && competition::mode() == mode {
+            robot.driver_action().await;
         }
         sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
-    }
-}
-
-/// Keep normal driver control and telemetry running during a driver routine.
-/// Return as soon as the routine finishes or the field leaves driver mode.
-pub async fn drive_while<R: CompetitionRobot>(robot: &mut R, active: impl Fn(&R) -> bool) {
-    let mut previous = Instant::now();
-    let mut delay = R::CONTROL_PERIOD;
-    while active(robot) && competition::mode() == CompetitionMode::Driver {
-        sleep(delay).await;
-        if competition::mode() != CompetitionMode::Driver {
-            break;
-        }
-        let started = Instant::now();
-        let tick = Tick {
-            started,
-            elapsed: started.saturating_duration_since(previous),
-        };
-        previous = started;
-        robot.driver_tick(tick);
-        robot.after_tick(CompetitionMode::Driver, tick);
-        delay = control_sleep(R::CONTROL_PERIOD, tick.work());
     }
 }
 
@@ -520,7 +508,7 @@ mod tests {
 
     #[test]
     fn macro_registers_and_dispatches_distinct_route_futures() {
-        let mut robot = Robot::new().with_controls(1);
+        let mut robot = crate::RobotBuilder::new().with_controls(1).build();
         let mut context = Context::from_waker(Waker::noop());
         assert_eq!(TestRoute::CHOICES[0].0, "Add");
         assert_eq!(TestRoute::CHOICES[1].1.label(), "Multiply");

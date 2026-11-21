@@ -27,7 +27,17 @@ pub struct Robot<X = ()> {
     log_file: Option<&'static str>,
 }
 
-impl Robot {
+/// Assemble a stock controller before handing it to the route runner.
+#[must_use]
+pub struct RobotBuilder<X = ()> {
+    drive: ConfiguredChassis,
+    subsystems: X,
+    range_occlusion: fn(&X) -> u8,
+    fault_policy: DriverFaultPolicy,
+    log_file: Option<&'static str>,
+}
+
+impl RobotBuilder {
     pub fn new(drive: ConfiguredChassis) -> Self {
         Self {
             drive,
@@ -39,13 +49,13 @@ impl Robot {
     }
 }
 
-impl<X> Robot<X> {
+impl<X> RobotBuilder<X> {
     /// Append a subsystem. Configure range occlusion after registering subsystems.
-    pub fn add_subsystem<N>(self, subsystem: N) -> Robot<(X, N)>
+    pub fn add_subsystem<N>(self, subsystem: N) -> RobotBuilder<(X, N)>
     where
         for<'a> N: Subsystem<StockTick<'a>, PortError>,
     {
-        Robot {
+        RobotBuilder {
             drive: self.drive,
             subsystems: (self.subsystems, subsystem),
             range_occlusion: |_| 0,
@@ -71,6 +81,18 @@ impl<X> Robot<X> {
         self
     }
 
+    pub fn build(self) -> Robot<X> {
+        Robot {
+            drive: self.drive,
+            subsystems: self.subsystems,
+            range_occlusion: self.range_occlusion,
+            fault_policy: self.fault_policy,
+            log_file: self.log_file,
+        }
+    }
+}
+
+impl<X> Robot<X> {
     pub(super) fn log_file(&self) -> Option<&'static str> {
         self.log_file
     }

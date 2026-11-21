@@ -31,4 +31,4 @@ impl StartupReference {
 
 pub mod menu;
 
-pub use robot::{CompetitionBot, Robot, RobotLayout, Subsystem, SubsystemList};
+pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout, Subsystem, SubsystemList};

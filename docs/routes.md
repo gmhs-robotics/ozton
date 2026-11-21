@@ -42,9 +42,12 @@ linear and wheel speed caps, and longitudinal and lateral acceleration limits.
 
 ## Compose motions and mechanism actions
 
-Create one `Runner` per route and call `confirm_start` with the surveyed pose.
-The programmed example retains the profiled path in its controls and clones the
-`Rc` handle before the runner mutably borrows the robot.
+Import `RobotMotion` to call `robot.turn_to(heading).await?`,
+`robot.drive_to(target).await?`, or `robot.follow_path(&path, Forward).await?`
+directly on the assembled robot. Select `Follower::PurePursuit` or
+`Follower::Ramsete` with `follow_path_with`. Commands share the route deadline
+and use the installed tracking and subsystem hooks. For a surveyed field path,
+call `robot.confirm_start(pose)?` before moving.
 
 ```rust,ignore
 {{#include ../packages/ozton/examples/programmed.rs:route}}

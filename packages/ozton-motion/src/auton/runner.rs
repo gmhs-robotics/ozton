@@ -66,6 +66,7 @@ pub enum AutonError<E> {
     CommandTimeout,
     ControlGap,
     InvalidFeedback,
+    InvalidPath,
     PathStart,
     PathLost,
     UntrustedPose,
@@ -89,6 +90,7 @@ pub struct Runner<'a, R: AutonRobot> {
     route_timeout: Duration,
     max_gap: Duration,
     failed: bool,
+    stop_on_drop: bool,
 }
 
 impl<'a, R: AutonRobot> Runner<'a, R> {
@@ -110,7 +112,16 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
             route_timeout,
             max_gap,
             failed: false,
+            stop_on_drop: true,
         })
+    }
+
+    /// Finish a single command while leaving retained subsystem goals in place.
+    /// Cancellation or a failed brake still takes the full stop path on drop.
+    pub(super) fn finish_command(mut self) -> Result<(), AutonError<R::Error>> {
+        self.robot.stop_drive().map_err(AutonError::StopFailed)?;
+        self.stop_on_drop = false;
+        Ok(())
     }
 
     pub fn valid_configuration(
@@ -540,7 +551,9 @@ impl<R: AutonRobot> Drop for ActiveCommand<'_, R> {
 
 impl<R: AutonRobot> Drop for Runner<'_, R> {
     fn drop(&mut self) {
-        self.robot.cancel_distance_reset();
-        let _ = self.robot.stop();
+        if self.stop_on_drop {
+            self.robot.cancel_distance_reset();
+            let _ = self.robot.stop();
+        }
     }
 }

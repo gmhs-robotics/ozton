@@ -22,7 +22,9 @@ pub use ozton_tracking::{self as tracking, position, sensor_layout};
 
 pub mod prelude {
     #[cfg(feature = "programmed")]
-    pub use crate::motion::auton::{AutonomousControls, ScoringControls};
+    pub use crate::motion::auton::{
+        AutonomousControls, Follower, RobotMotion, ScoringControls, TravelDirection,
+    };
     #[cfg(feature = "recording")]
     pub use crate::record::{
         DifferentialCommandFrame, DifferentialPlayback, DifferentialRecording,
@@ -30,7 +32,7 @@ pub mod prelude {
     };
     #[cfg(feature = "programmed")]
     pub use crate::runtime::{
-        Robot, Subsystem, SubsystemList,
+        Robot, RobotBuilder, Subsystem, SubsystemList,
         competition::{CompetitionControls, CompetitionRobot},
     };
     pub use crate::{

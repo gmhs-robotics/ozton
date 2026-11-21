@@ -62,6 +62,7 @@ impl<M> RoutineError<M> {
             Motion::ControlGap => Self::ControlDelay,
             Motion::Configuration => Self::InvalidSessionLimits,
             Motion::InvalidFeedback => Self::InvalidMotionFeedback,
+            Motion::InvalidPath => Self::InvalidPath,
             Motion::PathStart => Self::PathStart,
             Motion::PathLost => Self::PathLost,
             Motion::UntrustedPose => Self::FieldPoseLost,
@@ -114,6 +115,12 @@ impl<M> RoutineError<M> {
             Self::DriveOutput(_) => "STOP: autonomous drive output fault",
             Self::DriveBrake(_) => "STOP: drive brake fault",
         }
+    }
+}
+
+impl<M: fmt::Debug> From<super::AutonError<Self>> for RoutineError<M> {
+    fn from(error: super::AutonError<Self>) -> Self {
+        Self::from_runner(error)
     }
 }
 

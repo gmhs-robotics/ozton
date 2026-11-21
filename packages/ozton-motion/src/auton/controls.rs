@@ -19,6 +19,23 @@ pub trait AutonomousControls<R> {
     type Error;
     type SubsystemInput;
 
+    /// Physical chassis options for the high-level route commands.
+    fn drive_options(_robot: &R) -> Option<super::DriveOptions> {
+        None
+    }
+
+    fn session_limits(_robot: &R) -> super::routine_settings::SessionLimits {
+        super::routine_settings::SessionLimits::MATCH
+    }
+
+    fn motion_period(_robot: &R) -> Duration {
+        ozton_runtime::clock::CONTROL_PERIOD
+    }
+
+    fn maximum_motion_gap(_robot: &R) -> Duration {
+        Duration::from_millis(100)
+    }
+
     /// Capture one feedback sample. None requests a neutral rebaseline tick.
     fn sample(robot: &mut R) -> Result<Option<Feedback>, Self::Error>;
     /// Supply shared input for the registered subsystems on a runner tick.

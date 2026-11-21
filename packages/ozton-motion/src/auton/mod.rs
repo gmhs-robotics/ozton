@@ -8,6 +8,7 @@ mod controls;
 mod convenience;
 mod localization;
 mod robot;
+mod robot_motion;
 mod route;
 mod routine_error;
 pub mod routine_settings;
@@ -22,7 +23,9 @@ pub use command::{
 pub use competition::{ProgrammedRobot, compete};
 pub use controls::{AutonomousControls, ScoringControls};
 pub use localization::DifferentialLocalization;
-pub use robot::{Robot, StockTick};
+pub use ozton_math::path::follower::Follower;
+pub use robot::{Robot, RobotBuilder, StockTick};
+pub use robot_motion::{RobotMotion, TravelDirection};
 pub use route::{
     AlignTarget, Auton, RegistrationError, RegistrationProblem, Route, RouteResult, compete_routes,
     compete_with_calibration,

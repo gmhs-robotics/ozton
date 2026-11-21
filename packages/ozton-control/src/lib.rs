@@ -8,6 +8,7 @@ pub mod axis;
 pub mod drive;
 pub mod lift;
 pub mod loops;
+pub mod low_score;
 
 mod tolerances;
 pub use tolerances::{Settling, Tolerances};

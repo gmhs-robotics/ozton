@@ -41,7 +41,7 @@ impl<R: AutonRobot> Runner<'_, R> {
         self.run(
             Command::DriveDistance {
                 meters,
-                heading,
+                heading: Some(heading),
                 maximum_speed,
             },
             timeout,

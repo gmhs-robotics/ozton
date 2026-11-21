@@ -276,9 +276,9 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                     .run_while(
                         Command::DriveDistance {
                             meters: Length::new::<meter>(0.4),
-                            heading: Angle::new::<radian>(
+                            heading: Some(Angle::new::<radian>(
                                 path.end().heading + if reverse { PI } else { 0.0 },
-                            ),
+                            )),
                             maximum_speed: Velocity::new::<meter_per_second>(0.4),
                         },
                         Duration::from_secs(1),
@@ -495,7 +495,7 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
             .try_run_while(
                 Command::DriveDistance {
                     meters: Length::new::<meter>(0.2),
-                    heading: Angle::new::<radian>(0.0),
+                    heading: None,
                     maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },
                 Duration::from_secs(2),

@@ -8,16 +8,16 @@ use ozton::{
     math::{
         geometry::Pose,
         localization::range::Surface,
-        path::{Path, follower::Follower, jerryio},
+        path::{Path, jerryio},
     },
     motion::auton::{
-        Alignment, AutonError, AutonomousControls, Command, ConfiguredChassis, DifferentialConfig,
-        Feedback, Runner, TrackingSetup, chassis::ChassisError,
+        Alignment, AutonError, AutonomousControls, ConfiguredChassis, DifferentialConfig, Feedback,
+        RobotMotion, TrackingSetup, TravelDirection, chassis::ChassisError,
+        routine_settings::SessionLimits,
     },
     position,
     runtime::{
-        Robot, Subsystem, SubsystemList,
-        clock::CONTROL_PERIOD,
+        Robot, RobotBuilder, Subsystem, SubsystemList,
         competition::{Autonomous, CompetitionControls, CompetitionRobot, RouteSet, Tick},
         diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
     },
@@ -179,6 +179,21 @@ impl AutonomousControls<CompetitionBot> for Controls {
     type Error = ChassisError;
     type SubsystemInput = ();
 
+    fn drive_options(robot: &CompetitionBot) -> Option<ozton::motion::auton::DriveOptions> {
+        Some(robot.drivetrain.drive_options())
+    }
+
+    fn session_limits(_: &CompetitionBot) -> SessionLimits {
+        SessionLimits {
+            total: CONFIG.route_timeout,
+            stage: Duration::from_secs(5),
+        }
+    }
+
+    fn maximum_motion_gap(_: &CompetitionBot) -> Duration {
+        CONFIG.max_control_gap
+    }
+
     fn sample(robot: &mut CompetitionBot) -> Result<Option<Feedback>, Self::Error> {
         robot.drivetrain.sample(0)
     }
@@ -239,32 +254,11 @@ autonomous_routes! {
 
 async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     let path = Rc::clone(&robot.controls.straight_path);
-    let options = robot.drivetrain.drive_options();
-    let mut auton = Runner::new(
-        robot,
-        options,
-        CONTROL_PERIOD,
-        CONFIG.max_control_gap,
-        CONFIG.route_timeout,
-    )?;
-    auton.confirm_start(START)?;
-    auton.robot().subsystems.1.on = true;
-    auton
-        .run(
-            Command::Follow {
-                path: &path,
-                follower: Follower::PurePursuit {
-                    lookahead: Length::new::<meter>(0.16),
-                },
-                reverse: false,
-                trigger: None,
-            },
-            Duration::from_secs(5),
-        )
-        .await?;
-    auton.robot().subsystems.1.on = false;
-    // This alignment is optional. The route can continue after a clean timeout.
-    auton
+    robot.confirm_start(START)?;
+    robot.subsystem().on = true;
+    robot.follow_path(&path, TravelDirection::Forward).await?;
+    robot.subsystem().on = false;
+    robot
         .try_align(
             Alignment {
                 sensor: FRONT_RANGE_INDEX,
@@ -318,7 +312,7 @@ async fn main(p: Peripherals) {
         on: false,
     };
     // ANCHOR: assemble
-    Robot::new()
+    RobotBuilder::new()
         .with_controller(p.primary_controller)
         .with_drivetrain(drive)
         .add_subsystem(intake)
@@ -326,6 +320,7 @@ async fn main(p: Peripherals) {
         .with_auton(Route::CHOICES.iter().map(|&(_, route)| route))
         .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
         .with_diagnostics::<IntakeReport>(Duration::from_millis(250))
+        .build()
         .compete()
         .await;
     // ANCHOR_END: assemble

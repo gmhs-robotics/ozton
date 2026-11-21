@@ -38,7 +38,7 @@ pub trait Subsystem<Input, Error> {
     }
 }
 
-/// Lifecycle of the subsystem list built by [`Robot::add_subsystem`].
+/// Lifecycle of the subsystem list built by [`RobotBuilder::add_subsystem`].
 pub trait SubsystemList<Input, Error> {
     fn update_all(&mut self, input: &mut Input) -> Result<(), Error>;
     fn stop_all(&mut self) -> Result<(), Error>;
@@ -65,8 +65,7 @@ impl<I, E, A: SubsystemList<I, E>, B: Subsystem<I, E>> SubsystemList<I, E> for (
     }
 }
 
-/// Assemble hardware and subsystems as owned fields. Omitted components
-/// are unit. The subsystem list is stored inline and dispatched statically.
+/// An assembled robot. Components are stored inline and dispatched statically.
 #[must_use]
 pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
     pub drivetrain: D,
@@ -77,7 +76,25 @@ pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
     pub autonomous: A,
 }
 
-impl Robot {
+impl<D, C, T, S, P, A> Robot<D, C, T, ((), S), P, A> {
+    /// Access the single installed subsystem.
+    pub fn subsystem(&mut self) -> &mut S {
+        &mut self.subsystems.1
+    }
+}
+
+/// Compose a robot before handing it to competition control.
+#[must_use]
+pub struct RobotBuilder<D = (), C = (), T = (), X = (), P = (), A = ()> {
+    drivetrain: D,
+    controller: C,
+    tracking: T,
+    subsystems: X,
+    controls: P,
+    autonomous: A,
+}
+
+impl RobotBuilder {
     pub const fn new() -> Self {
         Self {
             drivetrain: (),
@@ -90,7 +107,7 @@ impl Robot {
     }
 }
 
-impl Default for Robot {
+impl Default for RobotBuilder {
     fn default() -> Self {
         Self::new()
     }
@@ -102,22 +119,50 @@ macro_rules! with_component {
         #[doc = $description]
         pub fn $method<N>(self, $field: N) -> $result {
             let Self { $($keep,)+ .. } = self;
-            Robot { $field, $($keep,)+ }
+            RobotBuilder { $field, $($keep,)+ }
         }
     };
 }
 
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
-    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, Robot<N, C, T, X, P, A>, controller, tracking, subsystems, controls, autonomous);
-    with_component!("Install the owned controller value.", with_controller, controller, Robot<D, N, T, X, P, A>, drivetrain, tracking, subsystems, controls, autonomous);
-    with_component!("Install the owned tracking value.", with_tracking, tracking, Robot<D, C, N, X, P, A>, drivetrain, controller, subsystems, controls, autonomous);
-    with_component!("Install application-wide control state and behavior.", with_controls, controls, Robot<D, C, T, X, N, A>, drivetrain, controller, tracking, subsystems, autonomous);
+impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
+    /// Finish assembly and hand ownership of the components to the robot.
+    ///
+    /// A built robot exposes only its operational interfaces.
+    ///
+    /// ```compile_fail
+    /// use ozton_runtime::RobotBuilder;
+    /// let robot = RobotBuilder::new().build();
+    /// robot.with_drivetrain(());
+    /// ```
+    pub fn build(self) -> Robot<D, C, T, X, P, A> {
+        let Self {
+            drivetrain,
+            controller,
+            tracking,
+            subsystems,
+            controls,
+            autonomous,
+        } = self;
+        Robot {
+            drivetrain,
+            controller,
+            tracking,
+            subsystems,
+            controls,
+            autonomous,
+        }
+    }
+
+    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, T, X, P, A>, controller, tracking, subsystems, controls, autonomous);
+    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, T, X, P, A>, drivetrain, tracking, subsystems, controls, autonomous);
+    with_component!("Install the owned tracking value.", with_tracking, tracking, RobotBuilder<D, C, N, X, P, A>, drivetrain, controller, subsystems, controls, autonomous);
+    with_component!("Install application-wide control state and behavior.", with_controls, controls, RobotBuilder<D, C, T, X, N, A>, drivetrain, controller, tracking, subsystems, autonomous);
 
     /// Register the selectable routes in menu order.
     pub fn with_auton<R: RouteSet>(
         self,
         routes: impl IntoIterator<Item = R>,
-    ) -> Robot<D, C, T, X, P, AutonSelection<R>> {
+    ) -> RobotBuilder<D, C, T, X, P, AutonSelection<R>> {
         let Self {
             drivetrain,
             controller,
@@ -126,7 +171,7 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
             controls,
             ..
         } = self;
-        Robot {
+        RobotBuilder {
             drivetrain,
             controller,
             tracking,
@@ -137,7 +182,7 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
     }
 
     /// Append a subsystem to the statically dispatched update list.
-    pub fn add_subsystem<N>(self, subsystem: N) -> Robot<D, C, T, (X, N), P, A> {
+    pub fn add_subsystem<N>(self, subsystem: N) -> RobotBuilder<D, C, T, (X, N), P, A> {
         let Self {
             drivetrain,
             controller,
@@ -146,7 +191,7 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
             controls,
             autonomous,
         } = self;
-        Robot {
+        RobotBuilder {
             drivetrain,
             controller,
             tracking,
@@ -160,9 +205,9 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
 /// The selectable routes before a competition UI is installed.
 pub struct AutonSelection<R>(Vec<R>);
 
-impl<D, C, T, X, P, R: RouteSet> Robot<D, C, T, X, P, AutonSelection<R>> {
+impl<D, C, T, X, P, R: RouteSet> RobotBuilder<D, C, T, X, P, AutonSelection<R>> {
     /// Attach the UI that selects the registered autonomous routes.
-    pub fn with_ui(self, ui: Ui) -> Robot<D, C, T, X, P, Autonomous<R>> {
+    pub fn with_ui(self, ui: Ui) -> RobotBuilder<D, C, T, X, P, Autonomous<R>> {
         let Self {
             drivetrain,
             controller,
@@ -171,7 +216,7 @@ impl<D, C, T, X, P, R: RouteSet> Robot<D, C, T, X, P, AutonSelection<R>> {
             controls,
             autonomous,
         } = self;
-        Robot {
+        RobotBuilder {
             drivetrain,
             controller,
             tracking,
@@ -183,15 +228,21 @@ impl<D, C, T, X, P, R: RouteSet> Robot<D, C, T, X, P, AutonSelection<R>> {
 }
 
 impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
-    Robot<D, C, T, X, P, crate::competition::Autonomous<R, S>>
+    RobotBuilder<D, C, T, X, P, crate::competition::Autonomous<R, S>>
 {
     /// Attach a typed diagnostic report. USB samples use the given interval in
     /// debug builds. The SD feature also samples in release firmware.
     pub fn with_diagnostics<L>(
         self,
         interval: std::time::Duration,
-    ) -> Robot<D, C, T, X, P, crate::competition::Autonomous<R, crate::diagnostics::Sampler<L>>>
-    {
+    ) -> RobotBuilder<
+        D,
+        C,
+        T,
+        X,
+        P,
+        crate::competition::Autonomous<R, crate::diagnostics::Sampler<L>>,
+    > {
         let Self {
             drivetrain,
             controller,
@@ -200,7 +251,7 @@ impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
             controls,
             autonomous,
         } = self;
-        Robot {
+        RobotBuilder {
             drivetrain,
             controller,
             tracking,
@@ -283,12 +334,13 @@ mod tests {
 
     #[test]
     fn customs_update_in_order_and_all_stop_after_failure() {
-        let mut robot = Robot::new()
+        let mut robot = RobotBuilder::new()
             .with_drivetrain(2)
             .add_subsystem(First)
             .add_subsystem(Independent)
             .with_controller("controller")
-            .add_subsystem(Read::default());
+            .add_subsystem(Read::default())
+            .build();
 
         assert_eq!(robot.subsystems.update_all(&mut 3), Ok(()));
         assert_eq!(robot.subsystems.1.input, 3);
