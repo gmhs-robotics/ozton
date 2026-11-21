@@ -130,17 +130,7 @@ impl DifferentialConfig {
         if ranges.len() > MAX_RANGES {
             return Err(SetupError::Tracking);
         }
-        let mut names = Vec::with_capacity(ranges.len());
-        let mut ports = Vec::with_capacity(ranges.len());
-        let mut mounts = Vec::with_capacity(ranges.len());
-        for (name, port, mount) in ranges {
-            if name.trim().is_empty() || names.contains(&name) {
-                return Err(SetupError::RangeName(name));
-            }
-            names.push(name);
-            ports.push(port);
-            mounts.push(mount);
-        }
+        let (ports, mounts): (Vec<_>, Vec<_>) = ranges.into_iter().unzip();
         let distances = Distances::new(ports).ok_or(SetupError::Tracking)?;
         let localizer = Localizer::new_owned(
             Config {
@@ -184,7 +174,6 @@ impl DifferentialConfig {
             chassis,
             drive_options: DriveOptions::differential(self.track_width, self.maximum_wheel_speed),
             settings: self,
-            names,
         })
     }
 }
@@ -195,7 +184,6 @@ pub enum SetupError {
     EmptyMotorSide,
     TooManyMotors,
     Tracking,
-    RangeName(&'static str),
     MissingTipImu,
     Imu(CalibrateError),
 }
@@ -213,7 +201,8 @@ pub struct TrackingSetup {
     pub max_correction: Length,
     pub imu: Option<InertialSensor>,
     pub map: Vec<Surface>,
-    pub ranges: Vec<(&'static str, DistanceSensor, RangeSensorConfig)>,
+    /// Sensor/config pairs in the order used by route indices.
+    pub ranges: Vec<(DistanceSensor, RangeSensorConfig)>,
 }
 
 impl Default for TrackingSetup {
@@ -233,34 +222,11 @@ impl Default for TrackingSetup {
     }
 }
 
-/// Opaque identifier for a registered range sensor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RangeId(pub(super) usize);
-
-impl RangeId {
-    pub const fn from_index(index: usize) -> Option<Self> {
-        if index < MAX_RANGES {
-            Some(Self(index))
-        } else {
-            None
-        }
-    }
-
-    pub const fn index(self) -> usize {
-        self.0
-    }
-
-    pub const fn mask(self) -> u8 {
-        1 << self.0
-    }
-}
-
-/// A chassis with the limits and sensor names required by the stock robot adapter.
+/// A chassis with the physical limits and sensors used by the stock robot adapter.
 pub struct ConfiguredChassis {
     pub(super) chassis: Chassis<'static>,
     pub(super) settings: DifferentialConfig,
     pub(super) drive_options: DriveOptions,
-    names: Vec<&'static str>,
 }
 
 impl ConfiguredChassis {
@@ -315,11 +281,8 @@ impl ConfiguredChassis {
         self.chassis.log_step(elapsed, dt, progress, wheels);
     }
 
-    pub fn range(&self, name: &str) -> Option<RangeId> {
-        self.names
-            .iter()
-            .position(|candidate| *candidate == name)
-            .map(RangeId)
+    pub fn range_count(&self) -> usize {
+        self.chassis.drivetrain.tracking.localizer.range_count()
     }
 
     pub fn drive_options(&self) -> DriveOptions {

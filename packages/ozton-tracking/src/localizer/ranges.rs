@@ -18,11 +18,15 @@ use ozton_math::{
     },
 };
 
+use crate::mount::RobotPoint;
+
 pub const MAX_RANGES: usize = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeSensorConfig {
     pub mount: Mount,
+    /// Beam height in the same chassis frame as the planar mount.
+    pub mount_height: Length,
     pub gate: RangeGate,
     pub bias: Length,
     pub sigma: Length,
@@ -36,6 +40,7 @@ impl RangeSensorConfig {
     pub const fn new(mount: Mount) -> Self {
         Self {
             mount,
+            mount_height: Length::ZERO,
             gate: RangeGate::DEFAULT,
             bias: Length::ZERO,
             sigma: Length {
@@ -47,9 +52,18 @@ impl RangeSensorConfig {
         }
     }
 
+    /// Configure a horizontal beam from its chassis position and bearing.
+    pub const fn at_mount(position: RobotPoint, bearing: Angle) -> Self {
+        Self {
+            mount_height: position.up,
+            ..Self::new(Mount::new(position.right, position.forward, bearing))
+        }
+    }
+
     pub(super) fn valid(self, map: &[Surface]) -> bool {
         self.mount.offset.is_finite()
             && self.mount.heading.is_finite()
+            && self.mount_height.value.is_finite()
             && self.gate.is_valid()
             && self.bias.value.is_finite()
             && self.sigma.value.is_finite()

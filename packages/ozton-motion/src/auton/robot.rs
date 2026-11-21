@@ -9,7 +9,7 @@ use ozton_math::{
 use ozton_runtime::{Subsystem, SubsystemList};
 use vexide::{controller::ControllerState, smart::PortError};
 
-use super::{AutonRobot, ConfiguredChassis, Feedback, RangeId, chassis::ChassisError};
+use super::{AutonRobot, ConfiguredChassis, Feedback, chassis::ChassisError};
 
 /// Shared input for stock chassis subsystems. A controller sample is available
 /// during driver control. Autonomous routines set goals directly on their subsystems.
@@ -69,10 +69,6 @@ impl<X> Robot<X> {
     pub fn with_log_file(mut self, path: &'static str) -> Self {
         self.log_file = Some(path);
         self
-    }
-
-    pub fn range(&self, name: &str) -> Option<RangeId> {
-        self.drive.range(name)
     }
 
     pub(super) fn log_file(&self) -> Option<&'static str> {

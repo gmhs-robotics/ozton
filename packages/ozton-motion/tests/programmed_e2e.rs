@@ -299,7 +299,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
 
 #[test]
 fn ordered_markers_and_optional_alignment_keep_the_route_running() {
-    use ozton_motion::auton::{Alignment, PathMarker, RangeFacing, RangeId};
+    use ozton_motion::auton::{Alignment, PathMarker, RangeFacing};
 
     block_on(async {
         let path = route();
@@ -341,7 +341,7 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
             !runner
                 .try_align_while(
                     Alignment {
-                        sensor: RangeId::from_index(0).unwrap(),
+                        sensor: 0,
                         distance: Length::new::<meter>(0.12),
                         heading: Angle::new::<radian>(0.0),
                         maximum_speed: Velocity::new::<meter_per_second>(0.2),

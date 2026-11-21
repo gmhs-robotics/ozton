@@ -30,4 +30,4 @@ pub use route::{
 pub use routine_error::RoutineError;
 pub use runner::{AutonError, AutonRobot, Runner};
 pub use sequence::{MechanismActions, MechanismRobot};
-pub use setup::{ConfiguredChassis, DifferentialConfig, RangeId, SetupError, TrackingSetup};
+pub use setup::{ConfiguredChassis, DifferentialConfig, SetupError, TrackingSetup};

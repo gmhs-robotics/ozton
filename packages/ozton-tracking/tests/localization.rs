@@ -82,6 +82,7 @@ const MAP: [Surface; 2] = [
     ),
 ];
 const SENSOR: RangeSensorConfig = RangeSensorConfig {
+    mount_height: Length::ZERO,
     mount: Mount::new(Length::ZERO, Length::ZERO, Angle::ZERO),
     gate: RangeGate::DEFAULT,
     bias: Length::ZERO,

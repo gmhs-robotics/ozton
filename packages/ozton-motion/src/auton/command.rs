@@ -115,7 +115,8 @@ impl DriveOptions {
 /// Align to a known range and field heading. Waits at zero output during sensor loss.
 #[derive(Debug, Clone, Copy)]
 pub struct Alignment {
-    pub sensor: super::RangeId,
+    /// Zero-based index in the configured range list.
+    pub sensor: usize,
     pub distance: Length,
     pub heading: Angle,
     pub maximum_speed: Velocity,
@@ -316,7 +317,8 @@ impl<R> Command<'_, R> {
                     && maximum_speed.value <= options.maximum_wheel_speed.value
             }
             Self::Align(alignment) => {
-                alignment.distance.value.is_finite()
+                alignment.sensor < MAX_RANGES
+                    && alignment.distance.value.is_finite()
                     && alignment.distance.value > 0.0
                     && alignment.heading.value.is_finite()
                     && (0.0..=options.maximum_wheel_speed.value)
@@ -536,7 +538,7 @@ impl<'path> State<'path> {
             }
             Command::Align(alignment) => {
                 self.range_elapsed = self.range_elapsed.saturating_add(dt);
-                let range = feedback.ranges[alignment.sensor.index()].filter(|range| {
+                let range = feedback.ranges[alignment.sensor].filter(|range| {
                     feedback
                         .time
                         .checked_sub(range.timestamp)

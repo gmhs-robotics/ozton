@@ -30,7 +30,7 @@ maximum commanded wheel speed. `config.path_limits()` applies the same limit
 to route profiles. Every available motor contributes to encoder consensus.
 
 `DifferentialConfig::build` calibrates the IMU supplied in `TrackingSetup`.
-Keep the robot still during startup. Pass map surfaces and named device/mount
+Keep the robot still during startup. Pass map surfaces and ordered device/mount
 pairs in the same setup. The chassis exposes shared range devices through
 its tracking structure for localization and calibration.
 

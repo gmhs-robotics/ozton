@@ -18,13 +18,14 @@ and both sides remain observable.
 
 ## Add field references
 
-Pass stationary reflecting segments as the map and pair each range device
-with its mount. A mount uses X right, Y forward, and a CCW beam bearing from +Y.
-Use `RobotPoint::new(right, forward, up)` for the installed position and
-`horizontal_range_mount(bearing)` to create its planar beam mount.
+Pass stationary reflecting segments as the map.
+A mount uses X right, Y forward, and a CCW beam bearing from +Y.
+Pair each device with `RangeSensorConfig::at_mount(position, bearing)`. Use
+`RobotPoint::new(right, forward, up)` for the mounted position. The list order
+assigns zero-based indices.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
 `AutonomousControls::sample` when a mechanism blocks a beam. Use
-`ConfiguredChassis::range(name)` and `RangeId::mask` to get a sensor's bit.
+`1u8 << index` to get a sensor’s bit.
 
 - **Distance sensor reset (DSR)** uses one wall to correct its normal axis, or two independent wall
   observations to correct both. Use `Command::DistanceReset` when the robot

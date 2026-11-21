@@ -21,7 +21,7 @@ let trials = [
     Calibration::new("Turn 180°", "turn.csv",
         CalibrationTrial::Turn { angle: Angle::new::<degree>(180.0) }),
     Calibration::new("Front range", "range.csv",
-        CalibrationTrial::Range { sensor: "front", reference: Length::new::<meter>(0.50) }),
+        CalibrationTrial::Range { sensor: 0, reference: Length::new::<meter>(0.50) }),
     Calibration::new("Drive feedforward", "voltage.csv", CalibrationTrial::Feedforward),
 ];
 compete_with_calibration(robot, display, controller, routes, trials).await?;
@@ -59,11 +59,11 @@ Use the SD journal or typed trial CSV for `ozton-tools calibrate`.
 Add typed calibration rows with `diagnostics::calibration::CalibrationSample`.
 The ordinary telemetry shows commands and measurements. Calibration rows also
 include the known reference or the applied motor voltage. Give each experiment
-a name, such as `drive_left` or `front_range`. To see the CSV columns and units:
+an event label, such as `drive_left` or the range trial’s menu label. To see the CSV columns and units:
 
 ```sh
 cargo run -p ozton-tools -- --help
-cargo run -p ozton-tools -- calibrate auton.csv front_range
+cargo run -p ozton-tools -- calibrate range.csv "Front range"
 ```
 
 - **Wheel diameter.** Measure signed straight-line travel with a tape. Log

@@ -10,7 +10,7 @@ use ozton_math::uom::si::{
 use ozton_tracking::localizer::Snapshot;
 use vexide::controller::ControllerState;
 
-use super::{ConfiguredChassis, RangeId};
+use super::ConfiguredChassis;
 
 const MAX_HOLD: Duration = Duration::from_secs(8);
 const MAX_DRIVE_VOLTS: f64 = 3.0;
@@ -22,11 +22,8 @@ pub enum CalibrationTrial {
     Straight { distance: Length },
     /// Hold A and turn through a measured angle. Release A at the mark.
     Turn { angle: Angle },
-    /// Hold A while stationary to sample the named range sensor.
-    Range {
-        sensor: &'static str,
-        reference: Length,
-    },
+    /// Hold A while stationary to sample a range sensor by index.
+    Range { sensor: usize, reference: Length },
     /// Hold A and sweep the forward stick. Record both directions in the same file.
     Feedforward,
 }
@@ -49,7 +46,7 @@ impl Calibration {
 enum Trial {
     Straight(f64),
     Turn(f64),
-    Range(RangeId, f64, &'static str),
+    Range(usize, f64),
     Feedforward,
 }
 
@@ -70,8 +67,10 @@ impl PreparedCalibration {
                 Trial::Straight(distance.value)
             }
             CalibrationTrial::Turn { angle } if positive(angle.value) => Trial::Turn(angle.value),
-            CalibrationTrial::Range { sensor, reference } if positive(reference.value) => {
-                Trial::Range(drive.range(sensor)?, reference.value, sensor)
+            CalibrationTrial::Range { sensor, reference }
+                if sensor < drive.range_count() && positive(reference.value) =>
+            {
+                Trial::Range(sensor, reference.value)
             }
             CalibrationTrial::Feedforward => Trial::Feedforward,
             _ => return None,
@@ -184,15 +183,15 @@ impl CalibrationRun {
             return self.abort(drive, "Trial expired. Release A.");
         }
         let [left, right] = match case.trial {
-            Trial::Range(id, reference, name) => {
-                if let Some(raw) = drive.chassis.drivetrain.tracking.distances.latest(id.0)
+            Trial::Range(index, reference) => {
+                if let Some(raw) = drive.chassis.drivetrain.tracking.distances.latest(index)
                     && self.last_range.is_none_or(|last| raw.timestamp > last)
                     && drive
                         .chassis
                         .drivetrain
                         .tracking
                         .localizer
-                        .range_config(id.0)
+                        .range_config(index)
                         .is_some_and(|config| config.relative_distance(raw, sample.time).is_ok())
                 {
                     self.last_range = Some(raw.timestamp);
@@ -202,7 +201,7 @@ impl CalibrationRun {
                             reference,
                             measured: raw.distance.value,
                         }
-                        .event(sample.time, name),
+                        .event(sample.time, case.name),
                     );
                 }
                 [0.0; 2]

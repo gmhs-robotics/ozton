@@ -18,8 +18,7 @@ use ozton_runtime::{SubsystemList, clock::CONTROL_PERIOD};
 use vexide::{display::Display, prelude::Controller, smart::PortError};
 
 use super::{
-    Alignment, AutonError, AutonRobot, Calibration, Command, PathMarker, RangeId, Robot, Runner,
-    StockTick,
+    Alignment, AutonError, AutonRobot, Calibration, Command, PathMarker, Robot, Runner, StockTick,
     calibration::{CalibrationRun, PreparedCalibration},
     chassis::ChassisError,
     competition::{CompetitionApp, compete_app},
@@ -185,13 +184,6 @@ impl<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> Auton<'_, M> {
     pub fn subsystems(&mut self) -> &mut M {
         &mut self.runner.robot().subsystems
     }
-    pub fn range(&mut self, name: &str) -> RouteResult<RangeId> {
-        self.runner
-            .robot()
-            .range(name)
-            .ok_or(AutonError::Configuration)
-    }
-
     pub async fn follow(&mut self, timeout: Duration) -> RouteResult {
         self.follow_with(
             Follower::PurePursuit {
@@ -235,12 +227,14 @@ impl<M: for<'tick> SubsystemList<StockTick<'tick>, PortError>> Auton<'_, M> {
     /// Try a relative range approach. A clean timeout leaves the route active.
     pub async fn try_align(
         &mut self,
-        sensor: RangeId,
+        sensor: usize,
         target: AlignTarget,
         timeout: Duration,
     ) -> RouteResult<bool> {
         let maximum_speed = self.runner.robot().drive.drive_options.maximum_wheel_speed;
-        if !target.maximum_speed.value.is_finite() {
+        if sensor >= self.runner.robot().drive.range_count()
+            || !target.maximum_speed.value.is_finite()
+        {
             return Err(AutonError::Configuration);
         }
         self.runner

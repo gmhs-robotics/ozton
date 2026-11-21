@@ -273,8 +273,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     auton
         .try_align(
             Alignment {
-                sensor: ozton::motion::auton::RangeId::from_index(FRONT_RANGE_INDEX)
-                    .ok_or(RouteError(AutonError::Configuration))?,
+                sensor: FRONT_RANGE_INDEX,
                 distance: Length::new::<meter>(1.10),
                 heading: START_HEADING,
                 maximum_speed: Velocity::new::<meter_per_second>(0.20),
@@ -311,13 +310,8 @@ async fn main(p: Peripherals) {
             Length::new::<meter>(1.8),
         )],
         ranges: vec![(
-            "front",
             DistanceSensor::new(p.port_8),
-            RangeSensorConfig::new(
-                FRONT_MOUNT
-                    .horizontal_range_mount(Angle::new::<radian>(0.0))
-                    .expect("valid range mount"),
-            ),
+            RangeSensorConfig::at_mount(FRONT_MOUNT, Angle::new::<radian>(0.0)),
         )],
         ..TrackingSetup::default()
     };

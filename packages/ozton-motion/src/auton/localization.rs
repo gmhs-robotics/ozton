@@ -101,6 +101,11 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         self.last?.ranges.get(index).copied().flatten()
     }
 
+    /// Number of configured range indices, in wiring order.
+    pub fn range_count(&self) -> usize {
+        self.tracking.localizer.range_count()
+    }
+
     pub fn range_config(&self, index: usize) -> Option<RangeSensorConfig> {
         self.tracking.localizer.range_config(index)
     }
