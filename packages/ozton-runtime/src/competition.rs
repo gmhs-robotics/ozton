@@ -51,6 +51,58 @@ impl<E> IntoRouteResult<E> for Result<(), E> {
     }
 }
 
+type RouteHandler<L, E> = for<'a> fn(
+    &'a mut crate::CompetitionBot<L>,
+) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>;
+
+/// One named async routine registered with the robot builder.
+pub struct RegisteredRoute<L: crate::RobotLayout, E> {
+    label: &'static str,
+    handler: RouteHandler<L, E>,
+}
+
+impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
+    #[doc(hidden)]
+    pub const fn new(label: &'static str, handler: RouteHandler<L, E>) -> Self {
+        Self { label, handler }
+    }
+}
+
+impl<L: crate::RobotLayout, E> Copy for RegisteredRoute<L, E> {}
+impl<L: crate::RobotLayout, E> Clone for RegisteredRoute<L, E> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> RouteSet for RegisteredRoute<L, E> {
+    const CHOICES: &'static [(&'static str, Self)] = &[];
+
+    fn label(self) -> &'static str {
+        self.label
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L>, E>
+    for RegisteredRoute<L, E>
+{
+    async fn run(self, robot: &mut crate::CompetitionBot<L>) -> Result<(), E> {
+        (self.handler)(robot).await
+    }
+}
+
+/// Name an async robot function in the builder's autonomous list.
+#[macro_export]
+macro_rules! route {
+    ($label:expr, $handler:path $(,)?) => {
+        $crate::competition::RegisteredRoute::new($label, |robot| {
+            ::std::boxed::Box::pin(async move {
+                $crate::competition::IntoRouteResult::into_route_result($handler(robot).await)
+            })
+        })
+    };
+}
+
 /// Define the Brain choices and dispatch ordinary async functions. Different
 /// route future types are compiled into one enum dispatch, with no boxed futures.
 /// A routine can return unit or report a failure.
@@ -111,6 +163,13 @@ impl Tick {
     }
 }
 
+/// A driver routine may be preempted by controls or run out of time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriverWaitError {
+    Cancelled,
+    Timeout,
+}
+
 /// Opt-in competition hooks for an application with its own robot and controls.
 /// Implementations own device errors and drive/motor policy. The loop owns mode
 /// transitions, route selection, disable handling and the periodic tick.
@@ -127,6 +186,50 @@ pub trait CompetitionRobot: Sized {
 
     /// Dispatch a driver binding after the ordinary tick.
     async fn driver_action(&mut self) {}
+
+    /// Service driver outputs while a routine waits for its next condition.
+    async fn driver_wait_until(
+        &mut self,
+        timeout: Duration,
+        active: impl Fn(&Self) -> bool,
+        ready: impl Fn(&Self) -> bool,
+    ) -> Result<(), DriverWaitError> {
+        let started = Instant::now();
+        let mut clock = crate::clock::CommandClock::new(Self::CONTROL_PERIOD)
+            .ok_or(DriverWaitError::Cancelled)?;
+        loop {
+            if competition::mode() != CompetitionMode::Driver || !active(self) {
+                return Err(DriverWaitError::Cancelled);
+            }
+            if ready(self) {
+                return Ok(());
+            }
+            if started.elapsed() >= timeout {
+                return Err(DriverWaitError::Timeout);
+            }
+            let elapsed = clock.tick().await;
+            if competition::mode() != CompetitionMode::Driver {
+                return Err(DriverWaitError::Cancelled);
+            }
+            let tick = Tick {
+                started: Instant::now(),
+                elapsed,
+            };
+            self.driver_tick(tick);
+            self.after_tick(CompetitionMode::Driver, tick);
+        }
+    }
+
+    /// Hold the currently commanded outputs for a duration while driver control continues.
+    async fn driver_wait(
+        &mut self,
+        duration: Duration,
+        active: impl Fn(&Self) -> bool,
+    ) -> Result<(), DriverWaitError> {
+        let started = Instant::now();
+        self.driver_wait_until(duration, active, |_| started.elapsed() >= duration)
+            .await
+    }
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
@@ -424,7 +527,15 @@ pub async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
         robot.menu().poll(disabled);
         robot.after_tick(mode, tick);
         if mode == CompetitionMode::Driver && competition::mode() == mode {
+            let action_started = Instant::now();
             robot.driver_action().await;
+            if action_started.elapsed() >= R::CONTROL_PERIOD {
+                last_tick = Instant::now();
+                if competition::mode() == mode {
+                    sleep(R::CONTROL_PERIOD).await;
+                }
+                continue;
+            }
         }
         sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
     }

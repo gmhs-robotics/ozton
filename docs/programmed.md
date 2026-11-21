@@ -10,7 +10,7 @@ is unused.
 {{#include ../packages/ozton/examples/programmed.rs:assemble}}
 ```
 
-`with_auton([Route::Practice]).with_ui(Ui::Brain(display))` creates the Brain menu with **Disable**
+`with_auton([route!("Practice", practice)]).with_ui(Ui::Brain(display))` creates the Brain menu with **Disable**
 selected. `compete()` runs driver ticks, stops outputs on mode transitions, and
 dispatches the selected route once on entry to autonomous. Select routes while
 disabled.

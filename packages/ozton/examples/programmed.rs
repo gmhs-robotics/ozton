@@ -3,7 +3,6 @@
 use std::{fmt, fs::File, rc::Rc, time::Duration};
 
 use ozton::{
-    autonomous_routes,
     drivetrain::model::DriverFaultPolicy,
     math::{
         geometry::Pose,
@@ -15,11 +14,11 @@ use ozton::{
         RobotMotion, TrackingSetup, TravelDirection, chassis::ChassisError,
         routine_settings::SessionLimits,
     },
-    position,
+    position, route,
     runtime::{
-        Robot, RobotBuilder, Subsystem, SubsystemList,
-        competition::{Autonomous, CompetitionControls, CompetitionRobot, RouteSet, Tick},
-        diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
+        CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout, Subsystem, SubsystemList,
+        competition::{CompetitionControls, CompetitionRobot, RegisteredRoute, Tick},
+        diagnostics::{Frame, MotorSample, Report, Sample},
     },
     tracking::{localizer::RangeSensorConfig, mount::Vec3},
     uom::{
@@ -106,14 +105,15 @@ struct Controls {
     straight_path: Rc<Path>,
 }
 
-type CompetitionBot = Robot<
-    ConfiguredChassis,
-    Controller,
-    (),
-    ((), Intake),
-    Controls,
-    Autonomous<Route, Sampler<IntakeReport>>,
->;
+type CompetitionBot = ConfiguredBot<Controls>;
+
+impl RobotLayout for Controls {
+    type Drivetrain = ConfiguredChassis;
+    type Tracking = ();
+    type Subsystems = ((), Intake);
+    type Routes = RegisteredRoute<Self, RouteError>;
+    type Report = IntakeReport;
+}
 
 struct IntakeReport;
 
@@ -246,12 +246,6 @@ impl AutonomousControls<CompetitionBot> for Controls {
 }
 
 // ANCHOR: route
-autonomous_routes! {
-    enum Route for CompetitionBot => RouteError {
-        Straight("Straight") => straight,
-    }
-}
-
 async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     let path = Rc::clone(&robot.controls.straight_path);
     robot.confirm_start(START)?;
@@ -317,7 +311,7 @@ async fn main(p: Peripherals) {
         .with_drivetrain(drive)
         .add_subsystem(intake)
         .with_controls(Controls { straight_path })
-        .with_auton(Route::CHOICES.iter().map(|&(_, route)| route))
+        .with_auton([route!("Straight", straight)])
         .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
         .with_diagnostics::<IntakeReport>(Duration::from_millis(250))
         .build()

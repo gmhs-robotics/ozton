@@ -11,8 +11,8 @@ robot's starting pose, field map, and route points.
 2. Save one path per file and embed it with `include_bytes!`.
 3. Parse the export with `jerryio::parse` and profile it with `Path::new` and
    the chassis limits before entering competition.
-4. Register an async route with `autonomous_routes!` and install the route set
-   with `.with_auton([Route::Practice]).with_ui(Ui::Brain(display))`. A registered function
+4. Register an async function by name in the builder
+   with `.with_auton([route!("Practice", practice)]).with_ui(Ui::Brain(display))`. A registered function
    receives `&mut CompetitionBot` and returns a `Result` using the error type
    from its `CompetitionControls` implementation.
 5. While disabled, select the route on the Brain. Place the robot at the surveyed
