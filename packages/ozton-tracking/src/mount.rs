@@ -1,11 +1,7 @@
 //! Installation coordinates measured from the chassis center of rotation.
-use ozton_math::{
-    localization::range::Mount,
-    uom::{
-        ConstZero,
-        si::f64::{Angle, Length},
-    },
-};
+#[doc(hidden)]
+pub use ozton_math::uom;
+use uom::{ConstZero, si::f64::Length};
 
 /// A chassis direction used to label a horizontal measurement axis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,10 +50,10 @@ impl MountAxes {
     }
 
     /// Converts survey lengths from The Origin to right/forward/up robot coordinates.
-    pub const fn point(self, x: Length, y: Length, up: Length) -> RobotPoint {
+    pub const fn point(self, x: Length, y: Length, up: Length) -> Vec3<Length> {
         let (x_right, x_forward) = self.x.right_forward();
         let (y_right, y_forward) = self.y.right_forward();
-        RobotPoint {
+        Vec3 {
             right: Length {
                 value: x.value * x_right + y.value * y_right,
                 ..Length::ZERO
@@ -85,48 +81,75 @@ impl<T> Vec3<T> {
     }
 }
 
-/// Sensor or wheel location relative to the chassis center of rotation.
-pub type RobotPoint = Vec3<Length>;
-
-impl RobotPoint {
-    /// The Origin, at the chassis center of rotation in the robot frame.
-    pub const ORIGIN: Self = Self {
-        right: Length::ZERO,
-        forward: Length::ZERO,
-        up: Length::ZERO,
-    };
-
+impl Vec3<Length> {
     /// Validates coordinates before a static mount is used.
     pub const fn is_finite(self) -> bool {
         self.right.value.is_finite() && self.forward.value.is_finite() && self.up.value.is_finite()
     }
+}
 
-    /// Adapts a horizontal distance beam to the canonical right/forward planar frame.
-    /// Zero bearing faces forward; positive bearing turns left about robot +Z.
-    /// Height remains in this point; tilted beams require a separate 3D model.
-    pub fn horizontal_range_mount(self, bearing_ccw_from_forward: Angle) -> Option<Mount> {
-        if ![
-            self.right.value,
-            self.forward.value,
-            self.up.value,
-            bearing_ccw_from_forward.value,
-        ]
-        .iter()
-        .all(|v| v.is_finite())
-        {
-            return None;
+/// Construct a compile-time `Vec3<Length>` in right, forward, up order.
+///
+/// Each coordinate is a signed numeric literal with its own unit. Supported
+/// units are `mm`, `cm`, `m`, `km`, `in`, `ft`, and `yd`.
+///
+/// ```
+/// use ozton_tracking::{mount::Vec3, position};
+/// use ozton_math::uom::si::f64::Length;
+///
+/// const SENSOR: Vec3<Length> = position!(-2 in, 0.1 m, 25 mm);
+/// assert_eq!(SENSOR.right.value, -0.0508);
+/// assert_eq!(SENSOR.forward.value, 0.1);
+/// assert_eq!(SENSOR.up.value, 0.025);
+/// ```
+#[macro_export]
+macro_rules! position {
+    ($right:literal $right_unit:ident, $forward:literal $forward_unit:ident, $up:literal $up_unit:ident $(,)?) => {
+        const {
+            $crate::mount::Vec3::new(
+                $crate::position!(@length $right $right_unit),
+                $crate::position!(@length $forward $forward_unit),
+                $crate::position!(@length $up $up_unit),
+            )
         }
-        Some(Mount::new(
-            self.right,
-            self.forward,
-            bearing_ccw_from_forward,
-        ))
-    }
+    };
+    (@length $value:literal $unit:ident) => {{
+        use $crate::mount::uom::{ConstZero, si::f64::Length};
+        let meters_per_unit = $crate::position!(@meters $unit);
+        Length {
+            value: ($value as f64) * meters_per_unit,
+            ..Length::ZERO
+        }
+    }};
+    (@meters mm) => {
+        0.001
+    };
+    (@meters cm) => {
+        0.01
+    };
+    (@meters m) => {
+        1.0
+    };
+    (@meters km) => {
+        1000.0
+    };
+    (@meters in) => {
+        0.0254
+    };
+    (@meters ft) => {
+        0.3048
+    };
+    (@meters yd) => {
+        0.9144
+    };
+    (@meters $unit:ident) => {
+        compile_error!(concat!("unsupported position unit: ", stringify!($unit)))
+    };
 }
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::{angle::radian, length::meter};
+    use ozton_math::uom::si::{angle::radian, f64::Angle, length::meter};
 
     use super::*;
 
@@ -156,21 +179,14 @@ mod tests {
                     Length::new::<meter>(0.0),
                     Length::new::<meter>(0.0)
                 ),
-                RobotPoint::ORIGIN
+                position!(0 m, 0 m, 0 m)
             );
             let point = axes.point(
                 Length::new::<meter>(x),
                 Length::new::<meter>(y),
                 Length::new::<meter>(0.3),
             );
-            assert_eq!(
-                point,
-                RobotPoint::new(
-                    Length::new::<meter>(-0.1),
-                    Length::new::<meter>(0.2),
-                    Length::new::<meter>(0.3)
-                )
-            );
+            assert_eq!(point, position!(-0.1 m, 0.2 m, 0.3 m));
 
             let yaw = 0.4;
             let delta = ozton_math::localization::odometry::body_delta(
@@ -189,64 +205,34 @@ mod tests {
     }
 
     #[test]
-    fn mounting_positions_convert_axes_without_losing_height() {
-        let point = RobotPoint::new(
-            Length::new::<meter>(-0.1),
-            Length::new::<meter>(0.2),
-            Length::new::<meter>(0.3),
+    fn range_mount_preserves_coordinates_and_bearing() {
+        use crate::localizer::RangeSensorConfig;
+
+        const MOUNT: RangeSensorConfig = RangeSensorConfig::at_mount(
+            position!(-2 in, 0.2 m, 30 cm),
+            Angle {
+                value: -core::f64::consts::FRAC_PI_2,
+                ..Angle::ZERO
+            },
         );
-        let mount = point
-            .horizontal_range_mount(Angle::new::<radian>(0.0))
-            .unwrap();
-        assert_eq!(mount.offset.x, -0.1);
-        assert_eq!(mount.offset.y, 0.2);
-        assert_eq!(mount.heading, 0.0);
-        assert_eq!(point.up, Length::new::<meter>(0.3));
-        assert_eq!(point.right.value, -0.1);
-        assert_eq!(point.forward.value, 0.2);
-        assert_eq!(RobotPoint::ORIGIN.right.value, 0.0);
+        assert_eq!(MOUNT.mount.offset.x, -0.0508);
+        assert_eq!(MOUNT.mount.offset.y, 0.2);
+        assert_eq!(MOUNT.mount_height.value, 0.3);
+        assert_eq!(MOUNT.mount.heading, -core::f64::consts::FRAC_PI_2);
     }
 
     #[test]
-    fn beam_bearings_and_invalid_coordinates_keep_explicit_semantics() {
-        let point = RobotPoint::ORIGIN;
-        assert_eq!(
-            point
-                .horizontal_range_mount(Angle::new::<radian>(-core::f64::consts::FRAC_PI_2))
-                .unwrap()
-                .heading,
-            -core::f64::consts::FRAC_PI_2
-        );
-        assert!(
-            point
-                .horizontal_range_mount(Angle::new::<radian>(f64::NAN))
-                .is_none()
-        );
+    fn invalid_coordinates_are_rejected_on_each_axis() {
+        assert!(position!(0 m, 0 m, 0 m).is_finite());
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(
-                !RobotPoint::new(
-                    Length::new::<meter>(invalid),
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(0.0)
-                )
-                .is_finite()
-            );
-            assert!(
-                !RobotPoint::new(
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(invalid),
-                    Length::new::<meter>(0.0)
-                )
-                .is_finite()
-            );
-            assert!(
-                !RobotPoint::new(
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(invalid)
-                )
-                .is_finite()
-            );
+            let invalid = Length::new::<meter>(invalid);
+            for point in [
+                Vec3::new(invalid, Length::ZERO, Length::ZERO),
+                Vec3::new(Length::ZERO, invalid, Length::ZERO),
+                Vec3::new(Length::ZERO, Length::ZERO, invalid),
+            ] {
+                assert!(!point.is_finite());
+            }
         }
     }
 }

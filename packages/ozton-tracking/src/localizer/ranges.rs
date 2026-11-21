@@ -18,7 +18,7 @@ use ozton_math::{
     },
 };
 
-use crate::mount::RobotPoint;
+use crate::mount::Vec3;
 
 pub const MAX_RANGES: usize = 8;
 
@@ -53,7 +53,7 @@ impl RangeSensorConfig {
     }
 
     /// Configure a horizontal beam from its chassis position and bearing.
-    pub const fn at_mount(position: RobotPoint, bearing: Angle) -> Self {
+    pub const fn at_mount(position: Vec3<Length>, bearing: Angle) -> Self {
         Self {
             mount_height: position.up,
             ..Self::new(Mount::new(position.right, position.forward, bearing))

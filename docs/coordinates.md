@@ -2,7 +2,7 @@
 
 **The Origin** is the chassis center of rotation at floor level. It is
 `(0, 0, 0)` in the robot frame and moves with the chassis. Measure each sensor
-and tracking-wheel mount directly from `RobotPoint::ORIGIN`. Odometry uses the
+and tracking-wheel mount directly from this point. Odometry uses the
 mount coordinates to calculate wheel lever arms about that same point.
 
 | Axis | Positive direction on the robot |
@@ -52,12 +52,16 @@ and [registering GPS](localization.md#register-gps).
 
 Use native `uom` types such as `ozton::uom::si::f64::Length` for physical
 settings. Construct quantities in the units you measured and pass them directly
-to Ozton. For constants, use a typed quantity literal with its value in the SI base unit.
+to Ozton. For constant mount positions, use `position!` with a unit on each
+coordinate. The macro returns a `Vec3<Length>` in right, forward, up order.
 
 ```rust
 # extern crate ozton;
 use ozton::math::geometry::Pose;
+use ozton::{position, tracking::mount::Vec3};
 use ozton::uom::si::{angle::degree, f64::{Angle, Length}, length::{inch, meter}};
+
+const SENSOR: Vec3<Length> = position!(-2 in, 0.12 m, 8 cm);
 
 let start = Pose::new(
     Length::new::<inch>(18.0),

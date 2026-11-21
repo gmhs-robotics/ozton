@@ -4,8 +4,8 @@ Start with geared drive encoders and a calibrated IMU. Add a forward tracking
 pod or lateral pod where wheel slip is significant. Supply calibrated pod
 travel as `Length` with `Sensors::with_forward_wheel` or
 `Sensors::with_lateral_wheel`. Set the corresponding offset in `TrackingSetup`.
-Measure from [The Origin](coordinates.md). Use `RobotPoint::right` for a
-forward pod and `RobotPoint::forward` for a lateral pod. Lateral travel is
+Measure from [The Origin](coordinates.md). Use the mount vector's `right` coordinate for a
+forward pod and its `forward` coordinate for a lateral pod. Lateral travel is
 positive to the right.
 Set `require_lateral` for robots that rely on measured sideways travel.
 Use `TrackingWheel::new` to pass the diameter and signed offset
@@ -21,7 +21,8 @@ and both sides remain observable.
 Pass stationary reflecting segments as the map.
 A mount uses X right, Y forward, and a CCW beam bearing from +Y.
 Pair each device with `RangeSensorConfig::at_mount(position, bearing)`. Use
-`RobotPoint::new(right, forward, up)` for the mounted position. The list order
+`position!(right, forward, up)` with a unit on each coordinate, such as
+`position!(-2 in, 0.1 m, 8 cm)`. The list order
 assigns zero-based indices.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
 `AutonomousControls::sample` when a mechanism blocks a beam. Use

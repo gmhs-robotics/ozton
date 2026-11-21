@@ -14,13 +14,14 @@ use ozton::{
         Alignment, AutonError, AutonomousControls, Command, ConfiguredChassis, DifferentialConfig,
         Feedback, Runner, TrackingSetup, chassis::ChassisError,
     },
+    position,
     runtime::{
         Robot, Subsystem, SubsystemList,
         clock::CONTROL_PERIOD,
         competition::{Autonomous, CompetitionControls, CompetitionRobot, RouteSet, Tick},
         diagnostics::{Frame, MotorSample, Report, Sample, Sampler},
     },
-    tracking::{localizer::RangeSensorConfig, mount::RobotPoint},
+    tracking::{localizer::RangeSensorConfig, mount::Vec3},
     uom::{
         ConstZero,
         si::{
@@ -64,14 +65,7 @@ const CONFIG: DifferentialConfig = {
     config.journal_capacity = 2048;
     config
 };
-const FRONT_MOUNT: RobotPoint = RobotPoint::new(
-    Length::ZERO,
-    Length {
-        value: 0.15,
-        ..Length::ZERO
-    },
-    Length::ZERO,
-);
+const FRONT_MOUNT: Vec3<Length> = position!(0 m, 0.15 m, 0 m);
 // `front` is the first (and only) range registered with `TrackingSetup` below.
 const FRONT_RANGE_INDEX: usize = 0;
 
