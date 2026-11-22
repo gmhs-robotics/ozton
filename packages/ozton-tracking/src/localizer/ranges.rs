@@ -149,7 +149,7 @@ pub(super) fn inspect(
                 * (sample.distance.value.abs() + sensor.mount.offset.length()))
             * age
             / dt.as_secs_f64();
-        if motion_during_age > sensor.gate.max_residual.value * 0.25 {
+        if motion_during_age > sensor.sigma.value * 2.0 {
             return Err(Rejection::Stale);
         }
         constrain_sample(pose, map, sensor, sample, age)
@@ -233,7 +233,6 @@ impl ResetWindow {
         map: &[Surface],
         sensors: &[RangeSensorConfig],
         reports: &[Option<RangeReport>; MAX_RANGES],
-        maximum: f64,
     ) -> ResetResult {
         let ResetTick {
             time: now,
@@ -302,7 +301,7 @@ impl ResetWindow {
             if axes < self.minimum_axes {
                 return ResetResult::Waiting;
             }
-            if change.length() <= maximum {
+            if change.is_finite() {
                 return ResetResult::Applied(
                     Pose {
                         position: pose.position + change,

@@ -236,9 +236,9 @@ impl SampleClock {
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_drivetrain::DriverTracking>(
+pub fn report_differential<T: ozton_drivetrain::DriverTracking, L>(
     frame: Frame,
-    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T>,
+    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
     use ozton_drivetrain::MotorGroups;
 

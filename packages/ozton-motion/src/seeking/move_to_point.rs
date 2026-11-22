@@ -18,7 +18,7 @@ use ozton_math::uom::si::{
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
+use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
 use vexide::{
     math::Angle,
     time::{Sleep, sleep},
@@ -33,11 +33,12 @@ pub(crate) struct State {
 
 /// Moves the robot to a point using two seeking feedback controllers.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct MoveToPointFuture<'a, M, L, A, T>
+pub struct MoveToPointFuture<'a, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     pub(crate) target_point: Vec2,
@@ -46,17 +47,18 @@ where
     pub(crate) tolerances: Tolerances<Linear>,
     pub(crate) linear_controller: L,
     pub(crate) lateral_controller: A,
-    pub(crate) drivetrain: &'a mut Drivetrain<M, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
     pub(crate) state: Option<State>,
 }
 
 // MARK: Future Poll
 
-impl<M, L, A, T> Drop for MoveToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> Drop for MoveToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     fn drop(&mut self) {
@@ -66,11 +68,12 @@ where
     }
 }
 
-impl<M, L, A, T> Future for MoveToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> Future for MoveToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
@@ -98,8 +101,8 @@ where
         let now = Instant::now();
         let dt = now.saturating_duration_since(state.prev_time);
 
-        let position = this.drivetrain.tracking.position();
-        let heading = this.drivetrain.tracking.heading();
+        let position = this.drivetrain.localization.position();
+        let heading = this.drivetrain.localization.heading();
 
         let local_target = this.target_point - position;
         let mut distance_error = local_target.length();
@@ -107,7 +110,7 @@ where
         let settled = this.tolerances.check_with(
             &mut state.settling,
             Length::new::<meter>(distance_error),
-            Velocity::new::<meter_per_second>(this.drivetrain.tracking.linear_velocity()),
+            Velocity::new::<meter_per_second>(this.drivetrain.localization.linear_velocity()),
             now,
         );
         let timed_out = this
@@ -186,11 +189,12 @@ where
 
 // MARK: Generic Modifiers
 
-impl<M, L, A, T> MoveToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> MoveToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     /// Reverses this motion, moving to the point backwards rather than forwards.
@@ -268,10 +272,11 @@ where
 
 // MARK: Linear PID Modifiers
 
-impl<M, A, T> MoveToPointFuture<'_, M, Pid, A, T>
+impl<M, A, S, T> MoveToPointFuture<'_, M, Pid, A, S, T>
 where
     M: Arcade,
     A: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     /// Modifies this motion's linear PID gains.
@@ -326,10 +331,11 @@ where
 
 // MARK: Angular PID Modifiers
 
-impl<M, L, T> MoveToPointFuture<'_, M, L, Pid, T>
+impl<M, L, S, T> MoveToPointFuture<'_, M, L, Pid, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
     /// Modifies this motion's lateral PID gains.

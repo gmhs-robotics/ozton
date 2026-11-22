@@ -18,7 +18,7 @@
 //! drivetrains with tracking systems that measure a robot's forward wheel travel:
 //!
 //! ```ignore
-//! async fn motion(drivetrain: &mut Drivetrain<Differential, impl TracksForwardTravel>) {
+//! async fn motion(drivetrain: &mut Drivetrain<Differential, impl Tracking, impl TracksForwardTravel>) {
 //!     // Motion goes here...
 //! }
 //! ```
@@ -43,8 +43,10 @@ macro_rules! log {
     };
 }
 
+pub mod field;
 pub mod gps;
 pub mod localizer;
+pub mod sampling;
 mod sensor;
 pub mod wheeled;
 

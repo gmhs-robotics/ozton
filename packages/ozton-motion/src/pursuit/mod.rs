@@ -8,7 +8,7 @@ use std::time::Duration;
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drivetrain, model::Tank};
 use ozton_math::uom::si::f64::Length;
-use ozton_tracking::{TracksHeading, TracksPosition};
+use ozton_tracking::{Tracking, TracksHeading, TracksPosition};
 
 mod follow;
 pub use follow::PurePursuitFuture;
@@ -57,12 +57,13 @@ impl PurePursuit {
         'a,
         M: Tank,
         I: Iterator<Item = Waypoint> + Unpin,
+        S: Tracking,
         T: TracksPosition + TracksHeading,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         waypoints: impl IntoIterator<Item = Waypoint, IntoIter = I>,
-    ) -> PurePursuitFuture<'a, M, T, I> {
+    ) -> PurePursuitFuture<'a, M, S, T, I> {
         PurePursuitFuture {
             drivetrain,
             state: None,

@@ -84,7 +84,7 @@ impl CurvatureDrive {
     ///
     /// fn drive_tick(
     ///     curvature: &mut CurvatureDrive,
-    ///     drivetrain: &mut Drivetrain<Differential, NoTracking>,
+    ///     drivetrain: &mut Drivetrain<Differential, NoTracking, ()>,
     ///     controller: &Controller,
     /// ) -> Result<(), PortError> {
     ///     let Ok(state) = controller.state() else {
@@ -95,7 +95,7 @@ impl CurvatureDrive {
     /// ```
     pub fn update<M: Arcade>(
         &mut self,
-        drivetrain: &mut Drivetrain<M, impl Tracking>,
+        drivetrain: &mut Drivetrain<M, impl Tracking, impl Sized>,
         throttle: f64,
         turn: f64,
     ) -> Result<(), M::Error> {

@@ -172,10 +172,11 @@ impl TracksForwardTravel for MockTracking {
     }
 }
 
-fn new_drivetrain() -> Drivetrain<MockArcadeModel, MockTracking> {
+fn new_drivetrain() -> Drivetrain<MockArcadeModel, (), MockTracking> {
     let state = Rc::new(RefCell::new(SimState::new(3.5, 5.0)));
     Drivetrain::new(
         MockArcadeModel::new(state.clone()),
+        (),
         MockTracking::new(state),
     )
 }
@@ -254,9 +255,9 @@ fn basic_motion_reaches_distance_and_heading_goals() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.tracking.position();
-    let final_heading = drivetrain.tracking.heading().as_radians();
-    let final_velocity = drivetrain.tracking.linear_velocity();
+    let final_position = drivetrain.localization.position();
+    let final_heading = drivetrain.localization.heading().as_radians();
+    let final_velocity = drivetrain.localization.linear_velocity();
 
     assert!(
         (final_position.y - 1.2).abs() < 0.08,
@@ -307,9 +308,9 @@ fn seeking_motion_reaches_multiple_waypoints() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.tracking.position();
-    let final_heading = drivetrain.tracking.heading().as_radians();
-    let final_velocity = drivetrain.tracking.linear_velocity();
+    let final_position = drivetrain.localization.position();
+    let final_heading = drivetrain.localization.heading().as_radians();
+    let final_velocity = drivetrain.localization.linear_velocity();
 
     assert!(
         final_position.distance(Vec2::new(-1.4, 0.4)) < 0.09,
@@ -340,7 +341,7 @@ fn reverse_seeking_drives_backward_to_target() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.tracking.position();
+    let final_position = drivetrain.localization.position();
     let drove_backward = drivetrain.model.state.borrow().drove_backward;
     assert!(
         final_position.distance(Vec2::new(0.0, 1.0)) < 0.1,

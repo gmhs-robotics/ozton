@@ -10,7 +10,9 @@ use ozton_math::uom::si::{
     f64::{Angle as UnitAngle, Length},
     length::meter,
 };
-use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
+use ozton_tracking::{
+    Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+};
 use vexide::math::Angle;
 
 mod drive;
@@ -54,13 +56,14 @@ where
     pub fn drive_distance_at_heading<
         'a,
         M: Arcade,
+        S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         target_distance: Length,
         target_heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T> {
         DriveFuture {
             target_distance: target_distance.value,
             target_heading: Angle::from_radians(target_heading.value),
@@ -80,16 +83,17 @@ where
     pub fn drive_distance<
         'a,
         M: Arcade,
+        S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         distance: Length,
-    ) -> DriveFuture<'a, M, L, A, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T> {
         self.drive_distance_at_heading(
             drivetrain,
             distance,
-            UnitAngle::new::<radian>(drivetrain.tracking.heading().as_radians()),
+            UnitAngle::new::<radian>(drivetrain.localization.heading().as_radians()),
         )
     }
 
@@ -97,12 +101,13 @@ where
     pub fn turn_to_heading<
         'a,
         M: Arcade,
+        S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T> {
         self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
     }
 
@@ -110,12 +115,13 @@ where
     pub fn turn_to_point<
         'a,
         M: Arcade,
+        S: Tracking,
         T: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         point: [Length; 2],
-    ) -> TurnToPointFuture<'a, M, L, A, T> {
+    ) -> TurnToPointFuture<'a, M, L, A, S, T> {
         TurnToPointFuture {
             point: Vec2::from_array(point.map(|length| length.value)),
             timeout: self.timeout,

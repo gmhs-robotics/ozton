@@ -12,10 +12,8 @@ use ozton_math::{
     },
     uom::si::{
         angle::radian,
-        angular_velocity::radian_per_second,
-        f64::{Angle, AngularVelocity, Length, Velocity},
+        f64::{Angle, Length},
         length::meter,
-        velocity::meter_per_second,
     },
 };
 use ozton_tracking::localizer::{
@@ -111,14 +109,11 @@ fn main() {
                 track_width: Length::new::<meter>(0.3),
                 forward_offset: Length::new::<meter>(0.0),
                 lateral_offset: Length::new::<meter>(0.0),
-                require_lateral: false,
-                max_linear_speed: Velocity::new::<meter_per_second>(3.0),
-                max_angular_speed: AngularVelocity::new::<radian_per_second>(12.0),
+
                 max_gap: Duration::from_millis(100),
             },
             estimator,
             shadow: false,
-            max_correction: Length::new::<meter>(0.25),
         };
         let mut localizer = Localizer::new(config, Pose::default(), &map, &sensors).unwrap();
         if name.starts_with("driver") {

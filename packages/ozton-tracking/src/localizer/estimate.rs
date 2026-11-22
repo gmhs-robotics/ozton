@@ -29,7 +29,6 @@ pub struct Observations<'a> {
     pub sensors: &'a [RangeSensorConfig],
     pub reports: &'a [Option<RangeReport>; MAX_RANGES],
     pub map: &'a [Surface],
-    pub maximum_correction: f64,
 }
 
 impl<'a> Observations<'a> {

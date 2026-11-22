@@ -11,7 +11,7 @@ use ozton_math::{
         ConstZero,
         si::{
             angle::radian,
-            f64::{Angle, AngularVelocity, Length, Time, Velocity},
+            f64::{Angle, Length, Time},
             length::meter,
             time::second,
         },
@@ -32,15 +32,7 @@ const CONFIG: OdometryConfig = OdometryConfig {
     },
     forward_offset: Length::ZERO,
     lateral_offset: Length::ZERO,
-    require_lateral: false,
-    max_linear_speed: Velocity {
-        value: 3.0,
-        ..Velocity::ZERO
-    },
-    max_angular_speed: AngularVelocity {
-        value: 8.0,
-        ..AngularVelocity::ZERO
-    },
+
     max_gap: Duration::from_millis(100),
 };
 const MAP: [Surface; 2] = [
@@ -115,7 +107,6 @@ fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
             odometry: CONFIG,
             estimator,
             shadow,
-            max_correction: Length::new::<meter>(0.2),
         },
         Pose::new(
             Length::new::<meter>(-0.08),
@@ -232,41 +223,24 @@ fn full_dsr_waits_for_second_axis_and_retains_requirement_after_motion() {
 }
 
 #[test]
-fn rejected_full_dsr_does_not_downgrade_to_a_partial_retry() {
-    use ozton_tracking::localizer::Correction;
-    let mut tracking = localizer(Estimator::Odometry, false);
-    tracking.update(snapshot(10), &[]).unwrap_err();
-    assert!(tracking.request_distance_reset_axes(2));
-    let mut rejected = false;
-    for time in (20..=190).step_by(10) {
-        tracking.request_distance_reset();
-        let large = Some(RangeObservation {
-            distance: Length::new::<meter>(1.09),
+fn coherent_wall_reset_can_correct_a_large_pose_error() {
+    let mut localization = localizer(Estimator::Odometry, false);
+    localization.update(snapshot(10), &[]).unwrap_err();
+    assert!(localization.request_distance_reset_axes(2));
+    let before = localization.pose();
+    for time in (20..=210).step_by(10) {
+        let farther = Some(RangeObservation {
+            distance: Length::new::<meter>(1.45),
             ..reading(time, false).unwrap()
         });
-        let update = tracking.update(snapshot(time), &[large; 2]).unwrap();
-        rejected |= matches!(update.correction, Correction::Rejected);
-        assert!(!update.distance_reset);
+        let update = localization.update(snapshot(time), &[farther; 2]).unwrap();
+        if update.distance_reset {
+            assert_eq!(update.distance_reset_axes, 2);
+            assert!(update.pose.position.distance(before.position) > 0.5);
+            return;
+        }
     }
-    assert!(
-        rejected,
-        "two-axis correction exceeds the total displacement bound"
-    );
-    for time in (200..=450).step_by(10) {
-        tracking.request_distance_reset();
-        assert!(
-            !tracking
-                .update(snapshot(time), &[reading(time, false), None])
-                .unwrap()
-                .distance_reset
-        );
-    }
-    tracking.request_distance_reset();
-    let complete = tracking
-        .update(snapshot(460), &[reading(460, false); 2])
-        .unwrap();
-    assert!(complete.distance_reset);
-    assert_eq!(complete.distance_reset_axes, 2);
+    panic!("coherent range readings should correct the pose");
 }
 
 #[test]
@@ -316,6 +290,40 @@ fn both_estimators_improve_a_known_bias_and_shadow_never_moves_the_output() {
 }
 
 #[test]
+fn mcl_uses_ranges_to_recover_unmeasured_lateral_motion() {
+    let mut localization = localizer(Estimator::Mcl(ParticleConfig::default()), false);
+    assert!(localization.set_pose(Pose::default()));
+    localization
+        .update(
+            Snapshot {
+                time: Duration::from_millis(10),
+                ..Snapshot::default()
+            },
+            &[],
+        )
+        .unwrap_err();
+    for time in (20..=610).step_by(30) {
+        let raw = Snapshot {
+            time: Duration::from_millis(time),
+            ..Snapshot::default()
+        };
+        let left = Some(RangeObservation {
+            distance: Length::new::<meter>(0.55),
+            ..reading(time - 1, false).unwrap()
+        });
+        localization
+            .update(raw, &[reading(time - 1, false), left])
+            .unwrap();
+    }
+    assert!(
+        (localization.pose().position.x + 0.45).abs() < 0.12,
+        "{:?}",
+        localization.pose()
+    );
+    assert!(localization.pose().position.y.abs() < 0.12);
+}
+
+#[test]
 fn relative_alignment_does_not_depend_on_pose_association() {
     let raw = reading(15, false).unwrap();
     let now = Duration::from_millis(20);
@@ -337,30 +345,29 @@ fn relative_alignment_does_not_depend_on_pose_association() {
         SENSOR.relative_distance(raw, Duration::from_secs(1)),
         Err(Rejection::Stale)
     );
-    assert_eq!(
-        ozton_math::localization::range::constrain(
-            Pose::new(
-                Length::new::<meter>(0.0),
-                Length::new::<meter>(0.5),
-                Angle::new::<radian>(0.0)
-            ),
-            SENSOR.mount,
-            ozton_math::localization::range::RangeReading {
-                distance: Length::new::<meter>(1.0),
-                confidence: 1.0,
-                age: Time::new::<second>(0.005),
-                occluded: false,
-            },
-            SENSOR.gate,
-            &MAP,
-            Some(0),
+    let constraint = ozton_math::localization::range::constrain(
+        Pose::new(
+            Length::new::<meter>(0.0),
+            Length::new::<meter>(0.5),
+            Angle::new::<radian>(0.0),
         ),
-        Err(Rejection::Residual)
-    );
+        SENSOR.mount,
+        ozton_math::localization::range::RangeReading {
+            distance: Length::new::<meter>(1.0),
+            confidence: 1.0,
+            age: Time::new::<second>(0.005),
+            occluded: false,
+        },
+        SENSOR.gate,
+        &MAP,
+        Some(0),
+    )
+    .unwrap();
+    assert!((constraint.residual - 0.5).abs() < 1e-12);
 }
 
 #[test]
-fn zero_track_width_requires_imu_instead_of_guessing_wheel_heading() {
+fn zero_track_width_preserves_heading_and_uses_available_travel() {
     let mut config = CONFIG;
     config.track_width = Length::new::<meter>(0.0);
     let mut tracker = Localizer::new(
@@ -368,7 +375,6 @@ fn zero_track_width_requires_imu_instead_of_guessing_wheel_heading() {
             odometry: config,
             estimator: Estimator::Odometry,
             shadow: false,
-            max_correction: Length::new::<meter>(0.2),
         },
         Pose::default(),
         &[],
@@ -378,7 +384,7 @@ fn zero_track_width_requires_imu_instead_of_guessing_wheel_heading() {
     tracker.update(snapshot(10), &[]).unwrap_err();
     let mut missing = snapshot(20);
     missing.imu = None;
-    assert_eq!(tracker.update(missing, &[]).unwrap_err(), Fault::Heading);
+    assert_eq!(tracker.update(missing, &[]).unwrap().pose.heading, 0.0);
 }
 
 #[test]
@@ -408,7 +414,6 @@ fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range()
             odometry: CONFIG,
             estimator: Estimator::Odometry,
             shadow: false,
-            max_correction: Length::new::<meter>(0.2),
         },
         Pose::default(),
         &map,
@@ -504,7 +509,6 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
                 odometry: CONFIG,
                 estimator: Estimator::Odometry,
                 shadow: false,
-                max_correction: Length::new::<meter>(0.2),
             },
             Pose::default(),
             &map,
@@ -559,7 +563,6 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
             odometry: CONFIG,
             estimator: Estimator::Mcl(ParticleConfig::default()),
             shadow: false,
-            max_correction: Length::new::<meter>(0.2),
         },
         Pose::new(
             Length::new::<meter>(0.0),
@@ -585,47 +588,23 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
 }
 
 #[test]
-fn typed_estimators_compose_with_shared_or_private_ranges() {
-    use ozton_tracking::localizer::{Ekf, Mcl, PoseTrust, Tracking};
-
+fn typed_estimators_keep_pose_trust_when_switching() {
+    use ozton_tracking::localizer::{Ekf, Mcl, PoseTrust};
     let base = localizer(Estimator::Odometry, false);
     let pose = base.pose();
-    let mut tracker = Tracking::new(base)
-        .with_distances("shared front and left range source")
-        .with_mcl(Mcl::new(pose, ParticleConfig::default()).unwrap());
-    assert_eq!(tracker.distances, "shared front and left range source");
-    assert_eq!(tracker.localizer.estimator_name(), "MCL");
-    assert!(tracker.localizer.set_pose(pose));
-    assert_eq!(
-        tracker.localizer.update(snapshot(10), &[]).unwrap_err(),
-        Fault::Initializing
-    );
-    assert!(tracker.localizer.update(snapshot(20), &[]).is_ok());
-    assert_eq!(tracker.localizer.pose_trust(), PoseTrust::Trusted);
+    let mut localization = base.with_filter(Mcl::new(pose, ParticleConfig::default()).unwrap());
+    assert_eq!(localization.estimator_name(), "MCL");
+    assert!(localization.set_pose(pose));
+    assert!(matches!(
+        localization.update(snapshot(10), &[]),
+        Err(Fault::Initializing)
+    ));
+    assert!(localization.update(snapshot(20), &[]).is_ok());
 
-    let mut tracker = tracker.with_ekf(Ekf::new(pose, EkfConfig::default()).unwrap());
-    assert_eq!(tracker.distances, "shared front and left range source");
-    assert_eq!(tracker.localizer.estimator_name(), "EKF");
-    assert_eq!(tracker.localizer.pose_trust(), PoseTrust::Trusted);
-    assert!(tracker.localizer.update(snapshot(30), &[]).is_ok());
-
-    // A sole consumer may own its source directly and feed the observations.
-    let mut tracker = Tracking::new(localizer(Estimator::Odometry, false))
-        .with_ekf(Ekf::new(pose, EkfConfig::default()).unwrap());
-    let () = tracker.distances;
-    assert!(tracker.localizer.set_pose(pose));
-    assert!(
-        tracker
-            .localizer
-            .update(snapshot(10), &[reading(10, false)])
-            .is_err()
-    );
-    assert!(
-        tracker
-            .localizer
-            .update(snapshot(20), &[reading(20, false)])
-            .is_ok()
-    );
+    let mut localization = localization.with_filter(Ekf::new(pose, EkfConfig::default()).unwrap());
+    assert_eq!(localization.estimator_name(), "EKF");
+    assert_eq!(localization.pose_trust(), PoseTrust::Trusted);
+    assert!(localization.update(snapshot(30), &[]).is_ok());
 }
 
 #[test]

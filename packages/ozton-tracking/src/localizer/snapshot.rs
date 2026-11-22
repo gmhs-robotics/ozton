@@ -7,7 +7,7 @@ use ozton_math::{
     localization::odometry::body_delta,
     uom::si::{
         angle::radian,
-        f64::{Angle, AngularVelocity, Length, Velocity},
+        f64::{Angle, Length},
         length::meter,
     },
 };
@@ -34,67 +34,37 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, Copy)]
 pub struct OdometryConfig {
-    /// Zero requires IMU heading and both drive encoders; positive enables wheel fallback.
+    /// A positive width lets the left/right encoder difference estimate yaw.
     pub track_width: Length,
     /// X-right position of a forward wheel from The Origin.
     pub forward_offset: Length,
     /// Y-forward position of a right-positive lateral wheel from The Origin.
     pub lateral_offset: Length,
-    /// Require lateral feedback, e.g. on a holonomic drivetrain.
-    pub require_lateral: bool,
-    pub max_linear_speed: Velocity,
-    pub max_angular_speed: AngularVelocity,
     pub max_gap: Duration,
 }
 
 impl OdometryConfig {
-    /// Set limits for a tracker whose wheel layout supplies its own geometry.
-    /// Require lateral travel for a robot that can move sideways.
-    pub const fn for_mounted_wheels(
-        max_linear_speed: Velocity,
-        max_angular_speed: AngularVelocity,
-        max_gap: Duration,
-        require_lateral: bool,
-    ) -> Self {
+    pub const fn for_mounted_wheels(max_gap: Duration) -> Self {
         use ozton_math::uom::ConstZero;
-
-        Self::from_units(
-            Length::ZERO,
-            Length::ZERO,
-            Length::ZERO,
-            require_lateral,
-            max_linear_speed,
-            max_angular_speed,
-            max_gap,
-        )
+        Self::from_units(Length::ZERO, Length::ZERO, Length::ZERO, max_gap)
     }
 
-    /// Creates odometry settings from physical lengths, speeds, and the sample gap.
     pub const fn from_units(
         track_width: Length,
         forward_offset: Length,
         lateral_offset: Length,
-        require_lateral: bool,
-        max_linear_speed: Velocity,
-        max_angular_speed: AngularVelocity,
         max_gap: Duration,
     ) -> Self {
         Self {
             track_width,
             forward_offset,
             lateral_offset,
-            require_lateral,
-            max_linear_speed,
-            max_angular_speed,
             max_gap,
         }
     }
 
     pub fn is_valid(self) -> bool {
-        [self.max_linear_speed.value, self.max_angular_speed.value]
-            .iter()
-            .all(|value| value.is_finite() && *value > 0.0)
-            && self.track_width.value.is_finite()
+        self.track_width.value.is_finite()
             && self.track_width.value >= 0.0
             && self.forward_offset.value.is_finite()
             && self.lateral_offset.value.is_finite()
@@ -129,58 +99,43 @@ pub(crate) fn delta(
     config: OdometryConfig,
 ) -> Result<(BodyDelta, Duration), Fault> {
     let dt = interval(previous, next, config)?;
-    let seconds = dt.as_secs_f64();
-    let limit = (config.max_linear_speed.value
-        + config.max_angular_speed.value * config.track_width.value / 2.0)
-        * seconds;
-    let travel = |before: Option<Length>, after: Option<Length>, max: f64| {
+    let travel = |before: Option<Length>, after: Option<Length>| {
         let change = after?.value - before?.value;
-        (change.is_finite() && change.abs() <= max).then_some(change)
+        change.is_finite().then_some(change)
     };
-    let [left, right] = [0, 1].map(|index| travel(previous.drive[index], next.drive[index], limit));
+    let [left, right] = [0, 1].map(|index| travel(previous.drive[index], next.drive[index]));
     let heading = previous
         .imu
         .zip(next.imu)
-        .map(|(before, after)| wrap_heading(Angle::new::<radian>(after.value - before.value)))
-        .filter(|angle| angle.abs() <= config.max_angular_speed.value * seconds)
+        .map(|(before, after)| wrap_heading(after - before))
+        .filter(|angle| angle.is_finite())
         .or_else(|| {
-            if config.track_width.value == 0.0 {
-                return None;
-            }
-            Some((right? - left?) / config.track_width.value)
-                .filter(|angle| angle.abs() <= config.max_angular_speed.value * seconds)
-        })
-        .ok_or(Fault::Heading)?;
-    let forward = travel(
-        previous.forward,
-        next.forward,
-        (config.max_linear_speed.value
-            + config.max_angular_speed.value * config.forward_offset.value.abs())
-            * seconds,
-    )
-    .map(|distance| (distance, config.forward_offset.value))
-    .or(match (left, right) {
-        (Some(left), Some(right)) => Some(((left + right) * 0.5, 0.0)),
-        (Some(left), None) if config.track_width.value > 0.0 => {
-            Some((left, -config.track_width.value * 0.5))
-        }
-        (None, Some(right)) if config.track_width.value > 0.0 => {
-            Some((right, config.track_width.value * 0.5))
-        }
-        _ => None,
-    })
-    .ok_or(Fault::Forward)?;
-    let lateral = travel(
-        previous.lateral,
-        next.lateral,
-        (config.max_linear_speed.value
-            + config.max_angular_speed.value * config.lateral_offset.value.abs())
-            * seconds,
-    )
-    .map(|distance| (distance, config.lateral_offset.value));
-    if config.require_lateral && lateral.is_none() {
-        return Err(Fault::Lateral);
+            (config.track_width.value > 0.0)
+                .then(|| Some((right? - left?) / config.track_width.value))
+                .flatten()
+                .filter(|angle| angle.is_finite())
+        });
+    let forward = travel(previous.forward, next.forward)
+        .map(|distance| (distance, config.forward_offset.value))
+        .or(match (left, right) {
+            (Some(left), Some(right)) => Some(((left + right) * 0.5, 0.0)),
+            (Some(left), None) => Some((left, -config.track_width.value * 0.5)),
+            (None, Some(right)) => Some((right, config.track_width.value * 0.5)),
+            _ => None,
+        });
+    let lateral = travel(previous.lateral, next.lateral)
+        .map(|distance| (distance, config.lateral_offset.value));
+    if heading.is_none() && forward.is_none() && lateral.is_none() {
+        return Ok((
+            BodyDelta {
+                translation: glam::DVec2::ZERO,
+                heading: 0.0,
+            },
+            dt,
+        ));
     }
+    let heading = heading.unwrap_or_default();
+    let forward = forward.unwrap_or_default();
     let lengths = |(travel, offset)| (Length::new::<meter>(travel), Length::new::<meter>(offset));
     Ok((
         body_delta(

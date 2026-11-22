@@ -1,5 +1,4 @@
 //! Continuous side odometry from all drive motors, with reconnect baselines.
-use core::time::Duration;
 
 use ozton_math::uom::si::{
     f64::{Length, Velocity},
@@ -28,11 +27,7 @@ impl Default for EncoderConsensus {
     }
 }
 impl EncoderConsensus {
-    pub fn sample(
-        &mut self,
-        samples: &[Option<WheelFeedback>],
-        dt: Duration,
-    ) -> Option<WheelFeedback> {
+    pub fn sample(&mut self, samples: &[Option<WheelFeedback>]) -> Option<WheelFeedback> {
         if samples.len() > MAX_SIDE_MOTORS {
             return None;
         }
@@ -42,17 +37,14 @@ impl EncoderConsensus {
         let mut count = 0;
         let mut velocity_count = 0;
         for (index, sample) in samples.iter().enumerate() {
-            let valid = sample.filter(|s| {
-                s.position.value.is_finite()
-                    && s.velocity.value.is_finite()
-                    && s.velocity.value.abs() <= 10.0
-            });
+            let valid =
+                sample.filter(|s| s.position.value.is_finite() && s.velocity.value.is_finite());
             if let Some(sample) = valid {
                 speeds[velocity_count] = sample.velocity.value;
                 velocity_count += 1;
                 if let Some(last) = self.previous[index] {
                     let delta = sample.position.value - last;
-                    if delta.abs() <= 10.0 * dt.as_secs_f64() + 0.005 {
+                    if delta.is_finite() {
                         deltas[count] = delta;
                         count += 1;
                     }
@@ -104,9 +96,8 @@ mod tests {
     #[test]
     fn separate_zeros_loss_rejoin_and_outlier_preserve_continuous_travel() {
         let mut side = EncoderConsensus::default();
-        let dt = Duration::from_millis(100);
         assert_eq!(
-            side.sample(&[sample(10.0), sample(-3.0), sample(5.0)], dt)
+            side.sample(&[sample(10.0), sample(-3.0), sample(5.0)])
                 .unwrap()
                 .position
                 .value,
@@ -114,7 +105,7 @@ mod tests {
         );
         assert!(
             (side
-                .sample(&[sample(10.01), sample(-2.99), sample(5.9)], dt)
+                .sample(&[sample(10.01), sample(-2.99), sample(5.9)])
                 .unwrap()
                 .position
                 .value
@@ -124,7 +115,7 @@ mod tests {
         );
         assert!(
             (side
-                .sample(&[None, sample(-2.98), sample(5.91)], dt)
+                .sample(&[None, sample(-2.98), sample(5.91)])
                 .unwrap()
                 .position
                 .value
@@ -134,7 +125,7 @@ mod tests {
         );
         assert!(
             (side
-                .sample(&[sample(0.0), sample(-2.97), sample(5.92)], dt)
+                .sample(&[sample(0.0), sample(-2.97), sample(5.92)])
                 .unwrap()
                 .position
                 .value
@@ -142,10 +133,10 @@ mod tests {
                 .abs()
                 < 1e-9
         );
-        assert!(side.sample(&[None, None, None], dt).is_none());
+        assert!(side.sample(&[None, None, None]).is_none());
         assert!(
             (side
-                .sample(&[sample(2.0), sample(5.0), sample(-1.0)], dt)
+                .sample(&[sample(2.0), sample(5.0), sample(-1.0)])
                 .unwrap()
                 .position
                 .value
@@ -157,8 +148,7 @@ mod tests {
     #[test]
     fn two_disagreeing_encoders_are_unavailable() {
         let mut side = EncoderConsensus::default();
-        let dt = Duration::from_millis(100);
-        side.sample(&[sample(0.0), sample(0.0)], dt);
-        assert!(side.sample(&[sample(0.1), sample(0.0)], dt).is_none());
+        side.sample(&[sample(0.0), sample(0.0)]);
+        assert!(side.sample(&[sample(0.1), sample(0.0)]).is_none());
     }
 }

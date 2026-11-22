@@ -21,7 +21,7 @@ use ozton_math::{
 use ozton_tracking::{
     TracksForwardTravel,
     localizer::{
-        Correction, Fault, Filter, MAX_RANGES, PoseEstimator, Snapshot, Tracking, Update,
+        Correction, Fault, Filter, Localizer, MAX_RANGES, PoseEstimator, Snapshot, Update,
         vex::{Distances, SharedSensors},
     },
 };
@@ -51,9 +51,15 @@ impl WheelControl {
     }
 }
 
+pub(super) struct ChassisSensors {
+    pub(super) sensors: SharedSensors,
+    pub(super) distances: Distances,
+}
+
+impl ozton_tracking::Tracking for ChassisSensors {}
+
 pub struct Chassis<'a, E: PoseEstimator = Filter> {
-    pub(super) drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
-    sensors: SharedSensors,
+    pub(super) drivetrain: Drivetrain<Differential, ChassisSensors, Localizer<'a, E>>,
     pub journal: Journal,
     control: WheelControl,
     wheels: [Option<WheelFeedback>; 2],
@@ -66,18 +72,16 @@ pub struct Chassis<'a, E: PoseEstimator = Filter> {
 }
 
 impl<'a, E: PoseEstimator> Chassis<'a, E> {
-    pub fn new(
-        drivetrain: Drivetrain<Differential, Tracking<'a, E, Distances>>,
-        sensors: SharedSensors,
+    pub(super) fn new(
+        drivetrain: Drivetrain<Differential, ChassisSensors, Localizer<'a, E>>,
         control: WheelControl,
         journal_capacity: usize,
     ) -> Option<Self> {
-        if drivetrain.tracking.distances.len() != drivetrain.tracking.localizer.range_count() {
+        if drivetrain.tracking.distances.len() != drivetrain.localization.range_count() {
             return None;
         }
         Some(Self {
             drivetrain,
-            sensors,
             journal: Journal::new(if cfg!(feature = "logging") {
                 journal_capacity
             } else {
@@ -95,26 +99,25 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     }
 
     pub fn pose_trusted(&self) -> bool {
-        self.drivetrain.tracking.localizer.pose_trust()
-            == ozton_tracking::localizer::PoseTrust::Trusted
+        self.drivetrain.localization.pose_trust() == ozton_tracking::localizer::PoseTrust::Trusted
     }
 
     pub fn cancel_distance_reset(&mut self) {
-        self.drivetrain.tracking.localizer.cancel_distance_reset();
+        self.drivetrain.localization.cancel_distance_reset();
     }
 
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
         self.wheels = self.drivetrain.sample_feedback();
-        self.sensors.refresh_orientation();
-        let (snapshot, ranges) = self.sensors.capture_with_distances(
+        self.drivetrain.tracking.sensors.refresh_orientation();
+        let (snapshot, ranges) = self.drivetrain.tracking.sensors.capture_with_distances(
             &mut self.drivetrain.tracking.distances,
             self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),
             occluded,
         );
         self.time = snapshot.time;
         self.last_snapshot = Some(snapshot);
-        let update = match self.drivetrain.tracking.localizer.update(snapshot, &ranges) {
+        let update = match self.drivetrain.localization.update(snapshot, &ranges) {
             Ok(update) => update,
             Err(Fault::Initializing) => return Ok(None),
             Err(fault) => {
@@ -126,11 +129,11 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         self.tracking_status = if update.distance_reset {
             "Distance reset accepted"
         } else {
-            self.drivetrain.tracking.localizer.estimator_name()
+            self.drivetrain.localization.estimator_name()
         };
         for (index, latest) in self.range.iter_mut().enumerate() {
             let candidate = ranges[index].and_then(|reading| {
-                let config = self.drivetrain.tracking.localizer.range_config(index)?;
+                let config = self.drivetrain.localization.range_config(index)?;
                 let distance = config.relative_distance(reading, self.time).ok()?;
                 Some(RangeFeedback {
                     distance,
@@ -148,9 +151,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             pose: update.pose,
             forward_velocity: Velocity::new::<meter_per_second>(update.forward_velocity),
             lateral_velocity: Velocity::new::<meter_per_second>(update.lateral_velocity),
-            forward_travel: Length::new::<meter>(
-                self.drivetrain.tracking.localizer.forward_travel(),
-            ),
+            forward_travel: Length::new::<meter>(self.drivetrain.localization.forward_travel()),
             angular_velocity: AngularVelocity::new::<radian_per_second>(update.angular_velocity),
             ranges: self.range,
             reset_accepted: update.distance_reset,
@@ -235,8 +236,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     pub fn set_pose(&mut self, pose: Pose) -> Result<(), ChassisError> {
         self.range.fill(None);
         self.drivetrain
-            .tracking
-            .localizer
+            .localization
             .set_pose(pose)
             .then_some(())
             .ok_or(ChassisError::InvalidCommand)
@@ -291,7 +291,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     }
 
     pub fn request_distance_reset(&mut self) {
-        self.drivetrain.tracking.localizer.request_distance_reset();
+        self.drivetrain.localization.request_distance_reset();
     }
 
     pub fn log_step(
@@ -397,7 +397,6 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 Err(Rejection::WrongSurface) => "wrong_surface",
                 Err(Rejection::NearEdge) => "near_edge",
                 Err(Rejection::Grazing) => "grazing",
-                Err(Rejection::Residual) => "residual",
                 Err(Rejection::Uncertain) => "uncertain",
             };
             self.journal.push(Event::new(

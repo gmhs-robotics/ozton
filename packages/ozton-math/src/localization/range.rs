@@ -115,7 +115,6 @@ pub struct RangeGate {
     pub max_age: Time,
     pub min_incidence: f64,
     pub edge_margin: Length,
-    pub max_residual: Length,
 }
 
 impl Default for RangeGate {
@@ -144,10 +143,6 @@ impl RangeGate {
             value: 0.1,
             ..Length::ZERO
         },
-        max_residual: Length {
-            value: 0.18,
-            ..Length::ZERO
-        },
     };
 
     pub fn is_valid(self) -> bool {
@@ -158,7 +153,6 @@ impl RangeGate {
             self.max_age.value,
             self.min_incidence,
             self.edge_margin.value,
-            self.max_residual.value,
         ]
         .iter()
         .all(|value| value.is_finite() && *value >= 0.0)
@@ -166,7 +160,6 @@ impl RangeGate {
             && self.max_age.value > 0.0
             && self.min_confidence <= 1.0
             && (0.001..=1.0).contains(&self.min_incidence)
-            && self.max_residual.value > 0.0
     }
 }
 
@@ -182,7 +175,6 @@ pub enum Rejection {
     WrongSurface,
     NearEdge,
     Grazing,
-    Residual,
     Uncertain,
 }
 
@@ -264,9 +256,6 @@ fn constrain_hit(
         return Err(Rejection::Grazing);
     }
     let residual = reading.distance.value - hit.distance;
-    if residual.abs() > gate.max_residual.value {
-        return Err(Rejection::Residual);
-    }
     let lateral_uncertainty =
         residual.abs() * libm::sqrt((1.0 - hit.incidence * hit.incidence).max(0.0));
     if hit.edge_distance < gate.edge_margin.value + lateral_uncertainty {

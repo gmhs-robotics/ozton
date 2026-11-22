@@ -219,8 +219,7 @@ impl CalibrationRun {
                     && drive
                         .chassis
                         .drivetrain
-                        .tracking
-                        .localizer
+                        .localization
                         .range_config(index)
                         .is_some_and(|config| config.relative_distance(raw, sample.time).is_ok())
                 {

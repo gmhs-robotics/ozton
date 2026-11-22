@@ -7,7 +7,7 @@ use std::{
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drivetrain, model::Tank};
 use ozton_math::uom::si::{f64::Length, length::meter};
-use ozton_tracking::{TracksHeading, TracksPosition};
+use ozton_tracking::{Tracking, TracksHeading, TracksPosition};
 use vexide::{
     math::Angle,
     time::{Sleep, sleep},
@@ -25,13 +25,14 @@ pub struct State {
 
 /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct PurePursuitFuture<'a, M, T, I>
+pub struct PurePursuitFuture<'a, M, S, T, I>
 where
     M: Tank,
+    S: Tracking,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {
-    pub(crate) drivetrain: &'a mut Drivetrain<M, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
 
     /// Internal future state ("local variables").
     pub(crate) state: Option<State>,
@@ -44,9 +45,10 @@ where
 
 // MARK: Future Poll
 
-impl<M, T, I> Drop for PurePursuitFuture<'_, M, T, I>
+impl<M, S, T, I> Drop for PurePursuitFuture<'_, M, S, T, I>
 where
     M: Tank,
+    S: Tracking,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {
@@ -57,9 +59,10 @@ where
     }
 }
 
-impl<M, T, I> Future for PurePursuitFuture<'_, M, T, I>
+impl<M, S, T, I> Future for PurePursuitFuture<'_, M, S, T, I>
 where
     M: Tank,
+    S: Tracking,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {
@@ -80,7 +83,7 @@ where
                 );
             }
             let now = Instant::now();
-            let position = this.drivetrain.tracking.position();
+            let position = this.drivetrain.localization.position();
 
             let Some(mut next) = this.waypoints.next() else {
                 this.state = None;
@@ -177,8 +180,8 @@ where
         }
 
         // Tracking data (robot position and heading)
-        let position = this.drivetrain.tracking.position();
-        let heading = this.drivetrain.tracking.heading();
+        let position = this.drivetrain.localization.position();
+        let heading = this.drivetrain.localization.heading();
 
         // If the lookahead circle envelops the end of the current waypoint segment,
         // then switch to the next two waypoints.
@@ -253,9 +256,10 @@ where
 
 // MARK: Modifiers
 
-impl<M, T, I> PurePursuitFuture<'_, M, T, I>
+impl<M, S, T, I> PurePursuitFuture<'_, M, S, T, I>
 where
     M: Tank,
+    S: Tracking,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {

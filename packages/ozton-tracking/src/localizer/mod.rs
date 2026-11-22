@@ -8,7 +8,7 @@ use ozton_math::{
     localization::range::Surface,
     uom::si::{
         angle::radian,
-        f64::{Angle as UomAngle, Length, Time},
+        f64::{Angle as UomAngle, Time},
     },
 };
 use vexide::math::Angle;
@@ -20,8 +20,6 @@ use crate::{
 mod estimate;
 mod ranges;
 mod snapshot;
-mod tracking;
-pub use tracking::Tracking;
 pub mod vex;
 pub mod wheels;
 
@@ -44,22 +42,15 @@ pub struct Config {
     pub estimator: Estimator,
     /// Run the estimator for diagnostics while motion uses dead reckoning.
     pub shadow: bool,
-    pub max_correction: Length,
 }
 
 impl Config {
-    /// Creates localizer settings with a unit-bearing correction limit.
-    pub const fn new(
-        odometry: OdometryConfig,
-        estimator: Estimator,
-        shadow: bool,
-        max_correction: Length,
-    ) -> Self {
+    /// Select odometry and an external pose estimator.
+    pub const fn new(odometry: OdometryConfig, estimator: Estimator, shadow: bool) -> Self {
         Self {
             odometry,
             estimator,
             shadow,
-            max_correction,
         }
     }
 }
@@ -148,8 +139,6 @@ impl<'a> Localizer<'a> {
     ) -> Option<Self> {
         if !config.odometry.is_valid()
             || !pose.is_finite()
-            || !config.max_correction.value.is_finite()
-            || config.max_correction.value <= 0.0
             || map.len() > 32
             || sensors.len() > MAX_RANGES
             || map.iter().any(|surface| !surface.is_valid())
@@ -185,7 +174,7 @@ impl<'a> Localizer<'a> {
 }
 
 impl<'a, E: PoseEstimator> Localizer<'a, E> {
-    fn with_filter<N: PoseEstimator>(self, mut filter: N) -> Localizer<'a, N> {
+    pub fn with_filter<N: PoseEstimator>(self, mut filter: N) -> Localizer<'a, N> {
         filter.reset(self.pose);
         let Self {
             config,
@@ -453,7 +442,8 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 .is_none_or(|previous| fix.timestamp > previous)
                 && raw.time.checked_sub(fix.timestamp).is_some_and(|age| {
                     age <= Duration::from_millis(100)
-                        && self.forward_velocity.abs() * age.as_secs_f64() < 0.03
+                        && self.forward_velocity.abs() * age.as_secs_f64()
+                            < fix.position_error.value
                 });
             if fresh {
                 self.gps_time = Some(fix.timestamp);
@@ -484,7 +474,6 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 &self.map,
                 &self.sensors,
                 &reports,
-                self.config.max_correction.value,
             ) {
                 ResetResult::Waiting => reset_status = DistanceReset::Waiting,
                 ResetResult::Applied(pose, axes) => {
@@ -514,7 +503,6 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 sensors: &self.sensors,
                 reports: &reports,
                 map: &self.map,
-                maximum_correction: self.config.max_correction.value,
             });
             if let Some(estimate) = candidate {
                 self.filter_pose = estimate;

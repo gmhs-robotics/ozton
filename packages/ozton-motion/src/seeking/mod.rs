@@ -6,7 +6,7 @@ use glam::DVec2 as Vec2;
 use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
 use ozton_math::uom::si::f64::Length;
-use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
+use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
 
 mod move_to_point;
 
@@ -50,11 +50,16 @@ where
     /// Moves the robot to a 2D point.
     ///
     /// The final heading of the robot after this motion executes is undefined.
-    pub fn move_to_point<'a, M: Arcade, T: TracksPosition + TracksHeading + TracksVelocity>(
+    pub fn move_to_point<
+        'a,
+        M: Arcade,
+        S: Tracking,
+        T: TracksPosition + TracksHeading + TracksVelocity,
+    >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T>,
         point: [Length; 2],
-    ) -> MoveToPointFuture<'a, M, L, A, T> {
+    ) -> MoveToPointFuture<'a, M, L, A, S, T> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,

@@ -19,7 +19,9 @@ use ozton_math::uom::si::{
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
+use ozton_tracking::{
+    Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+};
 use vexide::{
     math::Angle,
     time::{Sleep, sleep},
@@ -36,11 +38,12 @@ pub(crate) struct State {
 
 /// Turns the robot to face a point on the field.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct TurnToPointFuture<'a, M, L, A, T>
+pub struct TurnToPointFuture<'a, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
 {
     pub(crate) point: Vec2,
@@ -49,7 +52,7 @@ where
     pub(crate) angular_tolerances: Tolerances,
     pub(crate) linear_controller: L,
     pub(crate) angular_controller: A,
-    pub(crate) drivetrain: &'a mut Drivetrain<M, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
 
     /// Internal future state ("local variables").
     pub(crate) state: Option<State>,
@@ -57,11 +60,12 @@ where
 
 // MARK: Future Poll
 
-impl<M, L, A, T> Drop for TurnToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> Drop for TurnToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksForwardTravel + TracksHeading + TracksVelocity + TracksPosition,
 {
     fn drop(&mut self) {
@@ -71,11 +75,12 @@ where
     }
 }
 
-impl<M, L, A, T> Future for TurnToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> Future for TurnToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksForwardTravel + TracksHeading + TracksVelocity + TracksPosition,
 {
     type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
@@ -86,7 +91,7 @@ where
             let now = Instant::now();
             State {
                 sleep: sleep(Duration::from_millis(5)),
-                initial_forward_travel: this.drivetrain.tracking.forward_travel(),
+                initial_forward_travel: this.drivetrain.localization.forward_travel(),
                 start_time: now,
                 prev_time: now,
                 linear_settling: Default::default(),
@@ -101,9 +106,9 @@ where
         let now = Instant::now();
         let dt = now.saturating_duration_since(state.prev_time);
 
-        let forward_travel = this.drivetrain.tracking.forward_travel();
-        let position = this.drivetrain.tracking.position();
-        let heading = this.drivetrain.tracking.heading();
+        let forward_travel = this.drivetrain.localization.forward_travel();
+        let position = this.drivetrain.localization.position();
+        let heading = this.drivetrain.localization.heading();
         let to_target = this.point - position;
         let target_heading = Angle::from_radians(ozton_math::geometry::bearing(to_target));
 
@@ -113,13 +118,15 @@ where
         let linear_settled = this.linear_tolerances.check_with(
             &mut state.linear_settling,
             Length::new::<meter>(linear_error),
-            Velocity::new::<meter_per_second>(this.drivetrain.tracking.linear_velocity()),
+            Velocity::new::<meter_per_second>(this.drivetrain.localization.linear_velocity()),
             now,
         );
         let angular_settled = this.angular_tolerances.check_with(
             &mut state.angular_settling,
             UomAngle::new::<radian>(angular_error.as_radians()),
-            AngularVelocity::new::<radian_per_second>(this.drivetrain.tracking.angular_velocity()),
+            AngularVelocity::new::<radian_per_second>(
+                this.drivetrain.localization.angular_velocity(),
+            ),
             now,
         );
 
@@ -169,11 +176,12 @@ where
 
 // MARK: Generic Modifiers
 
-impl<M, L, A, T> TurnToPointFuture<'_, M, L, A, T>
+impl<M, L, A, S, T> TurnToPointFuture<'_, M, L, A, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksForwardTravel + TracksHeading + TracksVelocity,
 {
     /// Modifies this motion's linear feedback controller.
@@ -297,10 +305,11 @@ where
 
 // MARK: Linear PID Modifiers
 
-impl<M, A, T> TurnToPointFuture<'_, M, Pid, A, T>
+impl<M, A, S, T> TurnToPointFuture<'_, M, Pid, A, S, T>
 where
     M: Arcade,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksForwardTravel + TracksHeading + TracksVelocity,
 {
     /// Modifies this motion's linear PID gains.
@@ -355,10 +364,11 @@ where
 
 // MARK: Angular PID Modifiers
 
-impl<M, L, T> TurnToPointFuture<'_, M, L, AngularPid, T>
+impl<M, L, S, T> TurnToPointFuture<'_, M, L, AngularPid, S, T>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
+    S: Tracking,
     T: TracksPosition + TracksForwardTravel + TracksHeading + TracksVelocity,
 {
     /// Modifies this motion's angular PID gains.

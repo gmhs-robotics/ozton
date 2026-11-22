@@ -150,6 +150,42 @@ impl ParticleFilter {
         }
     }
 
+    /// Seed some particles from coherent external translation observations.
+    /// A single wall normal leaves each particle's tangent coordinate intact.
+    pub fn propose_position(&mut self, target: DVec2, normal: Option<DVec2>, noise: f64) {
+        let estimate = self.estimate();
+        let displacement = target - estimate.pose.position;
+        let deviation = estimate.standard_deviation.truncate();
+        let (displacement, spread) = if let Some(normal) = normal {
+            (
+                normal * displacement.dot(normal),
+                deviation.dot(normal.abs()),
+            )
+        } else {
+            (displacement, deviation.length())
+        };
+        if !noise.is_finite()
+            || noise <= 0.0
+            || !displacement.is_finite()
+            || displacement.length() <= libm::hypot(spread, noise)
+        {
+            return;
+        }
+        let weight = 1.0 / self.particles.len() as f64;
+        for particle in self.particles.iter_mut().step_by(4) {
+            particle.pose.position += displacement;
+            particle.weight = weight;
+        }
+        let total = self
+            .particles
+            .iter()
+            .map(|particle| particle.weight)
+            .sum::<f64>();
+        for particle in &mut self.particles {
+            particle.weight /= total;
+        }
+    }
+
     /// Conditions particle yaw on an independently tracked heading before a
     /// translation-only range update. Position-only output must not use particles
     /// whose yaw differs from the heading actually published to motion control.

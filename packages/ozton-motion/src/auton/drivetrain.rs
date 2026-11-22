@@ -15,7 +15,7 @@ use ozton_math::{
     },
 };
 use ozton_runtime::clock::{CONTROL_PERIOD, CommandClock};
-use ozton_tracking::localizer::{Fault, vex::WheelSource};
+use ozton_tracking::{localizer::Fault, sampling::SensorTracking};
 use vexide::{
     competition::{self, CompetitionMode},
     smart::PortError,
@@ -26,7 +26,7 @@ use super::{
     Runner, TravelDirection, routine_settings::PATH_LOOKAHEAD,
 };
 
-type TrackedDrive<L> = Drivetrain<Differential, DifferentialLocalization<L>>;
+type TrackedDrive = Drivetrain<Differential, SensorTracking, DifferentialLocalization>;
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug)]
@@ -58,7 +58,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<L: WheelSource> AutonRobot for TrackedDrive<L> {
+impl AutonRobot for TrackedDrive {
     type Error = DriveMotionFault;
 
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
@@ -84,7 +84,7 @@ impl<L: WheelSource> AutonRobot for TrackedDrive<L> {
     }
 
     fn set_pose(&mut self, pose: Pose) -> Result<(), Self::Error> {
-        if self.tracking.set_pose(pose) {
+        if self.localization.set_pose(pose) {
             Ok(())
         } else {
             Err(DriveMotionFault::InvalidCommand)
@@ -92,15 +92,15 @@ impl<L: WheelSource> AutonRobot for TrackedDrive<L> {
     }
 
     fn pose_trusted(&self) -> bool {
-        self.tracking.pose_trusted()
+        self.localization.pose_trusted()
     }
 
     fn request_distance_reset(&mut self) {
-        self.tracking.request_distance_reset();
+        self.localization.request_distance_reset();
     }
 
     fn cancel_distance_reset(&mut self) {
-        self.tracking.cancel_distance_reset();
+        self.localization.cancel_distance_reset();
     }
 }
 
@@ -148,21 +148,30 @@ pub trait DrivetrainMotion {
     ) -> Result<(), DriveMotionFault>;
 }
 
-impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
+impl DrivetrainMotion for TrackedDrive {
     fn poll_tracking(&mut self, mode: CompetitionMode) -> Result<Option<Feedback>, Fault> {
         if mode == CompetitionMode::Disabled {
             return Ok(None);
         }
-        let positions = if self.tracking.uses_drive_encoders() {
-            self.tracking_positions()
-        } else {
-            [None; 2]
-        };
-        self.tracking.poll(mode, 0, || positions)
+        let positions =
+            if self.tracking.uses_drive_encoders() && self.localization.uses_drive_encoders() {
+                self.tracking_positions()
+            } else {
+                [None; 2]
+            };
+        let width = self.track_width();
+        let sample = self
+            .tracking
+            .capture(positions, self.localization.occluded());
+        self.localization.update(sample, width)
     }
 
     fn set_start_pose(&mut self, pose: Pose) -> Result<(), DriveMotionFault> {
-        self.tracking.register_start(pose)
+        let heading = self
+            .tracking
+            .refresh_heading()
+            .and_then(|sample| sample.heading);
+        self.localization.register_start(pose, heading)
     }
 
     async fn drive_path(
@@ -212,18 +221,12 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
                 CommandClock::new(CONTROL_PERIOD).ok_or(DriveMotionFault::InvalidCommand)?;
             let started = Instant::now();
             let mut blocked_since = None;
-            let start_heading = drivetrain
-                .tracking
-                .imu_field_heading()
-                .ok_or(DriveMotionFault::MissingHeading)?;
+            let start_heading = read_heading(drivetrain).ok_or(DriveMotionFault::MissingHeading)?;
             while started.elapsed() < Duration::from_millis(800) {
                 if competition::mode() != CompetitionMode::Autonomous {
                     return Err(DriveMotionFault::Cancelled);
                 }
-                let heading = drivetrain
-                    .tracking
-                    .imu_field_heading()
-                    .ok_or(DriveMotionFault::MissingHeading)?;
+                let heading = read_heading(drivetrain).ok_or(DriveMotionFault::MissingHeading)?;
                 if wrap_heading(heading - start_heading).abs() > 0.15 {
                     return Err(DriveMotionFault::NoContact);
                 }
@@ -277,9 +280,17 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
     }
 }
 
-struct StopOnDrop<'a, L: WheelSource>(Option<&'a mut TrackedDrive<L>>);
+fn read_heading(drivetrain: &mut TrackedDrive) -> Option<Angle> {
+    let heading = drivetrain
+        .tracking
+        .refresh_heading()
+        .and_then(|sample| sample.heading);
+    drivetrain.localization.field_heading(heading)
+}
 
-impl<L: WheelSource> StopOnDrop<'_, L> {
+struct StopOnDrop<'a>(Option<&'a mut TrackedDrive>);
+
+impl StopOnDrop<'_> {
     fn brake(&mut self) -> Result<(), DriveMotionFault> {
         if let Some(drive) = self.0.as_deref_mut() {
             drive.stop_now().map_err(DriveMotionFault::Brake)?;
@@ -289,7 +300,7 @@ impl<L: WheelSource> StopOnDrop<'_, L> {
     }
 }
 
-impl<L: WheelSource> Drop for StopOnDrop<'_, L> {
+impl Drop for StopOnDrop<'_> {
     fn drop(&mut self) {
         let _ = self.brake();
     }

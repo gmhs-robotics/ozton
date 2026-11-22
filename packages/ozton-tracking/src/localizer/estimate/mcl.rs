@@ -5,7 +5,7 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{Beam, ParticleConfig, ParticleFilter},
-        range::{Constraint, Mount},
+        range::{Constraint, Mount, fit_translation},
     },
     uom::si::{
         angle::radian,
@@ -46,12 +46,7 @@ impl PoseEstimator for Mcl {
         true
     }
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose> {
-        let Observations {
-            predicted,
-            map,
-            maximum_correction,
-            ..
-        } = observations;
+        let Observations { predicted, map, .. } = observations;
         let empty = Beam {
             mount: Mount {
                 offset: DVec2::ZERO,
@@ -62,9 +57,14 @@ impl PoseEstimator for Mcl {
             surface_mask: u32::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
+        let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
+        let mut noise = f64::INFINITY;
         let mut count = 0;
         let measurements = observations.measurements();
-        for (sensor, _, distance) in measurements.clone() {
+        for (sensor, constraint, distance) in measurements {
+            let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
+            constraints[count] = (constraint, sigma);
+            noise = noise.min(sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
                 distance: Length::new::<meter>(distance),
@@ -76,44 +76,41 @@ impl PoseEstimator for Mcl {
         if count == 0 {
             return None;
         }
+        let (change, rank) = fit_translation(&constraints[..count])?;
+        let normal = (rank == 1).then_some(constraints[0].0.hit.normal);
         self.candidate.clone_from(&self.filter);
+        self.candidate
+            .propose_position(predicted.position + change, normal, noise);
         let estimate = self.candidate.observe_position(
             &beams[..count],
             map,
             Angle::new::<radian>(predicted.heading),
         )?;
-        let (first, second) = independent(measurements.map(|(_, constraint, _)| constraint))?;
         let change = estimate.pose.position - predicted.position;
-        let normal = first.hit.normal;
         let deviation = estimate.standard_deviation;
-        let correction = if second.is_some() {
-            if deviation.x.max(deviation.y) > maximum_correction * 0.5 {
-                return None;
-            }
-            change
+        // Weight the correction by particle concentration relative to the beams'
+        // measurement noise. A lone normal leaves translation along the wall intact.
+        let (correction, spread) = if let Some(normal) = normal {
+            (
+                normal * change.dot(normal),
+                DVec2::new(deviation.x, deviation.y).dot(normal.abs()),
+            )
         } else {
-            let spread = DVec2::new(deviation.x, deviation.y).dot(normal.abs());
-            if spread > maximum_correction * 0.5 {
-                return None;
-            }
-            normal * change.dot(normal)
+            (change, deviation.x.max(deviation.y))
         };
-        if !correction.is_finite() || correction.length() > maximum_correction {
+        if !correction.is_finite() || !spread.is_finite() || !noise.is_finite() || noise <= 0.0 {
+            return None;
+        }
+        let signal = correction.length().hypot(noise);
+        let gain = 0.4 * signal / (signal + spread);
+        let pose = Pose {
+            position: predicted.position + correction * gain,
+            ..predicted
+        };
+        if !pose.is_finite() {
             return None;
         }
         core::mem::swap(&mut self.filter, &mut self.candidate);
-        Some(Pose {
-            position: predicted.position + correction * 0.4,
-            ..predicted
-        })
+        Some(pose)
     }
-}
-
-fn independent(
-    mut constraints: impl Iterator<Item = Constraint>,
-) -> Option<(Constraint, Option<Constraint>)> {
-    let first = constraints.next()?;
-    let second =
-        constraints.find(|candidate| first.hit.normal.perp_dot(candidate.hit.normal).abs() >= 0.5);
-    Some((first, second))
 }

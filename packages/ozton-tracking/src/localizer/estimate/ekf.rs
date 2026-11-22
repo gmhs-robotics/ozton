@@ -2,13 +2,9 @@
 
 use glam::DVec3;
 use ozton_math::{
-    geometry::{BodyDelta, Pose, direction, wrap_heading},
+    geometry::{BodyDelta, Pose, direction},
     localization::ekf::PoseEkf,
-    uom::si::{
-        angle::radian,
-        f64::{Angle, Length},
-        length::meter,
-    },
+    uom::si::{angle::radian, f64::Angle},
 };
 
 use super::{Observations, PoseEstimator};
@@ -18,7 +14,6 @@ pub struct EkfConfig {
     pub initial_variance: DVec3,
     pub process_variance_per_second: DVec3,
     pub gate_squared: f64,
-    pub gps_max_error: Length,
 }
 
 impl Default for EkfConfig {
@@ -27,7 +22,6 @@ impl Default for EkfConfig {
             initial_variance: DVec3::splat(0.01),
             process_variance_per_second: DVec3::new(0.002, 0.002, 0.001),
             gate_squared: 9.0,
-            gps_max_error: Length::new::<meter>(0.06),
         }
     }
 }
@@ -44,8 +38,6 @@ impl Ekf {
             || config.process_variance_per_second.min_element() < 0.0
             || !config.gate_squared.is_finite()
             || config.gate_squared <= 0.0
-            || !config.gps_max_error.value.is_finite()
-            || config.gps_max_error.value <= 0.0
         {
             return None;
         }
@@ -74,19 +66,14 @@ impl PoseEstimator for Ekf {
             .predict(delta, self.config.process_variance_per_second * seconds)
     }
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose> {
-        let Observations {
-            predicted,
-            gps,
-            map,
-            maximum_correction,
-            ..
-        } = observations;
+        let Observations { gps, map, .. } = observations;
         let config = self.config;
         let mut candidate = self.filter;
         let mut changed = false;
         if let Some(gps) = gps.filter(|fix| {
             fix.pose.is_finite()
-                && (0.001..=config.gps_max_error.value).contains(&fix.position_error.value)
+                && fix.position_error.value.is_finite()
+                && fix.position_error.value > 0.0
         }) {
             let variance = gps.position_error.value * gps.position_error.value;
             changed |= candidate.correct_position(
@@ -116,17 +103,11 @@ impl PoseEstimator for Ekf {
             let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
             changed |= candidate.correct_position(error, h, sigma * sigma, config.gate_squared);
         }
-        if changed && bounded(predicted, candidate.pose(), maximum_correction) {
+        if changed && candidate.pose().is_finite() {
             self.filter = candidate;
             Some(candidate.pose())
         } else {
             None
         }
     }
-}
-
-fn bounded(from: Pose, to: Pose, maximum: f64) -> bool {
-    to.is_finite()
-        && from.position.distance(to.position) <= maximum
-        && wrap_heading(Angle::new::<radian>(to.heading - from.heading)).abs() <= 0.12
 }

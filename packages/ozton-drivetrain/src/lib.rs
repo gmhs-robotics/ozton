@@ -27,9 +27,10 @@ pub trait MotorGroups {
 }
 
 /// A drivetrain owns geometry and feedback calibration independently of how it mixes motor outputs.
-pub struct Drivetrain<M: DrivetrainModel, T: Tracking> {
+pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L> {
     pub model: M,
     pub tracking: T,
+    pub localization: L,
     wheels: Option<Wheels>,
     track_width: Option<Length>,
     wheelbase: Option<Length>,
@@ -39,11 +40,12 @@ pub struct Drivetrain<M: DrivetrainModel, T: Tracking> {
     wheel_feedback: [Option<WheelFeedback>; 2],
 }
 
-impl<M: DrivetrainModel, T: Tracking> Drivetrain<M, T> {
-    pub fn new(model: M, tracking: T) -> Self {
+impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
+    pub fn new(model: M, tracking: T, localization: L) -> Self {
         Self {
             model,
             tracking,
+            localization,
             wheels: None,
             track_width: None,
             wheelbase: None,
@@ -51,21 +53,6 @@ impl<M: DrivetrainModel, T: Tracking> Drivetrain<M, T> {
             last_driver: None,
             driver_output: false,
             wheel_feedback: [None; 2],
-        }
-    }
-
-    /// Attach an initialized tracker while keeping geometry and motor ownership.
-    pub fn with_tracking<U: Tracking>(self, tracking: U) -> Drivetrain<M, U> {
-        Drivetrain {
-            model: self.model,
-            tracking,
-            wheels: self.wheels,
-            track_width: self.track_width,
-            wheelbase: self.wheelbase,
-            driver: self.driver,
-            last_driver: self.last_driver,
-            driver_output: self.driver_output,
-            wheel_feedback: self.wheel_feedback,
         }
     }
 
@@ -102,7 +89,7 @@ impl<M: DrivetrainModel, T: Tracking> Drivetrain<M, T> {
     }
 }
 
-impl<M: DrivetrainModel + MotorGroups, T: Tracking> Drivetrain<M, T> {
+impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
     /// Set diameter and one ratio per motor, in model group and motor order.
     pub fn with_wheel_geometry(
         mut self,
@@ -184,7 +171,7 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking> Drivetrain<M, T> {
     }
 }
 
-impl<T: Tracking> Drivetrain<Differential, T> {
+impl<T: Tracking, L> Drivetrain<Differential, T, L> {
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
         self.wheel_feedback = self
             .wheels
@@ -209,7 +196,7 @@ impl<T: Tracking> Drivetrain<Differential, T> {
     }
 }
 
-impl<T: Tracking> DriveEncoders for Drivetrain<Differential, T> {
+impl<T: Tracking, L> DriveEncoders for Drivetrain<Differential, T, L> {
     fn track_width(&self) -> Option<Length> {
         self.track_width
     }
@@ -230,17 +217,27 @@ impl DriverTracking for ozton_tracking::NoTracking {
     }
 }
 
+impl DriverTracking for ozton_tracking::sampling::SensorTracking {
+    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
+        let sample = self.refresh_orientation();
+        (
+            sample.and_then(|sample| sample.heading),
+            sample.and_then(|sample| sample.roll),
+        )
+    }
+}
+
 impl DriverTracking for () {
     fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
         (None, None)
     }
 }
 
-impl<M: DrivetrainModel, T: Tracking> DrivetrainModel for Drivetrain<M, T> {
+impl<M: DrivetrainModel, T: Tracking, L> DrivetrainModel for Drivetrain<M, T, L> {
     type Error = M::Error;
 }
 
-impl<M: Tank, T: DriverTracking> Tank for Drivetrain<M, T> {
+impl<M: Tank, T: DriverTracking, L> Tank for Drivetrain<M, T, L> {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error> {
         if vexide::competition::mode() == vexide::competition::CompetitionMode::Autonomous {
             return self.model.drive_tank(left, right);
@@ -268,7 +265,7 @@ impl<M: Tank, T: DriverTracking> Tank for Drivetrain<M, T> {
     }
 }
 
-impl<T: DriverTracking> Holonomic for Drivetrain<Mecanum, T> {
+impl<T: DriverTracking, L> Holonomic for Drivetrain<Mecanum, T, L> {
     fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
         if vexide::competition::mode() == vexide::competition::CompetitionMode::Autonomous {
             return self.model.drive_vector(vector, turn);
@@ -291,7 +288,7 @@ impl<T: DriverTracking> Holonomic for Drivetrain<Mecanum, T> {
     }
 }
 
-impl<T: DriverTracking> ProgramDrive for Drivetrain<Differential, T> {
+impl<T: DriverTracking, L> ProgramDrive for Drivetrain<Differential, T, L> {
     type Error = WheelSpeedError;
     type DriverCommand = ArcadeInput;
     type AutonCommand = [Velocity; 2];
@@ -316,7 +313,7 @@ impl<T: DriverTracking> ProgramDrive for Drivetrain<Differential, T> {
     }
 }
 
-impl<T: DriverTracking> ProgramDrive for Drivetrain<Mecanum, T> {
+impl<T: DriverTracking, L> ProgramDrive for Drivetrain<Mecanum, T, L> {
     type Error = WheelSpeedError;
     type DriverCommand = (f64, ArcadeInput);
     type AutonCommand = [Velocity; 4];

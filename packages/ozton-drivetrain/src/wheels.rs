@@ -1,6 +1,4 @@
 //! Physical wheel measurements and calibrated conversions.
-use std::time::{Duration, Instant};
-
 use ozton_math::uom::si::{
     angular_velocity::revolution_per_minute,
     electric_current::ampere,
@@ -76,7 +74,6 @@ pub(crate) struct Wheels {
     circumference: f64,
     gearing: Gearing,
     groups: Box<[EncoderConsensus]>,
-    last_sample: Option<Instant>,
 }
 
 impl Wheels {
@@ -131,7 +128,6 @@ impl Wheels {
             circumference,
             gearing,
             groups: motors.iter().map(|_| EncoderConsensus::default()).collect(),
-            last_sample: None,
         })
     }
 
@@ -194,13 +190,6 @@ impl Wheels {
         &mut self,
         motors: &[Box<[Motor]>],
     ) -> [Option<WheelFeedback>; N] {
-        let now = Instant::now();
-        let dt = self
-            .last_sample
-            .replace(now)
-            .map_or(Duration::ZERO, |previous| {
-                now.saturating_duration_since(previous)
-            });
         core::array::from_fn(|group| {
             let motors = motors.get(group)?;
             if !self.group_matches(group, motors) {
@@ -220,9 +209,7 @@ impl Wheels {
                     })
                 })();
             }
-            self.groups
-                .get_mut(group)?
-                .sample(&samples[..motors.len()], dt)
+            self.groups.get_mut(group)?.sample(&samples[..motors.len()])
         })
     }
 

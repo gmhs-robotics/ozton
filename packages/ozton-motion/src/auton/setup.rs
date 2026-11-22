@@ -13,7 +13,6 @@ use ozton_math::{
     uom::{
         ConstZero,
         si::{
-            angular_velocity::radian_per_second,
             electric_potential::volt,
             f64::{Acceleration, AngularVelocity, ElectricPotential, Length, Velocity},
             length::meter,
@@ -21,14 +20,14 @@ use ozton_math::{
     },
 };
 use ozton_tracking::localizer::{
-    Config, Estimator, Localizer, OdometryConfig, Tracking,
+    Config, Estimator, Localizer, OdometryConfig,
     vex::{DistanceTracker, Distances, Sensors},
 };
 use vexide::prelude::{InertialSensor, Motor};
 
 use super::{
     DriveOptions, Feedback,
-    chassis::{Chassis, ChassisError, WheelControl},
+    chassis::{Chassis, ChassisError, ChassisSensors, WheelControl},
 };
 
 /// Physical settings shared by the drivetrain, odometry, path preparation and runner.
@@ -105,10 +104,6 @@ impl DifferentialConfig {
         }
         let left = build_motor_side(left)?;
         let right = build_motor_side(right)?;
-        let drivetrain = Drivetrain::new(Differential::new(left, right), ())
-            .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
-            .with_track_width(self.track_width)?;
-
         let TrackingSetup {
             mut sensors,
             imu,
@@ -118,8 +113,6 @@ impl DifferentialConfig {
             shadow,
             forward_offset,
             lateral_offset,
-            require_lateral,
-            max_correction,
         } = tracking;
         let distances = Distances::new(ranges)
             .ok_or(SetupError::Tracking)?
@@ -133,16 +126,10 @@ impl DifferentialConfig {
                     track_width: self.track_width,
                     forward_offset,
                     lateral_offset,
-                    require_lateral,
-                    max_linear_speed: self.maximum_wheel_speed * 2.0,
-                    max_angular_speed: AngularVelocity::new::<radian_per_second>(
-                        self.maximum_wheel_speed.value * 3.0 / self.track_width.value,
-                    ),
                     max_gap: self.max_control_gap,
                 },
                 estimator,
                 shadow,
-                max_correction,
             },
             Pose::default(),
             map,
@@ -153,13 +140,18 @@ impl DifferentialConfig {
             sensors = sensors.with_imu(imu).await.ok_or(SetupError::Tracking)?;
         }
         let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
-        let chassis = Chassis::new(
-            drivetrain.with_tracking(Tracking::new(localizer).with_distances(distances)),
-            sensors.into_shared_reader(),
-            control,
-            self.journal_capacity,
+        let drivetrain = Drivetrain::new(
+            Differential::new(left, right),
+            ChassisSensors {
+                sensors: sensors.into_shared_reader(),
+                distances,
+            },
+            localizer,
         )
-        .ok_or(SetupError::DriveGeometry)?;
+        .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
+        .with_track_width(self.track_width)?;
+        let chassis = Chassis::new(drivetrain, control, self.journal_capacity)
+            .ok_or(SetupError::DriveGeometry)?;
         Ok(ConfiguredChassis {
             chassis,
             drive_options: DriveOptions::differential(self.track_width, self.maximum_wheel_speed),
@@ -192,8 +184,6 @@ pub struct TrackingSetup {
     pub forward_offset: Length,
     /// Right-positive lateral wheel Y-forward position from The Origin, metres.
     pub lateral_offset: Length,
-    pub require_lateral: bool,
-    pub max_correction: Length,
     pub imu: Option<InertialSensor>,
     pub map: Vec<Surface>,
     /// Mounted sensors in route index order.
@@ -208,8 +198,6 @@ impl Default for TrackingSetup {
             shadow: false,
             forward_offset: Length::new::<meter>(0.0),
             lateral_offset: Length::new::<meter>(0.0),
-            require_lateral: false,
-            max_correction: Length::new::<meter>(0.16),
             imu: None,
             map: Vec::new(),
             ranges: Vec::new(),
@@ -268,7 +256,7 @@ impl ConfiguredChassis {
     }
 
     pub fn range_count(&self) -> usize {
-        self.chassis.drivetrain.tracking.localizer.range_count()
+        self.chassis.drivetrain.localization.range_count()
     }
 
     pub fn drive_options(&self) -> DriveOptions {
