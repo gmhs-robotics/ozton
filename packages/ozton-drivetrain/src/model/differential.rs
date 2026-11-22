@@ -37,6 +37,7 @@ pub struct Differential {
     wheelbase: Option<Length>,
     driver: DriverControl,
     driver_max_speed: MaxSpeed,
+    driver_output: bool,
     output: ([f64; 2], f64),
     status: ozton_diagnostics::serial::FaultLog,
     slew: Option<[SlewLimiter; 2]>,
@@ -79,6 +80,7 @@ impl Differential {
             wheelbase: None,
             driver: DriverControl::default(),
             driver_max_speed: MaxSpeed::Fraction(1.0),
+            driver_output: false,
             output: ([0.0; 2], 1.0),
             status: ozton_diagnostics::serial::FaultLog::new("drive", vexide::time::user_uptime),
             slew: None,
@@ -326,7 +328,9 @@ impl Differential {
             return self.stop_now();
         }
         let powers = shape(powers, &mut self.slew, &mut self.previous);
-        self.write_voltage(powers, input.output_scale, self.driver_max_speed, false)
+        self.write_voltage(powers, input.output_scale, self.driver_max_speed, false)?;
+        self.driver_output = true;
+        Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), PortError> {
@@ -371,5 +375,9 @@ impl ProgramDrive for Differential {
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         Differential::stop(self).map_err(WheelSpeedError::Port)
+    }
+
+    fn take_driver_output(&mut self) -> bool {
+        std::mem::take(&mut self.driver_output)
     }
 }

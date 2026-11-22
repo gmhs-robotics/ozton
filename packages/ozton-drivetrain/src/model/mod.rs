@@ -70,6 +70,11 @@ pub trait ProgramDrive {
         dt: std::time::Duration,
     ) -> Result<(), Self::Error>;
     fn stop(&mut self) -> Result<(), Self::Error>;
+
+    /// Consume the marker set by a direct driver write through the drivetrain.
+    fn take_driver_output(&mut self) -> bool {
+        false
+    }
 }
 
 /// Normalized forward and turn inputs for an arcade drivetrain.

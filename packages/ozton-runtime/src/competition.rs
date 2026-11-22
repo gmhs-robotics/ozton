@@ -550,9 +550,10 @@ where
     robot.driver_input = Some(input);
     robot.driver_elapsed = tick.elapsed;
     robot.driver_wrote = false;
+    robot.drivetrain.take_driver_output();
     P::before_driver(robot);
     P::driver(robot).await?;
-    if !robot.driver_wrote {
+    if !robot.drivetrain.take_driver_output() && !robot.driver_wrote {
         robot
             .drivetrain
             .stop()
@@ -738,6 +739,7 @@ mod tests {
     struct FakeDrive {
         writes: Vec<&'static str>,
         fail_stop: bool,
+        direct_output: bool,
     }
 
     impl ozton_drivetrain::model::DrivetrainModel for FakeDrive {
@@ -765,9 +767,15 @@ mod tests {
             self.writes.push("stop drive");
             if self.fail_stop { Err("port") } else { Ok(()) }
         }
+
+        fn take_driver_output(&mut self) -> bool {
+            std::mem::take(&mut self.direct_output)
+        }
     }
 
-    struct FakeProgram;
+    struct FakeProgram {
+        direct: bool,
+    }
     struct NoTelemetry;
     type TestRobot = Robot<FakeDrive, (), (), (), FakeProgram, NoTelemetry>;
 
@@ -786,7 +794,15 @@ mod tests {
         async fn driver(robot: &mut TestRobot) -> Result<(), Self::Error> {
             assert_eq!(robot.driver_input(), Some(ControllerState::default()));
             robot.drivetrain.writes.push("driver");
-            robot.drive_driver(true)
+            if robot.program.direct {
+                robot
+                    .drivetrain
+                    .apply_driver(true, robot.driver_elapsed())?;
+                robot.drivetrain.direct_output = true;
+                Ok(())
+            } else {
+                robot.drive_driver(true)
+            }
         }
 
         fn update_mechanisms(
@@ -831,11 +847,12 @@ mod tests {
             drivetrain: FakeDrive {
                 writes: Vec::new(),
                 fail_stop: false,
+                direct_output: false,
             },
             controller: (),
             tracking: (),
             mechanisms: (),
-            program: FakeProgram,
+            program: FakeProgram { direct: false },
             autonomous: NoTelemetry,
             driver_input: None,
             driver_elapsed: Duration::ZERO,
@@ -845,6 +862,18 @@ mod tests {
             started: Instant::now(),
             elapsed: CONTROL_PERIOD,
         };
+        assert_eq!(
+            pin!(dispatch_driver(
+                &mut robot,
+                Some(ControllerState::default()),
+                tick
+            ))
+            .poll(&mut core::task::Context::from_waker(
+                core::task::Waker::noop()
+            )),
+            Poll::Ready(Ok(()))
+        );
+        robot.program.direct = true;
         assert_eq!(
             pin!(dispatch_driver(
                 &mut robot,
@@ -868,6 +897,9 @@ mod tests {
         assert_eq!(
             robot.drivetrain.writes,
             [
+                "driver",
+                "drive",
+                "mechanisms",
                 "driver",
                 "drive",
                 "mechanisms",

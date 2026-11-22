@@ -91,7 +91,7 @@ for compound gearing. The model converts each motor's travel and speed to the
 wheel before combining healthy encoders on that side.
 
 ```rust,ignore
-let drivetrain = Differential::new(left, right)
+let model = Differential::new(left, right)
     .with_wheel_diameter(diameter)?
     .with_track_width(track_width)?
     .with_antitip(anti_tip)
@@ -103,16 +103,18 @@ let tracking = TrackingBuilder::new()
         lateral_encoder, diameter, position!(0 in, -1 in, 0 in),
         Angle::new::<degree>(-90.0), None,
     )])
-    .with_dsr(wall_sensors, [DsrUse::Dsr, DsrUse::Ekf]);
-let robot = RobotBuilder::new()
-    .with_drivetrain(drivetrain)
-    .with_tracking_from_drive(async |drive| {
-        tracking.build_for_drive(drive, |mounts| {
-            Localizer::new_owned(config, start_pose, field, mounts.to_vec())
-        }).await
+    .with_dsr(wall_sensors, [DsrUse::Dsr, DsrUse::Ekf])
+    .build_for_drive(&model, |mounts| {
+        Localizer::new_owned(config, start_pose, field, mounts.to_vec())
     })
     .await?;
+let robot = RobotBuilder::new()
+    .with_drivetrain(Drivetrain::new(model, tracking));
 ```
+
+With `Arcade` in scope, use `robot.drivetrain.drive_arcade(throttle, turn)?`.
+The drivetrain reads heading and tilt for its driver assists. Import
+`DrivetrainMotion` for path following, wall DSR, and goal contact resets.
 
 `DriveEncoderUse::Forward` averages both sides. `ForwardAndHeading` also
 allows wheel-derived yaw using the drivetrain's own track width. A
@@ -133,8 +135,8 @@ geometric resets or the active filter. The `Localizer` configuration selects
 Odometry, EKF, or MCL. `set_estimator` switches filters at runtime. One distance
 reading can serve multiple roles, and sensor indices follow registration order.
 
-In the competition update, call
-`tracking.poll_with_drive(mode, occluded, &mut robot.drivetrain)`. The tracker
-borrows the drivetrain for one sample. For tracking pods alone, use
+In the competition update, call `robot.drivetrain.poll_tracking(mode)`.
+For unbundled tracking with custom occlusion, use `tracking.poll_with_drive`.
+For tracking pods alone, use
 `tracking.poll_wheels(mode, occluded)`. Custom drive wrappers can implement
 `DriveEncoders` to expose their calibrated left/right travel.

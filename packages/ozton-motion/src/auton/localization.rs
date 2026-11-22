@@ -3,8 +3,9 @@ use ozton_drivetrain::model::DriveEncoders;
 use ozton_math::{
     geometry::Pose,
     uom::si::{
+        angle::radian,
         angular_velocity::radian_per_second,
-        f64::{AngularVelocity, Length, Velocity},
+        f64::{Angle, AngularVelocity, Length, Velocity},
         length::meter,
         velocity::meter_per_second,
     },
@@ -36,12 +37,25 @@ pub struct DifferentialLocalization<L> {
     tracking: Tracking<'static, ozton_tracking::localizer::Filter, Distances>,
     layout: Option<Layout>,
     origin: Pose,
+    imu_heading_offset: Angle,
     last: Option<Feedback>,
     last_reset: DistanceReset,
     occluded: u8,
     mechanism_occluded: u8,
     fault: Option<Fault>,
     driver_control: bool,
+}
+
+impl<L> ozton_tracking::Tracking for DifferentialLocalization<L> {}
+
+impl<L: WheelSource> ozton_drivetrain::DriverTracking for DifferentialLocalization<L> {
+    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
+        let sample = self.refresh_orientation();
+        (
+            sample.and_then(|sample| sample.heading),
+            sample.and_then(|sample| sample.roll),
+        )
+    }
 }
 impl<L: WheelSource> DifferentialLocalization<L> {
     pub fn pause_disabled_odometry(&mut self) {
@@ -64,6 +78,7 @@ impl<L: WheelSource> DifferentialLocalization<L> {
             tracking: Tracking::new(localizer).with_distances(distances),
             layout: None,
             origin,
+            imu_heading_offset: Angle::new::<radian>(0.0),
             last: None,
             last_reset: DistanceReset::Idle,
             occluded: 0,
@@ -162,6 +177,30 @@ impl<L: WheelSource> DifferentialLocalization<L> {
 
     pub fn orientation(&self) -> Option<Orientation> {
         self.sensors.orientation()
+    }
+
+    /// Align the existing IMU reading with a known field heading without recalibrating.
+    pub(super) fn register_start(&mut self, pose: Pose) -> Result<(), super::DriveMotionFault> {
+        let heading = self
+            .sensors
+            .refresh_heading()
+            .and_then(|sample| sample.heading)
+            .filter(|heading| heading.value.is_finite())
+            .ok_or(super::DriveMotionFault::MissingHeading)?;
+        if !self.set_pose(pose) {
+            return Err(super::DriveMotionFault::InvalidCommand);
+        }
+        self.imu_heading_offset =
+            Angle::new::<radian>(pose.heading) - ozton_math::geometry::compass_heading(heading);
+        Ok(())
+    }
+
+    pub(super) fn imu_field_heading(&mut self) -> Option<Angle> {
+        let heading = self.sensors.refresh_heading()?.heading?;
+        heading
+            .value
+            .is_finite()
+            .then(|| ozton_math::geometry::compass_heading(heading) + self.imu_heading_offset)
     }
 
     /// Read IMU rates and acceleration when the active diagnostics sink requests them.
