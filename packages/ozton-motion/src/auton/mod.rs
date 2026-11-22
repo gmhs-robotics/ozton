@@ -20,6 +20,7 @@ pub use command::{
 };
 pub use controls::{AutonomousControls, ScoringControls};
 pub use localization::DifferentialLocalization;
+mod tracking_builder;
 pub use ozton_math::path::follower::Follower;
 pub use robot_motion::{RobotMotion, TravelDirection};
 pub use routine_error::RoutineError;
@@ -29,3 +30,4 @@ pub use setup::{
     ChassisDriverCommand, ConfiguredChassis, DifferentialConfig, SetupError, TrackingSetup,
 };
 pub use stage::Auton;
+pub use tracking_builder::{DsrUse, ImuUse, TrackingBuilder};

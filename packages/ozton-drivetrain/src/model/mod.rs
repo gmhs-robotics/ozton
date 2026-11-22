@@ -10,7 +10,7 @@ mod differential;
 mod mecanum;
 
 pub use differential::{
-    Differential, DriverFaultPolicy, WheelFeedback, WheelLoad, WheelSpeedError,
+    Differential, DriverFaultPolicy, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
 };
 pub use mecanum::Mecanum;
 
@@ -24,6 +24,25 @@ pub use mecanum::Mecanum;
 pub trait DrivetrainModel {
     /// Error type returned when the robot fails to move.
     type Error;
+}
+
+/// Calibrated cumulative drive-wheel travel in left, right order, positive forward.
+pub trait DriveEncoders {
+    /// Sample both sides once. An unavailable side returns `None`.
+    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2];
+}
+
+impl DriveEncoders for Differential {
+    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
+        self.sample_feedback()
+            .map(|sample| sample.map(|sample| sample.position))
+    }
+}
+
+impl DriveEncoders for crate::resilient::ResilientDrive {
+    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
+        Self::tracking_positions(self)
+    }
 }
 
 /// Commands consumed by a drivetrain during an Ozton competition.

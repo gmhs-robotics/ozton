@@ -729,3 +729,25 @@ fn typed_estimators_compose_with_shared_or_private_ranges() {
             .is_ok()
     );
 }
+
+#[test]
+fn range_usage_selects_filter_and_reset_observations_independently() {
+    let mut tracking = localizer(Estimator::Ekf(EkfConfig::default()), false);
+    tracking.set_range_usage(0b01, 0b10);
+    assert_eq!(
+        tracking.update(snapshot(10), &[]).unwrap_err(),
+        Fault::Initializing
+    );
+    let filtered = tracking
+        .update(snapshot(20), &[reading(20, false); 2])
+        .unwrap();
+    assert!(filtered.ranges[0].is_none());
+    assert!(filtered.ranges[1].unwrap().constraint.is_ok());
+
+    assert!(tracking.request_distance_reset_axes(1));
+    let resetting = tracking
+        .update(snapshot(30), &[reading(30, false); 2])
+        .unwrap();
+    assert!(resetting.ranges[0].unwrap().constraint.is_ok());
+    assert!(resetting.ranges[1].is_none());
+}

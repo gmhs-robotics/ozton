@@ -1,4 +1,5 @@
 //! Live differential odometry and range correction shared by competition robots.
+use ozton_drivetrain::model::DriveEncoders;
 use ozton_math::{
     geometry::Pose,
     uom::si::{
@@ -14,16 +15,27 @@ use ozton_tracking::{
         DistanceReset, Estimator, Fault, Localizer, MAX_RANGES, RangeObservation,
         RangeSensorConfig, Snapshot, Tracking,
         vex::{Distances, Orientation, SharedSensors, WheelSource},
+        wheels::WheelOdometry,
     },
 };
 use vexide::competition::CompetitionMode;
 
-use super::{Feedback, RangeFeedback};
+use super::{Feedback, RangeFeedback, tracking_builder::RangeUses};
 
-/// Drive encoders, a lateral wheel, and a shared IMU, with optional range corrections.
+struct Layout {
+    wheels: WheelOdometry,
+    range_uses: RangeUses,
+    orientation: bool,
+    orientation_pending: bool,
+    telemetry: bool,
+}
+
+/// Differential robot tracking with independently owned sensors and optional range correction.
+/// Use [`super::TrackingBuilder`] to assemble a wheel and sensor layout.
 pub struct DifferentialLocalization<L> {
     sensors: SharedSensors<(), L>,
     tracking: Tracking<'static, ozton_tracking::localizer::Filter, Distances>,
+    layout: Option<Layout>,
     origin: Pose,
     last: Option<Feedback>,
     last_reset: DistanceReset,
@@ -35,6 +47,9 @@ pub struct DifferentialLocalization<L> {
 impl<L: WheelSource> DifferentialLocalization<L> {
     pub fn pause_disabled_odometry(&mut self) {
         self.tracking.localizer.invalidate_pose();
+        if let Some(layout) = &mut self.layout {
+            layout.orientation_pending = false;
+        }
         self.last = None;
     }
 
@@ -48,6 +63,7 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         Self {
             sensors,
             tracking: Tracking::new(localizer).with_distances(distances),
+            layout: None,
             origin,
             last: None,
             last_reset: DistanceReset::Idle,
@@ -58,7 +74,45 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         }
     }
 
-    /// Poll enabled odometry. Driver control samples orientation before writing outputs.
+    pub(super) fn with_layout(
+        mut self,
+        wheels: WheelOdometry,
+        range_uses: RangeUses,
+        orientation: bool,
+        telemetry: bool,
+    ) -> Self {
+        range_uses.apply(&mut self.tracking.localizer);
+        self.layout = Some(Layout {
+            wheels,
+            range_uses,
+            orientation,
+            orientation_pending: false,
+            telemetry,
+        });
+        self
+    }
+
+    /// Borrow the drivetrain only for this tick and sample the configured drive encoders once.
+    pub fn poll_with_drive(
+        &mut self,
+        mode: CompetitionMode,
+        mechanism_occluded: u8,
+        drive: &mut impl DriveEncoders,
+    ) -> Result<Option<Feedback>, Fault> {
+        self.poll(mode, mechanism_occluded, || drive.tracking_positions())
+    }
+
+    /// Poll a layout that uses separate tracking wheels. Drive travel is unavailable.
+    pub fn poll_wheels(
+        &mut self,
+        mode: CompetitionMode,
+        mechanism_occluded: u8,
+    ) -> Result<Option<Feedback>, Fault> {
+        self.poll(mode, mechanism_occluded, || [None; 2])
+    }
+
+    /// Poll enabled odometry. A builder-configured tracker uses an orientation
+    /// sample refreshed before driver output, or refreshes it here if needed.
     /// Range corrections run only outside driver mode.
     pub fn poll(
         &mut self,
@@ -69,15 +123,43 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         if mode == CompetitionMode::Disabled {
             return Ok(None);
         }
-        if mode == CompetitionMode::Autonomous {
-            self.sensors.refresh_orientation();
+        let needs_orientation = self
+            .layout
+            .as_ref()
+            .map_or(mode == CompetitionMode::Autonomous, |layout| {
+                !layout.orientation_pending
+            });
+        if needs_orientation {
+            self.refresh_orientation();
+        }
+        if let Some(layout) = &mut self.layout {
+            layout.orientation_pending = false;
         }
         self.set_driver_control(mode == CompetitionMode::Driver);
         self.mechanism_occluded = mechanism_occluded;
-        self.sample(drive_positions())
+        let drive = if self
+            .layout
+            .as_ref()
+            .is_none_or(|layout| layout.wheels.uses_drive())
+        {
+            drive_positions()
+        } else {
+            [None; 2]
+        };
+        self.sample(drive)
     }
 
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {
+        if let Some(layout) = &mut self.layout {
+            layout.orientation_pending = true;
+            if !layout.orientation {
+                return layout
+                    .wheels
+                    .uses_imu_heading()
+                    .then(|| self.sensors.refresh_heading())
+                    .flatten();
+            }
+        }
         self.sensors.refresh_orientation()
     }
 
@@ -86,6 +168,9 @@ impl<L: WheelSource> DifferentialLocalization<L> {
     }
 
     pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
+        if self.layout.as_ref().is_some_and(|layout| !layout.telemetry) {
+            return ([f64::NAN; 3], [f64::NAN; 3]);
+        }
         self.sensors.imu_telemetry()
     }
 
@@ -96,6 +181,12 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         origin: Pose,
         pose: Pose,
     ) -> bool {
+        if let Some(layout) = &self.layout {
+            if localizer.range_count() != self.tracking.distances.len() {
+                return false;
+            }
+            layout.range_uses.apply(&mut localizer);
+        }
         if !origin.is_finite() || !localizer.set_pose(pose) {
             return false;
         }
@@ -130,7 +221,13 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         self.tracking.localizer.pose_trust() == ozton_tracking::localizer::PoseTrust::Trusted
     }
     pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
-        self.tracking.localizer.set_estimator(estimator, shadow)
+        if !self.tracking.localizer.set_estimator(estimator, shadow) {
+            return false;
+        }
+        if let Some(layout) = &self.layout {
+            layout.range_uses.apply(&mut self.tracking.localizer);
+        }
+        true
     }
     pub fn pose(&self) -> Pose {
         self.tracking.localizer.pose()
@@ -211,16 +308,18 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         self.driver_control = enabled;
         self.tracking.localizer.set_corrections_enabled(!enabled);
     }
-    /// Apply a captured snapshot, including when replaying tracking off the robot.
+    /// Apply a captured snapshot and read any mounted pods from the builder.
+    /// Legacy axis-based trackers can replay these snapshots directly.
     pub fn update(
         &mut self,
         raw: Snapshot,
         ranges: [Option<RangeObservation>; MAX_RANGES],
     ) -> Result<Option<Feedback>, Fault> {
-        // This installation has no forward tracking pod. Both drive encoders and IMU are required.
-        if raw.imu.is_none_or(|v| !v.is_finite())
-            || raw.drive.iter().any(|v| v.is_none_or(|v| !v.is_finite()))
-            || raw.lateral.is_none_or(|v| !v.is_finite())
+        // Preserve the original fixed-input contract for callers of new().
+        if self.layout.is_none()
+            && (raw.imu.is_none_or(|v| !v.is_finite())
+                || raw.drive.iter().any(|v| v.is_none_or(|v| !v.is_finite()))
+                || raw.lateral.is_none_or(|v| !v.is_finite()))
         {
             self.tracking.localizer.invalidate_pose();
             self.last = None;
@@ -232,7 +331,17 @@ impl<L: WheelSource> DifferentialLocalization<L> {
                 Fault::Forward
             });
         }
-        let update = match self.tracking.localizer.update(raw, &ranges) {
+        let result = if let Some(layout) = &mut self.layout {
+            layout.wheels.capture();
+            self.tracking.localizer.update_with_odometry(
+                raw,
+                &ranges,
+                |before, after, config, dt| layout.wheels.delta(before, after, config, dt),
+            )
+        } else {
+            self.tracking.localizer.update(raw, &ranges)
+        };
+        let update = match result {
             Ok(update) => update,
             Err(Fault::Initializing) => return Ok(None),
             Err(fault) => {

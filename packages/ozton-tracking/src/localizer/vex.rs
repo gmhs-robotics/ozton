@@ -330,7 +330,16 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
     }
 
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {
-        self.orientation = self.imu.as_ref().and_then(CalibratedImu::sample);
+        self.sample_orientation(true)
+    }
+
+    /// Refresh the cached heading alone when tilt is unused.
+    pub fn refresh_heading(&mut self) -> Option<Orientation> {
+        self.sample_orientation(false)
+    }
+
+    fn sample_orientation(&mut self, include_tilt: bool) -> Option<Orientation> {
+        self.orientation = self.imu.as_ref().and_then(|imu| imu.sample(include_tilt));
         self.orientation
     }
 

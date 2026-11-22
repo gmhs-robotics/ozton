@@ -23,7 +23,7 @@ impl CalibratedImu {
         Some(Self(imu))
     }
 
-    pub(super) fn sample(&self) -> Option<Orientation> {
+    pub(super) fn sample(&self, include_tilt: bool) -> Option<Orientation> {
         let imu = &self.0;
         if imu.is_calibrating().ok()? {
             return None;
@@ -32,7 +32,7 @@ impl CalibratedImu {
             let radians = angle.as_radians();
             radians.is_finite().then(|| Angle::new::<radian>(radians))
         };
-        let euler = imu.euler().ok();
+        let euler = include_tilt.then(|| imu.euler().ok()).flatten();
         let sample = Orientation {
             port: imu.port_number(),
             heading: imu.heading().ok().and_then(angle),

@@ -4,7 +4,7 @@ use std::{borrow::Cow, time::Duration};
 
 use glam::DVec2;
 use ozton_math::{
-    geometry::{Pose, wrap_heading},
+    geometry::{BodyDelta, Pose, wrap_heading},
     localization::range::Surface,
     uom::si::{
         angle::radian,
@@ -23,6 +23,7 @@ mod snapshot;
 mod tracking;
 pub use tracking::Tracking;
 pub mod vex;
+pub mod wheels;
 
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ranges::{MAX_RANGES, RangeObservation, RangeReport, RangeSensorConfig};
@@ -115,6 +116,8 @@ pub struct Localizer<'a, E = Filter> {
     reset: Option<ResetWindow>,
     trust: PoseTrust,
     corrections_enabled: bool,
+    reset_ranges: u8,
+    filter_ranges: u8,
 }
 
 impl<'a> Localizer<'a> {
@@ -175,6 +178,8 @@ impl<'a> Localizer<'a> {
             reset: None,
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
+            reset_ranges: u8::MAX,
+            filter_ranges: u8::MAX,
         })
     }
 }
@@ -196,6 +201,8 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             angular_velocity,
             trust,
             corrections_enabled,
+            reset_ranges,
+            filter_ranges,
             ..
         } = self;
         Localizer {
@@ -215,7 +222,25 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             reset: None,
             trust,
             corrections_enabled,
+            reset_ranges,
+            filter_ranges,
         }
+    }
+
+    /// Select range indices for geometric resets and for the active filter.
+    pub fn set_range_usage(&mut self, reset: u8, filter: u8) {
+        self.reset_ranges = reset;
+        self.filter_ranges = filter;
+    }
+
+    /// Odometry limits and legacy snapshot geometry.
+    pub fn odometry_config(&self) -> OdometryConfig {
+        self.config.odometry
+    }
+
+    /// Initial or currently selected pose estimator.
+    pub fn estimator(&self) -> Estimator {
+        self.config.estimator
     }
 
     pub fn pose_trust(&self) -> PoseTrust {
@@ -288,7 +313,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
     /// Attempt an immediate geometric DSR on the next fresh sample.
     pub fn request_distance_reset(&mut self) {
-        if self.corrections_enabled {
+        if self.corrections_enabled && self.reset_ranges != 0 {
             self.reset.get_or_insert_with(ResetWindow::default);
         }
     }
@@ -299,7 +324,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Rejected collections retry at rest until accepted or explicitly canceled;
     /// the caller must enforce a timeout, as the autonomous runner does.
     pub fn request_distance_reset_axes(&mut self, minimum_axes: u8) -> bool {
-        if !self.corrections_enabled || !(1..=2).contains(&minimum_axes) {
+        if !self.corrections_enabled || self.reset_ranges == 0 || !(1..=2).contains(&minimum_axes) {
             return false;
         }
         self.reset
@@ -318,7 +343,30 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
     ) -> Result<Update, Fault> {
-        let result = self.update_inner(raw, observations);
+        self.update_from(raw, observations, snapshot::delta)
+    }
+
+    /// Apply a custom wheel layout while sharing the localizer's timing, pose
+    /// baselines and external correction pipeline.
+    pub fn update_with_odometry(
+        &mut self,
+        raw: Snapshot,
+        observations: &[Option<RangeObservation>],
+        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig, Duration) -> Result<BodyDelta, Fault>,
+    ) -> Result<Update, Fault> {
+        self.update_from(raw, observations, |previous, next, config| {
+            let dt = snapshot::interval(previous, next, config)?;
+            Ok((motion(previous, next, config, dt)?, dt))
+        })
+    }
+
+    fn update_from(
+        &mut self,
+        raw: Snapshot,
+        observations: &[Option<RangeObservation>],
+        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
+    ) -> Result<Update, Fault> {
+        let result = self.update_inner(raw, observations, motion);
         if result
             .as_ref()
             .is_err_and(|fault| !matches!(fault, Fault::Initializing))
@@ -332,12 +380,13 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         &mut self,
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
+        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
     ) -> Result<Update, Fault> {
         if self.previous.is_some_and(|last| raw.time <= last.time) {
             return Err(Fault::Time);
         }
         let previous = self.previous.replace(raw).ok_or(Fault::Initializing)?;
-        let (movement, dt) = match snapshot::delta(previous, raw, self.config.odometry) {
+        let (movement, dt) = match motion(previous, raw, self.config.odometry) {
             Ok(sample) => sample,
             Err(fault) => {
                 self.forward_velocity = 0.0;
@@ -371,34 +420,29 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.angular_velocity = movement.heading / seconds;
         self.forward_travel += movement.translation.y;
         let mut reports = [None; MAX_RANGES];
-        let checking_pose = if self.reset.is_some() {
-            predicted
+        let (checking_pose, active_ranges) = if self.reset.is_some() {
+            (predicted, self.reset_ranges)
         } else {
-            filter_prediction
+            (filter_prediction, self.filter_ranges)
         };
-        for (index, sensor) in
-            self.sensors
-                .iter()
-                .copied()
-                .enumerate()
-                .take(if self.corrections_enabled {
-                    self.sensors.len()
-                } else {
-                    0
-                })
-        {
-            reports[index] = Some(inspect(
-                RangeTick {
-                    pose: checking_pose,
-                    movement,
-                    dt,
-                    now: raw.time,
-                },
-                &self.map,
-                sensor,
-                observations.get(index).copied().flatten(),
-                &mut self.range_times[index],
-            ));
+        if self.corrections_enabled && active_ranges != 0 {
+            for (index, sensor) in self.sensors.iter().copied().enumerate() {
+                if active_ranges & (1 << index) == 0 {
+                    continue;
+                }
+                reports[index] = Some(inspect(
+                    RangeTick {
+                        pose: checking_pose,
+                        movement,
+                        dt,
+                        now: raw.time,
+                    },
+                    &self.map,
+                    sensor,
+                    observations.get(index).copied().flatten(),
+                    &mut self.range_times[index],
+                ));
+            }
         }
         let gps = raw.gps.filter(|fix| {
             if !self.corrections_enabled {

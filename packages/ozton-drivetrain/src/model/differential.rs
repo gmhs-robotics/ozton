@@ -21,27 +21,57 @@ use vexide::{
 use super::{Arcade, DrivetrainModel, Tank};
 use crate::feedback::MAX_SIDE_MOTORS;
 
+/// Motor-to-wheel transmission. Each stage is specified as (driver teeth,
+/// driven teeth), starting at the motor's cartridge output shaft.
+#[derive(Clone, Copy, Debug)]
+pub struct WheelGearing(f64);
+
+impl WheelGearing {
+    pub const fn new(driver_teeth: u16, driven_teeth: u16) -> Self {
+        Self(driver_teeth as f64 / driven_teeth as f64)
+    }
+
+    pub const fn then(self, driver_teeth: u16, driven_teeth: u16) -> Self {
+        Self(self.0 * Self::new(driver_teeth, driven_teeth).0)
+    }
+}
+
+impl From<(u16, u16)> for WheelGearing {
+    fn from((driver, driven): (u16, u16)) -> Self {
+        Self::new(driver, driven)
+    }
+}
+
+struct DriveMotor {
+    motor: Motor,
+    gearing: Option<WheelGearing>,
+}
+
 #[derive(Clone, Copy)]
 struct WheelGeometry {
-    free_rpm: f64,
+    free_rpm: Option<f64>,
     circumference: Length,
 }
 
 impl WheelGeometry {
-    fn meters_per_motor_turn(self, motor: &Motor) -> Result<f64, PortError> {
-        Ok(self.circumference.value * self.free_rpm / motor.gearset()?.max_rpm())
+    fn meters_per_motor_turn(self, drive: &DriveMotor) -> Result<f64, PortError> {
+        let ratio = match drive.gearing {
+            Some(gearing) => gearing.0,
+            None => self.free_rpm.unwrap_or_default() / drive.motor.gearset()?.max_rpm(),
+        };
+        Ok(self.circumference.value * ratio)
     }
 
-    fn speed(self, motors: &mut [Motor], speed: f64) -> Result<(), PortError> {
-        each(motors, |motor| {
-            let rpm = speed * 60.0 / self.meters_per_motor_turn(motor)?;
-            motor.set_velocity(rpm.round() as i32)
+    fn speed(self, motors: &mut [DriveMotor], speed: f64) -> Result<(), PortError> {
+        each(motors, |drive| {
+            let rpm = speed * 60.0 / self.meters_per_motor_turn(drive)?;
+            drive.motor.set_velocity(rpm.round() as i32)
         })
     }
 
     fn feedback(
         self,
-        motors: &[Motor],
+        motors: &[DriveMotor],
         consensus: &mut crate::feedback::EncoderConsensus,
         dt: std::time::Duration,
     ) -> Option<WheelFeedback> {
@@ -49,15 +79,15 @@ impl WheelGeometry {
             return None;
         }
         let mut samples = [None; MAX_SIDE_MOTORS];
-        for (slot, motor) in samples.iter_mut().zip(motors) {
+        for (slot, drive) in samples.iter_mut().zip(motors) {
             *slot = (|| {
-                let meters_per_turn = self.meters_per_motor_turn(motor).ok()?;
+                let meters_per_turn = self.meters_per_motor_turn(drive).ok()?;
                 Some(WheelFeedback {
                     position: Length::new::<meter>(
-                        motor.position().ok()?.as_turns() * meters_per_turn,
+                        drive.motor.position().ok()?.as_turns() * meters_per_turn,
                     ),
                     velocity: Velocity::new::<meter_per_second>(
-                        motor.velocity().ok()? * meters_per_turn / 60.0,
+                        drive.motor.velocity().ok()? * meters_per_turn / 60.0,
                     ),
                 })
             })();
@@ -65,15 +95,16 @@ impl WheelGeometry {
         consensus.sample(&samples[..motors.len()], dt)
     }
 
-    fn wheel_load(self, motors: &[Motor]) -> Option<WheelLoad> {
+    fn wheel_load(self, motors: &[DriveMotor]) -> Option<WheelLoad> {
         if motors.is_empty() {
             return None;
         }
         let mut current = 0.0;
         let mut fastest_wheel: f64 = 0.0;
-        for motor in motors {
-            let amps = motor.current().ok()?;
-            let speed = motor.velocity().ok()? * self.meters_per_motor_turn(motor).ok()? / 60.0;
+        for drive in motors {
+            let amps = drive.motor.current().ok()?;
+            let speed =
+                drive.motor.velocity().ok()? * self.meters_per_motor_turn(drive).ok()? / 60.0;
             if !amps.is_finite() || !speed.is_finite() {
                 return None;
             }
@@ -85,6 +116,23 @@ impl WheelGeometry {
             fastest_wheel_speed: Velocity::new::<meter_per_second>(fastest_wheel),
         })
     }
+}
+
+fn geared_side(
+    motors: impl IntoIterator<Item = (Motor, impl Into<WheelGearing>)>,
+) -> Option<Box<[DriveMotor]>> {
+    let mut side = Vec::new();
+    for (motor, gearing) in motors {
+        let gearing = gearing.into();
+        if !gearing.0.is_finite() || gearing.0 <= 0.0 || side.len() == MAX_SIDE_MOTORS {
+            return None;
+        }
+        side.push(DriveMotor {
+            motor,
+            gearing: Some(gearing),
+        });
+    }
+    (!side.is_empty()).then(|| side.into_boxed_slice())
 }
 
 fn motor_voltage(output: f64, maximum: f64, absolute: bool) -> f64 {
@@ -138,7 +186,7 @@ pub enum DriverFaultPolicy {
 
 /// One differential drivetrain for voltage and matched wheel-speed control.
 pub struct Differential {
-    sides: [Box<[Motor]>; 2],
+    sides: [Box<[DriveMotor]>; 2],
     wheels: Option<WheelGeometry>,
     wheel_speed_limit: Option<Velocity>,
     scale: f64,
@@ -156,9 +204,47 @@ impl Differential {
     /// rated voltage (12 V for 11 W V5 motors, 8 V for 5.5 W motors). Motors
     /// driving the same wheels at different speeds fight each other.
     pub fn new(left: impl Into<Box<[Motor]>>, right: impl Into<Box<[Motor]>>) -> Self {
+        let sides = [left.into(), right.into()].map(|motors| {
+            Vec::from(motors)
+                .into_iter()
+                .map(|motor| DriveMotor {
+                    motor,
+                    gearing: None,
+                })
+                .collect()
+        });
+        Self::from_sides(sides, None)
+    }
+
+    /// Configure wheel diameter and explicit gearing for every motor. Tuple ratios
+    /// such as `(36, 48)` describe one stage. Use [`WheelGearing::then`] for more.
+    /// Choose ratios that match wheel free speeds across the mechanically linked motors.
+    pub fn with_geared_motors<L, R>(
+        left: impl IntoIterator<Item = (Motor, L)>,
+        right: impl IntoIterator<Item = (Motor, R)>,
+        diameter: Length,
+    ) -> Option<Self>
+    where
+        L: Into<WheelGearing>,
+        R: Into<WheelGearing>,
+    {
+        let circumference = diameter * core::f64::consts::PI;
+        let sides = [geared_side(left)?, geared_side(right)?];
+        (circumference.value.is_finite() && circumference.value > 0.0).then(|| {
+            Self::from_sides(
+                sides,
+                Some(WheelGeometry {
+                    circumference,
+                    free_rpm: None,
+                }),
+            )
+        })
+    }
+
+    fn from_sides(sides: [Box<[DriveMotor]>; 2], wheels: Option<WheelGeometry>) -> Self {
         Self {
-            sides: [left.into(), right.into()],
-            wheels: None,
+            sides,
+            wheels,
             wheel_speed_limit: None,
             scale: 1.0,
             slew: None,
@@ -172,6 +258,7 @@ impl Differential {
 
     /// Configure one physical wheel diameter and free wheel speed for both sides.
     /// Wheel measurements and native speed commands use the same wheel calibration.
+    /// Free speed infers ratios for motors without an explicit gear train.
     pub fn with_wheel_feedback(
         mut self,
         diameter: Length,
@@ -189,7 +276,7 @@ impl Differential {
             return None;
         }
         self.wheels = Some(WheelGeometry {
-            free_rpm,
+            free_rpm: Some(free_rpm),
             circumference,
         });
         Some(self)
@@ -256,7 +343,7 @@ impl Differential {
     pub fn visit_motors(&self, mut visit: impl FnMut(usize, usize, &Motor)) {
         for (side, motors) in self.sides.iter().enumerate() {
             for (index, motor) in motors.iter().enumerate() {
-                visit(side, index, motor);
+                visit(side, index, &motor.motor);
             }
         }
     }
@@ -273,6 +360,7 @@ impl Differential {
         self.sides.each_ref().map(|motors| {
             motors
                 .first()?
+                .motor
                 .voltage()
                 .ok()
                 .map(ElectricPotential::new::<volt>)
@@ -286,7 +374,7 @@ impl Differential {
         }
         self.previous = Instant::now();
         each(&mut self.sides, |side| {
-            each(side, |motor| motor.brake(brake))
+            each(side, |drive| drive.motor.brake(brake))
         })
     }
 
@@ -368,8 +456,9 @@ impl Differential {
                 .speed(left, left_power * limit)
                 .and(wheels.speed(right, right_power * limit))
         } else {
-            let set_voltage = |motors: &mut [Motor], power| {
-                each(motors, |motor| {
+            let set_voltage = |motors: &mut [DriveMotor], power| {
+                each(motors, |drive| {
+                    let motor = &mut drive.motor;
                     motor.set_voltage(motor_voltage(power, motor.max_voltage(), absolute))
                 })
             };
@@ -399,6 +488,15 @@ impl Tank for Differential {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn compound_gearing_matches_blue_wheel_speed() {
+        let blue = WheelGearing::from((36, 48));
+        let exp = WheelGearing::new(36, 12).then(36, 48);
+        assert_eq!(600.0 * blue.0, 450.0);
+        assert_eq!(200.0 * exp.0, 450.0);
+        assert_eq!(WheelGearing::from((84, 12)).0, 7.0);
+    }
 
     #[test]
     fn physical_voltage_preserves_setpoint_for_mixed_motors() {

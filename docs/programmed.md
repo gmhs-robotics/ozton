@@ -66,3 +66,45 @@ deadline and stop on competition cancellation.
 ```rust,ignore
 {{#include ../packages/ozton/examples/programmed.rs}}
 ```
+
+## Assemble tracking from sensors
+
+Build the drivetrain and tracker separately in `main`. To track drive-wheel
+travel, configure `Differential::with_geared_motors(left, right, diameter)`.
+Each side accepts `(Motor, (driver_teeth, driven_teeth))` entries. Use
+`WheelGearing::new(driver_teeth, driven_teeth).then(driver_teeth, driven_teeth)`
+for compound gearing. The model converts each motor's travel and speed to the
+wheel before combining healthy encoders on that side.
+
+```rust,ignore
+let tracking = TrackingBuilder::new()
+    .with_drive_encoders(track_width)
+    .with_imu(imu_port, [ImuUse::HeadingCorrection, ImuUse::Orientation])
+    .with_wheels([MountedWheel::from_rotary(
+        lateral_encoder, diameter, position!(0 in, -1 in, 0 in),
+        Angle::new::<degree>(-90.0), None,
+    )])
+    .with_dsr(wall_sensors, [DsrUse::Dsr, DsrUse::Ekf])
+    .build(|mounts| Localizer::new_owned(config, start_pose, field, mounts.to_vec()))
+    .await;
+```
+
+`with_drive_encoders` adds two forward-facing observations at half the track
+width on each side. `with_wheels` adds independently mounted observations.
+Bearings are counterclockwise from forward, so a right-positive lateral wheel
+has a bearing of −90°. Use `OdometryConfig::for_mounted_wheels` to set motion limits. The wheel geometry
+must observe forward travel and yaw.
+Purely forward layouts may assume zero lateral travel. Add sideways coverage
+when the robot needs to measure lateral movement. If selected, IMU heading
+supplies yaw in place of wheel-derived yaw.
+
+Repeat `with_dsr` to register more groups. The roles control which sensors feed
+geometric resets or the active filter. The `Localizer` configuration selects
+Odometry, EKF, or MCL. `set_estimator` switches filters at runtime. One distance
+reading can serve multiple roles, and sensor indices follow registration order.
+
+In the competition update, call
+`tracking.poll_with_drive(mode, occluded, &mut robot.drivetrain)`. The tracker
+borrows the drivetrain for one sample. For tracking pods alone, use
+`tracking.poll_wheels(mode, occluded)`. Custom drive wrappers can implement
+`DriveEncoders` to expose their calibrated left/right travel.

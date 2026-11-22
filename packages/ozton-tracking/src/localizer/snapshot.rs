@@ -48,6 +48,27 @@ pub struct OdometryConfig {
 }
 
 impl OdometryConfig {
+    /// Set limits for a tracker whose wheel layout supplies its own geometry.
+    /// Require lateral travel for a robot that can move sideways.
+    pub const fn for_mounted_wheels(
+        max_linear_speed: Velocity,
+        max_angular_speed: AngularVelocity,
+        max_gap: Duration,
+        require_lateral: bool,
+    ) -> Self {
+        use ozton_math::uom::ConstZero;
+
+        Self::from_units(
+            Length::ZERO,
+            Length::ZERO,
+            Length::ZERO,
+            require_lateral,
+            max_linear_speed,
+            max_angular_speed,
+            max_gap,
+        )
+    }
+
     /// Creates odometry settings from physical lengths, speeds, and the sample gap.
     pub const fn from_units(
         track_width: Length,
@@ -91,16 +112,23 @@ pub enum Fault {
     InvalidEstimate,
 }
 
+pub(super) fn interval(
+    previous: Snapshot,
+    next: Snapshot,
+    config: OdometryConfig,
+) -> Result<Duration, Fault> {
+    next.time
+        .checked_sub(previous.time)
+        .filter(|gap| !gap.is_zero() && *gap <= config.max_gap)
+        .ok_or(Fault::Time)
+}
+
 pub(crate) fn delta(
     previous: Snapshot,
     next: Snapshot,
     config: OdometryConfig,
 ) -> Result<(BodyDelta, Duration), Fault> {
-    let dt = next
-        .time
-        .checked_sub(previous.time)
-        .filter(|gap| !gap.is_zero() && *gap <= config.max_gap)
-        .ok_or(Fault::Time)?;
+    let dt = interval(previous, next, config)?;
     let seconds = dt.as_secs_f64();
     let limit = (config.max_linear_speed.value
         + config.max_angular_speed.value * config.track_width.value / 2.0)
