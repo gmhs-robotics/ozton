@@ -95,7 +95,7 @@ impl CurvatureDrive {
     /// ```
     pub fn update<M: Arcade>(
         &mut self,
-        drivetrain: &mut Drivetrain<M, impl Tracking, impl Sized>,
+        drivetrain: &mut Drivetrain<M, impl Tracking, impl Sized, impl Sized>,
         throttle: f64,
         turn: f64,
     ) -> Result<(), M::Error> {

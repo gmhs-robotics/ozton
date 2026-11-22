@@ -99,7 +99,7 @@ impl<R> Report<R> for () {
     fn collect(_: &R, _: Frame, _: Sample) {}
 }
 
-impl<M, T, L> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L>
+impl<M, T, L, A> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L, A>
 where
     M: ozton_drivetrain::model::DrivetrainModel + ozton_drivetrain::MotorGroups,
     T: ozton_tracking::Tracking + ComponentReport,
@@ -320,9 +320,9 @@ impl SampleClock {
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_tracking::Tracking, L>(
+pub fn report_differential<T: ozton_tracking::Tracking, L, A>(
     frame: Frame,
-    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
+    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L, A>,
 ) {
     use ozton_drivetrain::MotorGroups;
 

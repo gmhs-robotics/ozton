@@ -48,9 +48,9 @@ impl Tank for Differential {
 impl Balancing for Differential {
     type Command = [f64; 2];
 
-    fn drive_balanced(&mut self, command: Self::Command) -> Result<(), PortError> {
-        if command == [0.0; 2] {
-            return self.stop_now();
+    fn balance(&self, command: &mut Self::Command) -> Result<(), PortError> {
+        if *command == [0.0; 2] {
+            return Ok(());
         }
         let mut fault = None;
         let availability = self.sides.each_ref().map(|side| {
@@ -72,8 +72,13 @@ impl Balancing for Differential {
             }
             (available, total)
         });
-        let powers = balance_motor_output(command, availability);
-        crate::normalized_voltage(&mut self.sides, powers).and(fault.map_or(Ok(()), Err))
+        *command = balance_motor_output(*command, availability);
+        fault.map_or(Ok(()), Err)
+    }
+
+    fn drive_balanced(&mut self, mut command: Self::Command) -> Result<(), PortError> {
+        let balance = self.balance(&mut command);
+        self.drive_tank(command[0], command[1]).and(balance)
     }
 }
 

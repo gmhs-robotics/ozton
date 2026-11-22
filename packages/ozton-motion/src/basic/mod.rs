@@ -58,12 +58,13 @@ where
         M: Arcade,
         S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         target_distance: Length,
         target_heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, S, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T, D> {
         DriveFuture {
             target_distance: target_distance.value,
             target_heading: Angle::from_radians(target_heading.value),
@@ -85,11 +86,12 @@ where
         M: Arcade,
         S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         distance: Length,
-    ) -> DriveFuture<'a, M, L, A, S, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T, D> {
         self.drive_distance_at_heading(
             drivetrain,
             distance,
@@ -103,11 +105,12 @@ where
         M: Arcade,
         S: Tracking,
         T: TracksForwardTravel + TracksHeading + TracksVelocity,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, S, T> {
+    ) -> DriveFuture<'a, M, L, A, S, T, D> {
         self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
     }
 
@@ -117,11 +120,12 @@ where
         M: Arcade,
         S: Tracking,
         T: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         point: [Length; 2],
-    ) -> TurnToPointFuture<'a, M, L, A, S, T> {
+    ) -> TurnToPointFuture<'a, M, L, A, S, T, D> {
         TurnToPointFuture {
             point: Vec2::from_array(point.map(|length| length.value)),
             timeout: self.timeout,

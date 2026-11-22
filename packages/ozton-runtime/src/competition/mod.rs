@@ -5,10 +5,7 @@ use std::time::{Duration, Instant};
 use ozton_ui::RouteSelector;
 pub use ozton_ui::Ui;
 pub use vexide::competition::Compete;
-use vexide::{
-    competition::{self, CompetitionMode},
-    controller::Controller,
-};
+use vexide::{competition::CompetitionMode, controller::Controller};
 
 use crate::{
     Robot,
@@ -48,13 +45,6 @@ impl Tick {
     }
 }
 
-/// A driver routine may be preempted by controls or run out of time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DriverWaitError {
-    Cancelled,
-    Timeout,
-}
-
 /// Opt-in competition hooks for an application with its own robot and controls.
 /// Implementations own device errors and drive/motor policy. The loop owns mode
 /// transitions, route selection, disable handling and the periodic tick.
@@ -75,57 +65,6 @@ pub trait CompetitionRobot: Sized {
             .filter(|route| route.allows_autonomous())
     }
 
-    /// Dispatch a driver binding after the ordinary tick.
-    async fn driver_action(&mut self) {}
-
-    fn driver_route_active(&self) -> bool {
-        false
-    }
-
-    /// Release the active driver route's mechanism outputs before manual control resumes.
-    fn cancel_driver_route(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Service driver outputs while a routine waits for its next condition.
-    async fn driver_wait_until(
-        &mut self,
-        timeout: Duration,
-        mut ready: impl FnMut(&Self) -> bool,
-    ) -> Result<(), DriverWaitError> {
-        let started = Instant::now();
-        let mut clock = crate::clock::CommandClock::new(Self::CONTROL_PERIOD)
-            .ok_or(DriverWaitError::Cancelled)?;
-        loop {
-            if competition::mode() != CompetitionMode::Driver || !self.driver_route_active() {
-                return Err(DriverWaitError::Cancelled);
-            }
-            if ready(self) {
-                return Ok(());
-            }
-            if started.elapsed() >= timeout {
-                return Err(DriverWaitError::Timeout);
-            }
-            let elapsed = clock.tick().await;
-            if competition::mode() != CompetitionMode::Driver {
-                return Err(DriverWaitError::Cancelled);
-            }
-            let tick = Tick {
-                started: Instant::now(),
-                elapsed,
-            };
-            self.driver_tick(tick).await;
-            self.after_tick(CompetitionMode::Driver, tick);
-        }
-    }
-
-    /// Hold the currently commanded outputs for a duration while driver control continues.
-    async fn driver_wait(&mut self, duration: Duration) -> Result<(), DriverWaitError> {
-        let started = Instant::now();
-        self.driver_wait_until(duration, |_| started.elapsed() >= duration)
-            .await
-    }
-
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
     fn route_failed(&mut self, _route: Self::Route, error: Self::Error) {
@@ -139,32 +78,8 @@ pub struct Autonomous<R: Copy + 'static, S = ()> {
     menu: Box<dyn RouteSelector<Option<R>>>,
     sampler: S,
     started: Option<Instant>,
-    driver_routes: DriverRoutes<R>,
+    last_driver_fault: Option<String>,
     driver: Option<R>,
-}
-
-struct DriverRoutes<R> {
-    queued: Option<R>,
-    active: Option<R>,
-}
-
-impl<R: Copy> DriverRoutes<R> {
-    fn queue(&mut self, route: R) {
-        if self.active.is_none() {
-            self.queued = Some(route);
-        }
-    }
-
-    fn start(&mut self) -> Option<R> {
-        let route = self.queued.take()?;
-        self.active = Some(route);
-        Some(route)
-    }
-
-    fn finish(&mut self) -> bool {
-        self.queued = None;
-        self.active.take().is_some()
-    }
 }
 
 impl<R: Copy + 'static, S> Autonomous<R, S> {
@@ -181,12 +96,25 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
         self.menu.status(message);
     }
 
+    fn report_driver_fault(&mut self, fault: Option<String>) {
+        if self.last_driver_fault == fault {
+            return;
+        }
+        if let Some(message) = &fault {
+            crate::diagnostic_event!("driver_fault,error={message}");
+            self.menu.status(message);
+        } else {
+            self.menu.status(DRIVER_STATUS);
+        }
+        self.last_driver_fault = fault;
+    }
+
     pub(crate) fn with_diagnostics<L>(self, interval: Duration) -> Autonomous<R, Sampler<L>> {
         Autonomous {
             menu: self.menu,
             sampler: Sampler::new(interval),
             started: self.started,
-            driver_routes: self.driver_routes,
+            last_driver_fault: self.last_driver_fault,
             driver: self.driver,
         }
     }
@@ -195,11 +123,6 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
 impl<R: RouteSet, S> Autonomous<R, S> {
     pub(crate) fn set_driver(&mut self, driver: R) {
         self.driver = Some(driver);
-    }
-
-    /// Schedule a registered route after this driver tick's outputs.
-    pub fn queue_driver_route(&mut self, route: R) {
-        self.driver_routes.queue(route);
     }
 
     pub fn selected_label(&self) -> Option<&'static str> {
@@ -276,10 +199,7 @@ pub(crate) fn autonomous_ui<R: RouteSet>(
         sampler: (),
         started: None,
         driver: None,
-        driver_routes: DriverRoutes {
-            queued: None,
-            active: None,
-        },
+        last_driver_fault: None,
     }
 }
 

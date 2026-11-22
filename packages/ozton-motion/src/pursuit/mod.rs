@@ -59,11 +59,12 @@ impl PurePursuit {
         I: Iterator<Item = Waypoint> + Unpin,
         S: Tracking,
         T: TracksPosition + TracksHeading,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         waypoints: impl IntoIterator<Item = Waypoint, IntoIter = I>,
-    ) -> PurePursuitFuture<'a, M, S, T, I> {
+    ) -> PurePursuitFuture<'a, M, S, T, I, D> {
         PurePursuitFuture {
             drivetrain,
             state: None,

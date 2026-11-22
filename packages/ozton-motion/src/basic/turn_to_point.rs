@@ -38,7 +38,7 @@ pub(crate) struct State {
 
 /// Turns the robot to face a point on the field.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct TurnToPointFuture<'a, M, L, A, S, T>
+pub struct TurnToPointFuture<'a, M, L, A, S, T, D = ()>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -52,7 +52,7 @@ where
     pub(crate) angular_tolerances: Tolerances,
     pub(crate) linear_controller: L,
     pub(crate) angular_controller: A,
-    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T, D>,
 
     /// Internal future state ("local variables").
     pub(crate) state: Option<State>,
@@ -60,7 +60,7 @@ where
 
 // MARK: Future Poll
 
-impl<M, L, A, S, T> Drop for TurnToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> Drop for TurnToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -75,7 +75,7 @@ where
     }
 }
 
-impl<M, L, A, S, T> Future for TurnToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> Future for TurnToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -176,7 +176,7 @@ where
 
 // MARK: Generic Modifiers
 
-impl<M, L, A, S, T> TurnToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> TurnToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -305,7 +305,7 @@ where
 
 // MARK: Linear PID Modifiers
 
-impl<M, A, S, T> TurnToPointFuture<'_, M, Pid, A, S, T>
+impl<M, A, S, T, D> TurnToPointFuture<'_, M, Pid, A, S, T, D>
 where
     M: Arcade,
     A: Feedback<State = Angle, Signal = f64> + Unpin,
@@ -364,7 +364,7 @@ where
 
 // MARK: Angular PID Modifiers
 
-impl<M, L, S, T> TurnToPointFuture<'_, M, L, AngularPid, S, T>
+impl<M, L, S, T, D> TurnToPointFuture<'_, M, L, AngularPid, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,

@@ -29,4 +29,6 @@ pub use setup::{
 };
 pub use stage::TimedMotion;
 
-pub use crate::assists::{DriveAssists, TiltAxis};
+pub use crate::assists::{
+    AntiTipAssist, AssistedMotion, HeadingHoldAssist, MotorBalanceAssist, TiltAxis,
+};

@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use ozton_drivetrain::{
     Drivetrain, MotorGroups, WheelSpeedError,
+    assist::DriveAssist,
     model::{ArcadeInput, Tank},
 };
 use ozton_tracking::{Tracking, sampling::LocalizationLifecycle};
@@ -32,16 +33,21 @@ pub trait ProgramDrive {
     fn poll_competition_tracking(&mut self, _mode: vexide::competition::CompetitionMode) {}
 
     /// Consume the marker set by a direct driver write through the drivetrain.
+    fn take_driver_fault(&mut self) -> Option<Self::Error> {
+        None
+    }
+
     fn take_driver_output(&mut self) -> bool {
         false
     }
 }
 
-impl<M, T, L> ProgramDrive for Drivetrain<M, T, L>
+impl<M, T, L, A> ProgramDrive for Drivetrain<M, T, L, A>
 where
     M: Tank<Error = PortError> + MotorGroups,
     T: Tracking,
     L: LocalizationLifecycle<T>,
+    A: DriveAssist<M>,
 {
     type Error = WheelSpeedError;
     type DriverCommand = ArcadeInput;
@@ -64,6 +70,7 @@ where
     }
 
     fn competition_mode_changed(&mut self, mode: CompetitionMode) {
+        self.reset_assists();
         self.localization.mode_changed(mode);
     }
 
@@ -81,6 +88,10 @@ where
             };
         let width = self.track_width();
         self.localization.poll(&mut self.tracking, positions, width);
+    }
+
+    fn take_driver_fault(&mut self) -> Option<Self::Error> {
+        self.take_output_fault().map(WheelSpeedError::Port)
     }
 
     fn take_driver_output(&mut self) -> bool {

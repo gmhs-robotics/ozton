@@ -4,39 +4,49 @@ use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
     Drivetrain, MotorGroups,
-    model::{ArcadeInput, Balancing, Tank},
+    assist::{AssistTracking, AssistedDrivetrain, DriveAssist},
+    model::{ArcadeInput, Tank},
 };
 use ozton_runtime::{
     clock::{CONTROL_PERIOD, CommandClock},
     competition::ProgramDrive,
 };
-use ozton_tracking::sampling::{LocalizationLifecycle, SensorTracking};
+use ozton_tracking::sampling::LocalizationLifecycle;
 use vexide::{
     competition::{self, CompetitionMode},
     smart::PortError,
 };
 
-use super::{DriveAssists, MAX_CONTROL_GAP};
+const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 use crate::commands::{CommandError, DriveMotionFault};
 
-impl DriveAssists {
-    /// Drive with the model's balancing policy for a bounded autonomous segment.
-    /// The route supplies fresh normalized inputs each tick, including any custom
-    /// scaling. Completion, invalid feedback timing and cancellation stop the drive.
-    pub async fn drive_for<M, L>(
-        &mut self,
-        drive: &mut Drivetrain<M, SensorTracking, L>,
+/// Bounded assisted commands for autonomous routes.
+#[allow(async_fn_in_trait)]
+pub trait AssistedMotion {
+    async fn drive_for(
+        self,
+        duration: Duration,
+        input: impl FnMut() -> ArcadeInput,
+    ) -> Result<(), CommandError<DriveMotionFault>>;
+}
+
+impl<M, T, L, A> AssistedMotion for AssistedDrivetrain<'_, M, T, L, A>
+where
+    M: Tank<Error = PortError> + MotorGroups,
+    T: AssistTracking,
+    L: LocalizationLifecycle<T>,
+    A: DriveAssist<M>,
+{
+    /// Run an assisted autonomous segment. Stops on exit, including cancellation.
+    async fn drive_for(
+        self,
         duration: Duration,
         mut input: impl FnMut() -> ArcadeInput,
-    ) -> Result<(), CommandError<DriveMotionFault>>
-    where
-        M: Tank<Error = PortError> + Balancing<Command = [f64; 2]> + MotorGroups,
-        L: LocalizationLifecycle<SensorTracking>,
-    {
-        self.reset();
+    ) -> Result<(), CommandError<DriveMotionFault>> {
+        let drive = self.into_inner();
+        drive.reset_assists();
         let mut run = ActiveDrive {
             drive,
-            assists: self,
             stopped: false,
         };
         let result = async {
@@ -57,8 +67,9 @@ impl DriveAssists {
                 if !input.throttle.is_finite() || !input.turn.is_finite() {
                     return Err(CommandError::Configuration);
                 }
-                run.assists
-                    .drive_balanced(run.drive, input, dt)
+                run.drive
+                    .assisted()
+                    .try_drive(input)
                     .map_err(|port| CommandError::Robot(DriveMotionFault::Output(port)))?;
                 run.drive
                     .poll_competition_tracking(CompetitionMode::Autonomous);
@@ -77,22 +88,20 @@ impl DriveAssists {
     }
 }
 
-struct ActiveDrive<'a, M: Tank, L> {
-    drive: &'a mut Drivetrain<M, SensorTracking, L>,
-    assists: &'a mut DriveAssists,
+struct ActiveDrive<'a, M: Tank, T: AssistTracking, L, A: DriveAssist<M>> {
+    drive: &'a mut Drivetrain<M, T, L, A>,
     stopped: bool,
 }
 
-impl<M: Tank, L> ActiveDrive<'_, M, L> {
+impl<M: Tank, T: AssistTracking, L, A: DriveAssist<M>> ActiveDrive<'_, M, T, L, A> {
     fn stop(&mut self) -> Result<(), M::Error> {
-        self.assists.reset();
         self.drive.stop_now()?;
         self.stopped = true;
         Ok(())
     }
 }
 
-impl<M: Tank, L> Drop for ActiveDrive<'_, M, L> {
+impl<M: Tank, T: AssistTracking, L, A: DriveAssist<M>> Drop for ActiveDrive<'_, M, T, L, A> {
     fn drop(&mut self) {
         if !self.stopped {
             let _ = self.stop();

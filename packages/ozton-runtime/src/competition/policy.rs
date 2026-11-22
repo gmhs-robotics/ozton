@@ -10,10 +10,6 @@ pub trait Mechanism<E> {
     fn stop(&mut self) -> Result<(), E> {
         Ok(())
     }
-
-    fn finish_driver_route(&mut self) -> Result<(), E> {
-        self.stop()
-    }
 }
 
 impl<E> Mechanism<E> for () {}
@@ -58,11 +54,6 @@ pub trait Program<R, D: ProgramDrive> {
 
     /// Remove actuator output for a recoverable motion failure.
     fn pause_mechanisms(robot: &mut R) -> Result<(), Self::Error> {
-        Self::stop_mechanisms(robot)
-    }
-
-    /// Release a finished driver's mechanism commands. The drive remains under joystick control.
-    fn finish_driver_route(robot: &mut R) -> Result<(), Self::Error> {
         Self::stop_mechanisms(robot)
     }
 

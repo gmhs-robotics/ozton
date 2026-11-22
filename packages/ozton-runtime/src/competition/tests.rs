@@ -91,26 +91,6 @@ impl Program<TestRobot, FakeDrive> for FakeProgram {
 }
 
 #[test]
-fn queued_driver_route_starts_once_and_clears_on_cancellation() {
-    let mut routes = DriverRoutes {
-        queued: None,
-        active: None,
-    };
-    routes.queue("score");
-    assert_eq!(routes.start(), Some("score"));
-    routes.queue("other");
-    assert_eq!(routes.start(), None);
-    assert_eq!(routes.active, Some("score"));
-    assert!(routes.finish());
-    assert!(!routes.finish());
-    assert_eq!(routes.start(), None);
-
-    routes.queue("score");
-    assert!(!routes.finish());
-    assert_eq!(routes.start(), None);
-}
-
-#[test]
 fn driver_dispatch_and_stop_use_the_installed_drive() {
     let mut robot = TestRobot {
         drivetrain: FakeDrive {

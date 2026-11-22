@@ -128,16 +128,6 @@ impl<M: fmt::Debug> From<super::CommandError<Self>> for RoutineError<M> {
     }
 }
 
-impl<M> From<ozton_runtime::competition::DriverWaitError> for RoutineError<M> {
-    fn from(error: ozton_runtime::competition::DriverWaitError) -> Self {
-        use ozton_runtime::competition::DriverWaitError;
-        match error {
-            DriverWaitError::Cancelled => Self::DriverCancelled,
-            DriverWaitError::Timeout => Self::DriverTimeout,
-        }
-    }
-}
-
 impl<M> fmt::Display for RoutineError<M> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.status())?;

@@ -1,4 +1,4 @@
-//! Driver ticks and route actions on an assembled robot.
+//! Driver ticks and fault handling on an assembled robot.
 use super::*;
 
 impl<D, T, X, P, R, S> CompetitionRobot for Robot<D, Controller, T, X, P, Autonomous<R, S>>
@@ -19,7 +19,6 @@ where
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         <Autonomous<R, S> as Telemetry<Self>>::controller(self, None);
-        self.autonomous.driver_routes.finish();
         stop_program(self)
     }
 
@@ -28,102 +27,44 @@ where
     }
 
     async fn driver_tick(&mut self, tick: Tick) {
-        let active = self.autonomous.driver_routes.active;
         let result = while_in_mode(
             dispatch_driver(self, tick),
             CompetitionMode::Driver,
             Self::CONTROL_PERIOD,
         )
         .await;
-        let Some(result) = result else {
-            let _ = self.stop();
-            return;
-        };
-        if result.is_ok() {
-            if let Err(error) = self.update_mechanisms(CompetitionMode::Driver, tick.elapsed) {
-                let stopped = if self.driver_route_active() {
-                    self.cancel_driver_route()
-                } else {
-                    self.autonomous.driver_routes.finish();
-                    self.stop_mechanisms()
-                };
-                if let Some(route) = active {
-                    report_route_error::<D, _, P>(
-                        self,
-                        CompetitionMode::Driver,
-                        route.label(),
-                        &error,
-                    );
-                } else {
-                    self.autonomous.status(&error.to_string());
-                    crate::diagnostic_event!("driver_mechanism_failed,error={error}");
-                }
-                if let Err(_stop) = stopped {
-                    crate::diagnostic_event!("driver_mechanism_stop_failed,error={_stop}");
-                }
+        match result {
+            None => {
+                let _ = self.stop();
             }
-            return;
-        }
-        if let Err(error) = result {
-            crate::diagnostic_event!("driver_tick_failed,error={error}");
-            let stopped = self.stop();
-            if let Some(route) = active {
-                report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
-                if let Err(stop) = stopped {
-                    report_route_error::<D, _, P>(
-                        self,
-                        CompetitionMode::Driver,
-                        route.label(),
-                        &stop,
-                    );
+            Some(Err(error)) => {
+                if let Err(_stop) = self.stop() {
+                    crate::diagnostic_event!("driver_stop_failed,error={_stop}");
                 }
-            } else {
-                self.autonomous.status(&error.to_string());
+                self.autonomous.report_driver_fault(Some(error.to_string()));
             }
-        }
-    }
-
-    fn driver_route_active(&self) -> bool {
-        self.autonomous.driver_routes.active.is_some()
-    }
-
-    fn cancel_driver_route(&mut self) -> Result<(), Self::Error> {
-        if self.autonomous.driver_routes.finish() {
-            self.mechanisms.stop().and(P::finish_driver_route(self))
-        } else {
-            Ok(())
-        }
-    }
-
-    async fn driver_action(&mut self) {
-        let Some(route) = self.autonomous.driver_routes.start() else {
-            return;
-        };
-        let result = while_in_mode(
-            route.run(self),
-            CompetitionMode::Driver,
-            Self::CONTROL_PERIOD,
-        )
-        .await;
-        let was_active = self.driver_route_active();
-        let stopped = if was_active && matches!(result, Some(Ok(()))) {
-            self.autonomous.driver_routes.finish();
-            self.mechanisms
-                .finish_driver_route()
-                .and(P::finish_driver_route(self))
-        } else {
-            self.cancel_driver_route()
-        };
-        if was_active && let Some(Err(error)) = result {
-            report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
-        }
-        if let Err(error) = stopped {
-            let _ = self.stop();
-            report_route_error::<D, _, P>(self, CompetitionMode::Driver, route.label(), &error);
+            Some(Ok(())) => {
+                let output_fault = self
+                    .drivetrain
+                    .take_driver_fault()
+                    .map(|error| P::drive_error(error, false).to_string());
+                let mechanism_fault = self
+                    .update_mechanisms(CompetitionMode::Driver, tick.elapsed)
+                    .err()
+                    .map(|error| {
+                        if let Err(_stop) = self.stop_mechanisms() {
+                            crate::diagnostic_event!("driver_mechanism_stop_failed,error={_stop}");
+                        }
+                        error.to_string()
+                    });
+                self.autonomous
+                    .report_driver_fault(mechanism_fault.or(output_fault));
+            }
         }
     }
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
+        self.autonomous.last_driver_fault = None;
         self.drivetrain.competition_mode_changed(mode);
         P::mode_changed(self, mode);
     }
@@ -192,6 +133,7 @@ where
     robot.driver_elapsed = tick.elapsed;
     robot.driver_wrote = false;
     robot.drivetrain.take_driver_output();
+    robot.drivetrain.take_driver_fault();
     P::before_driver(robot);
     P::driver(robot).await?;
     if !robot.drivetrain.take_driver_output() && !robot.driver_wrote {

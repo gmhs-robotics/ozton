@@ -96,6 +96,9 @@ pub trait Tank: DrivetrainModel {
 pub trait Balancing: DrivetrainModel {
     type Command;
 
+    /// Reduce commands to match the available motors.
+    fn balance(&self, command: &mut Self::Command) -> Result<(), Self::Error>;
+
     /// Apply a balanced command, attempting all motor writes even if a port fails.
     fn drive_balanced(&mut self, command: Self::Command) -> Result<(), Self::Error>;
 }

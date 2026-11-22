@@ -55,11 +55,12 @@ where
         M: Arcade,
         S: Tracking,
         T: TracksPosition + TracksHeading + TracksVelocity,
+        D,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T>,
+        drivetrain: &'a mut Drivetrain<M, S, T, D>,
         point: [Length; 2],
-    ) -> MoveToPointFuture<'a, M, L, A, S, T> {
+    ) -> MoveToPointFuture<'a, M, L, A, S, T, D> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,

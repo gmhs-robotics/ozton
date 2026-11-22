@@ -25,14 +25,14 @@ pub struct State {
 
 /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct PurePursuitFuture<'a, M, S, T, I>
+pub struct PurePursuitFuture<'a, M, S, T, I, D = ()>
 where
     M: Tank,
     S: Tracking,
     T: TracksPosition + TracksHeading,
     I: Iterator<Item = Waypoint> + Unpin,
 {
-    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T, D>,
 
     /// Internal future state ("local variables").
     pub(crate) state: Option<State>,
@@ -45,7 +45,7 @@ where
 
 // MARK: Future Poll
 
-impl<M, S, T, I> Drop for PurePursuitFuture<'_, M, S, T, I>
+impl<M, S, T, I, D> Drop for PurePursuitFuture<'_, M, S, T, I, D>
 where
     M: Tank,
     S: Tracking,
@@ -59,7 +59,7 @@ where
     }
 }
 
-impl<M, S, T, I> Future for PurePursuitFuture<'_, M, S, T, I>
+impl<M, S, T, I, D> Future for PurePursuitFuture<'_, M, S, T, I, D>
 where
     M: Tank,
     S: Tracking,
@@ -256,7 +256,7 @@ where
 
 // MARK: Modifiers
 
-impl<M, S, T, I> PurePursuitFuture<'_, M, S, T, I>
+impl<M, S, T, I, D> PurePursuitFuture<'_, M, S, T, I, D>
 where
     M: Tank,
     S: Tracking,

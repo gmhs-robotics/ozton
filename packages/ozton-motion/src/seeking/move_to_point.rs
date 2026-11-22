@@ -33,7 +33,7 @@ pub(crate) struct State {
 
 /// Moves the robot to a point using two seeking feedback controllers.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct MoveToPointFuture<'a, M, L, A, S, T>
+pub struct MoveToPointFuture<'a, M, L, A, S, T, D = ()>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -47,13 +47,13 @@ where
     pub(crate) tolerances: Tolerances<Linear>,
     pub(crate) linear_controller: L,
     pub(crate) lateral_controller: A,
-    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T>,
+    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T, D>,
     pub(crate) state: Option<State>,
 }
 
 // MARK: Future Poll
 
-impl<M, L, A, S, T> Drop for MoveToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> Drop for MoveToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -68,7 +68,7 @@ where
     }
 }
 
-impl<M, L, A, S, T> Future for MoveToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> Future for MoveToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -189,7 +189,7 @@ where
 
 // MARK: Generic Modifiers
 
-impl<M, L, A, S, T> MoveToPointFuture<'_, M, L, A, S, T>
+impl<M, L, A, S, T, D> MoveToPointFuture<'_, M, L, A, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,
@@ -272,7 +272,7 @@ where
 
 // MARK: Linear PID Modifiers
 
-impl<M, A, S, T> MoveToPointFuture<'_, M, Pid, A, S, T>
+impl<M, A, S, T, D> MoveToPointFuture<'_, M, Pid, A, S, T, D>
 where
     M: Arcade,
     A: Feedback<State = f64, Signal = f64> + Unpin,
@@ -331,7 +331,7 @@ where
 
 // MARK: Angular PID Modifiers
 
-impl<M, L, S, T> MoveToPointFuture<'_, M, L, Pid, S, T>
+impl<M, L, S, T, D> MoveToPointFuture<'_, M, L, Pid, S, T, D>
 where
     M: Arcade,
     L: Feedback<State = f64, Signal = f64> + Unpin,

@@ -1,4 +1,7 @@
 //! A motion model, the robot's physical geometry, and its tracking system.
+use std::time::Instant;
+
+use assist::{AssistChain, AssistedDrivetrain, DriveAssist};
 use model::{Balancing, Differential, DrivetrainModel, Holonomic, Tank};
 use ozton_math::uom::si::f64::{AngularVelocity, ElectricPotential, Length, Velocity};
 pub use ozton_tracking::encoders::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad};
@@ -12,6 +15,7 @@ use vexide::{
 };
 pub use wheels::WheelSpeedError;
 
+pub mod assist;
 pub mod model;
 mod wheels;
 
@@ -25,7 +29,7 @@ pub trait MotorGroups {
 }
 
 /// A drivetrain owns geometry and feedback calibration independently of how it mixes motor outputs.
-pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L> {
+pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L, A = ()> {
     pub model: M,
     pub tracking: T,
     pub localization: L,
@@ -33,6 +37,9 @@ pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L> {
     track_width: Option<Length>,
     wheelbase: Option<Length>,
     driver_output: bool,
+    assists: A,
+    assist_tick: Option<Instant>,
+    output_fault: Option<M::Error>,
     wheel_feedback: [Option<WheelFeedback>; 2],
 }
 
@@ -46,8 +53,50 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
             track_width: None,
             wheelbase: None,
             driver_output: false,
+            assists: (),
+            assist_tick: None,
+            output_fault: None,
             wheel_feedback: [None; 2],
         }
+    }
+}
+
+impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
+    /// Install an assist inline. The return type records the full chain.
+    pub fn with_drive_assist<B: DriveAssist<M>>(
+        self,
+        assist: B,
+    ) -> Drivetrain<M, T, L, AssistChain<A, B>> {
+        Drivetrain {
+            model: self.model,
+            tracking: self.tracking,
+            localization: self.localization,
+            wheels: self.wheels,
+            track_width: self.track_width,
+            wheelbase: self.wheelbase,
+            driver_output: self.driver_output,
+            assists: AssistChain(self.assists, assist),
+            assist_tick: None,
+            output_fault: None,
+            wheel_feedback: self.wheel_feedback,
+        }
+    }
+
+    pub fn assisted(&mut self) -> AssistedDrivetrain<'_, M, T, L, A> {
+        AssistedDrivetrain { drive: self }
+    }
+
+    /// Consume an output fault recorded by the assisted driver interface.
+    pub fn take_output_fault(&mut self) -> Option<M::Error> {
+        self.output_fault.take()
+    }
+
+    pub fn reset_assists(&mut self)
+    where
+        A: DriveAssist<M>,
+    {
+        self.assist_tick = None;
+        self.assists.reset();
     }
 
     /// Consume the write marker used by competition output watchdogs.
@@ -78,7 +127,7 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
+impl<M: DrivetrainModel + MotorGroups, T: Tracking, L, A> Drivetrain<M, T, L, A> {
     /// Set diameter and one ratio per motor, in model group and motor order.
     pub fn with_wheel_geometry(
         mut self,
@@ -165,7 +214,7 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
+impl<M: DrivetrainModel + MotorGroups, T: Tracking, L, A> Drivetrain<M, T, L, A> {
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
         self.wheel_feedback = self
             .wheels
@@ -180,7 +229,7 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<T: Tracking, L> Drivetrain<Differential, T, L> {
+impl<T: Tracking, L, A> Drivetrain<Differential, T, L, A> {
     pub fn measured_voltage(&self) -> [Option<ElectricPotential>; 2] {
         std::array::from_fn(|side| {
             self.model.motor_groups()[side]
@@ -192,7 +241,7 @@ impl<T: Tracking, L> Drivetrain<Differential, T, L> {
     }
 }
 
-impl<T: Tracking, L> DriveEncoders for Drivetrain<Differential, T, L> {
+impl<T: Tracking, L, A> DriveEncoders for Drivetrain<Differential, T, L, A> {
     fn track_width(&self) -> Option<Length> {
         self.track_width
     }
@@ -202,30 +251,35 @@ impl<T: Tracking, L> DriveEncoders for Drivetrain<Differential, T, L> {
     }
 }
 
-impl<M: DrivetrainModel, T: Tracking, L> DrivetrainModel for Drivetrain<M, T, L> {
+impl<M: DrivetrainModel, T: Tracking, L, A> DrivetrainModel for Drivetrain<M, T, L, A> {
     type Error = M::Error;
 }
 
-impl<M: Tank, T: Tracking, L> Tank for Drivetrain<M, T, L> {
+impl<M: Tank, T: Tracking, L, A: DriveAssist<M>> Tank for Drivetrain<M, T, L, A> {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error> {
         self.driver_output = true;
         self.model.drive_tank(left, right)
     }
 
     fn stop_now(&mut self) -> Result<(), Self::Error> {
+        self.reset_assists();
         self.model.stop_now()
     }
 }
 
-impl<M: Holonomic, T: Tracking, L> Holonomic for Drivetrain<M, T, L> {
+impl<M: Holonomic, T: Tracking, L, A> Holonomic for Drivetrain<M, T, L, A> {
     fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
         self.driver_output = true;
         self.model.drive_vector(vector, turn)
     }
 }
 
-impl<M: Balancing, T: Tracking, L> Balancing for Drivetrain<M, T, L> {
+impl<M: Balancing, T: Tracking, L, A> Balancing for Drivetrain<M, T, L, A> {
     type Command = M::Command;
+
+    fn balance(&self, command: &mut Self::Command) -> Result<(), Self::Error> {
+        self.model.balance(command)
+    }
 
     fn drive_balanced(&mut self, command: Self::Command) -> Result<(), Self::Error> {
         self.driver_output = true;

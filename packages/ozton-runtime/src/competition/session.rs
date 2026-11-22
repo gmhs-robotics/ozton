@@ -70,13 +70,6 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             }
             self.0.menu().poll(disabled);
             self.0.after_tick(mode, tick);
-            if mode == CompetitionMode::Driver {
-                let started = Instant::now();
-                self.0.driver_action().await;
-                if started.elapsed() >= R::CONTROL_PERIOD {
-                    previous = Some(Instant::now());
-                }
-            }
             sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
         }
         self.stop();

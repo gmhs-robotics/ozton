@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
     Drivetrain,
+    assist::DriveAssist,
     model::{Differential, DriveEncoders, Tank, WheelSpeedError},
 };
 use ozton_localization::{
@@ -30,7 +31,7 @@ use super::{
     TravelDirection, routine_settings::PATH_LOOKAHEAD,
 };
 
-type TrackedDrive = Drivetrain<Differential, SensorTracking, DifferentialLocalization>;
+type TrackedDrive<A> = Drivetrain<Differential, SensorTracking, DifferentialLocalization, A>;
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug)]
@@ -62,7 +63,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl MotionPlatform for TrackedDrive {
+impl<A: DriveAssist<Differential>> MotionPlatform for TrackedDrive<A> {
     type Error = DriveMotionFault;
 
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
@@ -152,7 +153,7 @@ pub trait DrivetrainMotion {
     ) -> Result<(), DriveMotionFault>;
 }
 
-impl DrivetrainMotion for TrackedDrive {
+impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
     fn poll_tracking(&mut self, mode: CompetitionMode) -> Result<Option<Feedback>, Fault> {
         if mode != CompetitionMode::Disabled {
             self.localization.set_competition_mode(mode);
@@ -287,7 +288,7 @@ impl DrivetrainMotion for TrackedDrive {
     }
 }
 
-fn read_heading(drivetrain: &mut TrackedDrive) -> Option<Angle> {
+fn read_heading<A>(drivetrain: &mut TrackedDrive<A>) -> Option<Angle> {
     let heading = drivetrain
         .tracking
         .refresh_heading()
@@ -295,9 +296,9 @@ fn read_heading(drivetrain: &mut TrackedDrive) -> Option<Angle> {
     drivetrain.localization.field_heading(heading)
 }
 
-struct StopOnDrop<'a>(Option<&'a mut TrackedDrive>);
+struct StopOnDrop<'a, A: DriveAssist<Differential>>(Option<&'a mut TrackedDrive<A>>);
 
-impl StopOnDrop<'_> {
+impl<A: DriveAssist<Differential>> StopOnDrop<'_, A> {
     fn brake(&mut self) -> Result<(), DriveMotionFault> {
         if let Some(drive) = self.0.as_deref_mut() {
             drive.stop_now().map_err(DriveMotionFault::Brake)?;
@@ -307,7 +308,7 @@ impl StopOnDrop<'_> {
     }
 }
 
-impl Drop for StopOnDrop<'_> {
+impl<A: DriveAssist<Differential>> Drop for StopOnDrop<'_, A> {
     fn drop(&mut self) {
         let _ = self.brake();
     }
