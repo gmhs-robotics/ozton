@@ -745,6 +745,7 @@ mod tests {
     }
 
     impl ProgramDrive for FakeDrive {
+        type Error = &'static str;
         type DriverCommand = bool;
         type AutonCommand = i32;
 

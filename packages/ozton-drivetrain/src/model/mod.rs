@@ -7,12 +7,15 @@ use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
 mod differential;
+mod driver;
 mod mecanum;
+mod wheels;
 
-pub use differential::{
-    Differential, DriverFaultPolicy, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
-};
+pub use differential::{Differential, DriverFaultPolicy};
 pub use mecanum::Mecanum;
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+pub use wheels::DriveSnapshot;
+pub use wheels::{DriveMotor, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError};
 
 /// A collection of motors driving a wheeled mobile robot.
 ///
@@ -48,18 +51,9 @@ impl DriveEncoders for Differential {
     }
 }
 
-impl DriveEncoders for crate::resilient::ResilientDrive {
-    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
-        Self::track_width(self)
-    }
-
-    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
-        Self::tracking_positions(self)
-    }
-}
-
 /// Commands consumed by a drivetrain during an Ozton competition.
-pub trait ProgramDrive: DrivetrainModel {
+pub trait ProgramDrive {
+    type Error;
     type DriverCommand;
     type AutonCommand;
 
@@ -81,11 +75,43 @@ pub trait ProgramDrive: DrivetrainModel {
 pub struct ArcadeInput {
     pub throttle: f64,
     pub turn: f64,
+    heading: Option<ozton_math::uom::si::f64::Angle>,
+    tilt: Option<ozton_math::uom::si::f64::Angle>,
+    load: Option<f64>,
+    boost: bool,
 }
 
 impl ArcadeInput {
     pub const fn new(throttle: f64, turn: f64) -> Self {
-        Self { throttle, turn }
+        Self {
+            throttle,
+            turn,
+            heading: None,
+            tilt: None,
+            load: None,
+            boost: false,
+        }
+    }
+
+    pub const fn with_orientation(
+        mut self,
+        heading: Option<ozton_math::uom::si::f64::Angle>,
+        tilt: Option<ozton_math::uom::si::f64::Angle>,
+    ) -> Self {
+        self.heading = heading;
+        self.tilt = tilt;
+        self
+    }
+
+    /// Measured load or mechanism position in the units used to configure slowdown.
+    pub const fn with_load(mut self, load: Option<f64>) -> Self {
+        self.load = load;
+        self
+    }
+
+    pub const fn with_boost(mut self, boost: bool) -> Self {
+        self.boost = boost;
+        self
     }
 }
 

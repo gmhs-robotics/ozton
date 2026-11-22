@@ -56,6 +56,13 @@ pub struct DriveOptions {
 }
 
 impl DriveOptions {
+    pub fn for_differential(drive: &ozton_drivetrain::model::Differential) -> Option<Self> {
+        Some(Self::differential(
+            drive.track_width()?,
+            drive.maximum_wheel_speed()?,
+        ))
+    }
+
     /// Supply arrival tolerances, velocity tolerances, and required settle time.
     pub const fn with_settling(
         mut self,

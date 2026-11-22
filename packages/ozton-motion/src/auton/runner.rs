@@ -158,6 +158,11 @@ impl<'a, R: AutonRobot> Runner<'a, R> {
 
     /// Remaining time on this runner's original deadline. Helpers and loop
     /// iterations must share this clock rather than starting new runners.
+    /// Physical drive options used for this session.
+    pub fn options(&self) -> DriveOptions {
+        self.options
+    }
+
     pub fn remaining(&self) -> Duration {
         self.route_timeout.saturating_sub(self.started.elapsed())
     }

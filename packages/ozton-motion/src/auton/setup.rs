@@ -308,6 +308,7 @@ impl DrivetrainModel for ConfiguredChassis {
 }
 
 impl ProgramDrive for ConfiguredChassis {
+    type Error = ChassisError;
     type DriverCommand = ChassisDriverCommand;
     type AutonCommand = [Velocity; 2];
 

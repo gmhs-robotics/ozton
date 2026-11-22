@@ -67,18 +67,31 @@ deadline and stop on competition cancellation.
 {{#include ../packages/ozton/examples/programmed.rs}}
 ```
 
+## Drive assists
+
+Differential and Mecanum both support heading hold, anti-tip, deadband, boost,
+slew and measured-load slowdown. Pass heading and fore-aft tilt from tracking,
+and pass mechanism position with `ArcadeInput::with_load`. The stock drive
+applies `with_slowdown(full_load, minimum_scale)` to driver output, including
+boost. Missing load feedback uses the minimum scale. Programmed wheel targets
+use the configured physical wheel-speed limit.
+
 ## Assemble tracking from sensors
 
 Build the drivetrain and tracker separately in `main`. To track drive-wheel
-travel, configure `Differential::with_geared_motors(left, right, diameter)`.
+travel, use `Differential::new(left, right).with_wheel_diameter(diameter)`.
 Each side accepts `(Motor, (driver_teeth, driven_teeth))` entries. Use
 `WheelGearing::new(driver_teeth, driven_teeth).then(driver_teeth, driven_teeth)`
 for compound gearing. The model converts each motor's travel and speed to the
 wheel before combining healthy encoders on that side.
 
 ```rust,ignore
-let drivetrain = Differential::with_geared_motors(left, right, diameter)?
-    .with_track_width(track_width)?;
+let drivetrain = Differential::new(left, right)
+    .with_wheel_diameter(diameter)?
+    .with_track_width(track_width)?
+    .with_maximum_wheel_speed(maximum_wheel_speed)?
+    .with_antitip(anti_tip)
+    .with_headinghold();
 let tracking = TrackingBuilder::new()
     .with_drive_encoders(DriveEncoderUse::ForwardAndHeading)
     .with_imu(imu_port, [ImuUse::HeadingCorrection, ImuUse::Orientation])

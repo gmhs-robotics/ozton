@@ -30,6 +30,4 @@ impl<M: DrivetrainModel, T: Tracking> Drivetrain<M, T> {
     }
 }
 
-pub mod resilient;
-
 pub mod feedback;

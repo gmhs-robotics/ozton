@@ -241,23 +241,39 @@ impl SampleClock {
     }
 }
 
-/// Read and report a differential drive using its installed model and geometry.
+/// Report a stock differential without advancing its encoder feedback.
 #[cfg(any(debug_assertions, feature = "sd-logging"))]
-pub fn report_drive(frame: Frame, drive: &ozton_drivetrain::resilient::ResilientDrive) {
-    let snapshot = drive.snapshot();
-    let geometry = drive.geometry();
+pub fn report_differential(frame: Frame, drive: &ozton_drivetrain::model::Differential) {
+    report_drive_snapshot(
+        frame,
+        drive.snapshot(),
+        drive.wheel_diameter().map_or(f64::NAN, |v| v.value),
+        drive.maximum_wheel_speed().map_or(f64::NAN, |v| v.value),
+    );
+    drive.visit_motors(|side, index, motor| report_drive_motor(frame, side, index, motor));
+}
+
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+fn report_drive_motor(frame: Frame, side: usize, index: usize, motor: &Motor) {
+    let side = if side == 0 { 'l' } else { 'r' };
+    MotorSample::read(motor).write(frame, format_args!("drive_{side}{}", index + 1));
+}
+
+#[cfg(any(debug_assertions, feature = "sd-logging"))]
+fn report_drive_snapshot(
+    frame: Frame,
+    snapshot: ozton_drivetrain::model::DriveSnapshot,
+    diameter: f64,
+    speed: f64,
+) {
     let [left, right] = snapshot.wheel_meters;
     let [left_rev, right_rev] = snapshot.wheel_revolutions;
     frame.row("DRIVE", format_args!(
         "left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={left_rev:.6},right_rev={right_rev:.6},left_m={left:.5},right_m={right:.5},wheel_dia_m={:.6},max_wheel_mps={:.5},write_failed={},fault_count={}",
         snapshot.command[0], snapshot.command[1], snapshot.scale,
-        geometry.wheel_diameter().value, geometry.maximum_wheel_speed().value,
+        diameter, speed,
         u8::from(snapshot.write_failed), snapshot.fault_count,
     ));
-    drive.visit_motors(|side, index, motor| {
-        let side = if side == 0 { 'l' } else { 'r' };
-        MotorSample::read(motor).write(frame, format_args!("drive_{side}{}", index + 1));
-    });
 }
 
 /// Report connected controller axes and buttons using Ozton's stock field names.
