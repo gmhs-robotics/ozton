@@ -248,7 +248,6 @@ pub fn report_differential(frame: Frame, drive: &ozton_drivetrain::model::Differ
         frame,
         drive.snapshot(),
         drive.wheel_diameter().map_or(f64::NAN, |v| v.value),
-        drive.auton_speed_limit().map_or(f64::NAN, |v| v.value),
     );
     drive.visit_motors(|side, index, motor| report_drive_motor(frame, side, index, motor));
 }
@@ -264,14 +263,13 @@ fn report_drive_snapshot(
     frame: Frame,
     snapshot: ozton_drivetrain::model::DriveSnapshot,
     diameter: f64,
-    speed: f64,
 ) {
     let [left, right] = snapshot.wheel_meters;
     let [left_rev, right_rev] = snapshot.wheel_revolutions;
     frame.row("DRIVE", format_args!(
-        "left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={left_rev:.6},right_rev={right_rev:.6},left_m={left:.5},right_m={right:.5},wheel_dia_m={:.6},max_wheel_mps={:.5},write_failed={},fault_count={}",
+        "left_cmd={:.4},right_cmd={:.4},scale={:.3},left_rev={left_rev:.6},right_rev={right_rev:.6},left_m={left:.5},right_m={right:.5},wheel_dia_m={:.6},write_failed={},fault_count={}",
         snapshot.command[0], snapshot.command[1], snapshot.scale,
-        diameter, speed,
+        diameter,
         u8::from(snapshot.write_failed), snapshot.fault_count,
     ));
 }

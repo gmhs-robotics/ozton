@@ -54,7 +54,7 @@ impl<G: Into<WheelGearing>> From<(Motor, G)> for DriveMotor {
     }
 }
 
-/// Maximum output for voltage-based drive commands.
+/// Maximum voltage output for assisted driver commands.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MaxSpeed {
     /// Fraction of each motor's rated voltage, from zero to one.
@@ -256,34 +256,40 @@ impl WheelGeometry {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum WheelOutput {
-    Voltage { limit: MaxSpeed, absolute: bool },
-    Velocity(f64),
-}
-
-pub(super) fn write_wheels<const N: usize>(
+pub(super) fn write_voltage<const N: usize>(
     groups: &mut [Box<[DriveMotor]>; N],
     powers: [f64; N],
     wheels: Option<WheelGeometry>,
-    output: WheelOutput,
+    limit: MaxSpeed,
+    absolute: bool,
 ) -> Result<(), PortError> {
     let mut result = Ok(());
     for (group, power) in groups.iter_mut().zip(powers) {
-        let written = match output {
-            WheelOutput::Velocity(limit) => wheels
-                .expect("velocity output requires wheel geometry")
-                .speed(group, power * limit),
-            WheelOutput::Voltage { limit, absolute } => each(group, |drive| {
-                let maximum = limit.motor_voltage(drive, wheels)?;
-                drive
-                    .motor
-                    .set_voltage(motor_voltage(power, maximum, absolute))
-            }),
-        };
+        let written = each(group, |drive| {
+            let maximum = limit.motor_voltage(drive, wheels)?;
+            drive
+                .motor
+                .set_voltage(motor_voltage(power, maximum, absolute))
+        });
         result = result.and(written);
     }
     result
+}
+
+pub(super) fn write_wheel_speeds<const N: usize>(
+    groups: &mut [Box<[DriveMotor]>; N],
+    speeds: [Velocity; N],
+    wheels: Option<WheelGeometry>,
+) -> Result<(), WheelSpeedError> {
+    if speeds.iter().any(|speed| !speed.value.is_finite()) {
+        return Err(WheelSpeedError::InvalidCommand);
+    }
+    let wheels = wheels.ok_or(WheelSpeedError::MissingWheelGeometry)?;
+    let mut result = Ok(());
+    for (group, speed) in groups.iter_mut().zip(speeds) {
+        result = result.and(wheels.speed(group, speed.value));
+    }
+    result.map_err(WheelSpeedError::Port)
 }
 
 pub(super) fn shape<const N: usize>(

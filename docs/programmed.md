@@ -74,11 +74,12 @@ Pass heading and tilt from tracking. The driver code filters joystick inputs
 and can use `ArcadeInput::with_output_scale` to apply a per-command multiplier
 after mixing, for example when a lift is raised.
 
-Use `with_max_speed(MaxSpeed::Fraction(0.75))` to cap voltage at 75% of each
-motor's rating. `MaxSpeed::Voltage` caps it in volts and `MaxSpeed::Wheel`
+At driver-mode entry, call `robot.drivetrain.max_speed(MaxSpeed::Fraction(0.75))?`
+to cap assisted driver output at 75% of each motor's rating. `MaxSpeed::Voltage` caps it in volts and `MaxSpeed::Wheel`
 uses the calibrated free wheel speed to estimate the voltage ceiling.
-Use `with_auton_speed_limit` to set the native autonomous velocity limit
-independently. By default a positive `MaxSpeed::Wheel` also supplies that limit.
+Autonomous routes choose their own wheel speeds. For planned motion, pass the
+route's limit to `DriveOptions::for_differential`. Direct voltage and velocity
+commands use the requested setpoints within the motors' hardware limits.
 
 ## Assemble tracking from sensors
 
@@ -93,7 +94,6 @@ wheel before combining healthy encoders on that side.
 let drivetrain = Differential::new(left, right)
     .with_wheel_diameter(diameter)?
     .with_track_width(track_width)?
-    .with_max_speed(MaxSpeed::Wheel(maximum_wheel_speed))?
     .with_antitip(anti_tip)
     .with_headinghold(heading_hold);
 let tracking = TrackingBuilder::new()

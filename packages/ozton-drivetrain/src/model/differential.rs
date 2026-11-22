@@ -13,11 +13,11 @@ use vexide::{
 };
 
 use super::{
-    Arcade, ArcadeInput, DrivetrainModel, ProgramDrive, Tank,
+    ArcadeInput, DrivetrainModel, ProgramDrive, Tank,
     driver::DriverControl,
     wheels::{
         DriveConfigError, DriveMotor, MaxSpeed, WheelFeedback, WheelGeometry, WheelLoad,
-        WheelOutput, WheelSpeedError, each, positive, shape, write_wheels,
+        WheelSpeedError, each, positive, shape, write_voltage, write_wheel_speeds,
     },
 };
 
@@ -35,10 +35,8 @@ pub struct Differential {
     wheels: Option<WheelGeometry>,
     track_width: Option<Length>,
     wheelbase: Option<Length>,
-    auton_speed_limit: Option<Velocity>,
-    scale: f64,
     driver: DriverControl,
-    max_speed: MaxSpeed,
+    driver_max_speed: MaxSpeed,
     output: ([f64; 2], f64),
     status: ozton_diagnostics::serial::FaultLog,
     slew: Option<[SlewLimiter; 2]>,
@@ -79,10 +77,8 @@ impl Differential {
             wheels,
             track_width: None,
             wheelbase: None,
-            auton_speed_limit: None,
-            scale: 1.0,
             driver: DriverControl::default(),
-            max_speed: MaxSpeed::Fraction(1.0),
+            driver_max_speed: MaxSpeed::Fraction(1.0),
             output: ([0.0; 2], 1.0),
             status: ozton_diagnostics::serial::FaultLog::new("drive", vexide::time::user_uptime),
             slew: None,
@@ -128,21 +124,12 @@ impl Differential {
         self.wheelbase
     }
 
-    /// Set the voltage ceiling for drive commands. Configure wheel geometry first for `Wheel`.
-    pub fn with_max_speed(mut self, speed: MaxSpeed) -> Result<Self, DriveConfigError> {
+    /// Set the voltage ceiling used by the assisted driver input.
+    /// Configure wheel geometry first when using `MaxSpeed::Wheel`.
+    pub fn max_speed(&mut self, speed: MaxSpeed) -> Result<(), DriveConfigError> {
         speed.validate(self.wheels)?;
-        self.max_speed = speed;
-        Ok(self)
-    }
-
-    /// Set the wheel velocity ceiling for native autonomous speed commands.
-    pub fn with_auton_speed_limit(mut self, speed: Velocity) -> Result<Self, DriveConfigError> {
-        if self.wheels.is_none() {
-            return Err(DriveConfigError::MissingWheelGeometry);
-        }
-        positive(speed.value, DriveConfigError::AutonSpeedLimit)?;
-        self.auton_speed_limit = Some(speed);
-        Ok(self)
+        self.driver_max_speed = speed;
+        Ok(())
     }
 
     pub fn wheel_diameter(&self) -> Option<Length> {
@@ -157,25 +144,9 @@ impl Differential {
         Ok(self)
     }
 
-    pub fn set_output_scale(&mut self, scale: f64) {
-        self.scale = if scale.is_finite() {
-            scale.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-    }
-
     pub fn with_brake(mut self, brake: BrakeMode) -> Self {
         self.brake = brake;
         self
-    }
-
-    /// Native autonomous wheel velocity ceiling, if configured.
-    pub fn auton_speed_limit(&self) -> Option<Velocity> {
-        self.auton_speed_limit.or(match self.max_speed {
-            MaxSpeed::Wheel(speed) if speed.value > 0.0 => Some(speed),
-            _ => None,
-        })
     }
 
     /// Capture one encoder update and advance both side baselines together.
@@ -229,7 +200,7 @@ impl Differential {
         }
         self.previous = Instant::now();
         self.driver.reset();
-        self.output = ([0.0; 2], self.scale);
+        self.output = ([0.0; 2], 1.0);
         let result = each(&mut self.sides, |side| {
             each(side, |drive| drive.motor.brake(brake))
         });
@@ -237,49 +208,52 @@ impl Differential {
         result
     }
 
-    /// Applies normalized voltage subject to the configured maximum.
+    /// Apply normalized voltage using each motor's rating.
     pub fn drive_normalized_voltage(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.apply([left, right], self.voltage_output(false), 1.0)
+        self.write_voltage(
+            ozton_math::desaturate([left, right], 1.0),
+            1.0,
+            MaxSpeed::Fraction(1.0),
+            false,
+        )
     }
 
-    /// Applies volts to every motor on each side, limited by the configured ceiling and each motor's rating.
-    /// Optional output scaling and slew limiting still apply.
+    /// Apply volts to every motor on each side, bounded by its rating.
     pub fn drive_volts(
         &mut self,
         left: ElectricPotential,
         right: ElectricPotential,
     ) -> Result<(), PortError> {
         let maximum = Motor::V5_MAX_VOLTAGE;
-        self.apply(
-            [left.value / maximum, right.value / maximum],
-            self.voltage_output(true),
+        self.write_voltage(
+            ozton_math::desaturate([left.value / maximum, right.value / maximum], 1.0),
             1.0,
+            MaxSpeed::Fraction(1.0),
+            true,
         )
     }
 
-    /// SI wheel-speed control without changing the driver's voltage-control mode.
-    /// Requires wheel calibration. Output scaling and slew remain active.
+    /// Command native wheel velocity using the calibrated gearing and wheel diameter.
     pub fn drive_wheel_speeds(
         &mut self,
         left: Velocity,
         right: Velocity,
-        maximum: Velocity,
     ) -> Result<(), WheelSpeedError> {
-        let (left, right, maximum) = (left.value, right.value, maximum.value);
-        if !maximum.is_finite() || maximum <= 0.0 || !left.is_finite() || !right.is_finite() {
-            let _ = self.brake_now(self.brake);
-            return Err(WheelSpeedError::InvalidCommand);
+        match write_wheel_speeds(&mut self.sides, [left, right], self.wheels) {
+            Ok(()) => {
+                self.output = (ozton_math::desaturate([left.value, right.value], 1.0), 1.0);
+                self.record_output(&Ok(()));
+                Ok(())
+            }
+            Err(WheelSpeedError::Port(port)) => {
+                self.record_output(&Err(port));
+                Err(WheelSpeedError::Port(port))
+            }
+            Err(error) => {
+                let _ = self.stop();
+                Err(error)
+            }
         }
-        if self.wheels.is_none() {
-            let _ = self.brake_now(self.brake);
-            return Err(WheelSpeedError::MissingWheelGeometry);
-        }
-        self.apply(
-            [left / maximum, right / maximum],
-            WheelOutput::Velocity(maximum),
-            1.0,
-        )
-        .map_err(WheelSpeedError::Port)
     }
 
     pub fn drive_driver_arcade(
@@ -288,29 +262,35 @@ impl Differential {
         steer: f64,
         policy: DriverFaultPolicy,
     ) -> Result<(), PortError> {
-        let output = self.drive_arcade(throttle, steer);
+        let output = self.drive(ArcadeInput::new(throttle, steer));
         if output.is_err() && matches!(policy, DriverFaultPolicy::Stop) {
             let _ = self.stop_now();
         }
         output
     }
 
-    fn apply(&mut self, input: [f64; 2], output: WheelOutput, scale: f64) -> Result<(), PortError> {
+    fn write_voltage(
+        &mut self,
+        input: [f64; 2],
+        scale: f64,
+        limit: MaxSpeed,
+        absolute: bool,
+    ) -> Result<(), PortError> {
         if input.iter().any(|value| !value.is_finite()) {
             return self.stop_now();
         }
-        let command = shape(input, &mut self.slew, &mut self.previous);
-        let scale = scale * self.scale;
-        self.output = (command, scale);
-        let result = write_wheels(
+        self.output = (input, scale);
+        let result = write_voltage(
             &mut self.sides,
-            command.map(|power| power * scale),
+            input.map(|power| power * scale),
             self.wheels,
-            output,
+            limit,
+            absolute,
         );
         self.record_output(&result);
         result
     }
+
     fn record_output(&mut self, result: &Result<(), PortError>) {
         match result {
             Ok(()) => self.status.recovered(),
@@ -341,18 +321,12 @@ impl Differential {
     /// Mix arcade input with the configured driver assists.
     pub fn drive(&mut self, input: ArcadeInput) -> Result<(), PortError> {
         let (forward, turn) = self.driver.apply(input, self.previous.elapsed(), 0.0);
-        self.apply(
-            [forward + turn, forward - turn],
-            self.voltage_output(false),
-            input.output_scale,
-        )
-    }
-
-    fn voltage_output(&self, absolute: bool) -> WheelOutput {
-        WheelOutput::Voltage {
-            limit: self.max_speed,
-            absolute,
+        let powers = [forward + turn, forward - turn];
+        if powers.iter().any(|power| !power.is_finite()) {
+            return self.stop_now();
         }
+        let powers = shape(powers, &mut self.slew, &mut self.previous);
+        self.write_voltage(powers, input.output_scale, self.driver_max_speed, false)
     }
 
     pub fn stop(&mut self) -> Result<(), PortError> {
@@ -392,14 +366,33 @@ impl ProgramDrive for Differential {
         [left, right]: Self::AutonCommand,
         _: std::time::Duration,
     ) -> Result<(), Self::Error> {
-        let Some(limit) = self.auton_speed_limit() else {
-            let _ = self.stop();
-            return Err(WheelSpeedError::MissingWheelGeometry);
-        };
-        self.drive_wheel_speeds(left, right, limit)
+        self.drive_wheel_speeds(left, right)
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         Differential::stop(self).map_err(WheelSpeedError::Port)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ozton_math::uom::si::{length::meter, velocity::meter_per_second};
+
+    use super::*;
+
+    #[test]
+    fn driver_voltage_cap_is_not_required_for_native_auton_commands() {
+        let mut drive = Differential::from_sides(
+            [Box::default(), Box::default()],
+            Some(WheelGeometry {
+                circumference: Length::new::<meter>(0.3),
+                free_rpm: Some(300.0),
+            }),
+        );
+        drive.max_speed(MaxSpeed::Fraction(0.0)).unwrap();
+        let speeds = [0.5, -0.5].map(Velocity::new::<meter_per_second>);
+
+        assert_eq!(drive.apply_auton(speeds, std::time::Duration::ZERO), Ok(()));
+        assert_eq!(drive.output.0, [0.5, -0.5]);
     }
 }

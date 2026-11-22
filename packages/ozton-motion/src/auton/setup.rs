@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ozton_drivetrain::{
     Drivetrain,
-    model::{ArcadeInput, Differential, DriveConfigError, DrivetrainModel, MaxSpeed, ProgramDrive},
+    model::{ArcadeInput, Differential, DriveConfigError, DrivetrainModel, ProgramDrive},
 };
 use ozton_math::{
     geometry::Pose,
@@ -107,8 +107,7 @@ impl DifferentialConfig {
         let right = build_motor_side(right)?;
         let model = Differential::new(left, right)
             .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
-            .with_track_width(self.track_width)?
-            .with_max_speed(MaxSpeed::Wheel(self.maximum_wheel_speed))?;
+            .with_track_width(self.track_width)?;
 
         let TrackingSetup {
             mut sensors,
@@ -285,10 +284,9 @@ impl ConfiguredChassis {
         self.drive_options
     }
 
-    /// Override settling behavior while keeping the physical limits synchronized.
+    /// Change route limits and settling behavior while retaining the calibrated track width.
     pub fn set_drive_options(&mut self, mut options: DriveOptions) -> Result<(), SetupError> {
         options.track_width = self.settings.track_width;
-        options.maximum_wheel_speed = self.settings.maximum_wheel_speed;
         if !options.valid() {
             return Err(SetupError::DriveGeometry);
         }

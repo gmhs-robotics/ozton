@@ -56,10 +56,14 @@ pub struct DriveOptions {
 }
 
 impl DriveOptions {
-    pub fn for_differential(drive: &ozton_drivetrain::model::Differential) -> Option<Self> {
+    /// Pair the drivetrain's calibrated track width with a route-selected wheel speed.
+    pub fn for_differential(
+        drive: &ozton_drivetrain::model::Differential,
+        maximum_wheel_speed: Velocity,
+    ) -> Option<Self> {
         Some(Self::differential(
             drive.track_width()?,
-            drive.auton_speed_limit()?,
+            maximum_wheel_speed,
         ))
     }
 

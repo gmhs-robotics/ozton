@@ -72,10 +72,6 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         control: WheelControl,
         journal_capacity: usize,
     ) -> Option<Self> {
-        if matches!(control, WheelControl::Native) && drivetrain.model.auton_speed_limit().is_none()
-        {
-            return None;
-        }
         if drivetrain.tracking.distances.len() != drivetrain.tracking.localizer.range_count() {
             return None;
         }
@@ -179,15 +175,10 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         self.target = target;
         let result = match &mut self.control {
             WheelControl::Native => {
-                let limit = self
-                    .drivetrain
-                    .model
-                    .auton_speed_limit()
-                    .ok_or(ChassisError::InvalidCommand)?;
                 let [left, right] = target.map(Velocity::new::<meter_per_second>);
                 self.drivetrain
                     .model
-                    .drive_wheel_speeds(left, right, limit)
+                    .drive_wheel_speeds(left, right)
                     .map_err(|error| match error {
                         WheelSpeedError::Port(port) => ChassisError::Output(port),
                         _ => ChassisError::InvalidCommand,

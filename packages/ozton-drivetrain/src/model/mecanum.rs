@@ -10,7 +10,7 @@ use super::{
     driver::DriverControl,
     wheels::{
         DriveConfigError, DriveMotor, MaxSpeed, WheelFeedback, WheelGeometry, WheelLoad,
-        WheelOutput, WheelSpeedError, each, positive, shape, write_wheels,
+        WheelSpeedError, each, positive, shape, write_voltage, write_wheel_speeds,
     },
 };
 
@@ -19,10 +19,8 @@ pub struct Mecanum {
     motors: [Box<[DriveMotor]>; 4],
     driver: DriverControl,
     wheels: Option<WheelGeometry>,
-    max_speed: MaxSpeed,
-    auton_speed_limit: Option<Velocity>,
+    driver_max_speed: MaxSpeed,
     slew: Option<[SlewLimiter; 4]>,
-    scale: f64,
     brake: BrakeMode,
     previous: Instant,
     feedback_time: Instant,
@@ -45,10 +43,8 @@ impl Mecanum {
             ],
             driver: DriverControl::default(),
             wheels: None,
-            max_speed: MaxSpeed::Fraction(1.0),
-            auton_speed_limit: None,
+            driver_max_speed: MaxSpeed::Fraction(1.0),
             slew: None,
-            scale: 1.0,
             brake: BrakeMode::Brake,
             previous: Instant::now(),
             feedback_time: Instant::now(),
@@ -76,21 +72,12 @@ impl Mecanum {
         Ok(self)
     }
 
-    /// Set the voltage ceiling for drive commands. Configure wheel geometry first for `Wheel`.
-    pub fn with_max_speed(mut self, speed: MaxSpeed) -> Result<Self, DriveConfigError> {
+    /// Set the voltage ceiling used by the assisted driver input.
+    /// Configure wheel geometry first when using `MaxSpeed::Wheel`.
+    pub fn max_speed(&mut self, speed: MaxSpeed) -> Result<(), DriveConfigError> {
         speed.validate(self.wheels)?;
-        self.max_speed = speed;
-        Ok(self)
-    }
-
-    /// Set the wheel velocity ceiling for native autonomous speed commands.
-    pub fn with_auton_speed_limit(mut self, speed: Velocity) -> Result<Self, DriveConfigError> {
-        if self.wheels.is_none() {
-            return Err(DriveConfigError::MissingWheelGeometry);
-        }
-        positive(speed.value, DriveConfigError::AutonSpeedLimit)?;
-        self.auton_speed_limit = Some(speed);
-        Ok(self)
+        self.driver_max_speed = speed;
+        Ok(())
     }
 
     pub fn with_slew(mut self, rise: Frequency, fall: Frequency) -> Result<Self, DriveConfigError> {
@@ -105,25 +92,9 @@ impl Mecanum {
         self
     }
 
-    pub fn set_output_scale(&mut self, scale: f64) {
-        self.scale = if scale.is_finite() {
-            scale.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-    }
-
     pub fn wheel_diameter(&self) -> Option<Length> {
         self.wheels
             .map(|wheels| wheels.circumference / core::f64::consts::PI)
-    }
-
-    /// Native autonomous wheel velocity ceiling, if configured.
-    pub fn auton_speed_limit(&self) -> Option<Velocity> {
-        self.auton_speed_limit.or(match self.max_speed {
-            MaxSpeed::Wheel(speed) if speed.value > 0.0 => Some(speed),
-            _ => None,
-        })
     }
 
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 4] {
@@ -144,35 +115,42 @@ impl Mecanum {
     /// Left stick strafe and forward plus turn. Heading and tilt come from the tracking sample.
     pub fn drive(&mut self, strafe: f64, input: ArcadeInput) -> Result<(), PortError> {
         let (forward, turn) = self.driver.apply(input, self.previous.elapsed(), strafe);
-        self.drive_wheels(
-            mix(strafe, forward, turn),
-            input.output_scale,
-            self.voltage_output(),
-        )
-    }
-
-    fn voltage_output(&self) -> WheelOutput {
-        WheelOutput::Voltage {
-            limit: self.max_speed,
-            absolute: false,
-        }
-    }
-
-    fn drive_wheels(
-        &mut self,
-        powers: [f64; 4],
-        scale: f64,
-        output: WheelOutput,
-    ) -> Result<(), PortError> {
+        let powers = mix(strafe, forward, turn);
         if powers.iter().any(|power| !power.is_finite()) {
             return self.stop_now();
         }
         let powers = shape(powers, &mut self.slew, &mut self.previous);
-        write_wheels(
+        self.write_voltage(powers, input.output_scale, self.driver_max_speed)
+    }
+
+    /// Command native wheel velocities in front-left, front-right, back-left, back-right order.
+    pub fn drive_wheel_speeds(&mut self, speeds: [Velocity; 4]) -> Result<(), WheelSpeedError> {
+        let result = write_wheel_speeds(&mut self.motors, speeds, self.wheels);
+        if matches!(
+            result,
+            Err(WheelSpeedError::InvalidCommand | WheelSpeedError::MissingWheelGeometry)
+        ) {
+            let _ = self.stop_now();
+        }
+        result
+    }
+
+    fn write_voltage(
+        &mut self,
+        powers: [f64; 4],
+        scale: f64,
+        limit: MaxSpeed,
+    ) -> Result<(), PortError> {
+        if powers.iter().any(|power| !power.is_finite()) {
+            return self.stop_now();
+        }
+        let powers = ozton_math::desaturate(powers, 1.0);
+        write_voltage(
             &mut self.motors,
-            powers.map(|power| power * scale * self.scale),
+            powers.map(|power| power * scale),
             self.wheels,
-            output,
+            limit,
+            false,
         )
     }
 }
@@ -192,13 +170,13 @@ impl DrivetrainModel for Mecanum {
 
 impl Holonomic for Mecanum {
     fn drive_vector(&mut self, vector: Vec2, turn: f64) -> Result<(), PortError> {
-        self.drive_wheels(mix(vector.x, vector.y, turn), 1.0, self.voltage_output())
+        self.write_voltage(mix(vector.x, vector.y, turn), 1.0, MaxSpeed::Fraction(1.0))
     }
 }
 
 impl Tank for Mecanum {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.drive_wheels([left, right, left, right], 1.0, self.voltage_output())
+        self.write_voltage([left, right, left, right], 1.0, MaxSpeed::Fraction(1.0))
     }
 
     fn stop_now(&mut self) -> Result<(), PortError> {
@@ -227,20 +205,7 @@ impl ProgramDrive for Mecanum {
     }
 
     fn apply_auton(&mut self, speeds: Self::AutonCommand, _: Duration) -> Result<(), Self::Error> {
-        let Some(limit) = self.auton_speed_limit() else {
-            let _ = self.stop_now();
-            return Err(WheelSpeedError::MissingWheelGeometry);
-        };
-        if speeds.iter().any(|speed| !speed.value.is_finite()) {
-            let _ = self.stop_now();
-            return Err(WheelSpeedError::InvalidCommand);
-        }
-        self.drive_wheels(
-            speeds.map(|speed| speed.value / limit.value),
-            1.0,
-            WheelOutput::Velocity(limit.value),
-        )
-        .map_err(WheelSpeedError::Port)
+        self.drive_wheel_speeds(speeds)
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
