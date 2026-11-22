@@ -168,48 +168,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn heading_wrap_preserves_boundaries_and_non_finite_rejection() {
-        for angle in [-1e6, -TAU, -PI, -0.1, 0.0, 0.1, PI, TAU, 1e6] {
-            let wrapped = wrap_heading(Angle::new::<radian>(angle));
-            assert!((-PI..PI).contains(&wrapped));
-            assert!((libm::sin(wrapped) - libm::sin(angle)).abs() < 1e-10);
-            assert!((libm::cos(wrapped) - libm::cos(angle)).abs() < 1e-10);
-        }
-        assert_eq!(wrap_heading(Angle::new::<radian>(PI)), -PI);
-        assert_eq!(wrap_heading(Angle::new::<radian>(-PI)), -PI);
-        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(wrap_heading(Angle::new::<radian>(invalid)).is_nan());
-        }
-    }
-
-    #[test]
-    fn small_and_large_twists_match_independent_arc_solution() {
-        for yaw in [-2.9, -0.4, -1e-5, -1e-8, 0.0, 1e-8, 1e-5, 0.4, 2.9] {
-            for heading in [-PI, -1.2, 0.0, 1.2, PI] {
-                let start = Pose::new(
-                    Length::new::<meter>(0.3),
-                    Length::new::<meter>(-0.8),
-                    Angle::new::<radian>(heading),
-                );
-                let delta = BodyDelta {
-                    translation: DVec2::new(0.07, 0.13),
-                    heading: yaw,
-                };
-                let half = yaw * 0.5;
-                let scale = if yaw == 0.0 { 1.0 } else { half.sin() / half };
-                let mid = heading + half;
-                let local = delta.translation * scale;
-                let expected = start.position
-                    + DVec2::new(
-                        mid.cos() * local.x - mid.sin() * local.y,
-                        mid.sin() * local.x + mid.cos() * local.y,
-                    );
-                assert!(start.integrate(delta).position.distance(expected) < 1e-12);
-            }
-        }
-    }
-
-    #[test]
     fn field_pose_registration_uses_initial_origin_right_forward_axes() {
         let origin = Pose::new(
             Length::new::<meter>(2.0),

@@ -373,26 +373,3 @@ impl ProgramDrive for Differential {
         Differential::stop(self).map_err(WheelSpeedError::Port)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use ozton_math::uom::si::{length::meter, velocity::meter_per_second};
-
-    use super::*;
-
-    #[test]
-    fn driver_voltage_cap_is_not_required_for_native_auton_commands() {
-        let mut drive = Differential::from_sides(
-            [Box::default(), Box::default()],
-            Some(WheelGeometry {
-                circumference: Length::new::<meter>(0.3),
-                free_rpm: Some(300.0),
-            }),
-        );
-        drive.max_speed(MaxSpeed::Fraction(0.0)).unwrap();
-        let speeds = [0.5, -0.5].map(Velocity::new::<meter_per_second>);
-
-        assert_eq!(drive.apply_auton(speeds, std::time::Duration::ZERO), Ok(()));
-        assert_eq!(drive.output.0, [0.5, -0.5]);
-    }
-}

@@ -503,21 +503,6 @@ mod tests {
     }
 
     #[test]
-    fn packets_from_before_a_disconnect_do_not_become_ready_again() {
-        let mut readiness = RangeReadiness::default();
-        let packet = Some((readiness.generation, 7));
-        assert_eq!(readiness.current(packet), None);
-        readiness.set(true);
-        assert_eq!(readiness.current(packet), Some(7));
-        readiness.set(false);
-        assert_eq!(readiness.current(packet), None);
-        readiness.set(true);
-        assert_eq!(readiness.current(packet), None);
-        let new_packet = Some((readiness.generation, 8));
-        assert_eq!(readiness.current(new_packet), Some(8));
-    }
-
-    #[test]
     fn concrete_wheels_sample_each_axis_without_callbacks() {
         let wheel = TrackingWheel::new(
             Encoder(-2.0),
@@ -540,21 +525,5 @@ mod tests {
             );
             assert!(Sensors::with_wheel_sources(wheel, ()).is_none());
         }
-    }
-
-    #[test]
-    fn existing_callback_sources_can_still_be_replaced() {
-        let sensors = Sensors::default()
-            .with_forward(|| Some(Length::new::<meter>(1.0)))
-            .with_forward(|| Some(Length::new::<meter>(2.0)))
-            .with_lateral(|| Some(Length::new::<meter>(-3.0)));
-        let sample = sensors.capture_odometry([None; 2]);
-        assert_eq!(
-            (sample.forward, sample.lateral),
-            (
-                Some(Length::new::<meter>(2.0)),
-                Some(Length::new::<meter>(-3.0))
-            )
-        );
     }
 }

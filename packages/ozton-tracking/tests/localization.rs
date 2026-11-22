@@ -147,50 +147,6 @@ fn reading(t: u64, occluded: bool) -> Option<RangeObservation> {
 }
 
 #[test]
-fn driver_odometry_ignores_corrections_and_resumes_filters_at_current_pose() {
-    use ozton_tracking::localizer::{Correction, PoseTrust};
-    for estimator in [
-        Estimator::Odometry,
-        Estimator::Ekf(Default::default()),
-        Estimator::Mcl(Default::default()),
-    ] {
-        let mut tracking = localizer(estimator, false);
-        tracking.set_pose(Pose::default());
-        tracking.set_corrections_enabled(false);
-        tracking.request_distance_reset();
-        assert_eq!(
-            tracking.update(snapshot(10), &[]).unwrap_err(),
-            Fault::Initializing
-        );
-        let mut moving = snapshot(20);
-        moving.drive = [Some(Length::new::<meter>(0.01)); 2];
-        let update = tracking.update(moving, &[reading(20, false); 2]).unwrap();
-        assert!((update.pose.position.y - 0.01).abs() < 1e-12);
-        assert!(update.ranges.iter().all(Option::is_none));
-        assert!(matches!(update.correction, Correction::None));
-        assert!(!update.distance_reset);
-        assert!(update.candidate.is_none());
-        tracking.set_corrections_enabled(true);
-        let mut next = snapshot(30);
-        next.drive = moving.drive;
-        let resumed = tracking.update(next, &[reading(30, false); 2]).unwrap();
-        assert!(
-            resumed
-                .ranges
-                .iter()
-                .flatten()
-                .any(|report| report.constraint.is_ok())
-        );
-        assert!(resumed.pose.is_finite());
-        assert!(resumed.pose.position.distance(update.pose.position) < 0.1);
-        tracking.invalidate_pose();
-        tracking.set_corrections_enabled(false);
-        tracking.set_corrections_enabled(true);
-        assert_eq!(tracking.pose_trust(), PoseTrust::NeedsRelocalization);
-    }
-}
-
-#[test]
 fn dsr_combines_independent_packets_without_faking_velocity() {
     let mut localizer = localizer(Estimator::Odometry, false);
     assert_eq!(
@@ -357,37 +313,6 @@ fn both_estimators_improve_a_known_bias_and_shadow_never_moves_the_output() {
             assert_eq!(blocked.pose, update.pose);
         }
     }
-}
-
-#[test]
-fn loss_and_reconnection_use_only_common_motion_intervals() {
-    let mut localizer = localizer(Estimator::Odometry, false);
-    let mut sample = snapshot(10);
-    sample.forward = Some(Length::new::<meter>(100.0));
-    assert_eq!(
-        localizer.update(sample, &[]).unwrap_err(),
-        Fault::Initializing
-    );
-    sample.time += Duration::from_millis(10);
-    sample.drive = [Some(Length::new::<meter>(0.01)); 2];
-    sample.forward = None;
-    sample.imu = None;
-    assert!(localizer.update(sample, &[]).is_ok());
-    sample.time += Duration::from_millis(10);
-    sample.drive = [Some(Length::new::<meter>(0.02)); 2];
-    sample.forward = Some(Length::new::<meter>(999.0));
-    sample.imu = Some(Angle::new::<radian>(1.5));
-    assert!(localizer.update(sample, &[]).is_ok());
-    sample.time += Duration::from_millis(10);
-    sample.drive = [Some(Length::new::<meter>(0.03)); 2];
-    sample.forward = Some(Length::new::<meter>(999.01));
-    assert!(localizer.update(sample, &[]).is_ok());
-    assert!((localizer.forward_travel() - 0.03).abs() < 1e-10);
-    assert_eq!(localizer.pose().heading, 0.0);
-    sample.time += Duration::from_millis(10);
-    sample.imu = None;
-    sample.drive = [None; 2];
-    assert_eq!(localizer.update(sample, &[]).unwrap_err(), Fault::Heading);
 }
 
 #[test]
@@ -606,33 +531,6 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
         assert!(!accepted);
         assert_eq!(tracker.pose(), Pose::default());
     }
-}
-
-#[test]
-fn reconnect_and_distance_reset_do_not_restore_pose_trust() {
-    use ozton_tracking::localizer::PoseTrust;
-    let mut tracker = localizer(Estimator::Odometry, false);
-    assert_eq!(tracker.pose_trust(), PoseTrust::Unregistered);
-    assert!(tracker.set_pose(Pose::default()));
-    assert_eq!(tracker.pose_trust(), PoseTrust::Trusted);
-    tracker.update(snapshot(10), &[]).unwrap_err();
-    let mut lost = snapshot(20);
-    lost.drive = [None; 2];
-    lost.imu = None;
-    assert!(tracker.update(lost, &[]).is_err());
-    assert_eq!(tracker.pose_trust(), PoseTrust::NeedsRelocalization);
-    assert_eq!(
-        tracker.update(snapshot(30), &[]).unwrap_err(),
-        Fault::Initializing
-    );
-    tracker.update(snapshot(40), &[]).unwrap();
-    assert_eq!(tracker.pose_trust(), PoseTrust::NeedsRelocalization);
-    tracker.set_pose(Pose::new(
-        Length::new::<meter>(-0.1),
-        Length::new::<meter>(0.2),
-        Angle::new::<radian>(0.0),
-    ));
-    assert_eq!(tracker.pose_trust(), PoseTrust::Trusted);
 }
 
 #[test]

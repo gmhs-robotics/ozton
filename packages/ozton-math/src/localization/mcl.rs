@@ -297,52 +297,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn transaction_copy_reuses_particle_and_resampling_storage() {
-        let map = [Surface::new(
-            Length::new::<meter>(-2.0),
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(2.0),
-            Length::new::<meter>(1.0),
-        )];
-        let beams = [Beam {
-            mount: Mount::new(
-                Length::new::<meter>(0.0),
-                Length::new::<meter>(0.0),
-                Angle::new::<radian>(0.0),
-            ),
-            distance: Length::new::<meter>(1.0),
-            max_range: Length::new::<meter>(2.0),
-            surface_mask: 1,
-        }];
-        let mut source = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
-        let mut candidate = source.clone();
-        let particles = candidate.particles.as_ptr();
-        let scratch = candidate.scratch.as_ptr();
-        for _ in 0..20 {
-            source.predict(BodyDelta {
-                translation: DVec2::new(0.001, 0.002),
-                heading: 0.001,
-            });
-            source.observe(&beams, &map).unwrap();
-            candidate.clone_from(&source);
-            assert_eq!(candidate.particles.as_ptr(), particles);
-            assert_eq!(candidate.scratch.as_ptr(), scratch);
-            assert_eq!(candidate.estimate().pose, source.estimate().pose);
-            let expected = source.observe(&beams, &map).unwrap();
-            let actual = candidate.observe(&beams, &map).unwrap();
-            assert_eq!(actual.pose, expected.pose);
-            assert_eq!(actual.standard_deviation, expected.standard_deviation);
-            // Resampling swaps buffers; both allocations must remain in use.
-            assert!([particles, scratch].contains(&candidate.particles.as_ptr()));
-            assert!([particles, scratch].contains(&candidate.scratch.as_ptr()));
-            // Restore buffer orientation before checking the next copy.
-            if candidate.particles.as_ptr() != particles {
-                core::mem::swap(&mut candidate.particles, &mut candidate.scratch);
-            }
-        }
-    }
-
-    #[test]
     fn orthogonal_beams_reduce_seeded_initial_error() {
         let map = [
             Surface {

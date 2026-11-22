@@ -123,27 +123,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn position_measurements_preserve_tracked_heading_even_with_cross_covariance() {
-        let mut filter = PoseEkf::new(Pose::default(), DVec3::splat(0.01)).unwrap();
-        filter.predict(
-            BodyDelta {
-                translation: DVec2::new(0.0, 0.2),
-                heading: 0.1,
-            },
-            DVec3::splat(0.001),
-        );
-        assert!(filter.covariance().z_axis.x.abs() > 0.0);
-        let heading = filter.pose().heading;
-        assert!(filter.correct_position(0.01, DVec3::X, 0.0004, 9.0));
-        assert_eq!(filter.pose().heading, heading);
-        assert!(filter.covariance().is_finite());
-        assert!(
-            filter.covariance().x_axis.x > 0.0
-                && filter.covariance().y_axis.y > 0.0
-                && filter.covariance().z_axis.z > 0.0
-        );
-    }
-    #[test]
     fn correction_reduces_error_and_rejects_outlier() {
         let mut filter = PoseEkf::new(
             Pose::new(

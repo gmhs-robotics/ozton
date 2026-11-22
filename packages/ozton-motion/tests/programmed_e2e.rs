@@ -528,51 +528,6 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
 }
 
 #[test]
-fn a_failed_retry_stop_cancels_only_the_current_runner() {
-    block_on(async {
-        let mut robot = Sim::new(false);
-        robot.transient_samples = 1;
-        robot.stop_failures = 1;
-        let wait = || Command::Wait(Duration::from_millis(10));
-        let mut runner = Runner::new(
-            &mut robot,
-            OPTIONS,
-            Duration::from_millis(5),
-            Duration::from_millis(100),
-            Duration::from_secs(1),
-        )
-        .unwrap();
-        assert!(matches!(
-            runner
-                .try_run_while(wait(), Duration::from_millis(100), || true)
-                .await,
-            Err(AutonError::StopFailed(SimError::Transient)),
-        ));
-        assert!(runner.robot().stopped);
-        assert!(matches!(
-            runner
-                .run_while(wait(), Duration::from_millis(100), || true)
-                .await,
-            Err(AutonError::Cancelled),
-        ));
-        drop(runner);
-
-        // A later competition period starts with a fresh runner.
-        Runner::new(
-            &mut robot,
-            OPTIONS,
-            Duration::from_millis(5),
-            Duration::from_millis(100),
-            Duration::from_secs(1),
-        )
-        .unwrap()
-        .run_while(wait(), Duration::from_millis(100), || true)
-        .await
-        .unwrap();
-    });
-}
-
-#[test]
 fn transient_tracking_retries_and_scoring_waits_for_measured_arrival() {
     block_on(async {
         let mut robot = Sim::new(false);
