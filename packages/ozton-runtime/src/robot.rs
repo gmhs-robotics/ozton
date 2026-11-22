@@ -37,12 +37,34 @@ pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
     pub program: P,
     pub autonomous: A,
     pub(crate) driver_input: Option<ControllerState>,
+    pub(crate) driver_elapsed: std::time::Duration,
+    pub(crate) driver_wrote: bool,
 }
 
 impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
     /// Last controller snapshot supplied to the driver callback.
     pub fn driver_input(&self) -> Option<ControllerState> {
         self.driver_input
+    }
+}
+
+impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+where
+    D: ozton_drivetrain::model::ProgramDrive,
+    P: crate::competition::Program<Self, D>,
+{
+    /// Elapsed time for the current driver callback.
+    pub fn driver_elapsed(&self) -> std::time::Duration {
+        self.driver_elapsed
+    }
+
+    /// Apply a command during the current driver callback.
+    pub fn drive_driver(&mut self, command: D::DriverCommand) -> Result<(), P::Error> {
+        self.drivetrain
+            .apply_driver(command, self.driver_elapsed)
+            .map_err(|error| P::drive_error(error, false))?;
+        self.driver_wrote = true;
+        Ok(())
     }
 }
 
@@ -114,6 +136,8 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
             program,
             autonomous,
             driver_input: None,
+            driver_elapsed: std::time::Duration::ZERO,
+            driver_wrote: false,
         }
     }
 

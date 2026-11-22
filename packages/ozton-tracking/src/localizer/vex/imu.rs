@@ -1,8 +1,7 @@
-//! Shared calibrated IMU; initialization never waits in the Driver loop.
-use std::{cell::OnceCell, rc::Rc, time::Duration};
+//! IMU calibrated once before competition.
 
 use ozton_math::uom::si::{angle::radian, f64::Angle};
-use vexide::{prelude::InertialSensor, smart::SmartDevice, task::Task, time::sleep};
+use vexide::{prelude::InertialSensor, smart::SmartDevice};
 
 /// Orientation read once for a control tick. Heading follows the IMU's
 /// clockwise convention, while roll and pitch follow VEX body axes.
@@ -15,32 +14,17 @@ pub struct Orientation {
     pub yaw: Option<Angle>,
 }
 
-/// Calibrates the sensor in the background and shares it when ready.
-pub(super) struct CalibratedImu {
-    ready: Rc<OnceCell<Rc<InertialSensor>>>,
-    _task: Task<()>,
-}
+pub(super) struct CalibratedImu(InertialSensor);
 
 impl CalibratedImu {
-    pub(super) fn start(mut imu: InertialSensor) -> Self {
-        let ready = Rc::new(OnceCell::new());
-        let calibrated = ready.clone();
-        let task = vexide::task::spawn(async move {
-            loop {
-                if imu.calibrate().await.is_ok() && imu.reset_heading().is_ok() {
-                    let _ = calibrated.set(Rc::new(imu));
-
-                    break;
-                }
-
-                sleep(Duration::from_secs(1)).await;
-            }
-        });
-        Self { ready, _task: task }
+    pub(super) async fn initialize(mut imu: InertialSensor) -> Option<Self> {
+        imu.calibrate().await.ok()?;
+        imu.reset_heading().ok()?;
+        Some(Self(imu))
     }
 
     pub(super) fn sample(&self) -> Option<Orientation> {
-        let imu = self.ready.get()?;
+        let imu = &self.0;
         if imu.is_calibrating().ok()? {
             return None;
         }
@@ -60,9 +44,7 @@ impl CalibratedImu {
     }
 
     pub(super) fn telemetry(&self) -> ([f64; 3], [f64; 3]) {
-        let Some(imu) = self.ready.get() else {
-            return ([f64::NAN; 3], [f64::NAN; 3]);
-        };
+        let imu = &self.0;
         let rate = imu
             .gyro_rate()
             .map(|v| [v.x, v.y, v.z])

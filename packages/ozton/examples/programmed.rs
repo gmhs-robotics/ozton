@@ -10,8 +10,8 @@ use ozton::{
         path::{Path, jerryio},
     },
     motion::auton::{
-        Alignment, AutonError, ChassisDriverCommand, ConfiguredChassis, DifferentialConfig,
-        RobotMotion, RoutineError, TrackingSetup, TravelDirection, chassis::ChassisError,
+        Alignment, ConfiguredChassis, DifferentialConfig, RobotMotion, RoutineError, TrackingSetup,
+        TravelDirection, chassis::ChassisError,
     },
     position, route,
     runtime::{
@@ -30,9 +30,7 @@ use ozton::{
         },
     },
 };
-use vexide::{
-    competition::CompetitionMode, controller::ControllerState, prelude::*, smart::motor::BrakeMode,
-};
+use vexide::{competition::CompetitionMode, prelude::*, smart::motor::BrakeMode};
 
 // Embedded path moves right (+X), so begin facing right (-90 degrees).
 const START_HEADING: Angle = Angle {
@@ -126,15 +124,12 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
         }
     }
 
-    fn driver(
-        robot: &mut CompetitionBot,
-        input: ControllerState,
-        _: Duration,
-    ) -> Result<Option<ChassisDriverCommand>, RouteError> {
+    async fn driver(robot: &mut CompetitionBot) -> Result<(), RouteError> {
+        let Some(input) = robot.driver_input() else {
+            return Ok(());
+        };
         robot.mechanisms.intake.on = input.button_r1.is_pressed();
-        Ok(Some(
-            ArcadeInput::new(input.left_stick.y(), input.right_stick.x()).into(),
-        ))
+        robot.drive_driver(ArcadeInput::new(input.left_stick.y(), input.right_stick.x()).into())
     }
 
     fn update_mechanisms(
@@ -169,7 +164,7 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
 }
 
 // ANCHOR: route
-async fn straight(robot: &mut CompetitionBot) -> Result<(), AutonError<RouteError>> {
+async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     let path = Rc::clone(&robot.program.straight_path);
     robot.confirm_start(START)?;
     robot.mechanisms.intake.on = true;

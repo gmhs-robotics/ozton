@@ -16,10 +16,12 @@ the selected async routine when autonomous begins.
 ## What happens each driver tick
 
 1. Ozton reads one controller snapshot and refreshes lightweight inputs.
-2. `Program::driver` receives the snapshot and elapsed time. It sets mechanism
-   goals and returns a typed drivetrain command. Return `None` to stop the drive.
-3. Ozton applies the drive command, then calls `Program::update_mechanisms`.
-   Autonomous motion and waits call that same mechanism hook.
+2. Both the driver callback and autonomous routes use
+   `async fn(robot: &mut Robot) -> Result<(), ProgramError>`. The driver reads its
+   snapshot with `robot.driver_input()` and its elapsed time with
+   `robot.driver_elapsed()`. Apply a chassis command with `robot.drive_driver(...)?`.
+3. Ozton calls `Program::update_mechanisms` after the driver callback.
+   Autonomous motion and managed waits call the same mechanism hook.
 4. Ozton polls optional tracking and diagnostics within the driver tick budget.
    A controller disconnect or failed drive write stops both drive and mechanisms.
 
@@ -31,15 +33,12 @@ actuators to rest and discard stale goals.
 
 ## Run a route from a button
 
-On the button press, call
-`robot.autonomous.queue_driver_route(route!("Score", score))` from the driver
-callback. Write `score` as a straight-line async function. Use
-`robot.driver_wait(duration).await?` and
-`robot.driver_wait_until(timeout, predicate).await?` to keep servicing the
-joysticks and mechanisms between steps. Call `robot.cancel_driver_route()?`
-when manual input takes over. Ozton releases the routine's mechanism outputs on
-completion, error, or cancellation. Override `Program::finish_driver_route`
-when your mechanism needs a different release behavior.
+A future that borrows the whole robot holds that borrow until it completes.
+For a routine that must run alongside steering, let the driver callback start
+a task using a mechanism-owned command handle. It can use ordinary
+`vexide::time::sleep(...).await` while the competition loop continues polling
+driver input. Store the task and cancel it in the program's stop hook and
+when manual inputs take over.
 
 Return errors with `?` in both modes. Ozton reports failures to the Brain and
 runs the mode's stop or release path. A route can return the program's error or
@@ -50,7 +49,7 @@ any error convertible to it.
 `DifferentialConfig::build` sets up a differential chassis with known wheel
 diameter, free speed, track width, and maximum wheel speed. Its `TrackingSetup`
 owns the IMU, range mounts, and field map. Keep the robot still during IMU
-calibration. Use [mounted distance trackers](localization.md#add-field-references)
+calibration. Await setup from `main` before calling `compete()`. Use [mounted distance trackers](localization.md#add-field-references)
 and enter each sensor once in wiring order.
 
 The configured chassis supplies the feedback for `RobotMotion` automatically.

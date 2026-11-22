@@ -22,8 +22,9 @@ Pass stationary reflecting segments as the map. Register each VEX range
 sensor as `DistanceTracker::new(port, position, bearing)`. Position uses
 right, forward, up from The Origin. Bearing is counterclockwise from forward.
 Use `position!(-2 in, 0.1 m, 8 cm)` for the mount. Wiring order fixes the
-zero-based indices. Ozton waits for each sensor in the background and retries
-after disconnection. Missing sensors contribute no observations.
+zero-based indices. Await distance readiness and IMU calibration during startup,
+before `compete()`. During competition, disconnected sensors contribute no
+observations. Reconnection resumes sampling without calibration.
 Use a stable wall or fixture. Pass occlusion bits to `Chassis::sample` from
 `AutonomousControls::sample` when a mechanism blocks a beam. Use
 `1u8 << index` to get a sensor’s bit.

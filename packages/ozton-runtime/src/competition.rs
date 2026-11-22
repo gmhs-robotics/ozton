@@ -160,7 +160,7 @@ pub trait CompetitionRobot: Sized {
 
     fn menu(&mut self) -> &mut RouteMenu<Option<Self::Route>>;
     fn stop(&mut self) -> Result<(), Self::Error>;
-    fn driver_tick(&mut self, tick: Tick);
+    async fn driver_tick(&mut self, tick: Tick);
     fn set_autonomous_start(&mut self, _started: Option<Instant>) {}
 
     fn selected_autonomous(&mut self) -> Option<Self::Route> {
@@ -208,7 +208,7 @@ pub trait CompetitionRobot: Sized {
                 started: Instant::now(),
                 elapsed,
             };
-            self.driver_tick(tick);
+            self.driver_tick(tick).await;
             self.after_tick(CompetitionMode::Driver, tick);
         }
     }
@@ -342,13 +342,9 @@ pub trait Program<R, D: ProgramDrive> {
     /// Translate a drive failure into the program's error type.
     fn drive_error(error: D::Error, stopping: bool) -> Self::Error;
 
-    /// Map one sampled controller state into an output. None stops the drive.
-    /// Mechanism requests are applied in `update_mechanisms` after the drive write.
-    fn driver(
-        robot: &mut R,
-        input: ControllerState,
-        elapsed: Duration,
-    ) -> Result<Option<D::DriverCommand>, Self::Error>;
+    /// Driver callback. Read the current controller sample and elapsed time from
+    /// the robot. Issue a drive command with `Robot::drive_driver`.
+    async fn driver(robot: &mut R) -> Result<(), Self::Error>;
 
     /// Refresh lightweight inputs needed by a driver callback.
     fn before_driver(_robot: &mut R) {}
@@ -420,13 +416,22 @@ where
         self.autonomous.started = started;
     }
 
-    fn driver_tick(&mut self, tick: Tick) {
+    async fn driver_tick(&mut self, tick: Tick) {
         let input = self.controller.state().ok();
         let active = self.autonomous.driver_routes.active;
         if input.is_none() && self.autonomous.driver_routes.finish() {
             self.autonomous.status("Controller unavailable");
         }
-        let result = dispatch_driver(self, input, tick);
+        let result = while_in_mode(
+            dispatch_driver(self, input, tick),
+            CompetitionMode::Driver,
+            Self::CONTROL_PERIOD,
+        )
+        .await;
+        let Some(result) = result else {
+            let _ = self.stop();
+            return;
+        };
         if let Err(error) = result {
             crate::diagnostic_event!("driver_tick_failed,error={error}");
             let stopped = self.stop();
@@ -529,7 +534,7 @@ where
     drive.and(P::stop_mechanisms(robot))
 }
 
-fn dispatch_driver<D, C, T, X, P, A>(
+async fn dispatch_driver<D, C, T, X, P, A>(
     robot: &mut Robot<D, C, T, X, P, A>,
     input: Option<ControllerState>,
     tick: Tick,
@@ -543,16 +548,15 @@ where
         return stop_program(robot);
     };
     robot.driver_input = Some(input);
+    robot.driver_elapsed = tick.elapsed;
+    robot.driver_wrote = false;
     P::before_driver(robot);
-    match P::driver(robot, input, tick.elapsed)? {
-        Some(command) => robot
-            .drivetrain
-            .apply_driver(command, tick.elapsed)
-            .map_err(|error| P::drive_error(error, false))?,
-        None => robot
+    P::driver(robot).await?;
+    if !robot.driver_wrote {
+        robot
             .drivetrain
             .stop()
-            .map_err(|error| P::drive_error(error, true))?,
+            .map_err(|error| P::drive_error(error, true))?;
     }
     robot.mark_driver_output(tick);
     P::update_mechanisms(robot, CompetitionMode::Driver, tick.elapsed)
@@ -627,7 +631,7 @@ pub(crate) async fn compete<R: CompetitionRobot>(mut robot: R) -> ! {
                 };
                 robot.menu().status(status);
             }
-            CompetitionMode::Driver => robot.driver_tick(tick),
+            CompetitionMode::Driver => robot.driver_tick(tick).await,
             CompetitionMode::Autonomous if entering => {
                 if let Some(route) = robot.selected_autonomous() {
                     robot
@@ -778,14 +782,10 @@ mod tests {
             error
         }
 
-        fn driver(
-            robot: &mut TestRobot,
-            input: ControllerState,
-            _: Duration,
-        ) -> Result<Option<bool>, Self::Error> {
-            assert_eq!(robot.driver_input(), Some(input));
+        async fn driver(robot: &mut TestRobot) -> Result<(), Self::Error> {
+            assert_eq!(robot.driver_input(), Some(ControllerState::default()));
             robot.drivetrain.writes.push("driver");
-            Ok(Some(true))
+            robot.drive_driver(true)
         }
 
         fn update_mechanisms(
@@ -837,18 +837,32 @@ mod tests {
             program: FakeProgram,
             autonomous: NoTelemetry,
             driver_input: None,
+            driver_elapsed: Duration::ZERO,
+            driver_wrote: false,
         };
         let tick = Tick {
             started: Instant::now(),
             elapsed: CONTROL_PERIOD,
         };
         assert_eq!(
-            dispatch_driver(&mut robot, Some(ControllerState::default()), tick),
-            Ok(())
+            pin!(dispatch_driver(
+                &mut robot,
+                Some(ControllerState::default()),
+                tick
+            ))
+            .poll(&mut core::task::Context::from_waker(
+                core::task::Waker::noop()
+            )),
+            Poll::Ready(Ok(()))
         );
         assert_eq!(robot.drivetrain.apply_auton(7, CONTROL_PERIOD), Ok(()));
         robot.drivetrain.fail_stop = true;
-        assert_eq!(dispatch_driver(&mut robot, None, tick), Err("port"));
+        assert_eq!(
+            pin!(dispatch_driver(&mut robot, None, tick)).poll(
+                &mut core::task::Context::from_waker(core::task::Waker::noop())
+            ),
+            Poll::Ready(Err("port"))
+        );
         assert_eq!(robot.driver_input(), None);
         assert_eq!(
             robot.drivetrain.writes,

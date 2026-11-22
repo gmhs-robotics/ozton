@@ -4,7 +4,6 @@ use std::{
     cell::Cell,
     future::Future,
     pin::pin,
-    rc::Rc,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -21,7 +20,6 @@ use ozton_math::{
 use vexide::{
     prelude::{DistanceSensor, GpsSensor, InertialSensor},
     smart::{SmartDevice, SmartPort},
-    task::Task,
     time::LowResolutionTime,
 };
 
@@ -134,44 +132,47 @@ impl DistanceDevice {
 /// consumers through the cached observations.
 #[derive(Default)]
 pub struct Distances {
-    devices: ArrayVec<Rc<DistanceDevice>, MAX_RANGES>,
+    devices: ArrayVec<DistanceDevice, MAX_RANGES>,
     configs: ArrayVec<RangeSensorConfig, MAX_RANGES>,
-    _readiness: Option<Task<()>>,
     last_poll: Option<Duration>,
     last_occluded: u8,
     cached: [Option<(u32, RangeObservation)>; MAX_RANGES],
 }
 
 impl Distances {
-    /// Register mounts in route index order and start background readiness checks.
+    /// Register mounts in route index order.
     pub fn new(devices: impl IntoIterator<Item = DistanceTracker>) -> Option<Self> {
         let mut distances = Self::default();
         for DistanceTracker { sensor, config } in devices {
             distances
                 .devices
-                .try_push(Rc::new(DistanceDevice {
+                .try_push(DistanceDevice {
                     sensor,
                     readiness: Cell::default(),
-                }))
+                })
                 .ok()?;
             distances.configs.push(config);
         }
-        if !distances.is_empty() {
-            let devices = distances.devices.clone();
-            distances._readiness = Some(vexide::task::spawn(async move {
-                loop {
-                    for device in &devices {
-                        // The SDK future wakes itself while initializing. Pace it
-                        // here so an unready sensor cannot busy-loop the executor.
-                        let mut ready = pin!(device.sensor.wait_ready());
-                        let result = ready.as_mut().poll(&mut Context::from_waker(Waker::noop()));
-                        device.set_ready(matches!(result, Poll::Ready(Ok(()))));
-                    }
-                    vexide::time::sleep(RANGE_PERIOD).await;
-                }
-            }));
-        }
         Some(distances)
+    }
+
+    /// Wait for every installed sensor at startup, bounded by a single deadline.
+    pub async fn initialize(self, timeout: Duration) -> Option<Self> {
+        let started = std::time::Instant::now();
+        loop {
+            for device in &self.devices {
+                let mut ready = pin!(device.sensor.wait_ready());
+                let result = ready.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+                device.set_ready(matches!(result, Poll::Ready(Ok(()))));
+            }
+            if self.ready_count() == self.len() {
+                return Some(self);
+            }
+            if started.elapsed() >= timeout {
+                return None;
+            }
+            vexide::time::sleep(RANGE_PERIOD).await;
+        }
     }
 
     pub fn configs(&self) -> &[RangeSensorConfig] {
@@ -209,6 +210,8 @@ impl Distances {
             .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
         {
             for (index, device) in self.devices.iter().enumerate() {
+                // Runtime status is a connection check. Rejoining never runs calibration.
+                device.set_ready(matches!(device.sensor.status(), Ok(0x82 | 0x86)));
                 let readiness = device.readiness.get();
                 self.cached[index] = if readiness.ready {
                     match distance(&device.sensor, occluded & (1 << index) != 0) {
@@ -269,11 +272,13 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     }
 
     /// Give this reader its own distance devices when no other component uses them.
-    pub fn with_ranges(
+    pub async fn with_ranges(
         mut self,
         ranges: impl IntoIterator<Item = DistanceTracker>,
     ) -> Option<Self> {
-        self.distances = Distances::new(ranges)?;
+        self.distances = Distances::new(ranges)?
+            .initialize(Duration::from_secs(3))
+            .await?;
         Some(self)
     }
 
@@ -317,11 +322,11 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
 }
 
 impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
-    /// Start background calibration of the tracking IMU.
-    pub fn with_imu(mut self, imu: InertialSensor) -> Self {
-        self.imu = Some(CalibratedImu::start(imu));
+    /// Calibrate once during assembly. A failed calibration returns no reader.
+    pub async fn with_imu(mut self, imu: InertialSensor) -> Option<Self> {
+        self.imu = Some(CalibratedImu::initialize(imu).await?);
         self.orientation = None;
-        self
+        Some(self)
     }
 
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {
