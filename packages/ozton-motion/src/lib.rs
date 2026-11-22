@@ -2,6 +2,7 @@
 
 mod curvature;
 
+pub mod assists;
 pub mod basic;
 pub mod commands;
 pub mod pursuit;

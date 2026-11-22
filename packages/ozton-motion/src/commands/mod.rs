@@ -28,3 +28,5 @@ pub use setup::{
     ChassisDriverCommand, ConfiguredChassis, DifferentialConfig, SetupError, TrackingSetup,
 };
 pub use stage::TimedMotion;
+
+pub use crate::assists::{DriveAssists, TiltAxis};

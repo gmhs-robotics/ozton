@@ -1,4 +1,4 @@
-//! Driver-only heading correction.
+//! Heading hold for straight arcade commands.
 
 use ozton_math::{geometry::wrap_heading, uom::si::f64::Angle};
 
