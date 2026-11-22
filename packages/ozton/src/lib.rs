@@ -17,7 +17,9 @@ pub mod prelude {
         control::Tolerances,
         drivetrain::{
             Drivetrain,
-            model::{Arcade, ArcadeInput, Holonomic, ProgramDrive, Tank},
+            model::{
+                Arcade, ArcadeInput, DriveConfigError, Holonomic, MaxSpeed, ProgramDrive, Tank,
+            },
         },
         motion::auton::{
             Auton, AutonomousControls, Follower, RobotMotion, ScoringControls, TravelDirection,

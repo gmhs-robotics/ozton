@@ -69,12 +69,16 @@ deadline and stop on competition cancellation.
 
 ## Drive assists
 
-Differential and Mecanum both support heading hold, anti-tip, deadband, boost,
-slew and measured-load slowdown. Pass heading and fore-aft tilt from tracking,
-and pass mechanism position with `ArcadeInput::with_load`. The stock drive
-applies `with_slowdown(full_load, minimum_scale)` to driver output, including
-boost. Missing load feedback uses the minimum scale. Programmed wheel targets
-use the configured physical wheel-speed limit.
+Differential and Mecanum accept a `HeadingHold` and an `AntiTip` controller.
+Pass heading and tilt from tracking. The driver code filters joystick inputs
+and can use `ArcadeInput::with_output_scale` to apply a per-command multiplier
+after mixing, for example when a lift is raised.
+
+Use `with_max_speed(MaxSpeed::Fraction(0.75))` to cap voltage at 75% of each
+motor's rating. `MaxSpeed::Voltage` caps it in volts and `MaxSpeed::Wheel`
+uses the calibrated free wheel speed to estimate the voltage ceiling.
+Use `with_auton_speed_limit` to set the native autonomous velocity limit
+independently. By default a positive `MaxSpeed::Wheel` also supplies that limit.
 
 ## Assemble tracking from sensors
 
@@ -89,9 +93,9 @@ wheel before combining healthy encoders on that side.
 let drivetrain = Differential::new(left, right)
     .with_wheel_diameter(diameter)?
     .with_track_width(track_width)?
-    .with_maximum_wheel_speed(maximum_wheel_speed)?
+    .with_max_speed(MaxSpeed::Wheel(maximum_wheel_speed))?
     .with_antitip(anti_tip)
-    .with_headinghold();
+    .with_headinghold(heading_hold);
 let tracking = TrackingBuilder::new()
     .with_drive_encoders(DriveEncoderUse::ForwardAndHeading)
     .with_imu(imu_port, [ImuUse::HeadingCorrection, ImuUse::Orientation])
@@ -103,10 +107,9 @@ let tracking = TrackingBuilder::new()
 let robot = RobotBuilder::new()
     .with_drivetrain(drivetrain)
     .with_tracking_from_drive(async |drive| {
-        let tracker = tracking.build_for_drive(drive, |mounts| {
+        tracking.build_for_drive(drive, |mounts| {
             Localizer::new_owned(config, start_pose, field, mounts.to_vec())
-        }).await?;
-        Some(tracker)
+        }).await
     })
     .await?;
 ```

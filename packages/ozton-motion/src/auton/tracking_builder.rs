@@ -43,6 +43,32 @@ pub enum DsrUse {
     Mcl,
 }
 
+/// Failure to assemble or initialize the configured tracking hardware.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrackingBuildError {
+    MissingTrackWidth,
+    DistanceLayout,
+    FieldModel,
+    WheelLayout,
+    DistanceStartup,
+    ImuStartup,
+}
+
+impl std::fmt::Display for TrackingBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::MissingTrackWidth => "drive-derived heading requires a calibrated track width",
+            Self::DistanceLayout => "invalid distance sensor layout",
+            Self::FieldModel => "invalid localization field model",
+            Self::WheelLayout => "invalid tracking wheel layout",
+            Self::DistanceStartup => "distance sensors did not become ready",
+            Self::ImuStartup => "IMU startup calibration failed",
+        })
+    }
+}
+
+impl std::error::Error for TrackingBuildError {}
+
 #[derive(Default)]
 pub(super) struct RangeUses {
     reset: u8,
@@ -137,9 +163,11 @@ impl TrackingBuilder {
     pub async fn build(
         self,
         field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
-    ) -> Option<DifferentialLocalization<()>> {
+    ) -> Result<DifferentialLocalization<()>, TrackingBuildError> {
         let drive = match self.drive {
-            Some(DriveEncoderUse::ForwardAndHeading) => return None,
+            Some(DriveEncoderUse::ForwardAndHeading) => {
+                return Err(TrackingBuildError::MissingTrackWidth);
+            }
             Some(DriveEncoderUse::Forward) => Some(DriveWheels::Forward),
             None => None,
         };
@@ -151,11 +179,13 @@ impl TrackingBuilder {
         self,
         drivetrain: &impl DriveEncoders,
         field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
-    ) -> Option<DifferentialLocalization<()>> {
+    ) -> Result<DifferentialLocalization<()>, TrackingBuildError> {
         let drive = match self.drive {
-            Some(DriveEncoderUse::ForwardAndHeading) => {
-                Some(DriveWheels::ForwardAndHeading(drivetrain.track_width()?))
-            }
+            Some(DriveEncoderUse::ForwardAndHeading) => Some(DriveWheels::ForwardAndHeading(
+                drivetrain
+                    .track_width()
+                    .ok_or(TrackingBuildError::MissingTrackWidth)?,
+            )),
             Some(DriveEncoderUse::Forward) => Some(DriveWheels::Forward),
             None => None,
         };
@@ -166,24 +196,33 @@ impl TrackingBuilder {
         self,
         drive: Option<DriveWheels>,
         field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
-    ) -> Option<DifferentialLocalization<()>> {
-        let distances = Distances::new(self.ranges)?;
-        let localizer = field_model(distances.configs())?;
+    ) -> Result<DifferentialLocalization<()>, TrackingBuildError> {
+        let distances = Distances::new(self.ranges).ok_or(TrackingBuildError::DistanceLayout)?;
+        let localizer = field_model(distances.configs()).ok_or(TrackingBuildError::FieldModel)?;
         if localizer.range_count() != distances.len() {
-            return None;
+            return Err(TrackingBuildError::DistanceLayout);
         }
         let wheels = WheelOdometry::new(
             self.wheel_sources,
             drive,
             self.heading,
             localizer.odometry_config().require_lateral,
-        )?;
-        let distances = distances.initialize(Duration::from_secs(3)).await?;
-        let mut sensors = Sensors::with_wheel_sources((), ())?.into_shared_reader();
+        )
+        .ok_or(TrackingBuildError::WheelLayout)?;
+        let distances = distances
+            .initialize(Duration::from_secs(3))
+            .await
+            .ok_or(TrackingBuildError::DistanceStartup)?;
+        let mut sensors = Sensors::with_wheel_sources((), ())
+            .ok_or(TrackingBuildError::WheelLayout)?
+            .into_shared_reader();
         if let Some(port) = self.imu {
-            sensors = sensors.with_imu(InertialSensor::new(port)).await?;
+            sensors = sensors
+                .with_imu(InertialSensor::new(port))
+                .await
+                .ok_or(TrackingBuildError::ImuStartup)?;
         }
-        Some(
+        Ok(
             DifferentialLocalization::new(sensors, distances, localizer).with_layout(
                 wheels,
                 self.range_uses,

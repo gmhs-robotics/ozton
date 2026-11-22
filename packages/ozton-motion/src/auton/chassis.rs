@@ -5,7 +5,7 @@ use ozton_control::axis::{AxisController, AxisSample, Linear, Target};
 use ozton_diagnostics::{Event, Journal, calibration::CalibrationSample};
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, Tank, WheelFeedback},
+    model::{Differential, WheelFeedback, WheelSpeedError},
 };
 use ozton_math::{
     geometry::Pose,
@@ -72,7 +72,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         control: WheelControl,
         journal_capacity: usize,
     ) -> Option<Self> {
-        if matches!(control, WheelControl::Native) && drivetrain.model.wheel_speed_limit().is_none()
+        if matches!(control, WheelControl::Native) && drivetrain.model.auton_speed_limit().is_none()
         {
             return None;
         }
@@ -182,13 +182,16 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 let limit = self
                     .drivetrain
                     .model
-                    .wheel_speed_limit()
+                    .auton_speed_limit()
                     .ok_or(ChassisError::InvalidCommand)?;
-                let power = target.map(|speed| speed / limit.value);
+                let [left, right] = target.map(Velocity::new::<meter_per_second>);
                 self.drivetrain
                     .model
-                    .drive_tank(power[0], power[1])
-                    .map_err(ChassisError::Output)
+                    .drive_wheel_speeds(left, right, limit)
+                    .map_err(|error| match error {
+                        WheelSpeedError::Port(port) => ChassisError::Output(port),
+                        _ => ChassisError::InvalidCommand,
+                    })
             }
             WheelControl::Voltage(controllers) => {
                 let voltage = (|| {
@@ -244,10 +247,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         if let WheelControl::Voltage(controllers) = &mut self.control {
             controllers.iter_mut().for_each(AxisController::reset);
         }
-        self.drivetrain
-            .model
-            .stop_now()
-            .map_err(ChassisError::Output)
+        self.drivetrain.model.stop().map_err(ChassisError::Output)
     }
 
     pub fn set_pose(&mut self, pose: Pose) -> Result<(), ChassisError> {

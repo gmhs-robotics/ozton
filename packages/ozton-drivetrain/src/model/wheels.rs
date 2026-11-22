@@ -1,7 +1,7 @@
 //! Motor gearing and physical wheel feedback shared by drivetrain models.
 use ozton_math::uom::si::{
     electric_current::ampere,
-    f64::{ElectricCurrent, Length, Velocity},
+    f64::{ElectricCurrent, ElectricPotential, Length, Velocity},
     length::meter,
     velocity::meter_per_second,
 };
@@ -54,6 +54,109 @@ impl<G: Into<WheelGearing>> From<(Motor, G)> for DriveMotor {
     }
 }
 
+/// Maximum output for voltage-based drive commands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MaxSpeed {
+    /// Fraction of each motor's rated voltage, from zero to one.
+    Fraction(f64),
+    /// Absolute voltage ceiling, bounded by each motor's rating.
+    Voltage(ElectricPotential),
+    /// Nominal free wheel speed, converted to voltage using wheel diameter and gearing.
+    Wheel(Velocity),
+}
+
+impl MaxSpeed {
+    pub(super) fn validate(self, wheels: Option<WheelGeometry>) -> Result<(), DriveConfigError> {
+        let valid = match self {
+            Self::Fraction(fraction) => (0.0..=1.0).contains(&fraction),
+            Self::Voltage(voltage) => voltage.value.is_finite() && voltage.value >= 0.0,
+            Self::Wheel(speed) => {
+                if wheels.is_none() {
+                    return Err(DriveConfigError::MissingWheelGeometry);
+                }
+                speed.value.is_finite() && speed.value >= 0.0
+            }
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(DriveConfigError::MaxSpeed)
+        }
+    }
+
+    fn motor_voltage(
+        self,
+        drive: &DriveMotor,
+        wheels: Option<WheelGeometry>,
+    ) -> Result<f64, PortError> {
+        self.voltage_limit(drive.motor.max_voltage(), || {
+            // The builder requires calibration before accepting a wheel speed.
+            let wheels = wheels.expect("wheel speed cap requires wheel geometry");
+            let free_rpm = match drive.gearing {
+                Some(gearing) => gearing.0 * drive.motor.gearset()?.max_rpm(),
+                None => wheels
+                    .free_rpm
+                    .expect("wheel geometry requires gearing or free speed"),
+            };
+            Ok(wheels.circumference.value * free_rpm / 60.0)
+        })
+    }
+
+    fn voltage_limit(
+        self,
+        rated: f64,
+        free_speed: impl FnOnce() -> Result<f64, PortError>,
+    ) -> Result<f64, PortError> {
+        Ok(match self {
+            Self::Fraction(fraction) => fraction * rated,
+            Self::Voltage(voltage) => voltage.value.min(rated),
+            Self::Wheel(speed) => rated * (speed.value / free_speed()?).min(1.0),
+        })
+    }
+}
+
+/// Invalid stock drivetrain configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriveConfigError {
+    WheelDiameter,
+    WheelGearing,
+    FreeWheelSpeed,
+    TrackWidth,
+    Wheelbase,
+    MissingWheelGeometry,
+    MaxSpeed,
+    AutonSpeedLimit,
+    SlewRate,
+}
+
+impl std::fmt::Display for DriveConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::WheelDiameter => "wheel diameter must be finite and positive",
+            Self::WheelGearing => "wheel feedback requires valid gearing and motor groups",
+            Self::FreeWheelSpeed => "free wheel speed must be finite and positive",
+            Self::TrackWidth => "track width must be finite and positive",
+            Self::Wheelbase => "wheelbase must be finite and positive",
+            Self::MissingWheelGeometry => "set wheel geometry before configuring a wheel speed",
+            Self::MaxSpeed => {
+                "max speed must be finite and nonnegative, with fractions at most one"
+            }
+            Self::AutonSpeedLimit => "autonomous wheel speed limit must be finite and positive",
+            Self::SlewRate => "slew rates must be finite and positive",
+        })
+    }
+}
+
+impl std::error::Error for DriveConfigError {}
+
+pub(super) fn positive(value: f64, error: DriveConfigError) -> Result<(), DriveConfigError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(error)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct WheelGeometry {
     pub(super) free_rpm: Option<f64>,
@@ -64,14 +167,26 @@ impl WheelGeometry {
     pub(super) fn new(
         diameter: Length,
         free_speed: Option<ozton_math::uom::si::f64::AngularVelocity>,
-    ) -> Option<Self> {
+        groups: &[Box<[DriveMotor]>],
+    ) -> Result<Self, DriveConfigError> {
         use ozton_math::uom::si::angular_velocity::revolution_per_minute;
         let circumference = diameter * core::f64::consts::PI;
+        positive(circumference.value, DriveConfigError::WheelDiameter)?;
         let free_rpm = free_speed.map(|speed| speed.get::<revolution_per_minute>());
-        (circumference.value.is_finite()
-            && circumference.value > 0.0
-            && free_rpm.is_none_or(|rpm| rpm.is_finite() && rpm > 0.0))
-        .then_some(Self {
+        if let Some(rpm) = free_rpm {
+            positive(rpm, DriveConfigError::FreeWheelSpeed)?;
+        }
+        if groups.iter().any(|group| {
+            group.is_empty()
+                || group.len() > MAX_SIDE_MOTORS
+                || group.iter().any(|drive| match drive.gearing {
+                    Some(gearing) => !gearing.0.is_finite() || gearing.0 <= 0.0,
+                    None => free_rpm.is_none(),
+                })
+        }) {
+            return Err(DriveConfigError::WheelGearing);
+        }
+        Ok(Self {
             circumference,
             free_rpm,
         })
@@ -141,31 +256,30 @@ impl WheelGeometry {
     }
 }
 
-pub(super) fn valid_gearing(motors: &[DriveMotor]) -> bool {
-    !motors.is_empty()
-        && motors.len() <= MAX_SIDE_MOTORS
-        && motors.iter().all(|motor| {
-            motor
-                .gearing
-                .is_some_and(|ratio| ratio.0.is_finite() && ratio.0 > 0.0)
-        })
+#[derive(Clone, Copy)]
+pub(super) enum WheelOutput {
+    Voltage { limit: MaxSpeed, absolute: bool },
+    Velocity(f64),
 }
 
 pub(super) fn write_wheels<const N: usize>(
     groups: &mut [Box<[DriveMotor]>; N],
     powers: [f64; N],
-    speed: Option<(WheelGeometry, f64)>,
-    absolute: bool,
+    wheels: Option<WheelGeometry>,
+    output: WheelOutput,
 ) -> Result<(), PortError> {
     let mut result = Ok(());
     for (group, power) in groups.iter_mut().zip(powers) {
-        let written = if let Some((wheels, limit)) = speed {
-            wheels.speed(group, power * limit)
-        } else {
-            each(group, |drive| {
-                let motor = &mut drive.motor;
-                motor.set_voltage(motor_voltage(power, motor.max_voltage(), absolute))
-            })
+        let written = match output {
+            WheelOutput::Velocity(limit) => wheels
+                .expect("velocity output requires wheel geometry")
+                .speed(group, power * limit),
+            WheelOutput::Voltage { limit, absolute } => each(group, |drive| {
+                let maximum = limit.motor_voltage(drive, wheels)?;
+                drive
+                    .motor
+                    .set_voltage(motor_voltage(power, maximum, absolute))
+            }),
         };
         result = result.and(written);
     }
@@ -243,7 +357,40 @@ pub struct DriveSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use ozton_math::uom::si::electric_potential::volt;
+
     use super::*;
+
+    #[test]
+    fn voltage_limits_use_motor_ratings_and_calibrated_wheel_speed() {
+        let fraction = MaxSpeed::Fraction(0.75);
+        let voltage = MaxSpeed::Voltage(ElectricPotential::new::<volt>(9.0));
+        let wheel = MaxSpeed::Wheel(Velocity::new::<meter_per_second>(1.0));
+
+        assert_eq!(fraction.voltage_limit(12.0, || unreachable!()), Ok(9.0));
+        assert_eq!(fraction.voltage_limit(8.0, || unreachable!()), Ok(6.0));
+        assert_eq!(voltage.voltage_limit(8.0, || unreachable!()), Ok(8.0));
+        assert_eq!(voltage.voltage_limit(12.0, || unreachable!()), Ok(9.0));
+        assert_eq!(wheel.voltage_limit(12.0, || Ok(2.0)), Ok(6.0));
+        assert_eq!(wheel.voltage_limit(8.0, || Ok(2.0)), Ok(4.0));
+        assert_eq!(wheel.voltage_limit(8.0, || Ok(0.5)), Ok(8.0));
+    }
+
+    #[test]
+    fn invalid_caps_report_configuration_errors() {
+        assert_eq!(
+            MaxSpeed::Fraction(1.1).validate(None),
+            Err(DriveConfigError::MaxSpeed)
+        );
+        assert_eq!(
+            MaxSpeed::Voltage(ElectricPotential::new::<volt>(f64::NAN)).validate(None),
+            Err(DriveConfigError::MaxSpeed)
+        );
+        assert_eq!(
+            MaxSpeed::Wheel(Velocity::new::<meter_per_second>(1.0)).validate(None),
+            Err(DriveConfigError::MissingWheelGeometry)
+        );
+    }
 
     #[test]
     fn compound_gearing_matches_blue_wheel_speed() {

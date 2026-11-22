@@ -148,12 +148,12 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
 
     /// Assemble tracking from the installed drivetrain's calibration, then
     /// keep both components owned independently by the robot.
-    pub async fn with_tracking_from_drive<N>(
+    pub async fn with_tracking_from_drive<N, E>(
         self,
-        assemble: impl AsyncFnOnce(&D) -> Option<N>,
-    ) -> Option<RobotBuilder<D, C, N, X, P, A>> {
+        assemble: impl AsyncFnOnce(&D) -> Result<N, E>,
+    ) -> Result<RobotBuilder<D, C, N, X, P, A>, E> {
         let tracking = assemble(&self.drivetrain).await?;
-        Some(self.with_tracking(tracking))
+        Ok(self.with_tracking(tracking))
     }
 
     /// Register the selectable routes in menu order.

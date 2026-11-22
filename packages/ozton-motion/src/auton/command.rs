@@ -59,7 +59,7 @@ impl DriveOptions {
     pub fn for_differential(drive: &ozton_drivetrain::model::Differential) -> Option<Self> {
         Some(Self::differential(
             drive.track_width()?,
-            drive.maximum_wheel_speed()?,
+            drive.auton_speed_limit()?,
         ))
     }
 

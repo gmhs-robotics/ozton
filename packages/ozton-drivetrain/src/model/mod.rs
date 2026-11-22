@@ -15,7 +15,9 @@ pub use differential::{Differential, DriverFaultPolicy};
 pub use mecanum::Mecanum;
 #[cfg(any(debug_assertions, feature = "sd-logging"))]
 pub use wheels::DriveSnapshot;
-pub use wheels::{DriveMotor, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError};
+pub use wheels::{
+    DriveConfigError, DriveMotor, MaxSpeed, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
+};
 
 /// A collection of motors driving a wheeled mobile robot.
 ///
@@ -77,8 +79,7 @@ pub struct ArcadeInput {
     pub turn: f64,
     heading: Option<ozton_math::uom::si::f64::Angle>,
     tilt: Option<ozton_math::uom::si::f64::Angle>,
-    load: Option<f64>,
-    boost: bool,
+    output_scale: f64,
 }
 
 impl ArcadeInput {
@@ -88,8 +89,7 @@ impl ArcadeInput {
             turn,
             heading: None,
             tilt: None,
-            load: None,
-            boost: false,
+            output_scale: 1.0,
         }
     }
 
@@ -103,14 +103,13 @@ impl ArcadeInput {
         self
     }
 
-    /// Measured load or mechanism position in the units used to configure slowdown.
-    pub const fn with_load(mut self, load: Option<f64>) -> Self {
-        self.load = load;
-        self
-    }
-
-    pub const fn with_boost(mut self, boost: bool) -> Self {
-        self.boost = boost;
+    /// Multiply the mixed wheel outputs by a controller-selected fraction.
+    pub const fn with_output_scale(mut self, scale: f64) -> Self {
+        self.output_scale = if scale.is_finite() {
+            scale.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         self
     }
 }

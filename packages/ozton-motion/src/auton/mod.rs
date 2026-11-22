@@ -30,4 +30,4 @@ pub use setup::{
     ChassisDriverCommand, ConfiguredChassis, DifferentialConfig, SetupError, TrackingSetup,
 };
 pub use stage::Auton;
-pub use tracking_builder::{DriveEncoderUse, DsrUse, ImuUse, TrackingBuilder};
+pub use tracking_builder::{DriveEncoderUse, DsrUse, ImuUse, TrackingBuildError, TrackingBuilder};

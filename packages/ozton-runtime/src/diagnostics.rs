@@ -248,7 +248,7 @@ pub fn report_differential(frame: Frame, drive: &ozton_drivetrain::model::Differ
         frame,
         drive.snapshot(),
         drive.wheel_diameter().map_or(f64::NAN, |v| v.value),
-        drive.maximum_wheel_speed().map_or(f64::NAN, |v| v.value),
+        drive.auton_speed_limit().map_or(f64::NAN, |v| v.value),
     );
     drive.visit_motors(|side, index, motor| report_drive_motor(frame, side, index, motor));
 }

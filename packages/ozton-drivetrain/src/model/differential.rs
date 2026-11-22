@@ -16,8 +16,8 @@ use super::{
     Arcade, ArcadeInput, DrivetrainModel, ProgramDrive, Tank,
     driver::DriverControl,
     wheels::{
-        DriveMotor, WheelFeedback, WheelGeometry, WheelLoad, WheelSpeedError, each, shape,
-        valid_gearing, write_wheels,
+        DriveConfigError, DriveMotor, MaxSpeed, WheelFeedback, WheelGeometry, WheelLoad,
+        WheelOutput, WheelSpeedError, each, positive, shape, write_wheels,
     },
 };
 
@@ -35,10 +35,10 @@ pub struct Differential {
     wheels: Option<WheelGeometry>,
     track_width: Option<Length>,
     wheelbase: Option<Length>,
-    wheel_speed_limit: Option<Velocity>,
+    auton_speed_limit: Option<Velocity>,
     scale: f64,
     driver: DriverControl,
-    maximum_wheel_speed: Option<Velocity>,
+    max_speed: MaxSpeed,
     output: ([f64; 2], f64),
     status: ozton_diagnostics::serial::FaultLog,
     slew: Option<[SlewLimiter; 2]>,
@@ -68,19 +68,9 @@ impl Differential {
     }
 
     /// Set wheel diameter when every motor has explicit gearing.
-    pub fn with_wheel_diameter(mut self, diameter: Length) -> Option<Self> {
-        let circumference = diameter * core::f64::consts::PI;
-        if !circumference.value.is_finite()
-            || circumference.value <= 0.0
-            || !self.sides.iter().all(|side| valid_gearing(side))
-        {
-            return None;
-        }
-        self.wheels = Some(WheelGeometry {
-            free_rpm: None,
-            circumference,
-        });
-        Some(self)
+    pub fn with_wheel_diameter(mut self, diameter: Length) -> Result<Self, DriveConfigError> {
+        self.wheels = Some(WheelGeometry::new(diameter, None, &self.sides)?);
+        Ok(self)
     }
 
     fn from_sides(sides: [Box<[DriveMotor]>; 2], wheels: Option<WheelGeometry>) -> Self {
@@ -89,10 +79,10 @@ impl Differential {
             wheels,
             track_width: None,
             wheelbase: None,
-            wheel_speed_limit: None,
+            auton_speed_limit: None,
             scale: 1.0,
             driver: DriverControl::default(),
-            maximum_wheel_speed: None,
+            max_speed: MaxSpeed::Fraction(1.0),
             output: ([0.0; 2], 1.0),
             status: ozton_diagnostics::serial::FaultLog::new("drive", vexide::time::user_uptime),
             slew: None,
@@ -111,18 +101,16 @@ impl Differential {
         mut self,
         diameter: Length,
         free_speed: AngularVelocity,
-    ) -> Option<Self> {
-        self.wheels = Some(WheelGeometry::new(diameter, Some(free_speed))?);
-        Some(self)
+    ) -> Result<Self, DriveConfigError> {
+        self.wheels = Some(WheelGeometry::new(diameter, Some(free_speed), &self.sides)?);
+        Ok(self)
     }
 
     /// Set the distance between the left and right drive contact lines.
-    pub fn with_track_width(mut self, width: Length) -> Option<Self> {
-        if !width.value.is_finite() || width.value <= 0.0 {
-            return None;
-        }
+    pub fn with_track_width(mut self, width: Length) -> Result<Self, DriveConfigError> {
+        positive(width.value, DriveConfigError::TrackWidth)?;
         self.track_width = Some(width);
-        Some(self)
+        Ok(self)
     }
 
     /// Calibrated distance between the left and right drive contact lines.
@@ -130,29 +118,31 @@ impl Differential {
         self.track_width
     }
 
-    pub fn with_wheelbase(mut self, wheelbase: Length) -> Option<Self> {
-        if !wheelbase.value.is_finite() || wheelbase.value <= 0.0 {
-            return None;
-        }
+    pub fn with_wheelbase(mut self, wheelbase: Length) -> Result<Self, DriveConfigError> {
+        positive(wheelbase.value, DriveConfigError::Wheelbase)?;
         self.wheelbase = Some(wheelbase);
-        Some(self)
+        Ok(self)
     }
 
     pub fn wheelbase(&self) -> Option<Length> {
         self.wheelbase
     }
 
-    /// Limit programmed wheel-speed commands. Driver control still uses voltage.
-    pub fn with_maximum_wheel_speed(mut self, speed: Velocity) -> Option<Self> {
-        if self.wheels.is_none() || !speed.value.is_finite() || speed.value <= 0.0 {
-            return None;
-        }
-        self.maximum_wheel_speed = Some(speed);
-        Some(self)
+    /// Set the voltage ceiling for drive commands. Configure wheel geometry first for `Wheel`.
+    pub fn with_max_speed(mut self, speed: MaxSpeed) -> Result<Self, DriveConfigError> {
+        speed.validate(self.wheels)?;
+        self.max_speed = speed;
+        Ok(self)
     }
 
-    pub fn maximum_wheel_speed(&self) -> Option<Velocity> {
-        self.maximum_wheel_speed.or(self.wheel_speed_limit)
+    /// Set the wheel velocity ceiling for native autonomous speed commands.
+    pub fn with_auton_speed_limit(mut self, speed: Velocity) -> Result<Self, DriveConfigError> {
+        if self.wheels.is_none() {
+            return Err(DriveConfigError::MissingWheelGeometry);
+        }
+        positive(speed.value, DriveConfigError::AutonSpeedLimit)?;
+        self.auton_speed_limit = Some(speed);
+        Ok(self)
     }
 
     pub fn wheel_diameter(&self) -> Option<Length> {
@@ -160,28 +150,11 @@ impl Differential {
             .map(|wheels| wheels.circumference / core::f64::consts::PI)
     }
 
-    /// Limit driver tank input to a physical speed and use native motor velocity control.
-    pub fn with_native_speed_limit(mut self, limit: Velocity) -> Option<Self> {
-        if self.wheels.is_none() || !limit.value.is_finite() || limit.value <= 0.0 {
-            return None;
-        }
-        self.wheel_speed_limit = Some(limit);
-        Some(self)
-    }
-
-    pub fn with_slew(
-        mut self,
-        rise_per_second: Frequency,
-        fall_per_second: Frequency,
-    ) -> Option<Self> {
-        if ![rise_per_second.value, fall_per_second.value]
-            .iter()
-            .all(|rate| rate.is_finite() && *rate > 0.0)
-        {
-            return None;
-        }
-        self.slew = Some([SlewLimiter::new(rise_per_second, fall_per_second); 2]);
-        Some(self)
+    pub fn with_slew(mut self, rise: Frequency, fall: Frequency) -> Result<Self, DriveConfigError> {
+        positive(rise.value, DriveConfigError::SlewRate)?;
+        positive(fall.value, DriveConfigError::SlewRate)?;
+        self.slew = Some(core::array::from_fn(|_| SlewLimiter::new(rise, fall)));
+        Ok(self)
     }
 
     pub fn set_output_scale(&mut self, scale: f64) {
@@ -197,8 +170,12 @@ impl Differential {
         self
     }
 
-    pub fn wheel_speed_limit(&self) -> Option<Velocity> {
-        self.wheel_speed_limit
+    /// Native autonomous wheel velocity ceiling, if configured.
+    pub fn auton_speed_limit(&self) -> Option<Velocity> {
+        self.auton_speed_limit.or(match self.max_speed {
+            MaxSpeed::Wheel(speed) if speed.value > 0.0 => Some(speed),
+            _ => None,
+        })
     }
 
     /// Capture one encoder update and advance both side baselines together.
@@ -260,12 +237,12 @@ impl Differential {
         result
     }
 
-    /// Applies normalized voltage even when tank input is configured for wheel speed.
+    /// Applies normalized voltage subject to the configured maximum.
     pub fn drive_normalized_voltage(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.apply([left, right], None, false)
+        self.apply([left, right], self.voltage_output(false), 1.0)
     }
 
-    /// Applies volts to every motor on each side, limited by each motor's rating.
+    /// Applies volts to every motor on each side, limited by the configured ceiling and each motor's rating.
     /// Optional output scaling and slew limiting still apply.
     pub fn drive_volts(
         &mut self,
@@ -273,7 +250,11 @@ impl Differential {
         right: ElectricPotential,
     ) -> Result<(), PortError> {
         let maximum = Motor::V5_MAX_VOLTAGE;
-        self.apply([left.value / maximum, right.value / maximum], None, true)
+        self.apply(
+            [left.value / maximum, right.value / maximum],
+            self.voltage_output(true),
+            1.0,
+        )
     }
 
     /// SI wheel-speed control without changing the driver's voltage-control mode.
@@ -293,8 +274,12 @@ impl Differential {
             let _ = self.brake_now(self.brake);
             return Err(WheelSpeedError::MissingWheelGeometry);
         }
-        self.apply([left / maximum, right / maximum], Some(maximum), false)
-            .map_err(WheelSpeedError::Port)
+        self.apply(
+            [left / maximum, right / maximum],
+            WheelOutput::Velocity(maximum),
+            1.0,
+        )
+        .map_err(WheelSpeedError::Port)
     }
 
     pub fn drive_driver_arcade(
@@ -310,22 +295,18 @@ impl Differential {
         output
     }
 
-    fn apply(
-        &mut self,
-        input: [f64; 2],
-        limit: Option<f64>,
-        absolute: bool,
-    ) -> Result<(), PortError> {
+    fn apply(&mut self, input: [f64; 2], output: WheelOutput, scale: f64) -> Result<(), PortError> {
         if input.iter().any(|value| !value.is_finite()) {
             return self.stop_now();
         }
         let command = shape(input, &mut self.slew, &mut self.previous);
-        self.output = (command, self.scale);
+        let scale = scale * self.scale;
+        self.output = (command, scale);
         let result = write_wheels(
             &mut self.sides,
-            command.map(|power| power * self.scale),
-            self.wheels.zip(limit),
-            absolute,
+            command.map(|power| power * scale),
+            self.wheels,
+            output,
         );
         self.record_output(&result);
         result
@@ -357,18 +338,21 @@ impl Differential {
 
     super::driver::driver_builders!();
 
-    /// Apply driver assistance and the measured-load cap before mixing the wheels.
+    /// Mix arcade input with the configured driver assists.
     pub fn drive(&mut self, input: ArcadeInput) -> Result<(), PortError> {
-        let (forward, turn, scale) = self.driver.apply(
-            input,
-            std::time::Instant::now().saturating_duration_since(self.previous),
-            0.0,
-        );
-        let base = self.scale;
-        self.scale = scale * base;
-        let result = self.drive_tank(forward + turn, forward - turn);
-        self.scale = base;
-        result
+        let (forward, turn) = self.driver.apply(input, self.previous.elapsed(), 0.0);
+        self.apply(
+            [forward + turn, forward - turn],
+            self.voltage_output(false),
+            input.output_scale,
+        )
+    }
+
+    fn voltage_output(&self, absolute: bool) -> WheelOutput {
+        WheelOutput::Voltage {
+            limit: self.max_speed,
+            absolute,
+        }
     }
 
     pub fn stop(&mut self) -> Result<(), PortError> {
@@ -382,11 +366,7 @@ impl DrivetrainModel for Differential {
 
 impl Tank for Differential {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.apply(
-            [left, right],
-            self.wheel_speed_limit.map(|limit| limit.value),
-            false,
-        )
+        self.drive_normalized_voltage(left, right)
     }
 
     fn stop_now(&mut self) -> Result<(), PortError> {
@@ -412,7 +392,7 @@ impl ProgramDrive for Differential {
         [left, right]: Self::AutonCommand,
         _: std::time::Duration,
     ) -> Result<(), Self::Error> {
-        let Some(limit) = self.maximum_wheel_speed() else {
+        let Some(limit) = self.auton_speed_limit() else {
             let _ = self.stop();
             return Err(WheelSpeedError::MissingWheelGeometry);
         };
