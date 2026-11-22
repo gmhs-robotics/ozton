@@ -188,6 +188,12 @@ pub struct DifferentialLocalization {
     fault: Option<Fault>,
 }
 
+impl ozton_runtime::diagnostics::ComponentReport for DifferentialLocalization {
+    fn report(&self, frame: ozton_runtime::diagnostics::Frame) {
+        ozton_runtime::diagnostics::report_pose(frame, self.pose(), self.pose_trusted());
+    }
+}
+
 impl DifferentialLocalization {
     pub fn pause_disabled_odometry(&mut self) {
         self.localizer.invalidate_pose();

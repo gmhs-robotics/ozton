@@ -38,6 +38,7 @@ impl<'a, P> Auton<'a, P>
 where
     P: RobotLayout + Program<CompetitionBot<P>, P::Drivetrain>,
     P::Drivetrain: ProgramDrive,
+    P::Mechanisms: ozton_runtime::competition::Mechanism<Error<P>>,
     CompetitionBot<P>: CompetitionRobot<Error = Error<P>>,
 {
     pub fn new(robot: &'a mut CompetitionBot<P>) -> Self {
@@ -155,7 +156,8 @@ where
                 };
             }
             let tick = Tick::start(dt);
-            P::update_mechanisms(robot, CompetitionMode::Autonomous, dt)
+            robot
+                .update_mechanisms(CompetitionMode::Autonomous, dt)
                 .map_err(AutonError::Robot)?;
             if let Some(command) = command {
                 robot

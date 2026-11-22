@@ -2,7 +2,7 @@
 use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
-    Drivetrain,
+    CompetitionLocalization, Drivetrain,
     model::{Differential, DriveEncoders, Tank, WheelSpeedError},
 };
 use ozton_math::{
@@ -148,22 +148,54 @@ pub trait DrivetrainMotion {
     ) -> Result<(), DriveMotionFault>;
 }
 
+impl CompetitionLocalization<SensorTracking> for DifferentialLocalization {
+    fn mode_changed(&mut self, mode: CompetitionMode) {
+        if mode == CompetitionMode::Disabled {
+            self.pause_disabled_odometry();
+        }
+    }
+
+    fn cancel_pending(&mut self) {
+        self.cancel_distance_reset();
+    }
+
+    fn uses_drive_encoders(&self, tracking: &SensorTracking) -> bool {
+        tracking.uses_drive_encoders() && self.uses_drive_encoders()
+    }
+
+    fn poll(
+        &mut self,
+        tracking: &mut SensorTracking,
+        positions: [Option<Length>; 2],
+        width: Option<Length>,
+    ) {
+        let _ = update_localization(self, tracking, positions, width);
+    }
+}
+
+fn update_localization(
+    localization: &mut DifferentialLocalization,
+    tracking: &mut SensorTracking,
+    positions: [Option<Length>; 2],
+    width: Option<Length>,
+) -> Result<Option<Feedback>, Fault> {
+    let sample = tracking.capture(positions, localization.occluded());
+    localization.update(sample, width)
+}
+
 impl DrivetrainMotion for TrackedDrive {
     fn poll_tracking(&mut self, mode: CompetitionMode) -> Result<Option<Feedback>, Fault> {
         if mode == CompetitionMode::Disabled {
             return Ok(None);
         }
         let positions =
-            if self.tracking.uses_drive_encoders() && self.localization.uses_drive_encoders() {
+            if CompetitionLocalization::uses_drive_encoders(&self.localization, &self.tracking) {
                 self.tracking_positions()
             } else {
                 [None; 2]
             };
         let width = self.track_width();
-        let sample = self
-            .tracking
-            .capture(positions, self.localization.occluded());
-        self.localization.update(sample, width)
+        update_localization(&mut self.localization, &mut self.tracking, positions, width)
     }
 
     fn set_start_pose(&mut self, pose: Pose) -> Result<(), DriveMotionFault> {

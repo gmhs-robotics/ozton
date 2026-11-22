@@ -19,7 +19,7 @@ use ozton::{
     runtime::{
         CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
         competition::{Program, RegisteredRoute},
-        diagnostics::{Frame, MotorSample, Report, Sample},
+        diagnostics::{Frame, MotorSample},
     },
     tracking::{localizer::vex::DistanceTracker, mount::Vec3},
     uom::{
@@ -101,16 +101,16 @@ impl RobotLayout for Controls {
     type Tracking = ();
     type Mechanisms = Mechanisms;
     type Routes = RegisteredRoute<Self, RouteError>;
-    type Report = IntakeReport;
+    type Report = ();
 }
 
-struct IntakeReport;
-
-impl Report<CompetitionBot> for IntakeReport {
-    fn collect(robot: &CompetitionBot, frame: Frame, _: Sample) {
-        MotorSample::read(&robot.mechanisms.intake.motor).write(frame, "intake");
+impl ozton::runtime::diagnostics::ComponentReport for Mechanisms {
+    fn report(&self, frame: Frame) {
+        MotorSample::read(&self.intake.motor).write(frame, "intake");
     }
 }
+
+impl ozton::runtime::competition::Mechanism<RouteError> for Mechanisms {}
 
 type RouteError = RoutineError<Infallible>;
 
@@ -127,9 +127,10 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
     }
 
     async fn driver(robot: &mut CompetitionBot) -> Result<(), RouteError> {
-        let Some(input) = robot.driver_input() else {
-            return Ok(());
+        let Ok(input) = robot.controller.state() else {
+            return robot.stop_mechanisms();
         };
+        robot.record_controller(&input);
         robot.mechanisms.intake.on = input.button_r1.is_pressed();
         robot.drive_driver(ArcadeInput::new(input.left_stick.y(), input.right_stick.x()).into())
     }
@@ -237,7 +238,7 @@ async fn main(p: Peripherals) {
         .with_program(Controls { straight_path })
         .with_auton([route!("Straight", straight)])
         .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
-        .with_diagnostics::<IntakeReport>(Duration::from_millis(250))
+        .with_diagnostics::<()>(Duration::from_millis(250))
         .build()
         .compete()
         .await;

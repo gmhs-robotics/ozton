@@ -263,6 +263,7 @@ dependencies = [
  "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-math",
+ "ozton-tracking",
  "vexide",
 ]
 

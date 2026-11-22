@@ -57,6 +57,10 @@ pub trait ProgramDrive {
     ) -> Result<(), Self::Error>;
     fn stop(&mut self) -> Result<(), Self::Error>;
 
+    fn competition_mode_changed(&mut self, _mode: vexide::competition::CompetitionMode) {}
+
+    fn poll_competition_tracking(&mut self, _mode: vexide::competition::CompetitionMode) {}
+
     /// Consume the marker set by a direct driver write through the drivetrain.
     fn take_driver_output(&mut self) -> bool {
         false
@@ -134,6 +138,16 @@ pub trait Arcade: DrivetrainModel {
 pub trait Tank: DrivetrainModel {
     /// Drives the robot using left and right wheel powers.
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error>;
+
+    /// Apply driver outputs with optional recovery from missing motors.
+    fn drive_driver_tank(
+        &mut self,
+        left: f64,
+        right: f64,
+        _balance_disconnected: bool,
+    ) -> Result<(), Self::Error> {
+        self.drive_tank(left, right)
+    }
 
     /// Immediately remove drivetrain output on disable or fault.
     fn stop_now(&mut self) -> Result<(), Self::Error> {

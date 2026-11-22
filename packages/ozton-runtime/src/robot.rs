@@ -1,9 +1,9 @@
 //! Typed composition for robots with application-owned hardware.
 
-use vexide::{controller::ControllerState, prelude::Controller};
+use vexide::{competition::CompetitionMode, prelude::Controller};
 
 use crate::{
-    competition::{Autonomous, RouteSet, Ui},
+    competition::{Autonomous, Mechanism, RouteSet, Ui},
     diagnostics::Sampler,
 };
 
@@ -36,16 +36,8 @@ pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
     pub mechanisms: X,
     pub program: P,
     pub autonomous: A,
-    pub(crate) driver_input: Option<ControllerState>,
     pub(crate) driver_elapsed: std::time::Duration,
     pub(crate) driver_wrote: bool,
-}
-
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A> {
-    /// Last controller snapshot supplied to the driver callback.
-    pub fn driver_input(&self) -> Option<ControllerState> {
-        self.driver_input
-    }
 }
 
 impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
@@ -65,6 +57,28 @@ where
             .map_err(|error| P::drive_error(error, false))?;
         self.driver_wrote = true;
         Ok(())
+    }
+}
+
+impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+where
+    D: ozton_drivetrain::model::ProgramDrive,
+    P: crate::competition::Program<Self, D>,
+    X: Mechanism<P::Error>,
+{
+    /// Service installed mechanisms and any additional program hooks.
+    pub fn update_mechanisms(
+        &mut self,
+        mode: CompetitionMode,
+        dt: std::time::Duration,
+    ) -> Result<(), P::Error> {
+        self.mechanisms.update(mode, dt)?;
+        P::update_mechanisms(self, mode, dt)
+    }
+
+    /// Stop installed mechanisms and any additional program outputs.
+    pub fn stop_mechanisms(&mut self) -> Result<(), P::Error> {
+        self.mechanisms.stop().and(P::stop_mechanisms(self))
     }
 }
 
@@ -135,7 +149,6 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
             mechanisms,
             program,
             autonomous,
-            driver_input: None,
             driver_elapsed: std::time::Duration::ZERO,
             driver_wrote: false,
         }
@@ -246,6 +259,11 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
 where
     A: crate::diagnostics::Telemetry<Self>,
 {
+    /// Include the sample already read by the driver callback in stock diagnostics.
+    pub fn record_controller(&mut self, state: &vexide::controller::ControllerState) {
+        A::controller(self, Some(state));
+    }
+
     pub fn record_diagnostics(&mut self, sample: crate::diagnostics::Sample) {
         A::record(self, sample);
     }
@@ -261,7 +279,7 @@ where
 
 impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
 where
-    Self: crate::competition::CompetitionRobot,
+    Self: crate::competition::CompetitionRobot + 'static,
 {
     /// Run driver and autonomous competition modes for the assembled robot.
     pub async fn compete(self) -> ! {

@@ -97,6 +97,9 @@ pub trait RobotMotion: Sized {
 impl<D, C, T, X, P, R, S> RobotMotion for Robot<D, C, T, X, P, Autonomous<R, S>>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    X: ozton_runtime::competition::Mechanism<
+            <P as AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+        >,
     P: AutonomousControls<Self> + Program<Self, D, Error = <P as AutonomousControls<Self>>::Error>,
     R: RouteSet,
     Autonomous<R, S>: Telemetry<Self>,
@@ -250,6 +253,9 @@ fn route_runner<D, C, T, X, P, R, S>(
 where
     P: AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>,
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    X: ozton_runtime::competition::Mechanism<
+            <P as AutonomousControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+        >,
     P: Program<
             Robot<D, C, T, X, P, Autonomous<R, S>>,
             D,

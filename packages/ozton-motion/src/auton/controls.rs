@@ -71,6 +71,7 @@ pub trait AutonomousControls<R> {
 impl<D, C, T, X, P, A> AutonRobot for Robot<D, C, T, X, P, A>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    X: ozton_runtime::competition::Mechanism<<P as AutonomousControls<Self>>::Error>,
     P: AutonomousControls<Self> + Program<Self, D, Error = <P as AutonomousControls<Self>>::Error>,
     A: Telemetry<Self>,
 {
@@ -80,7 +81,7 @@ where
         P::sample(self)
     }
     fn update_subsystems(&mut self, dt: Duration) -> Result<(), Self::Error> {
-        P::update_mechanisms(self, CompetitionMode::Autonomous, dt)
+        self.update_mechanisms(CompetitionMode::Autonomous, dt)
     }
     fn drive(&mut self, wheel_speeds: [Velocity; 2], dt: Duration) -> Result<(), Self::Error> {
         self.drivetrain
@@ -94,7 +95,7 @@ where
     }
     fn stop(&mut self) -> Result<(), Self::Error> {
         P::clear_motion(self);
-        self.stop_drive().and(P::stop_mechanisms(self))
+        self.stop_drive().and(self.stop_mechanisms())
     }
     fn set_pose(&mut self, pose: Pose) -> Result<(), Self::Error> {
         P::set_pose(self, pose)
@@ -154,6 +155,7 @@ pub trait ScoringControls<R>: AutonomousControls<R> {
 impl<D, C, T, X, P, A> MechanismRobot for Robot<D, C, T, X, P, A>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
+    X: ozton_runtime::competition::Mechanism<<P as AutonomousControls<Self>>::Error>,
     P: ScoringControls<Self> + Program<Self, D, Error = <P as AutonomousControls<Self>>::Error>,
     A: Telemetry<Self>,
 {

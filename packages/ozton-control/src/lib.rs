@@ -12,7 +12,14 @@ pub mod loops;
 mod tolerances;
 pub use tolerances::{Settling, Tolerances};
 
-pub mod heading_hold;
+pub mod heading_corrector;
+
+/// Compatibility for the original IMU-only API.
+pub mod heading_hold {
+    pub use super::heading_corrector::HeadingCorrector as HeadingHold;
+}
+
+pub mod controller;
 pub mod protection;
 
 pub mod limits;

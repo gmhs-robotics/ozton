@@ -5,10 +5,14 @@ use model::{
     ArcadeInput, Differential, DriveEncoders, DrivetrainModel, Holonomic, Mecanum, ProgramDrive,
     Tank,
 };
-use ozton_control::{drive::AntiTip, heading_hold::HeadingHold};
+use ozton_control::{
+    drive::AntiTip,
+    heading_corrector::{HeadingCorrector, Method},
+};
 use ozton_math::uom::si::f64::{Angle, AngularVelocity, ElectricPotential, Length, Velocity};
 use ozton_tracking::Tracking;
 use vexide::{
+    competition::CompetitionMode,
     prelude::Motor,
     smart::{PortError, motor::BrakeMode},
 };
@@ -83,9 +87,13 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
         self
     }
 
-    pub fn with_headinghold(mut self, controller: HeadingHold) -> Self {
-        self.driver.headinghold = Some(controller);
+    pub fn with_heading_corrector(mut self, controller: HeadingCorrector) -> Self {
+        self.driver.heading_corrector = Some(controller);
         self
+    }
+
+    pub fn with_headinghold(self, controller: HeadingCorrector) -> Self {
+        self.with_heading_corrector(controller)
     }
 }
 
@@ -243,7 +251,7 @@ impl<M: Tank, T: DriverTracking, L> Tank for Drivetrain<M, T, L> {
             return self.model.drive_tank(left, right);
         }
         let mut input = ArcadeInput::new((left + right) / 2.0, (left - right) / 2.0);
-        if self.driver.headinghold.is_some() || self.driver.antitip.is_some() {
+        if self.driver.uses_heading_method(Method::IMU) || self.driver.antitip.is_some() {
             let (heading, tilt) = self.tracking.driver_orientation();
             input = input.with_orientation(heading, tilt);
         }
@@ -253,9 +261,12 @@ impl<M: Tank, T: DriverTracking, L> Tank for Drivetrain<M, T, L> {
             .replace(now)
             .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
         let (forward, turn) = self.driver.apply(input, dt, 0.0);
-        self.model.drive_tank(forward + turn, forward - turn)?;
         self.driver_output = true;
-        Ok(())
+        self.model.drive_driver_tank(
+            forward + turn,
+            forward - turn,
+            self.driver.uses_heading_method(Method::DISCONNECTED_MOTOR),
+        )
     }
 
     fn stop_now(&mut self) -> Result<(), Self::Error> {
@@ -288,7 +299,22 @@ impl<T: DriverTracking, L> Holonomic for Drivetrain<Mecanum, T, L> {
     }
 }
 
-impl<T: DriverTracking, L> ProgramDrive for Drivetrain<Differential, T, L> {
+/// Localization lifecycle for a differential drivetrain in a programmed competition.
+pub trait CompetitionLocalization<T> {
+    fn mode_changed(&mut self, _mode: CompetitionMode) {}
+    fn cancel_pending(&mut self) {}
+    fn uses_drive_encoders(&self, _tracking: &T) -> bool {
+        false
+    }
+    fn poll(&mut self, _tracking: &mut T, _positions: [Option<Length>; 2], _width: Option<Length>) {
+    }
+}
+
+impl<T> CompetitionLocalization<T> for () {}
+
+impl<T: DriverTracking, L: CompetitionLocalization<T>> ProgramDrive
+    for Drivetrain<Differential, T, L>
+{
     type Error = WheelSpeedError;
     type DriverCommand = ArcadeInput;
     type AutonCommand = [Velocity; 2];
@@ -305,7 +331,24 @@ impl<T: DriverTracking, L> ProgramDrive for Drivetrain<Differential, T, L> {
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
+        self.localization.cancel_pending();
         self.stop_now().map_err(WheelSpeedError::Port)
+    }
+
+    fn competition_mode_changed(&mut self, mode: CompetitionMode) {
+        self.localization.mode_changed(mode);
+    }
+
+    fn poll_competition_tracking(&mut self, mode: CompetitionMode) {
+        if mode != CompetitionMode::Disabled {
+            let positions = if self.localization.uses_drive_encoders(&self.tracking) {
+                self.tracking_positions()
+            } else {
+                [None; 2]
+            };
+            let width = self.track_width();
+            self.localization.poll(&mut self.tracking, positions, width);
+        }
     }
 
     fn take_driver_output(&mut self) -> bool {

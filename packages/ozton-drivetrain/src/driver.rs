@@ -1,19 +1,28 @@
 //! Driver-only assistance shared by drivetrain models.
 use std::time::Duration;
 
-use ozton_control::{drive::AntiTip, heading_hold::HeadingHold};
+use ozton_control::{
+    drive::AntiTip,
+    heading_corrector::{HeadingCorrector, Method},
+};
 
 use crate::model::ArcadeInput;
 
 #[derive(Default)]
 pub(super) struct DriverControl {
     pub(super) antitip: Option<AntiTip>,
-    pub(super) headinghold: Option<HeadingHold>,
+    pub(super) heading_corrector: Option<HeadingCorrector>,
 }
 
 impl DriverControl {
+    pub(super) fn uses_heading_method(&self, method: Method) -> bool {
+        self.heading_corrector
+            .as_ref()
+            .is_some_and(|corrector| corrector.uses(method))
+    }
+
     pub(super) fn reset(&mut self) {
-        if let Some(hold) = &mut self.headinghold {
+        if let Some(hold) = &mut self.heading_corrector {
             hold.reset();
         }
         if let Some(tip) = &mut self.antitip {
@@ -28,7 +37,7 @@ impl DriverControl {
         }
         let forward = input.throttle;
         let turn = input.turn;
-        let turn = self.headinghold.as_mut().map_or(turn, |hold| {
+        let turn = self.heading_corrector.as_mut().map_or(turn, |hold| {
             hold.turn(forward.abs().max(strafe.abs()), turn, input.heading)
         });
         let correction = self.antitip.as_mut().map_or(0.0, |tip| {

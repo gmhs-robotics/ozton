@@ -12,6 +12,7 @@ ozton-diagnostics = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
 ozton-drivetrain = { workspace = true }
+ozton-tracking = { workspace = true }
 
 [features]
 logging = ["ozton-diagnostics/logging"]

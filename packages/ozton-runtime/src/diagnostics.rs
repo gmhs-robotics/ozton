@@ -80,9 +80,74 @@ pub trait Report<R> {
     fn collect(robot: &R, frame: Frame, sample: Sample);
 }
 
+/// Emit the standard diagnostic rows supported by a component.
+pub trait ComponentReport {
+    fn report(&self, frame: Frame);
+}
+
+impl ComponentReport for () {
+    fn report(&self, _: Frame) {}
+}
+
+impl<R> Report<R> for () {
+    fn collect(_: &R, _: Frame, _: Sample) {}
+}
+
+impl<T: ozton_drivetrain::DriverTracking + ComponentReport, L: ComponentReport> ComponentReport
+    for ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>
+{
+    fn report(&self, frame: Frame) {
+        #[cfg(feature = "logging")]
+        report_differential(frame, self);
+        self.localization.report(frame);
+        self.tracking.report(frame);
+    }
+}
+
+impl ComponentReport for ozton_tracking::NoTracking {
+    fn report(&self, _: Frame) {}
+}
+
+impl ComponentReport for ozton_tracking::sampling::SensorTracking {
+    fn report(&self, frame: Frame) {
+        if let Some(sample) = self.diagnostic_orientation() {
+            let (rate, acceleration) = self.imu_telemetry();
+            report_imu(
+                frame,
+                sample.port,
+                [sample.pitch, sample.roll, sample.yaw]
+                    .map(|angle| angle.map_or(f64::NAN, |value| value.value)),
+                rate,
+                acceleration,
+            );
+        }
+    }
+}
+
+impl ComponentReport for Motor {
+    fn report(&self, frame: Frame) {
+        MotorSample::read(self).write(frame, format_args!("port_{}", self.port_number()));
+    }
+}
+
+/// Report the estimated pose in the standard tracking row.
+pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool) {
+    frame.row(
+        "TRACK",
+        format_args!(
+            "x_right_m={:.6},y_forward_m={:.6},heading_ccw_deg={:.3},trusted={}",
+            pose.position.x,
+            pose.position.y,
+            pose.heading.to_degrees(),
+            u8::from(trusted)
+        ),
+    );
+}
+
 /// UI hooks for a builder's runtime slot. Omitted diagnostics add no tick work.
 pub trait Telemetry<R> {
     fn record(robot: &mut R, sample: Sample);
+    fn controller(_robot: &mut R, _state: Option<&vexide::controller::ControllerState>) {}
     fn driver_output(_robot: &mut R, _elapsed: Duration) {}
     fn status(_robot: &mut R, _status: &str) {}
 }
@@ -92,6 +157,8 @@ impl<R> Telemetry<R> for () {
 }
 
 pub struct Sampler<S> {
+    #[cfg(feature = "logging")]
+    pub(crate) controller: Option<vexide::controller::ControllerState>,
     #[cfg(feature = "logging")]
     clock: SampleClock,
     #[cfg(feature = "logging")]
@@ -106,6 +173,8 @@ impl<S> Sampler<S> {
         #[cfg(not(feature = "logging"))]
         let _ = interval;
         Self {
+            #[cfg(feature = "logging")]
+            controller: None,
             #[cfg(feature = "logging")]
             clock: SampleClock::new(Instant::now(), interval.min(SD_SAMPLE_INTERVAL)),
             #[cfg(feature = "logging")]

@@ -1,7 +1,7 @@
 //! Two sides of motors driven by normalized voltage.
 use vexide::{
     prelude::Motor,
-    smart::{PortError, motor::BrakeMode},
+    smart::{PortError, SmartDevice, motor::BrakeMode},
 };
 
 use super::{DrivetrainModel, Tank};
@@ -57,7 +57,66 @@ impl Tank for Differential {
             })
     }
 
+    fn drive_driver_tank(
+        &mut self,
+        left: f64,
+        right: f64,
+        balance_disconnected: bool,
+    ) -> Result<(), PortError> {
+        if !balance_disconnected || (left == 0.0 && right == 0.0) {
+            return self.drive_tank(left, right);
+        }
+        let mut fault = None;
+        let availability = self.sides.each_ref().map(|side| {
+            let connected = side
+                .iter()
+                .filter(|motor| match motor.validate_port() {
+                    Ok(()) => true,
+                    Err(error) => {
+                        fault.get_or_insert(error);
+                        false
+                    }
+                })
+                .count();
+            (connected, side.len())
+        });
+        let [left, right] = balance_motor_output([left, right], availability);
+        self.drive_tank(left, right).and(fault.map_or(Ok(()), Err))
+    }
+
     fn stop_now(&mut self) -> Result<(), PortError> {
         crate::coast(&mut self.sides)
+    }
+}
+
+/// Reduce the healthier side in proportion to the available fraction of each side's motors.
+fn balance_motor_output(outputs: [f64; 2], availability: [(usize, usize); 2]) -> [f64; 2] {
+    let [left, right] = availability.map(|(connected, total)| {
+        if total == 0 {
+            0.0
+        } else {
+            connected as f64 / total as f64
+        }
+    });
+    if left == 0.0 || right == 0.0 {
+        return [0.0; 2];
+    }
+    let common = left.min(right);
+    [outputs[0] * (common / left), outputs[1] * (common / right)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::balance_motor_output;
+
+    #[test]
+    fn missing_motors_limit_output_and_a_missing_side_stops_both() {
+        let requested = [0.6, -0.3];
+        assert_eq!(balance_motor_output(requested, [(3, 3), (2, 2)]), requested);
+        assert_eq!(
+            balance_motor_output(requested, [(1, 3), (2, 3)]),
+            [0.6, -0.15]
+        );
+        assert_eq!(balance_motor_output(requested, [(3, 3), (0, 3)]), [0.0; 2]);
     }
 }

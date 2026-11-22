@@ -290,6 +290,16 @@ impl DrivetrainModel for ConfiguredChassis {
     type Error = ChassisError;
 }
 
+impl ozton_runtime::diagnostics::ComponentReport for ConfiguredChassis {
+    fn report(&self, frame: ozton_runtime::diagnostics::Frame) {
+        ozton_runtime::diagnostics::report_pose(
+            frame,
+            self.chassis.drivetrain.localization.pose(),
+            self.chassis.pose_trusted(),
+        );
+    }
+}
+
 impl ProgramDrive for ConfiguredChassis {
     type Error = ChassisError;
     type DriverCommand = ChassisDriverCommand;
