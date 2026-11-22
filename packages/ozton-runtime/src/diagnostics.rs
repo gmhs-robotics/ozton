@@ -85,6 +85,12 @@ pub trait ComponentReport {
     fn report(&self, frame: Frame);
 }
 
+impl ComponentReport for ozton_localization::differential::DifferentialLocalization {
+    fn report(&self, frame: Frame) {
+        report_pose(frame, self.pose(), self.pose_trusted());
+    }
+}
+
 impl ComponentReport for () {
     fn report(&self, _: Frame) {}
 }
@@ -93,12 +99,21 @@ impl<R> Report<R> for () {
     fn collect(_: &R, _: Frame, _: Sample) {}
 }
 
-impl<T: ozton_drivetrain::DriverTracking + ComponentReport, L: ComponentReport> ComponentReport
-    for ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>
+impl<M, T, L> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L>
+where
+    M: ozton_drivetrain::model::DrivetrainModel + ozton_drivetrain::MotorGroups,
+    T: ozton_tracking::Tracking + ComponentReport,
+    L: ComponentReport,
 {
     fn report(&self, frame: Frame) {
         #[cfg(feature = "logging")]
-        report_differential(frame, self);
+        {
+            let groups = self.model.motor_groups();
+            if groups.len() == 2 {
+                report_drive_feedback(frame, self.feedback(), self.wheel_diameter());
+            }
+            report_drive_motors(frame, groups);
+        }
         self.localization.report(frame);
         self.tracking.report(frame);
     }
@@ -305,25 +320,45 @@ impl SampleClock {
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_drivetrain::DriverTracking, L>(
+pub fn report_differential<T: ozton_tracking::Tracking, L>(
     frame: Frame,
     drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
     use ozton_drivetrain::MotorGroups;
 
-    let [left, right] = drive
-        .feedback()
-        .map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.position.value));
-    let diameter = drive
-        .wheel_diameter()
-        .map_or(f64::NAN, |diameter| diameter.value);
+    report_drive_feedback(frame, drive.feedback(), drive.wheel_diameter());
+    report_drive_motors(frame, drive.model.motor_groups());
+}
+
+#[cfg(feature = "logging")]
+fn report_drive_feedback(
+    frame: Frame,
+    feedback: [Option<ozton_drivetrain::WheelFeedback>; 2],
+    diameter: Option<Length>,
+) {
+    let [left, right] = feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.position.value));
+    let diameter = diameter.map_or(f64::NAN, |diameter| diameter.value);
     frame.row(
         "DRIVE",
         format_args!("left_m={left:.5},right_m={right:.5},wheel_dia_m={diameter:.6}"),
     );
-    for (side, motors) in ["l", "r"].into_iter().zip(drive.model.motor_groups()) {
+}
+
+#[cfg(feature = "logging")]
+fn report_drive_motors(frame: Frame, groups: &[Box<[Motor]>]) {
+    let names: &[&str] = match groups.len() {
+        2 => &["l", "r"],
+        4 => &["fl", "fr", "bl", "br"],
+        _ => &[],
+    };
+    for (group, motors) in groups.iter().enumerate() {
         for (index, motor) in motors.iter().enumerate() {
-            MotorSample::read(motor).write(frame, format_args!("drive_{side}{}", index + 1));
+            let sample = MotorSample::read(motor);
+            if let Some(name) = names.get(group) {
+                sample.write(frame, format_args!("drive_{name}{}", index + 1));
+            } else {
+                sample.write(frame, format_args!("drive_{}_{}", group + 1, index + 1));
+            }
         }
     }
 }

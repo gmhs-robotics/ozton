@@ -2,8 +2,8 @@
 
 mod curvature;
 
-pub mod auton;
 pub mod basic;
+pub mod commands;
 pub mod pursuit;
 pub mod seeking;
 

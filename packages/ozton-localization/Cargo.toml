@@ -1,0 +1,21 @@
+[package]
+name = "ozton-localization"
+description = "Pose estimation and field maps for Ozton."
+repository.workspace = true
+license.workspace = true
+version = "0.4.0"
+edition = "2024"
+
+[dependencies]
+ozton-diagnostics = { workspace = true, optional = true }
+glam = { workspace = true }
+ozton-tracking = { workspace = true }
+ozton-math = { workspace = true }
+vexide = { workspace = true }
+
+[features]
+logging = ["dep:ozton-diagnostics", "ozton-diagnostics/logging"]
+
+[[bench]]
+name = "localization"
+harness = false

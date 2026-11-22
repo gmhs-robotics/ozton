@@ -2,31 +2,9 @@
 
 use ozton_math::{geometry::wrap_heading, uom::si::f64::Angle};
 
-/// Select driver heading correction methods independently.
-#[derive(Clone, Copy)]
-pub struct Method(u8);
-
-impl Method {
-    pub const IMU: Self = Self(1);
-    pub const DISCONNECTED_MOTOR: Self = Self(2);
-
-    pub const fn contains(self, method: Self) -> bool {
-        self.0 & method.0 == method.0
-    }
-}
-
-impl std::ops::BitOr for Method {
-    type Output = Self;
-
-    fn bitor(self, rhs: Self) -> Self {
-        Self(self.0 | rhs.0)
-    }
-}
-
 /// Holds the heading captured when straight driving starts. Manual steering,
 /// stopping and invalid IMU feedback release the captured heading.
 pub struct HeadingCorrector {
-    methods: Method,
     target: Option<Angle>,
     gain: f64,
     maximum_turn: f64,
@@ -35,21 +13,10 @@ pub struct HeadingCorrector {
 impl HeadingCorrector {
     pub fn new(gain: f64, maximum_turn: f64) -> Self {
         Self {
-            methods: Method::IMU,
             target: None,
             gain,
             maximum_turn,
         }
-    }
-
-    pub fn with_methods(mut self, methods: Method) -> Self {
-        self.methods = methods;
-        self.reset();
-        self
-    }
-
-    pub fn uses(&self, method: Method) -> bool {
-        self.methods.contains(method)
     }
 
     pub fn reset(&mut self) {
@@ -59,9 +26,6 @@ impl HeadingCorrector {
     /// Returns arcade turn input. Heading uses clockwise-positive rotation;
     /// positive arcade turn makes the left side faster and the right side slower.
     pub fn turn(&mut self, throttle: f64, manual_turn: f64, heading: Option<Angle>) -> f64 {
-        if !self.uses(Method::IMU) {
-            return manual_turn;
-        }
         if !throttle.is_finite()
             || !manual_turn.is_finite()
             || !self.gain.is_finite()

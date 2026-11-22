@@ -7,8 +7,9 @@ use vexide::{prelude::InertialSensor, smart::SmartPort};
 
 use crate::{
     Tracking,
-    localizer::{
-        MAX_RANGES, RangeObservation, RangeSensorConfig, Snapshot,
+    sources::{
+        Snapshot,
+        distance::{MAX_RANGES, RangeObservation, RangeSensorConfig},
         vex::{DistanceTracker, Distances, Orientation, Sensors, SharedSensors},
         wheels::MountedWheel,
     },
@@ -170,3 +171,16 @@ impl SensorTracking {
         }
     }
 }
+
+/// Localization lifecycle for a differential drivetrain in a programmed competition.
+pub trait LocalizationLifecycle<T> {
+    fn mode_changed(&mut self, _mode: vexide::competition::CompetitionMode) {}
+    fn cancel_pending(&mut self) {}
+    fn uses_drive_encoders(&self, _tracking: &T) -> bool {
+        false
+    }
+    fn poll(&mut self, _tracking: &mut T, _positions: [Option<Length>; 2], _width: Option<Length>) {
+    }
+}
+
+impl<T> LocalizationLifecycle<T> for () {}

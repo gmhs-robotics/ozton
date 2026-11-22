@@ -1,31 +1,25 @@
 //! A motion model, the robot's physical geometry, and its tracking system.
-use std::time::{Duration, Instant};
-
-use model::{
-    ArcadeInput, Differential, DriveEncoders, DrivetrainModel, Holonomic, Mecanum, ProgramDrive,
-    Tank,
+use model::{Balancing, Differential, DrivetrainModel, Holonomic, Tank};
+use ozton_math::uom::si::f64::{AngularVelocity, ElectricPotential, Length, Velocity};
+pub use ozton_tracking::encoders::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad};
+use ozton_tracking::{
+    Tracking,
+    encoders::{DriveEncoders, Wheels, positive},
 };
-use ozton_control::{
-    drive::AntiTip,
-    heading_corrector::{HeadingCorrector, Method},
-};
-use ozton_math::uom::si::f64::{Angle, AngularVelocity, ElectricPotential, Length, Velocity};
-use ozton_tracking::Tracking;
 use vexide::{
-    competition::CompetitionMode,
     prelude::Motor,
     smart::{PortError, motor::BrakeMode},
 };
-pub use wheels::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError};
-use wheels::{Wheels, positive};
+pub use wheels::WheelSpeedError;
 
-mod driver;
-pub mod feedback;
 pub mod model;
 mod wheels;
 
 /// Access the model's motor groups in their fixed wheel order.
 pub trait MotorGroups {
+    /// Physical wheel-speed commands, one entry per group in model order.
+    type WheelSpeeds: AsRef<[Velocity]>;
+
     fn motor_groups(&self) -> &[Box<[Motor]>];
     fn motor_groups_mut(&mut self) -> &mut [Box<[Motor]>];
 }
@@ -38,8 +32,6 @@ pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L> {
     wheels: Option<Wheels>,
     track_width: Option<Length>,
     wheelbase: Option<Length>,
-    driver: driver::DriverControl,
-    last_driver: Option<Instant>,
     driver_output: bool,
     wheel_feedback: [Option<WheelFeedback>; 2],
 }
@@ -53,11 +45,14 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
             wheels: None,
             track_width: None,
             wheelbase: None,
-            driver: driver::DriverControl::default(),
-            last_driver: None,
             driver_output: false,
             wheel_feedback: [None; 2],
         }
+    }
+
+    /// Consume the write marker used by competition output watchdogs.
+    pub fn take_output(&mut self) -> bool {
+        std::mem::take(&mut self.driver_output)
     }
 
     pub fn with_track_width(mut self, width: Length) -> Result<Self, DriveConfigError> {
@@ -80,20 +75,6 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
     }
     pub fn wheel_diameter(&self) -> Option<Length> {
         self.wheels.as_ref().map(Wheels::diameter)
-    }
-
-    pub fn with_antitip(mut self, controller: AntiTip) -> Self {
-        self.driver.antitip = Some(controller);
-        self
-    }
-
-    pub fn with_heading_corrector(mut self, controller: HeadingCorrector) -> Self {
-        self.driver.heading_corrector = Some(controller);
-        self
-    }
-
-    pub fn with_headinghold(self, controller: HeadingCorrector) -> Self {
-        self.with_heading_corrector(controller)
     }
 }
 
@@ -132,12 +113,17 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
         &mut self,
         speeds: [Velocity; N],
     ) -> Result<(), WheelSpeedError> {
+        self.set_wheel_speeds(&speeds)
+    }
+
+    /// Apply a slice of physical wheel speeds in model group order.
+    pub fn set_wheel_speeds(&mut self, speeds: &[Velocity]) -> Result<(), WheelSpeedError> {
         let groups = self.model.motor_groups_mut();
         let result = self
             .wheels
             .as_ref()
             .ok_or(WheelSpeedError::MissingWheelGeometry)
-            .and_then(|wheels| wheels.drive_speed(groups, speeds));
+            .and_then(|wheels| wheels::drive_speed(wheels, groups, speeds));
         if matches!(
             result,
             Err(WheelSpeedError::InvalidCommand | WheelSpeedError::MissingWheelGeometry)
@@ -179,7 +165,7 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<T: Tracking, L> Drivetrain<Differential, T, L> {
+impl<M: DrivetrainModel + MotorGroups, T: Tracking, L> Drivetrain<M, T, L> {
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
         self.wheel_feedback = self
             .wheels
@@ -192,7 +178,9 @@ impl<T: Tracking, L> Drivetrain<Differential, T, L> {
     pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
         self.wheel_feedback
     }
+}
 
+impl<T: Tracking, L> Drivetrain<Differential, T, L> {
     pub fn measured_voltage(&self) -> [Option<ElectricPotential>; 2] {
         std::array::from_fn(|side| {
             self.model.motor_groups()[side]
@@ -214,176 +202,56 @@ impl<T: Tracking, L> DriveEncoders for Drivetrain<Differential, T, L> {
     }
 }
 
-/// Supply orientation for the drivetrain's driver assists.
-pub trait DriverTracking: Tracking {
-    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>);
-}
-
-impl DriverTracking for ozton_tracking::NoTracking {
-    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
-        (None, None)
-    }
-}
-
-impl DriverTracking for ozton_tracking::sampling::SensorTracking {
-    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
-        let sample = self.refresh_orientation();
-        (
-            sample.and_then(|sample| sample.heading),
-            sample.and_then(|sample| sample.roll),
-        )
-    }
-}
-
-impl DriverTracking for () {
-    fn driver_orientation(&mut self) -> (Option<Angle>, Option<Angle>) {
-        (None, None)
-    }
-}
-
 impl<M: DrivetrainModel, T: Tracking, L> DrivetrainModel for Drivetrain<M, T, L> {
     type Error = M::Error;
 }
 
-impl<M: Tank, T: DriverTracking, L> Tank for Drivetrain<M, T, L> {
+impl<M: Tank, T: Tracking, L> Tank for Drivetrain<M, T, L> {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error> {
-        if vexide::competition::mode() == vexide::competition::CompetitionMode::Autonomous {
-            return self.model.drive_tank(left, right);
-        }
-        let mut input = ArcadeInput::new((left + right) / 2.0, (left - right) / 2.0);
-        if self.driver.uses_heading_method(Method::IMU) || self.driver.antitip.is_some() {
-            let (heading, tilt) = self.tracking.driver_orientation();
-            input = input.with_orientation(heading, tilt);
-        }
-        let now = Instant::now();
-        let dt = self
-            .last_driver
-            .replace(now)
-            .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
-        let (forward, turn) = self.driver.apply(input, dt, 0.0);
         self.driver_output = true;
-        self.model.drive_driver_tank(
-            forward + turn,
-            forward - turn,
-            self.driver.uses_heading_method(Method::DISCONNECTED_MOTOR),
-        )
+        self.model.drive_tank(left, right)
     }
 
     fn stop_now(&mut self) -> Result<(), Self::Error> {
-        self.driver.reset();
-        self.last_driver = None;
         self.model.stop_now()
     }
 }
 
-impl<T: DriverTracking, L> Holonomic for Drivetrain<Mecanum, T, L> {
+impl<M: Holonomic, T: Tracking, L> Holonomic for Drivetrain<M, T, L> {
     fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
-        if vexide::competition::mode() == vexide::competition::CompetitionMode::Autonomous {
-            return self.model.drive_vector(vector, turn);
-        }
-        let (heading, tilt) = self.tracking.driver_orientation();
-        let now = Instant::now();
-        let dt = self
-            .last_driver
-            .replace(now)
-            .map_or(Duration::ZERO, |last| now.saturating_duration_since(last));
-        let (forward, turn) = self.driver.apply(
-            ArcadeInput::new(vector.y, turn).with_orientation(heading, tilt),
-            dt,
-            vector.x,
-        );
-        self.model
-            .drive_vector(glam::DVec2::new(vector.x, forward), turn)?;
         self.driver_output = true;
-        Ok(())
+        self.model.drive_vector(vector, turn)
     }
 }
 
-/// Localization lifecycle for a differential drivetrain in a programmed competition.
-pub trait CompetitionLocalization<T> {
-    fn mode_changed(&mut self, _mode: CompetitionMode) {}
-    fn cancel_pending(&mut self) {}
-    fn uses_drive_encoders(&self, _tracking: &T) -> bool {
-        false
-    }
-    fn poll(&mut self, _tracking: &mut T, _positions: [Option<Length>; 2], _width: Option<Length>) {
+impl<M: Balancing, T: Tracking, L> Balancing for Drivetrain<M, T, L> {
+    type Command = M::Command;
+
+    fn drive_balanced(&mut self, command: Self::Command) -> Result<(), Self::Error> {
+        self.driver_output = true;
+        self.model.drive_balanced(command)
     }
 }
 
-impl<T> CompetitionLocalization<T> for () {}
-
-impl<T: DriverTracking, L: CompetitionLocalization<T>> ProgramDrive
-    for Drivetrain<Differential, T, L>
-{
-    type Error = WheelSpeedError;
-    type DriverCommand = ArcadeInput;
-    type AutonCommand = [Velocity; 2];
-
-    fn apply_driver(&mut self, command: ArcadeInput, _: Duration) -> Result<(), Self::Error> {
-        use model::Arcade;
-        let (throttle, turn) = command.scaled_axes();
-        self.drive_arcade(throttle, turn)
-            .map_err(WheelSpeedError::Port)
+pub(crate) fn normalized_voltage<const N: usize>(
+    groups: &mut [Box<[Motor]>; N],
+    powers: [f64; N],
+) -> Result<(), PortError> {
+    if powers.iter().any(|power| !power.is_finite()) {
+        return coast(groups);
     }
-
-    fn apply_auton(&mut self, speeds: Self::AutonCommand, _: Duration) -> Result<(), Self::Error> {
-        self.drive_wheel_speeds(speeds)
-    }
-
-    fn stop(&mut self) -> Result<(), Self::Error> {
-        self.localization.cancel_pending();
-        self.stop_now().map_err(WheelSpeedError::Port)
-    }
-
-    fn competition_mode_changed(&mut self, mode: CompetitionMode) {
-        self.localization.mode_changed(mode);
-    }
-
-    fn poll_competition_tracking(&mut self, mode: CompetitionMode) {
-        if mode != CompetitionMode::Disabled {
-            let positions = if self.localization.uses_drive_encoders(&self.tracking) {
-                self.tracking_positions()
-            } else {
-                [None; 2]
-            };
-            let width = self.track_width();
-            self.localization.poll(&mut self.tracking, positions, width);
-        }
-    }
-
-    fn take_driver_output(&mut self) -> bool {
-        std::mem::take(&mut self.driver_output)
-    }
-}
-
-impl<T: DriverTracking, L> ProgramDrive for Drivetrain<Mecanum, T, L> {
-    type Error = WheelSpeedError;
-    type DriverCommand = (f64, ArcadeInput);
-    type AutonCommand = [Velocity; 4];
-
-    fn apply_driver(
-        &mut self,
-        (strafe, input): Self::DriverCommand,
-        _: Duration,
-    ) -> Result<(), Self::Error> {
-        self.drive_vector(
-            glam::DVec2::new(strafe, input.throttle) * input.output_scale,
-            input.turn * input.output_scale,
-        )
-        .map_err(WheelSpeedError::Port)
-    }
-
-    fn apply_auton(&mut self, speeds: Self::AutonCommand, _: Duration) -> Result<(), Self::Error> {
-        self.drive_wheel_speeds(speeds)
-    }
-
-    fn stop(&mut self) -> Result<(), Self::Error> {
-        self.stop_now().map_err(WheelSpeedError::Port)
-    }
-
-    fn take_driver_output(&mut self) -> bool {
-        std::mem::take(&mut self.driver_output)
-    }
+    groups
+        .iter_mut()
+        .zip(ozton_math::desaturate(powers, 1.0))
+        .fold(Ok(()), |result, (group, power)| {
+            result.and(each_motor(group, |motor| {
+                if power == 0.0 {
+                    motor.brake(BrakeMode::Coast)
+                } else {
+                    motor.set_voltage(power * motor.max_voltage())
+                }
+            }))
+        })
 }
 
 pub(crate) fn each_motor(

@@ -31,27 +31,14 @@
 //! Use metres, radians, seconds and SI derivatives for new code. Historical wheeled
 //! APIs retain the caller's wheel-diameter unit; use metres there for interoperability.
 
-macro_rules! log {
-    ($($arg:tt)*) => {
-        #[cfg(feature = "logging")]
-        {
-            ::ozton_diagnostics::serial::event(
-                ::vexide::time::user_uptime(),
-                ::core::format_args!("source=tracking,{}", ::core::format_args!($($arg)*)),
-            );
-        }
-    };
-}
-
-pub mod field;
-pub mod gps;
-pub mod localizer;
+pub mod encoders;
 pub mod sampling;
 mod sensor;
+pub mod snapshot;
+pub mod sources;
 pub mod wheeled;
 
 use glam::DVec2 as Vec2;
-pub use gps::{GpsTracking, GpsTrackingConfig};
 pub use sensor::{Gyro, RotarySensor};
 use vexide::math::Angle;
 

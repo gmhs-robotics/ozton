@@ -5,7 +5,6 @@ use vexide::{
     math::Angle,
     smart::{
         PortError,
-        gps::GpsSensor,
         imu::{InertialError, InertialSensor},
         motor::Motor,
         rotation::RotationSensor,
@@ -136,19 +135,6 @@ impl Gyro for Rc<InertialSensor> {
 
     fn angular_velocity(&self) -> Result<f64, Self::Error> {
         <InertialSensor as Gyro>::angular_velocity(self.as_ref())
-    }
-}
-
-impl Gyro for GpsSensor {
-    type Error = PortError;
-
-    fn heading(&self) -> Result<Angle, Self::Error> {
-        GpsSensor::heading(self)
-            .map(|angle| Angle::from_degrees(-angle.as_degrees()).wrapped_full())
-    }
-
-    fn angular_velocity(&self) -> Result<f64, Self::Error> {
-        GpsSensor::gyro_rate(self).map(|rate| (-rate.z).to_radians())
     }
 }
 

@@ -58,7 +58,7 @@ impl PoseEkf {
     }
 
     /// Position-only Schmidt update: heading remains owned by the odometry/IMU
-    /// prediction. H may include heading uncertainty, but sparse wall/GPS position
+    /// prediction. H may include heading uncertainty, but sparse position
     /// measurements cannot invent a new yaw. Joseph covariance update is retained.
     pub fn correct_position(
         &mut self,

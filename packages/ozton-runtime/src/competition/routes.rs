@@ -1,0 +1,103 @@
+//! Register and dispatch typed robot callbacks.
+
+use std::{future::Future, pin::Pin};
+
+/// The available choices, shared by the Brain selector and route dispatch.
+pub trait RouteSet: Copy + 'static {
+    fn label(self) -> &'static str;
+}
+
+/// Dispatch the selected async routine.
+#[allow(async_fn_in_trait)]
+pub trait Routes<R, E>: RouteSet {
+    async fn run(self, robot: &mut R) -> Result<(), E>;
+    fn allows_autonomous(self) -> bool {
+        true
+    }
+}
+
+#[doc(hidden)]
+pub trait IntoRouteResult<E> {
+    fn into_route_result(self) -> Result<(), E>;
+}
+
+impl<E> IntoRouteResult<E> for () {
+    fn into_route_result(self) -> Result<(), E> {
+        Ok(())
+    }
+}
+
+impl<E, F: Into<E>> IntoRouteResult<E> for Result<(), F> {
+    fn into_route_result(self) -> Result<(), E> {
+        self.map_err(Into::into)
+    }
+}
+
+type RouteHandler<L, E> = for<'a> fn(
+    &'a mut crate::CompetitionBot<L>,
+) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>;
+
+/// One named async routine registered with the robot builder.
+pub struct RegisteredRoute<L: crate::RobotLayout, E> {
+    label: &'static str,
+    handler: Option<RouteHandler<L, E>>,
+}
+
+impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
+    #[doc(hidden)]
+    pub const fn new(label: &'static str, handler: RouteHandler<L, E>) -> Self {
+        Self {
+            label,
+            handler: Some(handler),
+        }
+    }
+
+    /// A selectable driver tool, such as a supervised calibration trial.
+    pub const fn driver_only(label: &'static str) -> Self {
+        Self {
+            label,
+            handler: None,
+        }
+    }
+}
+
+impl<L: crate::RobotLayout, E> Copy for RegisteredRoute<L, E> {}
+impl<L: crate::RobotLayout, E> Clone for RegisteredRoute<L, E> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> RouteSet for RegisteredRoute<L, E> {
+    fn label(self) -> &'static str {
+        self.label
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L>, E>
+    for RegisteredRoute<L, E>
+{
+    async fn run(self, robot: &mut crate::CompetitionBot<L>) -> Result<(), E> {
+        if let Some(handler) = self.handler {
+            handler(robot).await
+        } else {
+            Ok(())
+        }
+    }
+
+    fn allows_autonomous(self) -> bool {
+        self.handler.is_some()
+    }
+}
+
+/// Name an async robot function for autonomous selection or driver dispatch.
+#[macro_export]
+macro_rules! route {
+    ($label:expr, $handler:path $(,)?) => {
+        $crate::competition::RegisteredRoute::new($label, |robot| {
+            ::std::boxed::Box::pin(async move {
+                $crate::competition::IntoRouteResult::into_route_result($handler(robot).await)
+            })
+        })
+    };
+}

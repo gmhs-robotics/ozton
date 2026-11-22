@@ -4,3 +4,5 @@ pub mod ekf;
 pub mod mcl;
 pub mod odometry;
 pub mod range;
+
+pub mod wheel_fit;

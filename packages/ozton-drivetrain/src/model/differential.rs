@@ -1,10 +1,10 @@
 //! Two sides of motors driven by normalized voltage.
 use vexide::{
     prelude::Motor,
-    smart::{PortError, SmartDevice, motor::BrakeMode},
+    smart::{PortError, SmartDevice, motor::MotorType},
 };
 
-use super::{DrivetrainModel, Tank};
+use super::{Balancing, DrivetrainModel, Tank};
 use crate::MotorGroups;
 
 /// Motors on a side receive the same fraction of their rated voltage.
@@ -28,6 +28,8 @@ impl DrivetrainModel for Differential {
 }
 
 impl MotorGroups for Differential {
+    type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 2];
+
     fn motor_groups(&self) -> &[Box<[Motor]>] {
         &self.sides
     }
@@ -39,57 +41,43 @@ impl MotorGroups for Differential {
 
 impl Tank for Differential {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        if !left.is_finite() || !right.is_finite() || (left == 0.0 && right == 0.0) {
-            return self.stop_now();
-        }
-
-        self.sides
-            .iter_mut()
-            .zip(ozton_math::desaturate([left, right], 1.0))
-            .fold(Ok(()), |result, (side, power)| {
-                result.and(crate::each_motor(side, |motor| {
-                    if power == 0.0 {
-                        motor.brake(BrakeMode::Coast)
-                    } else {
-                        motor.set_voltage(power * motor.max_voltage())
-                    }
-                }))
-            })
-    }
-
-    fn drive_driver_tank(
-        &mut self,
-        left: f64,
-        right: f64,
-        balance_disconnected: bool,
-    ) -> Result<(), PortError> {
-        if !balance_disconnected || (left == 0.0 && right == 0.0) {
-            return self.drive_tank(left, right);
-        }
-        let mut fault = None;
-        let availability = self.sides.each_ref().map(|side| {
-            let connected = side
-                .iter()
-                .filter(|motor| match motor.validate_port() {
-                    Ok(()) => true,
-                    Err(error) => {
-                        fault.get_or_insert(error);
-                        false
-                    }
-                })
-                .count();
-            (connected, side.len())
-        });
-        let [left, right] = balance_motor_output([left, right], availability);
-        self.drive_tank(left, right).and(fault.map_or(Ok(()), Err))
-    }
-
-    fn stop_now(&mut self) -> Result<(), PortError> {
-        crate::coast(&mut self.sides)
+        crate::normalized_voltage(&mut self.sides, [left, right])
     }
 }
 
-/// Reduce the healthier side in proportion to the available fraction of each side's motors.
+impl Balancing for Differential {
+    type Command = [f64; 2];
+
+    fn drive_balanced(&mut self, command: Self::Command) -> Result<(), PortError> {
+        if command == [0.0; 2] {
+            return self.stop_now();
+        }
+        let mut fault = None;
+        let availability = self.sides.each_ref().map(|side| {
+            let mut available = 0;
+            let mut total = 0;
+            for motor in side {
+                // Units of 5.5 W, matching the rated EXP and V5 motor outputs.
+                let capacity = match motor.motor_type() {
+                    MotorType::Exp => 1,
+                    MotorType::V5 => 2,
+                };
+                total += capacity;
+                match motor.validate_port() {
+                    Ok(()) => available += capacity,
+                    Err(error) => {
+                        fault.get_or_insert(error);
+                    }
+                }
+            }
+            (available, total)
+        });
+        let powers = balance_motor_output(command, availability);
+        crate::normalized_voltage(&mut self.sides, powers).and(fault.map_or(Ok(()), Err))
+    }
+}
+
+/// Reduce the healthier side in proportion to the available fraction of each side's rated power.
 fn balance_motor_output(outputs: [f64; 2], availability: [(usize, usize); 2]) -> [f64; 2] {
     let [left, right] = availability.map(|(connected, total)| {
         if total == 0 {
@@ -118,5 +106,6 @@ mod tests {
             [0.6, -0.15]
         );
         assert_eq!(balance_motor_output(requested, [(3, 3), (0, 3)]), [0.0; 2]);
+        assert_eq!(balance_motor_output([1.0; 2], [(3, 5), (5, 5)]), [1.0, 0.6]);
     }
 }

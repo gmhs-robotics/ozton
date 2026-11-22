@@ -6,7 +6,7 @@ pub mod device;
 pub mod diagnostics;
 pub mod motor;
 mod robot;
-pub mod selector;
+pub use ozton_ui::{menu, selector};
 
 /// Retries an initial reference until established. Reconnection preserves the zero.
 #[derive(Debug, Default)]
@@ -27,7 +27,5 @@ impl StartupReference {
         self.initialized
     }
 }
-
-pub mod menu;
 
 pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout};

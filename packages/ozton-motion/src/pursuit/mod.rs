@@ -16,8 +16,8 @@ pub use follow::PurePursuitFuture;
 /// Parses a LemLib v0.5 path into positions in meters and normalized speed.
 pub fn parse_lemlib_path(
     bytes: &[u8],
-) -> Result<Vec<Waypoint>, ozton_math::path::jerryio::ImportError> {
-    ozton_math::path::jerryio::parse(bytes).map(|points| {
+) -> Result<Vec<Waypoint>, ozton_path_io::jerryio::ImportError> {
+    ozton_path_io::jerryio::parse(bytes).map(|points| {
         points
             .into_iter()
             .map(|point| Waypoint {

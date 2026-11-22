@@ -6,12 +6,8 @@ use std::{convert::Infallible, rc::Rc, time::Duration};
 
 use ozton::{
     drivetrain::model::ArcadeInput,
-    math::{
-        geometry::Pose,
-        localization::range::Surface,
-        path::{Path, jerryio},
-    },
-    motion::auton::{
+    math::{geometry::Pose, localization::range::Surface, path::Path},
+    motion::commands::{
         Alignment, ConfiguredChassis, DifferentialConfig, RobotMotion, RoutineError, TrackingSetup,
         TravelDirection, chassis::ChassisError,
     },
@@ -21,7 +17,7 @@ use ozton::{
         competition::{Program, RegisteredRoute},
         diagnostics::{Frame, MotorSample},
     },
-    tracking::{localizer::vex::DistanceTracker, mount::Vec3},
+    tracking::{mount::Vec3, sources::vex::DistanceTracker},
     uom::{
         ConstZero,
         si::{
@@ -183,7 +179,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
                 distance: Length::new::<meter>(1.10),
                 heading: START_HEADING,
                 maximum_speed: Velocity::new::<meter_per_second>(0.20),
-                facing: ozton::motion::auton::RangeFacing::Front,
+                facing: ozton::motion::commands::RangeFacing::Front,
             },
             Duration::from_secs(2),
         )
@@ -195,7 +191,8 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
 #[vexide::main]
 async fn main(p: Peripherals) {
     // ANCHOR: prepare_path
-    let points = jerryio::parse(include_bytes!("paths/straight.txt")).expect("valid path export");
+    let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
+        .expect("valid path export");
     let straight_path =
         Rc::new(Path::new(&points, CONFIG.path_limits()).expect("valid profiled path"));
     // ANCHOR_END: prepare_path

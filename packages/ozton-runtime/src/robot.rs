@@ -42,7 +42,7 @@ pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
 
 impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
 where
-    D: ozton_drivetrain::model::ProgramDrive,
+    D: crate::competition::ProgramDrive,
     P: crate::competition::Program<Self, D>,
 {
     /// Elapsed time for the current driver callback.
@@ -62,7 +62,7 @@ where
 
 impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
 where
-    D: ozton_drivetrain::model::ProgramDrive,
+    D: crate::competition::ProgramDrive,
     P: crate::competition::Program<Self, D>,
     X: Mechanism<P::Error>,
 {
@@ -200,7 +200,7 @@ pub struct AutonSelection<R>(Vec<R>);
 
 impl<D, C, T, X, P, R: RouteSet> RobotBuilder<D, C, T, X, P, AutonSelection<R>> {
     /// Attach the UI that selects the registered autonomous routes.
-    pub fn with_ui(self, ui: Ui) -> RobotBuilder<D, C, T, X, P, Autonomous<R>> {
+    pub fn with_ui(self, ui: Ui<Option<R>>) -> RobotBuilder<D, C, T, X, P, Autonomous<R>> {
         let Self {
             drivetrain,
             controller,
@@ -223,6 +223,15 @@ impl<D, C, T, X, P, R: RouteSet> RobotBuilder<D, C, T, X, P, AutonSelection<R>> 
 impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
     RobotBuilder<D, C, T, X, P, crate::competition::Autonomous<R, S>>
 {
+    /// Register the driver callback alongside the autonomous routes.
+    pub fn with_driver(mut self, driver: R) -> Self
+    where
+        P: crate::competition::CompetitionLayout<Routes = R>,
+    {
+        self.autonomous.set_driver(driver);
+        self
+    }
+
     /// Attach a typed diagnostic report. USB samples use the given interval in
     /// debug builds. The SD feature also samples in release firmware.
     pub fn with_diagnostics<L>(

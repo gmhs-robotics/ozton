@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+pub mod control;
 pub mod curve;
 pub mod geometry;
 pub mod localization;

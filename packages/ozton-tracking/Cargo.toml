@@ -13,15 +13,7 @@ edition = "2024"
 arrayvec = { workspace = true }
 glam = { workspace = true }
 ozton-math = { workspace = true }
-ozton-diagnostics = { workspace = true, optional = true }
 vexide = { workspace = true }
-
-[features]
-logging = ["dep:ozton-diagnostics", "ozton-diagnostics/logging"]
-
-[[bench]]
-name = "localization"
-harness = false
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

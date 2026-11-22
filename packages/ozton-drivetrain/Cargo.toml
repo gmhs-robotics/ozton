@@ -13,7 +13,6 @@ edition = "2024"
 glam = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
-ozton-control = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [package.metadata.docs.rs]

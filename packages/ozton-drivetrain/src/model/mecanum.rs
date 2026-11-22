@@ -1,8 +1,5 @@
 use glam::DVec2;
-use vexide::{
-    prelude::Motor,
-    smart::{PortError, motor::BrakeMode},
-};
+use vexide::{prelude::Motor, smart::PortError};
 
 use super::{DrivetrainModel, Holonomic, Tank};
 use crate::MotorGroups;
@@ -28,24 +25,6 @@ impl Mecanum {
             ],
         }
     }
-
-    fn drive_wheels(&mut self, powers: [f64; 4]) -> Result<(), PortError> {
-        if powers.iter().any(|power| !power.is_finite()) || powers == [0.0; 4] {
-            return self.stop_now();
-        }
-        self.motors
-            .iter_mut()
-            .zip(ozton_math::desaturate(powers, 1.0))
-            .fold(Ok(()), |result, (motors, power)| {
-                result.and(crate::each_motor(motors, |motor| {
-                    if power == 0.0 {
-                        motor.brake(BrakeMode::Coast)
-                    } else {
-                        motor.set_voltage(power * motor.max_voltage())
-                    }
-                }))
-            })
-    }
 }
 
 impl DrivetrainModel for Mecanum {
@@ -53,6 +32,8 @@ impl DrivetrainModel for Mecanum {
 }
 
 impl MotorGroups for Mecanum {
+    type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 4];
+
     fn motor_groups(&self) -> &[Box<[Motor]>] {
         &self.motors
     }
@@ -64,17 +45,13 @@ impl MotorGroups for Mecanum {
 
 impl Holonomic for Mecanum {
     fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
-        self.drive_wheels(mix(vector.x, vector.y, turn))
+        crate::normalized_voltage(&mut self.motors, mix(vector.x, vector.y, turn))
     }
 }
 
 impl Tank for Mecanum {
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        self.drive_wheels([left, right, left, right])
-    }
-
-    fn stop_now(&mut self) -> Result<(), PortError> {
-        crate::coast(&mut self.motors)
+        crate::normalized_voltage(&mut self.motors, [left, right, left, right])
     }
 }
 

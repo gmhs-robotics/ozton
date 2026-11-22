@@ -13,7 +13,7 @@ use std::{
     process::ExitCode,
 };
 
-use ozton_math::path::jerryio;
+use ozton_path_io::jerryio;
 
 const USAGE: &str = "ozton-tools import-path <lemlib-v0.5.txt>\n                    ozton-tools calibrate <telemetry.csv> [experiment-name]\n                    ozton-tools view-log <OZTON.LOG> [--kind KIND]\n                    Use --help for input column definitions.";
 

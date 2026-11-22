@@ -1,0 +1,146 @@
+//! Coherent stationary collections for explicit distance resets.
+use std::time::Duration;
+
+use ozton_math::{
+    geometry::{Pose, wrap_heading},
+    localization::range::{Constraint, Rejection, Surface, fit_translation},
+    uom::si::{angle::radian, f64::Angle},
+};
+use ozton_tracking::sources::distance::{MAX_RANGES, RangeObservation, RangeSensorConfig};
+
+use super::ranges::{RangeReport, constrain_sample};
+
+pub(super) struct ResetWindow {
+    anchor: Option<(Duration, Pose)>,
+    samples: [Option<RangeObservation>; MAX_RANGES],
+    collecting: Option<Duration>,
+    minimum_axes: u8,
+}
+
+impl Default for ResetWindow {
+    fn default() -> Self {
+        Self::new(1)
+    }
+}
+
+pub(super) enum ResetResult {
+    Waiting,
+    Applied(Pose, u8),
+    Rejected,
+}
+
+pub(super) struct ResetTick {
+    pub time: Duration,
+    pub pose: Pose,
+    pub forward_velocity: f64,
+    pub lateral_velocity: f64,
+    pub angular_velocity: f64,
+}
+
+impl ResetWindow {
+    pub(super) fn new(minimum_axes: u8) -> Self {
+        Self {
+            anchor: None,
+            samples: [None; MAX_RANGES],
+            collecting: None,
+            minimum_axes,
+        }
+    }
+
+    pub(super) fn require_axes(&mut self, minimum_axes: u8) {
+        if minimum_axes > self.minimum_axes {
+            *self = Self::new(minimum_axes);
+        }
+    }
+
+    pub(super) fn restart(&mut self) {
+        *self = Self::new(self.minimum_axes);
+    }
+    /// Distance sensors publish independently. Collect fresh, nearby samples while stopped.
+    pub(super) fn update(
+        &mut self,
+        tick: ResetTick,
+        map: &[Surface],
+        sensors: &[RangeSensorConfig],
+        reports: &[Option<RangeReport>; MAX_RANGES],
+    ) -> ResetResult {
+        let ResetTick {
+            time: now,
+            pose,
+            forward_velocity,
+            lateral_velocity,
+            angular_velocity,
+        } = tick;
+        if ![forward_velocity, lateral_velocity, angular_velocity]
+            .iter()
+            .all(|v| v.is_finite())
+            || forward_velocity.hypot(lateral_velocity) > 0.025
+            || angular_velocity.abs() > 0.06
+        {
+            self.restart();
+            return ResetResult::Waiting;
+        }
+        if self.anchor.is_some_and(|(_, anchor)| {
+            pose.position.distance(anchor.position) > 0.012
+                || wrap_heading(Angle::new::<radian>(pose.heading - anchor.heading)).abs() > 0.02
+        }) {
+            self.restart();
+        }
+        let (started, _) = *self.anchor.get_or_insert((now, pose));
+        // Require 120 ms of measured rest before collecting any packets.
+        if now - started < Duration::from_millis(120) {
+            return ResetResult::Waiting;
+        }
+        let collection_start = *self.collecting.get_or_insert(now);
+        for (stored, report) in self.samples.iter_mut().zip(reports) {
+            if let Some(report) = report {
+                match report.constraint {
+                    Ok(_) => {
+                        *stored = report
+                            .observation
+                            .filter(|v| v.timestamp >= collection_start)
+                    }
+                    Err(Rejection::Duplicate)
+                        if report.observation.is_some_and(|sample| !sample.occluded) => {}
+                    Err(_) => *stored = None,
+                }
+            }
+        }
+        if now - collection_start < Duration::from_millis(45) {
+            return ResetResult::Waiting;
+        }
+        let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
+        let mut count = 0;
+        for constraint in sensors
+            .iter()
+            .zip(self.samples)
+            .filter_map(|(&sensor, sample)| {
+                let sample = sample?;
+                let age = now.checked_sub(sample.timestamp)?.as_secs_f64();
+                let c = constrain_sample(pose, map, sensor, sample, age).ok()?;
+                Some((c, sensor.sigma.value * c.hit.incidence.abs()))
+            })
+        {
+            constraints[count] = constraint;
+            count += 1;
+        }
+        if count == 0 {
+            return ResetResult::Waiting;
+        }
+        if let Some((change, axes)) = fit_translation(&constraints[..count]) {
+            if axes < self.minimum_axes {
+                return ResetResult::Waiting;
+            }
+            if change.is_finite() {
+                return ResetResult::Applied(
+                    Pose {
+                        position: pose.position + change,
+                        ..pose
+                    },
+                    axes,
+                );
+            }
+        }
+        ResetResult::Rejected
+    }
+}

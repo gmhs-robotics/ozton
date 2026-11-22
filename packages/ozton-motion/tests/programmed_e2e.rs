@@ -19,7 +19,9 @@ use ozton_math::{
         },
     },
 };
-use ozton_motion::auton::{AutonError, AutonRobot, Command, DriveOptions, Feedback, Runner};
+use ozton_motion::commands::{
+    Command, CommandError, DriveOptions, Feedback, MotionPlatform, Runner,
+};
 use vex_sdk_mock as _;
 use vexide::runtime::block_on;
 
@@ -102,7 +104,7 @@ enum SimError {
     Transient,
 }
 
-impl AutonRobot for Sim {
+impl MotionPlatform for Sim {
     fn pose_trusted(&self) -> bool {
         self.trusted
     }
@@ -252,7 +254,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                             path: &path,
                             follower,
                             reverse,
-                            trigger: Some(ozton_motion::auton::PathMarker::new(
+                            trigger: Some(ozton_motion::commands::PathMarker::new(
                                 Length::new::<meter>(0.12),
                                 |robot: &mut Sim| robot.intake = true,
                             )),
@@ -288,7 +290,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                         },
                     )
                     .await;
-                assert!(matches!(outcome, Err(AutonError::Cancelled)));
+                assert!(matches!(outcome, Err(CommandError::Cancelled)));
                 assert!(runner.robot().stopped);
                 assert!(!runner.robot().intake);
             }
@@ -299,7 +301,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
 
 #[test]
 fn ordered_markers_and_optional_alignment_keep_the_route_running() {
-    use ozton_motion::auton::{Alignment, PathMarker, RangeFacing};
+    use ozton_motion::commands::{Alignment, PathMarker, RangeFacing};
 
     block_on(async {
         let path = route();
@@ -415,7 +417,7 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
     });
 }
 
-impl ozton_motion::auton::MechanismRobot for Sim {
+impl ozton_motion::commands::MechanismRobot for Sim {
     type Target = (f64, f64);
     fn set_target(&mut self, _: Self::Target) -> Result<(), Self::Error> {
         self.score_goal = true;
@@ -596,7 +598,7 @@ fn captured_loading_wait_services_mechanisms_and_obeys_original_route_deadline()
             )
             .await
             .unwrap_err();
-        assert!(matches!(error, AutonError::RouteTimeout));
+        assert!(matches!(error, CommandError::RouteTimeout));
         assert_eq!(runner.remaining(), Duration::ZERO);
         assert!(!runner.robot().intake);
         assert!(runner.robot().stopped);

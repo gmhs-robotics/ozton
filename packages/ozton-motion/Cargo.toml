@@ -10,6 +10,8 @@ version = "0.4.0"
 edition = "2024"
 
 [dependencies]
+ozton-path-io = { workspace = true }
+ozton-localization = { workspace = true }
 glam = { workspace = true }
 vexide = { workspace = true }
 ozton-control = { workspace = true }

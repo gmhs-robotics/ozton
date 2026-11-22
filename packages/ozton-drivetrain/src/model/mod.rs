@@ -12,9 +12,7 @@ mod mecanum;
 pub use differential::Differential;
 pub use mecanum::Mecanum;
 
-pub use crate::wheels::{
-    DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
-};
+pub use crate::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError};
 
 /// A collection of motors driving a wheeled mobile robot.
 ///
@@ -28,52 +26,13 @@ pub trait DrivetrainModel {
     type Error;
 }
 
-/// Calibrated cumulative drive-wheel travel in left, right order, positive forward.
-pub trait DriveEncoders {
-    /// Return the drivetrain's surveyed track width when it is configured.
-    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
-        None
-    }
-
-    /// Sample both sides once. An unavailable side returns `None`.
-    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2];
-}
-
-/// Commands consumed by a drivetrain during an Ozton competition.
-pub trait ProgramDrive {
-    type Error;
-    type DriverCommand;
-    type AutonCommand;
-
-    fn apply_driver(
-        &mut self,
-        command: Self::DriverCommand,
-        dt: std::time::Duration,
-    ) -> Result<(), Self::Error>;
-    fn apply_auton(
-        &mut self,
-        command: Self::AutonCommand,
-        dt: std::time::Duration,
-    ) -> Result<(), Self::Error>;
-    fn stop(&mut self) -> Result<(), Self::Error>;
-
-    fn competition_mode_changed(&mut self, _mode: vexide::competition::CompetitionMode) {}
-
-    fn poll_competition_tracking(&mut self, _mode: vexide::competition::CompetitionMode) {}
-
-    /// Consume the marker set by a direct driver write through the drivetrain.
-    fn take_driver_output(&mut self) -> bool {
-        false
-    }
-}
+pub use ozton_tracking::encoders::DriveEncoders;
 
 /// Normalized forward and turn inputs for an arcade drivetrain.
 #[derive(Clone, Copy, Debug)]
 pub struct ArcadeInput {
     pub throttle: f64,
     pub turn: f64,
-    pub(crate) heading: Option<ozton_math::uom::si::f64::Angle>,
-    pub(crate) tilt: Option<ozton_math::uom::si::f64::Angle>,
     pub(crate) output_scale: f64,
 }
 
@@ -82,20 +41,8 @@ impl ArcadeInput {
         Self {
             throttle,
             turn,
-            heading: None,
-            tilt: None,
             output_scale: 1.0,
         }
-    }
-
-    pub const fn with_orientation(
-        mut self,
-        heading: Option<ozton_math::uom::si::f64::Angle>,
-        tilt: Option<ozton_math::uom::si::f64::Angle>,
-    ) -> Self {
-        self.heading = heading;
-        self.tilt = tilt;
-        self
     }
 
     /// Multiply the mixed wheel outputs by a controller-selected fraction.
@@ -139,25 +86,28 @@ pub trait Tank: DrivetrainModel {
     /// Drives the robot using left and right wheel powers.
     fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error>;
 
-    /// Apply driver outputs with optional recovery from missing motors.
-    fn drive_driver_tank(
-        &mut self,
-        left: f64,
-        right: f64,
-        _balance_disconnected: bool,
-    ) -> Result<(), Self::Error> {
-        self.drive_tank(left, right)
-    }
-
     /// Immediately remove drivetrain output on disable or fault.
     fn stop_now(&mut self) -> Result<(), Self::Error> {
         self.drive_tank(0.0, 0.0)
     }
 }
 
+/// A model that can limit its own commands using its installed actuators' capacity.
+pub trait Balancing: DrivetrainModel {
+    type Command;
+
+    /// Apply a balanced command, attempting all motor writes even if a port fails.
+    fn drive_balanced(&mut self, command: Self::Command) -> Result<(), Self::Error>;
+}
+
+/// Mix normalized arcade axes into tank commands.
+pub fn arcade_mix(throttle: f64, turn: f64) -> [f64; 2] {
+    desaturate([throttle + turn, throttle - turn], 1.0)
+}
+
 impl<T: Tank> Arcade for T {
     fn drive_arcade(&mut self, throttle: f64, steer: f64) -> Result<(), Self::Error> {
-        let [left, right] = desaturate([throttle + steer, throttle - steer], 1.0);
+        let [left, right] = arcade_mix(throttle, steer);
 
         self.drive_tank(left, right)
     }

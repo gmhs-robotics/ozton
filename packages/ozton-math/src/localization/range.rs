@@ -60,37 +60,31 @@ pub fn cast(pose: Pose, mount: Mount, surfaces: &[Surface]) -> Option<Hit> {
     cast_inner(pose, mount, surfaces, None)
 }
 
-/// Casts against eligible surfaces among the first 32 map entries. Hit indices
+/// Casts against eligible surfaces among the first 128 map entries. Hit indices
 /// always refer to the original map, including when nearer surfaces are masked.
-pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u32) -> Option<Hit> {
+pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u128) -> Option<Hit> {
     cast_inner(pose, mount, surfaces, Some(mask))
 }
 
-fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>) -> Option<Hit> {
+fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
     let origin = pose.transform_point(mount.offset);
     let beam = direction(Angle::new::<radian>(pose.heading + mount.heading));
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
     for (index, surface) in surfaces.iter().enumerate() {
-        if mask.is_some_and(|mask| index >= 32 || mask & (1u32 << index) == 0) {
+        if mask.is_some_and(|mask| index >= u128::BITS as usize || mask & (1u128 << index) == 0) {
+            continue;
+        }
+        let Some((distance, fraction)) =
+            intersection(origin, beam, surface.start, surface.end - surface.start)
+        else {
+            continue;
+        };
+        if distance >= nearest_distance {
             continue;
         }
         let segment = surface.end - surface.start;
         let length_squared = segment.length_squared();
-        let denominator = beam.perp_dot(segment);
-        if length_squared <= 1e-12 || denominator * denominator <= length_squared * 1e-18 {
-            continue;
-        }
-        let offset = surface.start - origin;
-        let distance = offset.perp_dot(segment) / denominator;
-        let fraction = offset.perp_dot(beam) / denominator;
-        if distance <= 0.0
-            || !distance.is_finite()
-            || distance >= nearest_distance
-            || !(0.0..=1.0).contains(&fraction)
-        {
-            continue;
-        }
         nearest_distance = distance;
         nearest = Some((index, segment, length_squared, fraction));
     }
@@ -104,6 +98,43 @@ fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u32>)
         normal,
         incidence: beam.dot(normal),
     })
+}
+
+/// Nearest eligible distance for a world-space ray with a unit direction.
+/// Iterate only visible faces and skip normal/edge calculations used by DSR.
+pub fn ray_distance(
+    origin: DVec2,
+    beam: DVec2,
+    surfaces: &[Surface],
+    mut mask: u128,
+) -> Option<f64> {
+    let mut nearest = f64::INFINITY;
+    while mask != 0 {
+        let index = mask.trailing_zeros() as usize;
+        let Some(surface) = surfaces.get(index) else {
+            break;
+        };
+        mask &= mask - 1;
+        if let Some((distance, _)) =
+            intersection(origin, beam, surface.start, surface.end - surface.start)
+        {
+            nearest = nearest.min(distance);
+        }
+    }
+    nearest.is_finite().then_some(nearest)
+}
+
+fn intersection(origin: DVec2, beam: DVec2, start: DVec2, segment: DVec2) -> Option<(f64, f64)> {
+    let length_squared = segment.length_squared();
+    let denominator = beam.perp_dot(segment);
+    if length_squared <= 1e-12 || denominator * denominator <= length_squared * 1e-18 {
+        return None;
+    }
+    let offset = start - origin;
+    let distance = offset.perp_dot(segment) / denominator;
+    let fraction = offset.perp_dot(beam) / denominator;
+    (distance > 0.0 && distance.is_finite() && (0.0..=1.0).contains(&fraction))
+        .then_some((distance, fraction))
 }
 
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
@@ -233,7 +264,7 @@ pub fn constrain_masked(
     gate: RangeGate,
     surfaces: &[Surface],
     expected_surface: Option<usize>,
-    mask: u32,
+    mask: u128,
 ) -> Result<Constraint, Rejection> {
     reading.validate(gate)?;
     let hit = cast_masked(pose, mount, surfaces, mask).ok_or(Rejection::NoSurface)?;
