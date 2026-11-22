@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ozton_drivetrain::{
     Drivetrain,
-    model::{ArcadeInput, Differential, DriveConfigError, DrivetrainModel, ProgramDrive},
+    model::{Arcade, ArcadeInput, Differential, DriveConfigError, DrivetrainModel, ProgramDrive},
 };
 use ozton_math::{
     geometry::Pose,
@@ -105,7 +105,7 @@ impl DifferentialConfig {
         }
         let left = build_motor_side(left)?;
         let right = build_motor_side(right)?;
-        let model = Differential::new(left, right)
+        let drivetrain = Drivetrain::new(Differential::new(left, right), ())
             .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
             .with_track_width(self.track_width)?;
 
@@ -154,7 +154,7 @@ impl DifferentialConfig {
         }
         let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
         let chassis = Chassis::new(
-            Drivetrain::new(model, Tracking::new(localizer).with_distances(distances)),
+            drivetrain.with_tracking(Tracking::new(localizer).with_distances(distances)),
             sensors.into_shared_reader(),
             control,
             self.journal_capacity,
@@ -241,15 +241,6 @@ impl ConfiguredChassis {
         self.chassis.stop()
     }
 
-    pub fn drive_driver_arcade(
-        &mut self,
-        throttle: f64,
-        steer: f64,
-        policy: ozton_drivetrain::model::DriverFaultPolicy,
-    ) -> Result<(), vexide::smart::PortError> {
-        self.chassis.drive_driver_arcade(throttle, steer, policy)
-    }
-
     pub fn journal_mut(&mut self) -> &mut ozton_diagnostics::Journal {
         &mut self.chassis.journal
     }
@@ -323,19 +314,18 @@ impl ProgramDrive for ConfiguredChassis {
     ) -> Result<(), Self::Error> {
         match command {
             ChassisDriverCommand::Arcade(input) => {
-                let model = &mut self.chassis.drivetrain.model;
-                let output = model.drive(input);
-                if output.is_err() {
-                    let _ = model.stop();
-                }
-                output.map_err(ChassisError::Output)
-            }
-            ChassisDriverCommand::Calibration(output) => {
-                let [left, right] = output.volts().map(ElectricPotential::new::<volt>);
+                let (throttle, turn) = input.scaled_axes();
                 self.chassis
                     .drivetrain
                     .model
-                    .drive_volts(left, right)
+                    .drive_arcade(throttle, turn)
+                    .map_err(ChassisError::Output)
+            }
+            ChassisDriverCommand::Calibration(output) => {
+                let volts = output.volts().map(ElectricPotential::new::<volt>);
+                self.chassis
+                    .drivetrain
+                    .drive_volts(volts)
                     .map_err(ChassisError::Output)
             }
         }

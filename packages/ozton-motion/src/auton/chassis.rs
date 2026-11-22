@@ -5,7 +5,7 @@ use ozton_control::axis::{AxisController, AxisSample, Linear, Target};
 use ozton_diagnostics::{Event, Journal, calibration::CalibrationSample};
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, WheelFeedback, WheelSpeedError},
+    model::{Differential, Tank, WheelFeedback, WheelSpeedError},
 };
 use ozton_math::{
     geometry::Pose,
@@ -78,7 +78,11 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         Some(Self {
             drivetrain,
             sensors,
-            journal: Journal::new(journal_capacity),
+            journal: Journal::new(if cfg!(feature = "logging") {
+                journal_capacity
+            } else {
+                0
+            }),
             control,
             wheels: [None; 2],
             target: [0.0; 2],
@@ -88,18 +92,6 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             calibration_velocity: [None; 2],
             last_snapshot: None,
         })
-    }
-
-    /// Drive from operator inputs using the requested fault policy.
-    pub fn drive_driver_arcade(
-        &mut self,
-        throttle: f64,
-        steer: f64,
-        policy: ozton_drivetrain::model::DriverFaultPolicy,
-    ) -> Result<(), PortError> {
-        self.drivetrain
-            .model
-            .drive_driver_arcade(throttle, steer, policy)
     }
 
     pub fn pose_trusted(&self) -> bool {
@@ -113,7 +105,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
 
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
-        self.wheels = self.drivetrain.model.sample_feedback();
+        self.wheels = self.drivetrain.sample_feedback();
         self.sensors.refresh_orientation();
         let (snapshot, ranges) = self.sensors.capture_with_distances(
             &mut self.drivetrain.tracking.distances,
@@ -177,8 +169,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             WheelControl::Native => {
                 let [left, right] = target.map(Velocity::new::<meter_per_second>);
                 self.drivetrain
-                    .model
-                    .drive_wheel_speeds(left, right)
+                    .drive_wheel_speeds([left, right])
                     .map_err(|error| match error {
                         WheelSpeedError::Port(port) => ChassisError::Output(port),
                         _ => ChassisError::InvalidCommand,
@@ -211,6 +202,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     Ok(voltage)
                 })();
                 voltage.and_then(|voltage| {
+                    #[cfg(feature = "logging")]
                     self.journal.push(Event::new(
                         self.time,
                         "drive",
@@ -218,11 +210,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                         [voltage[0], voltage[1], f64::NAN, f64::NAN, f64::NAN],
                     ));
                     self.drivetrain
-                        .model
-                        .drive_volts(
-                            ElectricPotential::new::<volt>(voltage[0]),
-                            ElectricPotential::new::<volt>(voltage[1]),
-                        )
+                        .drive_volts(voltage.map(ElectricPotential::new::<volt>))
                         .map_err(ChassisError::Output)
                 })
             }
@@ -238,7 +226,10 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         if let WheelControl::Voltage(controllers) = &mut self.control {
             controllers.iter_mut().for_each(AxisController::reset);
         }
-        self.drivetrain.model.stop().map_err(ChassisError::Output)
+        self.drivetrain
+            .model
+            .stop_now()
+            .map_err(ChassisError::Output)
     }
 
     pub fn set_pose(&mut self, pose: Pose) -> Result<(), ChassisError> {
@@ -274,7 +265,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     }
 
     pub(super) fn feedforward_samples(&mut self) -> [Option<CalibrationSample>; 2] {
-        let voltage = self.drivetrain.model.measured_voltage();
+        let voltage = self.drivetrain.measured_voltage();
         [0, 1].map(|index| {
             let speed = self.wheels[index].map(|wheel| wheel.velocity.value);
             let previous = core::mem::replace(
@@ -310,6 +301,9 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         progress: Length,
         wheels: [Velocity; 2],
     ) {
+        #[cfg(not(feature = "logging"))]
+        let _ = (elapsed, dt, progress, wheels);
+        #[cfg(feature = "logging")]
         self.journal.push(Event::new(
             self.time,
             "auton",

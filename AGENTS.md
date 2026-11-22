@@ -1,90 +1,30 @@
-# AGENTS.md
+# Ozton and Override
 
-## Task Completion Requirements
+## Working in these repositories
 
-- Hard rule: Whenever you change any file in this repository, you must create a
-  git commit containing the changes before finishing the task. Do not leave
-  changes uncommitted unless the user explicitly instructs you to do so. If a
-  commit is blocked, report the blocker explicitly.
-- `cargo check --workspace --all-targets` and
-  `cargo test --workspace --all-targets` must be completed before considering
-  tasks completed.
-- Use conventional commit messages for any git commits created in this repo.
+- Commit every change with a conventional commit message. Ozton and Override are separate Git repositories.
+- In Ozton, run `cargo check --workspace --all-targets --locked` and `cargo test --workspace --all-targets --locked`. Check the `logging` feature as well when changing telemetry.
+- In Override, compile the `thumbv7a-vex-v5` release target. Override has no automated tests. Library tests belong in Ozton.
+- The checked-in Rust toolchain and Nix flakes supply the V5 toolchain. Run `nix run .#upload` from the Override checkout to build and upload to slot 1. Append `-- --logging` for diagnostics, `-- --cold` to refresh the differential upload base, or both flags together.
 
-## Overview
+## Firmware and telemetry
 
-Ozton runs programmed VEX V5 competitions. Use `RobotBuilder`, `Program`, and
-`route!` for application assembly. See [programmed.md](docs/programmed.md) when
-changing competition hooks, device ownership, or route registration.
+Initialize devices before `.compete().await`. At Override startup, keep the mechanism stowed and the chassis still while references are established, the IMU calibrates, and the distance sensors become ready. Give each device one owner.
 
-## Workspace Layout
+The default firmware performs no logging. The `logging` feature emits USB diagnostics and automatically appends to `OZTON.LOG` when the Brain has an SD card. The competition writer flushes in batches roughly once a second and retries after card errors. Use `RobotBuilder::with_diagnostics` to add periodic robot rows. Open a copied log with `cargo run -p ozton-tools -- view-log /path/to/OZTON.LOG`. Wheel and IMU logs help verify tuning and geometry, while clearance, polarity, loaded stability, and contact thresholds require a robot.
 
-Workspace crates live under `packages/`.
+## Drivetrain and tracking
 
-## Workspace Layout
+- `Differential` owns the motor sides. `Tank` sends normalized voltage, and its blanket `Arcade` implementation mixes forward and turn. `Mecanum` adds `Holonomic`. The stock models coast on stop and neutral output.
+- `Drivetrain::new(model, tracking)` owns the model, tracking, and geometry. With typed wheel diameter and motor ratios, `with_wheel_geometry` calibrates encoder travel and converts physical wheel targets to motor RPM. Configure ratios in motor order. `with_wheel_feedback` can infer them from measured free wheel RPM. Use `with_track_width` for surveyed track width and `with_wheelbase` when needed.
+- Attach the tracker with `with_tracking` when construction needs the calibrated drivetrain first. `TrackingBuilder` takes the IMU, mounted pods, and indexed distance sensors. Poll the pair with `DrivetrainMotion::poll_tracking` in the competition hook. The drivetrain can read heading and tilt for driver assistance. Keep limits such as lift-dependent stick scaling in the driver callback.
+- Use SI quantities in new interfaces. Robot-mount coordinates are right, forward, up from the chassis origin. Field poses use right and forward. Zero heading faces forward and positive heading turns left. Use `position!` for compile-time unit-bearing mounts.
+- Estimators share timestamped observations. Driver keeps odometry running and skips range corrections. DSR uses surveyed surfaces and valid, fresh packets. Restore trusted pose with an explicitly registered start or a confirmed contact correction.
 
-- `packages/ozton`
-  - meta crate
-  - re-exports the workspace crates behind features
-  - provides the public prelude
-- `packages/ozton-math`
-  - hardware-independent geometry, localization, and path math
-- `packages/ozton-control`
-  - feedback/feedforward control loops and tolerances
-- `packages/ozton-motion`
-  - motion algorithms that act on drivetrain + tracking traits
-- `packages/ozton-tracking`
-  - tracking traits and tracking implementations
-  - timestamped localization and VEX sensor adapters
-- `packages/ozton-drivetrain`
-  - drivetrain wrapper and drivetrain models
-- `packages/ozton-runtime`
-  - shared selector, command clock, and VEX actuator adapters
-- `packages/ozton-diagnostics` and `packages/ozton-tools`
-  - telemetry schema, path conversion, and host calibration
+## Routes and mechanisms
 
-## Core Design Rules
-
-- Keep crates narrowly scoped.
-- Prefer trait-based integration points over concrete coupling.
-- Motion code should depend on tracking traits, not sensor implementations.
-- Drivetrain code should depend on model traits, not specific autonomous
-  routines.
-  - The `ozton` crate should stay a thin re-export/meta crate.
-## Conventions
-
-This codebase should operate in SI units unless an external API or device forces
-another unit. If that does happen, please use a reasonable conversion factor to
-convert it into an SI unit.
-
-## Maintainability
-
-Long term maintainability is a core priority. If you add new functionality,
-first check if there are shared logic that can be extracted to a separate
-module. Duplicate logic across multiple files is a code smell and should be
-avoided. Don't be afraid to change existing code. Don't take shortcuts by just
-adding local logic to solve a problem.
-
-## External Libraries
-
-- Prefer established crates.io libraries over local reimplementation for
-  commodity primitives.
-- Current examples:
-  - angles come from `vexide-devices`
-  - 2D vector math is backed by `glam`
-- Before writing a custom PID, geometry, math, or motion helper, check whether a
-  mature crate already fits the required API, units model, and `no_std`
-  constraints.
-
-## Documentation
-
-- Public traits and structs should document usage, what they represent, and
-  interesting internals.
-- Examples that require hardware setup should use `ignore` or `no_run` doctests.
-
-## References
-
-- Vexide: https://vexide.dev
-- Vexide Repo: https://github.com/vexide/vexide
-- Evian (strong reference implementation): https://github.com/vexide/evian
-- Autons (for selection UI, reference): https://github.com/vexide/autons
+- Build the robot with `RobotBuilder`, and register callbacks with `route!`. Driver callbacks and route functions take only `&mut Robot` and return the same `Result` type. Override callbacks are under `src/control/`; wiring and sensor geometry are in `src/main.rs`.
+- Bring `DrivetrainMotion` into scope for `set_start_pose`, `drive_path`, `try_distance_reset`, and `reset_at_goal`. The route supplies motion limits and timeouts. JerryIO exports can be parsed with `ozton_math::path::jerryio` and converted to a profiled path.
+- A goal reset takes the goal center, bracket contact radius, bracket offset from the robot origin, and a route-chosen creep speed. It zeroes drive output after sustained contact or a bounded timeout. It uses registered IMU heading to locate the contact point on the goal circle. Register the start heading and approach facing the surveyed goal.
+- Override's mechanisms own their local limits. Manual lift motion follows the measured lift height with the pivot. Independent `LiftPose` targets expose a wait handle. Background scoring and its actuator references remain owned by `Scoring` through mode changes. The physical B sequence and the button mapping live in the corresponding control files.
+- Keep math hardware-independent. Put controller helpers in `ozton-control`, tracking in `ozton-tracking`, calibrated motion in `ozton-motion`, competition dispatch in `ozton-runtime`, and serial/SD formats in `ozton-diagnostics`. The `ozton` crate re-exports these modules.

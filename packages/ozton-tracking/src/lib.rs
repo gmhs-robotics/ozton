@@ -33,9 +33,12 @@
 
 macro_rules! log {
     ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "logging")]
         {
-            ::std::println!("[ozton-tracking] {}", ::core::format_args!($($arg)*));
+            ::ozton_diagnostics::serial::event(
+                ::vexide::time::user_uptime(),
+                ::core::format_args!("source=tracking,{}", ::core::format_args!($($arg)*)),
+            );
         }
     };
 }

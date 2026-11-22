@@ -22,6 +22,9 @@ ozton-tracking = { workspace = true }
 [dev-dependencies]
 vex-sdk-mock = "0.2.0"
 
+[features]
+logging = []
+
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]
 cargo-args = [

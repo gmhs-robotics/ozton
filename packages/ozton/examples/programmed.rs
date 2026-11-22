@@ -1,6 +1,8 @@
 //! One mixed-gear chassis, one intake, and one embedded PATH.JERRYIO route.
 
-use std::{convert::Infallible, fs::File, rc::Rc, time::Duration};
+#[cfg(feature = "logging")]
+use std::fs::File;
+use std::{convert::Infallible, rc::Rc, time::Duration};
 
 use ozton::{
     drivetrain::model::ArcadeInput,
@@ -152,12 +154,15 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
             .map_err(|error| Self::drive_error(error, true))
     }
 
+    #[cfg(feature = "logging")]
     fn mode_changed(robot: &mut CompetitionBot, mode: CompetitionMode) {
         let journal = robot.drivetrain.journal_mut();
         if mode == CompetitionMode::Disabled && !journal.is_empty() {
             match File::create("auton.csv").and_then(|file| journal.write_csv(file)) {
                 Ok(()) => journal.clear(),
-                Err(error) => eprintln!("Telemetry save failed: {error}"),
+                Err(error) => {
+                    ozton::runtime::diagnostic_event!("telemetry_save_failed,error={error}")
+                }
             }
         }
     }

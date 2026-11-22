@@ -149,16 +149,18 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         }
         self.set_driver_control(mode == CompetitionMode::Driver);
         self.mechanism_occluded = mechanism_occluded;
-        let drive = if self
-            .layout
-            .as_ref()
-            .is_none_or(|layout| layout.wheels.uses_drive())
-        {
+        let drive = if self.uses_drive_encoders() {
             drive_positions()
         } else {
             [None; 2]
         };
         self.sample(drive)
+    }
+
+    pub(super) fn uses_drive_encoders(&self) -> bool {
+        self.layout
+            .as_ref()
+            .is_none_or(|layout| layout.wheels.uses_drive())
     }
 
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {

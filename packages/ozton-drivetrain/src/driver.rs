@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use ozton_control::{drive::AntiTip, heading_hold::HeadingHold};
 
-use super::ArcadeInput;
+use crate::model::ArcadeInput;
 
 #[derive(Default)]
 pub(super) struct DriverControl {
@@ -42,21 +42,3 @@ impl DriverControl {
         (forward + correction, turn)
     }
 }
-
-macro_rules! driver_builders {
-    () => {
-        pub fn with_antitip(mut self, controller: ozton_control::drive::AntiTip) -> Self {
-            self.driver.antitip = Some(controller);
-            self
-        }
-
-        pub fn with_headinghold(
-            mut self,
-            controller: ozton_control::heading_hold::HeadingHold,
-        ) -> Self {
-            self.driver.headinghold = Some(controller);
-            self
-        }
-    };
-}
-pub(super) use driver_builders;

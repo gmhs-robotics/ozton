@@ -252,9 +252,9 @@ where
 
     /// Time from the driver tick start to the end of the wheel write.
     pub fn mark_driver_output(&mut self, tick: crate::competition::Tick) {
-        #[cfg(any(debug_assertions, feature = "sd-logging"))]
+        #[cfg(feature = "logging")]
         A::driver_output(self, tick.work());
-        #[cfg(not(any(debug_assertions, feature = "sd-logging")))]
+        #[cfg(not(feature = "logging"))]
         let _ = tick;
     }
 }

@@ -14,7 +14,6 @@ glam = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
 ozton-control = { workspace = true }
-ozton-diagnostics = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [package.metadata.docs.rs]
@@ -23,6 +22,3 @@ cargo-args = [
     "-Zbuild-std=std,panic_abort",
     "-Zbuild-std-features=compiler-builtins-mem,panic-unwind",
 ]
-
-[features]
-sd-logging = ["ozton-diagnostics/sd-logging"]

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, WheelSpeedError},
+    model::{Differential, DriveEncoders, Tank, WheelSpeedError},
 };
 use ozton_math::{
     geometry::{Pose, direction, wrap_heading},
@@ -70,14 +70,12 @@ impl<L: WheelSource> AutonRobot for TrackedDrive<L> {
         Ok(())
     }
 
-    fn drive(&mut self, [left, right]: [Velocity; 2], _: Duration) -> Result<(), Self::Error> {
-        self.model
-            .drive_wheel_speeds(left, right)
-            .map_err(Into::into)
+    fn drive(&mut self, speeds: [Velocity; 2], _: Duration) -> Result<(), Self::Error> {
+        self.drive_wheel_speeds(speeds).map_err(Into::into)
     }
 
     fn stop_drive(&mut self) -> Result<(), Self::Error> {
-        self.model.stop().map_err(DriveMotionFault::Brake)
+        self.stop_now().map_err(DriveMotionFault::Brake)
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
@@ -152,7 +150,15 @@ pub trait DrivetrainMotion {
 
 impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
     fn poll_tracking(&mut self, mode: CompetitionMode) -> Result<Option<Feedback>, Fault> {
-        self.tracking.poll_with_drive(mode, 0, &mut self.model)
+        if mode == CompetitionMode::Disabled {
+            return Ok(None);
+        }
+        let positions = if self.tracking.uses_drive_encoders() {
+            self.tracking_positions()
+        } else {
+            [None; 2]
+        };
+        self.tracking.poll(mode, 0, || positions)
     }
 
     fn set_start_pose(&mut self, pose: Pose) -> Result<(), DriveMotionFault> {
@@ -165,7 +171,7 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
         travel: TravelDirection,
         timeout: Duration,
     ) -> Result<(), AutonError<DriveMotionFault>> {
-        let options = DriveOptions::for_differential(&self.model, path.limits().wheel_speed)
+        let options = DriveOptions::for_differential(self, path.limits().wheel_speed)
             .ok_or(AutonError::Configuration)?;
         let mut runner = Runner::new(self, options, CONTROL_PERIOD, MAX_CONTROL_GAP, timeout)?;
         runner
@@ -196,8 +202,8 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
             return Err(DriveMotionFault::InvalidCommand);
         }
 
-        let mut drive = StopOnDrop(Some(&mut self.model));
-        let model = drive
+        let mut drive = StopOnDrop(Some(self));
+        let drivetrain = drive
             .0
             .as_deref_mut()
             .ok_or(DriveMotionFault::InvalidCommand)?;
@@ -206,7 +212,7 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
                 CommandClock::new(CONTROL_PERIOD).ok_or(DriveMotionFault::InvalidCommand)?;
             let started = Instant::now();
             let mut blocked_since = None;
-            let start_heading = self
+            let start_heading = drivetrain
                 .tracking
                 .imu_field_heading()
                 .ok_or(DriveMotionFault::MissingHeading)?;
@@ -214,14 +220,14 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
                 if competition::mode() != CompetitionMode::Autonomous {
                     return Err(DriveMotionFault::Cancelled);
                 }
-                let heading = self
+                let heading = drivetrain
                     .tracking
                     .imu_field_heading()
                     .ok_or(DriveMotionFault::MissingHeading)?;
                 if wrap_heading(heading - start_heading).abs() > 0.15 {
                     return Err(DriveMotionFault::NoContact);
                 }
-                let [Some(left), Some(right)] = model.wheel_load() else {
+                let [Some(left), Some(right)] = drivetrain.wheel_load() else {
                     return Err(DriveMotionFault::ContactFeedback);
                 };
                 let blocked = started.elapsed() >= Duration::from_millis(120)
@@ -238,7 +244,7 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
                 } else {
                     blocked_since = None;
                 }
-                model.drive_wheel_speeds(speed, speed)?;
+                drivetrain.drive_wheel_speeds([speed, speed])?;
                 if clock.tick().await > MAX_CONTROL_GAP {
                     return Err(DriveMotionFault::NoContact);
                 }
@@ -256,9 +262,8 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
         timeout: Duration,
     ) -> Result<bool, AutonError<DriveMotionFault>> {
         // A wall reset holds the motors stationary. The runner still requires a positive speed.
-        let options =
-            DriveOptions::for_differential(&self.model, Velocity::new::<meter_per_second>(1.0))
-                .ok_or(AutonError::Configuration)?;
+        let options = DriveOptions::for_differential(self, Velocity::new::<meter_per_second>(1.0))
+            .ok_or(AutonError::Configuration)?;
         let mut runner = Runner::new(
             self,
             options,
@@ -272,19 +277,19 @@ impl<L: WheelSource> DrivetrainMotion for TrackedDrive<L> {
     }
 }
 
-struct StopOnDrop<'a>(Option<&'a mut Differential>);
+struct StopOnDrop<'a, L: WheelSource>(Option<&'a mut TrackedDrive<L>>);
 
-impl StopOnDrop<'_> {
+impl<L: WheelSource> StopOnDrop<'_, L> {
     fn brake(&mut self) -> Result<(), DriveMotionFault> {
         if let Some(drive) = self.0.as_deref_mut() {
-            drive.stop().map_err(DriveMotionFault::Brake)?;
+            drive.stop_now().map_err(DriveMotionFault::Brake)?;
             self.0 = None;
         }
         Ok(())
     }
 }
 
-impl Drop for StopOnDrop<'_> {
+impl<L: WheelSource> Drop for StopOnDrop<'_, L> {
     fn drop(&mut self) {
         let _ = self.brake();
     }

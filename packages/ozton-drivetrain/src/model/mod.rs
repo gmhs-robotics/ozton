@@ -7,16 +7,13 @@ use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
 mod differential;
-mod driver;
 mod mecanum;
-mod wheels;
 
-pub use differential::{Differential, DriverFaultPolicy};
+pub use differential::Differential;
 pub use mecanum::Mecanum;
-#[cfg(any(debug_assertions, feature = "sd-logging"))]
-pub use wheels::DriveSnapshot;
-pub use wheels::{
-    DriveConfigError, DriveMotor, MaxSpeed, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
+
+pub use crate::wheels::{
+    DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError,
 };
 
 /// A collection of motors driving a wheeled mobile robot.
@@ -40,17 +37,6 @@ pub trait DriveEncoders {
 
     /// Sample both sides once. An unavailable side returns `None`.
     fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2];
-}
-
-impl DriveEncoders for Differential {
-    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
-        Self::track_width(self)
-    }
-
-    fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
-        self.sample_feedback()
-            .map(|sample| sample.map(|sample| sample.position))
-    }
 }
 
 /// Commands consumed by a drivetrain during an Ozton competition.
@@ -82,9 +68,9 @@ pub trait ProgramDrive {
 pub struct ArcadeInput {
     pub throttle: f64,
     pub turn: f64,
-    heading: Option<ozton_math::uom::si::f64::Angle>,
-    tilt: Option<ozton_math::uom::si::f64::Angle>,
-    output_scale: f64,
+    pub(crate) heading: Option<ozton_math::uom::si::f64::Angle>,
+    pub(crate) tilt: Option<ozton_math::uom::si::f64::Angle>,
+    pub(crate) output_scale: f64,
 }
 
 impl ArcadeInput {
@@ -116,6 +102,13 @@ impl ArcadeInput {
             0.0
         };
         self
+    }
+
+    pub const fn scaled_axes(self) -> (f64, f64) {
+        (
+            self.throttle * self.output_scale,
+            self.turn * self.output_scale,
+        )
     }
 }
 

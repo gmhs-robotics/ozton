@@ -7,7 +7,7 @@ use std::{
 };
 
 pub mod calibration;
-#[cfg(all(feature = "sd-logging", any(target_os = "vexos", test)))]
+#[cfg(all(feature = "logging", any(target_os = "vexos", test)))]
 pub mod sd;
 pub mod serial;
 

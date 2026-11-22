@@ -14,4 +14,4 @@ ozton-math = { workspace = true }
 ozton-drivetrain = { workspace = true }
 
 [features]
-sd-logging = ["ozton-diagnostics/sd-logging", "ozton-drivetrain/sd-logging"]
+logging = ["ozton-diagnostics/logging"]

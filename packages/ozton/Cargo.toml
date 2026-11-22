@@ -23,4 +23,4 @@ ozton-motion = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [features]
-sd-logging = ["ozton-runtime/sd-logging"]
+logging = ["ozton-runtime/logging", "ozton-tracking/logging", "ozton-motion/logging"]

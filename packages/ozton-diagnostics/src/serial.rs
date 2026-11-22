@@ -57,18 +57,24 @@ pub fn event(time: Duration, fields: fmt::Arguments<'_>) {
     );
 }
 
+#[cfg(feature = "logging")]
 fn emit(usb: bool, row: fmt::Arguments<'_>) {
-    #[cfg(all(feature = "sd-logging", target_os = "vexos"))]
+    #[cfg(all(feature = "logging", target_os = "vexos"))]
     crate::sd::enqueue(row);
     if usb {
         let _ = writeln!(io::stdout().lock(), "{row}");
     }
 }
 
+#[cfg(not(feature = "logging"))]
+fn emit(_: bool, _: fmt::Arguments<'_>) {}
+
 /// Persistent status for outputs or controllers. Emits only fault/recovery
 /// edges while counting every observed failure. The clock runs only on edges.
 pub struct FaultLog {
+    #[cfg(feature = "logging")]
     source: &'static str,
+    #[cfg(feature = "logging")]
     clock: fn() -> Duration,
     code: Option<&'static str>,
     count: u64,
@@ -76,8 +82,12 @@ pub struct FaultLog {
 
 impl FaultLog {
     pub const fn new(source: &'static str, clock: fn() -> Duration) -> Self {
+        #[cfg(not(feature = "logging"))]
+        let _ = (source, clock);
         Self {
+            #[cfg(feature = "logging")]
             source,
+            #[cfg(feature = "logging")]
             clock,
             code: None,
             count: 0,
@@ -98,7 +108,11 @@ impl FaultLog {
 
     pub fn fail(&mut self, code: &'static str, details: fmt::Arguments<'_>) {
         self.count = self.count.saturating_add(1);
-        if self.code.replace(code) != Some(code) {
+        let previous = self.code.replace(code);
+        #[cfg(not(feature = "logging"))]
+        let _ = (previous, details);
+        #[cfg(feature = "logging")]
+        if previous != Some(code) {
             emit(
                 true,
                 format_args!(
@@ -114,7 +128,11 @@ impl FaultLog {
     }
 
     pub fn recovered(&mut self) {
-        if let Some(previous) = self.code.take() {
+        let previous = self.code.take();
+        #[cfg(not(feature = "logging"))]
+        let _ = previous;
+        #[cfg(feature = "logging")]
+        if let Some(previous) = previous {
             emit(
                 true,
                 format_args!(
