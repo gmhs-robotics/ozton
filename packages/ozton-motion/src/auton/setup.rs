@@ -107,6 +107,7 @@ impl DifferentialConfig {
         let right = build_motor_side(right)?;
         let model = Differential::new(left, right)
             .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)
+            .and_then(|model| model.with_track_width(self.track_width))
             .and_then(|model| model.with_native_speed_limit(self.maximum_wheel_speed))
             .ok_or(SetupError::DriveGeometry)?;
 

@@ -27,7 +27,6 @@ struct Layout {
     range_uses: RangeUses,
     orientation: bool,
     orientation_pending: bool,
-    telemetry: bool,
 }
 
 /// Differential robot tracking with independently owned sensors and optional range correction.
@@ -79,7 +78,6 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         wheels: WheelOdometry,
         range_uses: RangeUses,
         orientation: bool,
-        telemetry: bool,
     ) -> Self {
         range_uses.apply(&mut self.tracking.localizer);
         self.layout = Some(Layout {
@@ -87,7 +85,6 @@ impl<L: WheelSource> DifferentialLocalization<L> {
             range_uses,
             orientation,
             orientation_pending: false,
-            telemetry,
         });
         self
     }
@@ -167,11 +164,15 @@ impl<L: WheelSource> DifferentialLocalization<L> {
         self.sensors.orientation()
     }
 
+    /// Read IMU rates and acceleration when the active diagnostics sink requests them.
     pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
-        if self.layout.as_ref().is_some_and(|layout| !layout.telemetry) {
-            return ([f64::NAN; 3], [f64::NAN; 3]);
-        }
         self.sensors.imu_telemetry()
+    }
+
+    /// Use the cached control sample when it includes tilt, otherwise read a
+    /// full orientation for the active diagnostics sink.
+    pub fn diagnostic_orientation(&self) -> Option<Orientation> {
+        self.sensors.diagnostic_orientation()
     }
 
     /// Replace the field model and rebaseline at the route's surveyed start.

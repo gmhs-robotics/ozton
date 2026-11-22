@@ -28,11 +28,20 @@ pub trait DrivetrainModel {
 
 /// Calibrated cumulative drive-wheel travel in left, right order, positive forward.
 pub trait DriveEncoders {
+    /// Return the drivetrain's surveyed track width when it is configured.
+    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
+        None
+    }
+
     /// Sample both sides once. An unavailable side returns `None`.
     fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2];
 }
 
 impl DriveEncoders for Differential {
+    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
+        Self::track_width(self)
+    }
+
     fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
         self.sample_feedback()
             .map(|sample| sample.map(|sample| sample.position))
@@ -40,6 +49,10 @@ impl DriveEncoders for Differential {
 }
 
 impl DriveEncoders for crate::resilient::ResilientDrive {
+    fn track_width(&self) -> Option<ozton_math::uom::si::f64::Length> {
+        Self::track_width(self)
+    }
+
     fn tracking_positions(&mut self) -> [Option<ozton_math::uom::si::f64::Length>; 2] {
         Self::tracking_positions(self)
     }

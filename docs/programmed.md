@@ -77,26 +77,40 @@ for compound gearing. The model converts each motor's travel and speed to the
 wheel before combining healthy encoders on that side.
 
 ```rust,ignore
+let drivetrain = Differential::with_geared_motors(left, right, diameter)?
+    .with_track_width(track_width)?;
 let tracking = TrackingBuilder::new()
-    .with_drive_encoders(track_width)
+    .with_drive_encoders(DriveEncoderUse::ForwardAndHeading)
     .with_imu(imu_port, [ImuUse::HeadingCorrection, ImuUse::Orientation])
     .with_wheels([MountedWheel::from_rotary(
         lateral_encoder, diameter, position!(0 in, -1 in, 0 in),
         Angle::new::<degree>(-90.0), None,
     )])
-    .with_dsr(wall_sensors, [DsrUse::Dsr, DsrUse::Ekf])
-    .build(|mounts| Localizer::new_owned(config, start_pose, field, mounts.to_vec()))
-    .await;
+    .with_dsr(wall_sensors, [DsrUse::Dsr, DsrUse::Ekf]);
+let robot = RobotBuilder::new()
+    .with_drivetrain(drivetrain)
+    .with_tracking_from_drive(async |drive| {
+        let tracker = tracking.build_for_drive(drive, |mounts| {
+            Localizer::new_owned(config, start_pose, field, mounts.to_vec())
+        }).await?;
+        Some(tracker)
+    })
+    .await?;
 ```
 
-`with_drive_encoders` adds two forward-facing observations at half the track
-width on each side. `with_wheels` adds independently mounted observations.
-Bearings are counterclockwise from forward, so a right-positive lateral wheel
-has a bearing of −90°. Use `OdometryConfig::for_mounted_wheels` to set motion limits. The wheel geometry
-must observe forward travel and yaw.
-Purely forward layouts may assume zero lateral travel. Add sideways coverage
-when the robot needs to measure lateral movement. If selected, IMU heading
-supplies yaw in place of wheel-derived yaw.
+`DriveEncoderUse::Forward` averages both sides. `ForwardAndHeading` also
+allows wheel-derived yaw using the drivetrain's own track width. A
+differential drive pair observes forward travel and yaw. Bearings are
+counterclockwise from forward, so a right-positive lateral pod has a
+bearing of −90°. Use `OdometryConfig::for_mounted_wheels` to set motion limits.
+Fully forward-aligned layouts may assume zero lateral travel.
+
+Tracking uses valid IMU yaw first. It prefers a complete fit from independent
+pods, then includes drive encoders with lower weight where needed. A lateral
+pod only measures motion along its own axis. Range corrections constrain
+accumulated drift when the observation passes the field, confidence, and
+freshness gates. Geometric resets collect data at rest. IMU diagnostics
+are read by the enabled diagnostics sink without a tracking role.
 
 Repeat `with_dsr` to register more groups. The roles control which sensors feed
 geometric resets or the active filter. The `Localizer` configuration selects

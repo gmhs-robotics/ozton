@@ -188,6 +188,7 @@ pub enum DriverFaultPolicy {
 pub struct Differential {
     sides: [Box<[DriveMotor]>; 2],
     wheels: Option<WheelGeometry>,
+    track_width: Option<Length>,
     wheel_speed_limit: Option<Velocity>,
     scale: f64,
     slew: Option<[SlewLimiter; 2]>,
@@ -245,6 +246,7 @@ impl Differential {
         Self {
             sides,
             wheels,
+            track_width: None,
             wheel_speed_limit: None,
             scale: 1.0,
             slew: None,
@@ -280,6 +282,20 @@ impl Differential {
             circumference,
         });
         Some(self)
+    }
+
+    /// Set the distance between the left and right drive contact lines.
+    pub fn with_track_width(mut self, width: Length) -> Option<Self> {
+        if !width.value.is_finite() || width.value <= 0.0 {
+            return None;
+        }
+        self.track_width = Some(width);
+        Some(self)
+    }
+
+    /// Calibrated distance between the left and right drive contact lines.
+    pub fn track_width(&self) -> Option<Length> {
+        self.track_width
     }
 
     /// Limit driver tank input to a physical speed and use native motor velocity control.

@@ -230,6 +230,11 @@ impl<M: AdjustableDrive> ResilientDrive<M> {
 }
 
 impl ResilientDrive {
+    /// Track width from the underlying differential model.
+    pub fn track_width(&self) -> Option<Length> {
+        self.model.track_width()
+    }
+
     /// Read wheel-side load telemetry without advancing odometry.
     pub fn wheel_load(&self) -> [Option<crate::model::WheelLoad>; 2] {
         self.model.wheel_load()

@@ -347,6 +347,13 @@ impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
         self.orientation
     }
 
+    /// Full orientation for a diagnostics sink, independent of the odometry inputs.
+    pub fn diagnostic_orientation(&self) -> Option<Orientation> {
+        self.orientation
+            .filter(|sample| sample.roll.is_some() || sample.pitch.is_some())
+            .or_else(|| self.imu.as_ref()?.sample(true))
+    }
+
     pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
         self.imu
             .as_ref()

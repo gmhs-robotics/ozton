@@ -53,11 +53,20 @@ impl MountedWheel {
     }
 }
 
+/// Drive travel available to the odometry fit.
+#[derive(Clone, Copy)]
+pub enum DriveWheels {
+    /// The mean left and right distance estimates forward translation.
+    Forward,
+    /// The left and right distances can also estimate yaw using track width.
+    ForwardAndHeading(Length),
+}
+
 /// Prepared wheel geometry. Reads each pod once per tick and fits body travel to
 /// the available observations. A differential drive contributes one observation per side.
 pub struct WheelOdometry {
     wheels: Vec<MountedWheel>,
-    drive_width: Option<Length>,
+    drive: Option<DriveWheels>,
     imu_heading: bool,
     forward_only: bool,
     yaw_scale: f64,
@@ -68,11 +77,12 @@ impl WheelOdometry {
     /// observe yaw. Forward-aligned layouts may assume zero lateral travel.
     pub fn new(
         wheels: Vec<MountedWheel>,
-        drive_width: Option<Length>,
+        drive: Option<DriveWheels>,
         imu_heading: bool,
         require_lateral: bool,
     ) -> Option<Self> {
-        if drive_width.is_some_and(|width| !width.value.is_finite() || width.value <= 0.0)
+        if matches!(drive, Some(DriveWheels::ForwardAndHeading(width))
+            if !width.value.is_finite() || width.value <= 0.0)
             || wheels
                 .iter()
                 .any(|wheel| !wheel.projection.is_finite() || !wheel.source.valid())
@@ -85,7 +95,7 @@ impl WheelOdometry {
                 .all(|wheel| wheel.projection.x.abs() <= RANK_TOLERANCE);
         let mut layout = Self {
             wheels,
-            drive_width,
+            drive,
             imu_heading,
             forward_only,
             yaw_scale: 1.0,
@@ -113,15 +123,19 @@ impl WheelOdometry {
     }
 
     fn drive_rows(&self) -> [Option<DVec3>; 2] {
-        [-0.5, 0.5].map(|side| {
-            self.drive_width
-                .map(|width| DVec3::new(0.0, 1.0, side * width.value))
-        })
+        match self.drive {
+            Some(DriveWheels::ForwardAndHeading(width)) => [
+                Some(DVec3::new(0.0, 1.0, -0.5 * width.value)),
+                Some(DVec3::new(0.0, 1.0, 0.5 * width.value)),
+            ],
+            Some(DriveWheels::Forward) => [Some(DVec3::Y), None],
+            None => [None; 2],
+        }
     }
 
     /// Whether to sample the drive model during a tracking tick.
     pub fn uses_drive(&self) -> bool {
-        self.drive_width.is_some()
+        self.drive.is_some()
     }
 
     /// Whether the layout takes yaw from an IMU.
@@ -150,43 +164,40 @@ impl WheelOdometry {
         let seconds = dt.as_secs_f64();
         let angular_limit = config.max_angular_speed.value * seconds;
         let linear_limit = config.max_linear_speed.value * seconds;
-        let yaw = if self.imu_heading {
-            let (before, after) = previous.imu.zip(raw.imu).ok_or(Fault::Heading)?;
-            let yaw = wrap_heading(after - before);
-            if !yaw.is_finite() || yaw.abs() > angular_limit {
-                return Err(Fault::Heading);
-            }
-            Some(yaw)
-        } else {
-            None
-        };
+        let imu_yaw = self
+            .imu_heading
+            .then_some(previous.imu.zip(raw.imu))
+            .flatten()
+            .map(|(before, after)| wrap_heading(after - before))
+            .filter(|yaw| yaw.is_finite() && yaw.abs() <= angular_limit);
         let is_valid = |row: DVec3, travel: f64| {
             travel.is_finite() && travel.abs() <= linear_limit + row.z.abs() * angular_limit
         };
-        let rows = self.drive_rows();
-        let [left, right] = [0, 1].map(|side| {
-            let row = rows[side]?;
-            let travel = raw.drive[side]?.value - previous.drive[side]?.value;
-            is_valid(row, travel).then_some((row, travel))
-        });
-        // Use one paired observation. Pods can still carry odometry if a
-        // whole drive side is unavailable and the remaining layout has rank.
-        let drive = left
-            .zip(right)
-            .into_iter()
-            .flat_map(|(left, right)| [left, right]);
+        let drive = self.drive_travel(previous, raw, is_valid);
         let pods = self.wheels.iter().filter_map(|wheel| {
             let travel = wheel.travel?;
             is_valid(wheel.projection, travel).then_some((wheel.projection, travel))
         });
-        let observations = drive.chain(pods);
-        let movement = self.fit(observations.clone(), yaw).ok_or_else(|| {
-            if !observations
+        // Prefer complete pod geometry. If drive travel fills a missing axis,
+        // give its rows one quarter of the weight of an independent pod.
+        let motion = self.fit(pods.clone(), imu_yaw).or_else(|| {
+            if drive.iter().all(Option::is_none) {
+                return None;
+            }
+            let drive = drive
+                .into_iter()
+                .flatten()
+                .map(|(row, travel)| (row * 0.5, travel * 0.5));
+            self.fit(pods.clone().chain(drive), imu_yaw)
+        });
+        let movement = motion.ok_or_else(|| {
+            if !pods
                 .clone()
+                .chain(drive.into_iter().flatten())
                 .any(|(row, _)| row.y.abs() > RANK_TOLERANCE)
             {
                 Fault::Forward
-            } else if yaw.is_none() {
+            } else if imu_yaw.is_none() {
                 Fault::Heading
             } else {
                 Fault::Lateral
@@ -206,6 +217,40 @@ impl WheelOdometry {
             return Err(Fault::Lateral);
         }
         Ok(movement)
+    }
+
+    fn drive_travel(
+        &self,
+        previous: Snapshot,
+        raw: Snapshot,
+        is_valid: impl Fn(DVec3, f64) -> bool,
+    ) -> [Option<(DVec3, f64)>; 2] {
+        let [Some(left), Some(right)] = [0, 1].map(|side| {
+            let travel = raw.drive[side]?.value - previous.drive[side]?.value;
+            travel.is_finite().then_some(travel)
+        }) else {
+            return [None; 2];
+        };
+        match self.drive {
+            Some(DriveWheels::Forward) => {
+                let mean = (left + right) * 0.5;
+                [is_valid(DVec3::Y, mean).then_some((DVec3::Y, mean)), None]
+            }
+            Some(DriveWheels::ForwardAndHeading(_)) => {
+                let rows = self.drive_rows();
+                let travel = [left, right];
+                let pair = [0, 1].map(|index| {
+                    let row = rows[index]?;
+                    is_valid(row, travel[index]).then_some((row, travel[index]))
+                });
+                if pair.iter().all(Option::is_some) {
+                    pair
+                } else {
+                    [None; 2]
+                }
+            }
+            None => [None; 2],
+        }
     }
 
     fn fit(
@@ -311,6 +356,80 @@ mod tests {
     }
 
     #[test]
+    fn complete_pods_win_over_slipping_drive_and_drive_fills_missing_forward() {
+        let forward = Encoder::default();
+        let lateral = Encoder::default();
+        let position = Vec3::new(length(0.0), length(0.0), length(0.0));
+        let wheels = vec![
+            MountedWheel::new(forward.clone(), position, Angle::new::<degree>(0.0)),
+            MountedWheel::new(lateral.clone(), position, Angle::new::<degree>(-90.0)),
+        ];
+        let mut layout =
+            WheelOdometry::new(wheels, Some(DriveWheels::Forward), true, true).unwrap();
+        forward.0.set(Some(length(0.0)));
+        lateral.0.set(Some(length(0.0)));
+        layout.capture();
+        forward.0.set(Some(length(0.05)));
+        lateral.0.set(Some(length(0.02)));
+        layout.capture();
+        let dt = Duration::from_millis(100);
+        let before = Snapshot {
+            drive: [Some(length(0.0)); 2],
+            imu: Some(Angle::new::<radian>(0.0)),
+            ..Snapshot::default()
+        };
+        let after = Snapshot {
+            time: dt,
+            drive: [Some(length(0.1)), Some(length(0.3))],
+            ..before
+        };
+        let motion = layout.delta(before, after, config(), dt).unwrap();
+        assert!(motion.translation.distance(DVec2::new(0.02, 0.05)) < 1e-12);
+        assert_eq!(motion.heading, 0.0);
+
+        forward.0.set(None);
+        lateral.0.set(Some(length(0.05)));
+        layout.capture();
+        let motion = layout.delta(before, after, config(), dt).unwrap();
+        assert!(motion.translation.distance(DVec2::new(0.03, 0.2)) < 1e-12);
+        assert!(matches!(
+            layout.delta(before, Snapshot { imu: None, ..after }, config(), dt),
+            Err(Fault::Heading)
+        ));
+    }
+
+    #[test]
+    fn full_drive_encoders_supply_yaw_when_imu_is_missing_or_implausible() {
+        let layout = WheelOdometry::new(
+            vec![],
+            Some(DriveWheels::ForwardAndHeading(length(0.4))),
+            true,
+            false,
+        )
+        .unwrap();
+        let dt = Duration::from_millis(100);
+        let before = Snapshot {
+            drive: [Some(length(0.0)); 2],
+            imu: Some(Angle::new::<radian>(0.0)),
+            ..Snapshot::default()
+        };
+        let after = Snapshot {
+            time: dt,
+            drive: [Some(length(0.06)), Some(length(0.14))],
+            ..before
+        };
+        for (imu, expected) in [(Some(0.1), 0.1), (None, 0.2), (Some(2.0), 0.2)] {
+            let sample = Snapshot {
+                imu: imu.map(Angle::new::<radian>),
+                ..after
+            };
+            let motion = layout.delta(before, sample, config(), dt).unwrap();
+            assert!((motion.heading - expected).abs() < 1e-12);
+            assert!((motion.translation.y - 0.1).abs() < 1e-12);
+        }
+    }
+
+    #[test]
     fn skew_wheels_resolve_translation_and_yaw_without_an_imu() {
         let mounts = [(0.1, 0.0, 0.0), (0.2, 0.0, -35.0), (0.0, 0.2, 60.0)];
         let encoders = mounts.map(|_| Encoder::default());
@@ -373,7 +492,13 @@ mod tests {
 
     #[test]
     fn paired_drive_travel_averages_forward_and_yields_wheel_heading() {
-        let layout = WheelOdometry::new(vec![], Some(length(0.4)), false, false).unwrap();
+        let layout = WheelOdometry::new(
+            vec![],
+            Some(DriveWheels::ForwardAndHeading(length(0.4))),
+            false,
+            false,
+        )
+        .unwrap();
         let dt = Duration::from_millis(100);
         let before = Snapshot {
             drive: [Some(length(5.0)), Some(length(3.0))],
@@ -387,7 +512,15 @@ mod tests {
         let motion = layout.delta(before, after, config(), dt).unwrap();
         assert!(motion.translation.distance(DVec2::new(0.0, 0.1)) < 1e-12);
         assert!((motion.heading - 0.2).abs() < 1e-12);
-        assert!(WheelOdometry::new(vec![], Some(length(0.4)), true, true).is_none());
+        assert!(
+            WheelOdometry::new(
+                vec![],
+                Some(DriveWheels::ForwardAndHeading(length(0.4))),
+                true,
+                true
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -398,7 +531,13 @@ mod tests {
             Vec3::new(length(0.03), length(-0.1), length(0.0)),
             Angle::new::<degree>(-90.0),
         );
-        let mut layout = WheelOdometry::new(vec![wheel], Some(length(0.4)), true, true).unwrap();
+        let mut layout = WheelOdometry::new(
+            vec![wheel],
+            Some(DriveWheels::ForwardAndHeading(length(0.4))),
+            true,
+            true,
+        )
+        .unwrap();
         encoder.0.set(Some(length(0.0)));
         layout.capture();
         encoder.0.set(Some(length(0.03)));

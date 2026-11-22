@@ -2,11 +2,11 @@
 
 use std::time::Duration;
 
-use ozton_math::uom::si::f64::Length;
+use ozton_drivetrain::model::DriveEncoders;
 use ozton_tracking::localizer::{
     Estimator, Localizer, MAX_RANGES, RangeSensorConfig,
     vex::{DistanceTracker, Distances, Sensors},
-    wheels::{MountedWheel, WheelOdometry},
+    wheels::{DriveWheels, MountedWheel, WheelOdometry},
 };
 use vexide::{prelude::InertialSensor, smart::SmartPort};
 
@@ -19,8 +19,16 @@ pub enum ImuUse {
     HeadingCorrection,
     /// Expose cached heading, pitch, roll and yaw to driver control.
     Orientation,
-    /// Expose gyroscope and accelerometer readings through IMU telemetry.
-    Telemetry,
+}
+
+/// Which motion components the differential drive encoders may estimate.
+#[derive(Clone, Copy)]
+pub enum DriveEncoderUse {
+    /// Average left and right travel for forward motion.
+    Forward,
+    /// Also use the wheel travel difference for yaw when the IMU and pods
+    /// cannot provide it. Uses the track width on the installed drivetrain.
+    ForwardAndHeading,
 }
 
 /// Consumers of a distance sensor. A sensor can supply multiple consumers
@@ -70,9 +78,8 @@ pub struct TrackingBuilder {
     imu: Option<SmartPort>,
     heading: bool,
     orientation: bool,
-    telemetry: bool,
     wheel_sources: Vec<MountedWheel>,
-    drive_track_width: Option<Length>,
+    drive: Option<DriveEncoderUse>,
     ranges: Vec<DistanceTracker>,
     range_uses: RangeUses,
 }
@@ -87,12 +94,10 @@ impl TrackingBuilder {
         self.imu = Some(port);
         self.heading = false;
         self.orientation = false;
-        self.telemetry = false;
         for usage in uses {
             match usage {
                 ImuUse::HeadingCorrection => self.heading = true,
                 ImuUse::Orientation => self.orientation = true,
-                ImuUse::Telemetry => self.telemetry = true,
             }
         }
         self
@@ -121,18 +126,45 @@ impl TrackingBuilder {
         self
     }
 
-    /// Use the drivetrain's calibrated left and right encoders as forward
-    /// wheels at half the track width on either side of the tracked origin.
-    pub fn with_drive_encoders(mut self, track_width: Length) -> Self {
-        self.drive_track_width = Some(track_width);
+    /// Use calibrated drive-wheel travel for the selected motion components.
+    pub fn with_drive_encoders(mut self, usage: DriveEncoderUse) -> Self {
+        self.drive = Some(usage);
         self
     }
 
-    /// Build the field model from mounts in registration order, then initialize
-    /// the selected hardware. The localizer sets limits and selects the active
-    /// estimator. Wheel positions and bearings determine odometry geometry.
+    /// Build tracking with pods alone or with forward-only drive travel.
+    /// For drive-derived yaw, use [`Self::build_for_drive`].
     pub async fn build(
         self,
+        field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
+    ) -> Option<DifferentialLocalization<()>> {
+        let drive = match self.drive {
+            Some(DriveEncoderUse::ForwardAndHeading) => return None,
+            Some(DriveEncoderUse::Forward) => Some(DriveWheels::Forward),
+            None => None,
+        };
+        self.build_layout(drive, field_model).await
+    }
+
+    /// Resolve encoder geometry from the robot's installed drivetrain at assembly.
+    pub async fn build_for_drive(
+        self,
+        drivetrain: &impl DriveEncoders,
+        field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
+    ) -> Option<DifferentialLocalization<()>> {
+        let drive = match self.drive {
+            Some(DriveEncoderUse::ForwardAndHeading) => {
+                Some(DriveWheels::ForwardAndHeading(drivetrain.track_width()?))
+            }
+            Some(DriveEncoderUse::Forward) => Some(DriveWheels::Forward),
+            None => None,
+        };
+        self.build_layout(drive, field_model).await
+    }
+
+    async fn build_layout(
+        self,
+        drive: Option<DriveWheels>,
         field_model: impl FnOnce(&[RangeSensorConfig]) -> Option<Localizer<'static>>,
     ) -> Option<DifferentialLocalization<()>> {
         let distances = Distances::new(self.ranges)?;
@@ -142,16 +174,13 @@ impl TrackingBuilder {
         }
         let wheels = WheelOdometry::new(
             self.wheel_sources,
-            self.drive_track_width,
+            drive,
             self.heading,
             localizer.odometry_config().require_lateral,
         )?;
         let distances = distances.initialize(Duration::from_secs(3)).await?;
         let mut sensors = Sensors::with_wheel_sources((), ())?.into_shared_reader();
-        if let Some(port) = self
-            .imu
-            .filter(|_| self.heading || self.orientation || self.telemetry)
-        {
+        if let Some(port) = self.imu {
             sensors = sensors.with_imu(InertialSensor::new(port)).await?;
         }
         Some(
@@ -159,7 +188,6 @@ impl TrackingBuilder {
                 wheels,
                 self.range_uses,
                 self.orientation,
-                self.telemetry,
             ),
         )
     }

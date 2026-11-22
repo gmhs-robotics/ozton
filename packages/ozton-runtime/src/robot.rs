@@ -146,6 +146,16 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
     with_component!("Install the owned tracking value.", with_tracking, tracking, RobotBuilder<D, C, N, X, P, A>, drivetrain, controller, mechanisms, program, autonomous);
     with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, T, X, N, A>, drivetrain, controller, tracking, mechanisms, autonomous);
 
+    /// Assemble tracking from the installed drivetrain's calibration, then
+    /// keep both components owned independently by the robot.
+    pub async fn with_tracking_from_drive<N>(
+        self,
+        assemble: impl AsyncFnOnce(&D) -> Option<N>,
+    ) -> Option<RobotBuilder<D, C, N, X, P, A>> {
+        let tracking = assemble(&self.drivetrain).await?;
+        Some(self.with_tracking(tracking))
+    }
+
     /// Register the selectable routes in menu order.
     pub fn with_auton<R: RouteSet>(
         self,
