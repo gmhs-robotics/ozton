@@ -24,7 +24,9 @@ use crate::{
 mod compat;
 use compat::{ALTERNATE_READY_STATUS, read_object};
 
-const RANGE_PERIOD: Duration = Duration::from_millis(33);
+// Poll for packet edges faster than the sensor's roughly 33 ms update interval.
+const RANGE_POLL_PERIOD: Duration = Duration::from_millis(10);
+const MAX_POLL_GAP: Duration = Duration::from_millis(40);
 
 /// An owned distance sensor and its surveyed right/forward/up mounting point.
 pub struct DistanceTracker {
@@ -75,9 +77,29 @@ impl RangeReadiness {
     }
 }
 
+/// Device timestamps identify packets. On the Brain their epoch can drift
+/// relative to odometry, so timestamp observed arrivals on the odometry clock.
+#[derive(Default)]
+struct PacketClock {
+    last: Option<(LowResolutionTime, Option<Duration>)>,
+}
+
+impl PacketClock {
+    fn observe(&mut self, packet: LowResolutionTime, now: Duration) -> Option<Duration> {
+        let time = match self.last {
+            None => None,
+            Some((previous, time)) if previous == packet => time,
+            Some(_) => Some(now),
+        };
+        self.last = Some((packet, time));
+        time
+    }
+}
+
 struct DistanceDevice {
     sensor: DistanceSensor,
     readiness: Cell<RangeReadiness>,
+    clock: PacketClock,
 }
 
 impl DistanceDevice {
@@ -139,6 +161,7 @@ impl Distances {
                 .try_push(DistanceDevice {
                     sensor,
                     readiness: Cell::default(),
+                    clock: PacketClock::default(),
                 })
                 .ok()?;
             distances.configs.push(config);
@@ -185,10 +208,19 @@ impl Distances {
         let time = stamp(LowResolutionTime::now());
         if self
             .last_poll
-            .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
+            .is_none_or(|last| time.saturating_sub(last) >= RANGE_POLL_PERIOD)
         {
-            for (index, device) in self.devices.iter().enumerate() {
-                let observation = distance(&device.sensor, occluded & (1 << index) != 0);
+            let rebaseline = self
+                .last_poll
+                .is_none_or(|last| time.saturating_sub(last) > MAX_POLL_GAP);
+            for (index, device) in self.devices.iter_mut().enumerate() {
+                if rebaseline {
+                    device.clock = PacketClock::default();
+                }
+                let observation = device.capture(time, occluded & (1 << index) != 0);
+                if observation.is_err() {
+                    device.clock = PacketClock::default();
+                }
                 log_row!(
                     Trace,
                     "DISTANCE_PACKET",
@@ -209,16 +241,40 @@ impl Distances {
     }
 }
 
-fn distance(sensor: &DistanceSensor, occluded: bool) -> Result<Option<RangeObservation>, ()> {
-    let before = sensor.timestamp().map_err(|_| ())?;
-    let Some((millimeters, confidence)) = read_object(sensor)? else {
-        return Ok(None);
-    };
-    let after = sensor.timestamp().map_err(|_| ())?;
-    Ok((before == after).then(|| RangeObservation {
-        timestamp: stamp(after),
-        distance: Length::new::<millimeter>(f64::from(millimeters)),
-        confidence,
-        occluded,
-    }))
+impl DistanceDevice {
+    fn capture(&mut self, now: Duration, occluded: bool) -> Result<Option<RangeObservation>, ()> {
+        let before = self.sensor.timestamp().map_err(|_| ())?;
+        let object = read_object(&self.sensor)?;
+        let after = self.sensor.timestamp().map_err(|_| ())?;
+        if before != after {
+            return Ok(None);
+        }
+        let timestamp = self.clock.observe(after, now);
+        Ok(timestamp
+            .zip(object)
+            .map(|(timestamp, (millimeters, confidence))| RangeObservation {
+                timestamp,
+                distance: Length::new::<millimeter>(f64::from(millimeters)),
+                confidence,
+                occluded,
+            }))
+    }
+}
+
+#[cfg(test)]
+mod packet_tests {
+    use super::*;
+
+    #[test]
+    fn changing_packets_use_odometry_time_and_cached_packets_keep_their_age() {
+        let mut clock = PacketClock::default();
+        let packet = LowResolutionTime::from_millis_since_epoch;
+        let ms = Duration::from_millis;
+        // Recorded offsets drifted from ~280 to >400 ms while packets advanced.
+        assert_eq!(clock.observe(packet(22_380), ms(22_660)), None);
+        assert_eq!(clock.observe(packet(22_415), ms(22_690)), Some(ms(22_690)));
+        assert_eq!(clock.observe(packet(22_415), ms(22_710)), Some(ms(22_690)));
+        assert_eq!(clock.observe(packet(34_765), ms(35_095)), Some(ms(35_095)));
+        assert_eq!(clock.observe(packet(34_765), ms(35_195)), Some(ms(35_095)));
+    }
 }

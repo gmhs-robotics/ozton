@@ -83,6 +83,22 @@ impl<'path> Progress<'path> {
         self.distance = best_distance;
     }
 
+    /// Whether to stop using the moving reference and settle at the final pose.
+    pub fn is_terminal(
+        &self,
+        follower: Follower,
+        sample: FollowerSample,
+        position_tolerance: f64,
+    ) -> bool {
+        let end = self.path.end();
+        match follower {
+            Follower::PurePursuit { .. } => {
+                self.distance >= end.distance - position_tolerance.max(0.025)
+            }
+            Follower::Ramsete { .. } => sample.elapsed.value + sample.period.value >= end.time,
+        }
+    }
+
     fn segment(&self, path: &Path) -> usize {
         path.samples
             .partition_point(|point| point.distance <= self.distance)
@@ -171,12 +187,7 @@ pub fn command(
             )
         }
     };
-    let terminal = match follower {
-        Follower::PurePursuit { .. } => {
-            progress.distance >= end.distance - position_tolerance.max(0.025)
-        }
-        Follower::Ramsete { .. } => elapsed + dt >= end.time,
-    };
+    let terminal = progress.is_terminal(follower, sample, position_tolerance);
     let (linear, angular) = if terminal {
         let error = pose.to_local(end.pose.position);
         let heading_error = wrap_heading(end.pose.heading + facing - pose.heading).value;

@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ozton_control::{drive::AntiTip, heading_corrector::HeadingCorrector};
+use ozton_control::{drive::AntiTip, heading_corrector::HeadingCorrector, loops::Pid};
 use ozton_drivetrain::{assist::DriveAssist, model::DrivetrainModel};
 use ozton_tracking::sources::vex::Orientation;
 
@@ -15,7 +15,14 @@ pub struct HeadingHoldAssist(HeadingCorrector);
 
 impl HeadingHoldAssist {
     pub fn new(gain: f64, maximum_turn: f64) -> Self {
-        Self(HeadingCorrector::new(gain, maximum_turn))
+        Self::with_pid(
+            Pid::new(gain, 0.12 * gain, 0.03 * gain, Some(0.15)),
+            maximum_turn,
+        )
+    }
+
+    pub fn with_pid(pid: Pid, maximum_turn: f64) -> Self {
+        Self(HeadingCorrector::with_pid(pid, maximum_turn))
     }
 }
 
@@ -24,11 +31,12 @@ impl<M: DrivetrainModel> DriveAssist<M> for HeadingHoldAssist {
         true
     }
 
-    fn apply(&mut self, axes: &mut [f64; 2], orientation: Option<Orientation>, _: Duration) {
-        axes[1] = self.0.turn(
+    fn apply(&mut self, axes: &mut [f64; 2], orientation: Option<Orientation>, dt: Duration) {
+        axes[1] = self.0.turn_with_period(
             axes[0],
             axes[1],
             orientation.and_then(|sample| sample.heading),
+            dt,
         );
     }
 

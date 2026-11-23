@@ -10,6 +10,9 @@ use uom::si::{
 use super::{Footprint, forward_arc_end};
 use crate::geometry::{Pose, direction};
 
+mod approach;
+pub use approach::{PointDeparture, approach_heading};
+
 #[derive(Clone, Copy, Debug)]
 pub struct RectangularClearance {
     footprint: Footprint,
@@ -93,18 +96,7 @@ impl RectangularClearance {
         if !minimum_radius.value.is_finite() || minimum_radius.value < 0.0 {
             return None;
         }
-        let first_radius = minimum_radius.value.max(0.05);
-        let radius_step = self.usable.max_element() / 10.0;
-        (0..=40)
-            .map(|step| Length::new::<meter>(first_radius + radius_step * f64::from(step)))
-            .flat_map(|radius| {
-                (-18..=18)
-                    .filter(|step| *step != 0)
-                    .map(move |step| DepartureArc {
-                        radius,
-                        sweep: Angle::new::<degree>(5.0 * f64::from(step)),
-                    })
-            })
+        self.arcs(minimum_radius)
             .filter_map(|arc| {
                 let end = forward_arc_end(start, arc.radius, arc.sweep);
                 let straight = self.forward_to_turn(end, reserve)?;
@@ -119,6 +111,20 @@ impl RectangularClearance {
             })
             .min_by(|(_, left), (_, right)| left.total_cmp(right))
             .map(|(arc, _)| arc)
+    }
+    fn arcs(self, minimum_radius: Length) -> impl Iterator<Item = DepartureArc> {
+        let first_radius = minimum_radius.value.max(0.05);
+        let radius_step = self.usable.max_element() / 10.0;
+        (0..=40)
+            .map(move |step| Length::new::<meter>(first_radius + radius_step * f64::from(step)))
+            .flat_map(|radius| {
+                (-18..=18)
+                    .filter(|step| *step != 0)
+                    .map(move |step| DepartureArc {
+                        radius,
+                        sweep: Angle::new::<degree>(5.0 * f64::from(step)),
+                    })
+            })
     }
 }
 

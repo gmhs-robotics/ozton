@@ -363,5 +363,6 @@ impl<R> Command<'_, R> {
     }
 }
 
+pub(super) mod pid;
 mod state;
 pub(super) use state::State;

@@ -1,35 +1,55 @@
 //! Heading hold for straight arcade commands.
 
-use ozton_math::{geometry::wrap_heading, uom::si::f64::Angle};
+use std::time::Duration;
+
+use ozton_math::{control::Pid, uom::si::f64::Angle};
 
 /// Holds the heading captured when straight driving starts. Manual steering,
 /// stopping and invalid IMU feedback release the captured heading.
 pub struct HeadingCorrector {
     target: Option<Angle>,
-    gain: f64,
+    controller: Pid,
     maximum_turn: f64,
 }
 
 impl HeadingCorrector {
     pub fn new(gain: f64, maximum_turn: f64) -> Self {
+        Self::with_pid(Pid::new(gain, 0.0, 0.0, None), maximum_turn)
+    }
+
+    pub fn with_pid(mut controller: Pid, maximum_turn: f64) -> Self {
+        controller.reset();
         Self {
             target: None,
-            gain,
+            controller,
             maximum_turn,
         }
     }
 
     pub fn reset(&mut self) {
         self.target = None;
+        self.controller.reset();
     }
 
     /// Returns arcade turn input. Heading uses clockwise-positive rotation;
     /// positive arcade turn makes the left side faster and the right side slower.
     pub fn turn(&mut self, throttle: f64, manual_turn: f64, heading: Option<Angle>) -> f64 {
+        self.turn_with_period(throttle, manual_turn, heading, Duration::from_millis(10))
+    }
+
+    pub fn turn_with_period(
+        &mut self,
+        throttle: f64,
+        manual_turn: f64,
+        heading: Option<Angle>,
+        dt: Duration,
+    ) -> f64 {
+        let (kp, ki, kd) = self.controller.gains();
         if !throttle.is_finite()
             || !manual_turn.is_finite()
-            || !self.gain.is_finite()
-            || self.gain < 0.0
+            || ![kp, ki, kd]
+                .iter()
+                .all(|gain| gain.is_finite() && *gain >= 0.0)
             || !self.maximum_turn.is_finite()
             || !(0.0..=1.0).contains(&self.maximum_turn)
         {
@@ -45,10 +65,11 @@ impl HeadingCorrector {
             return 0.0;
         };
         let target = *self.target.get_or_insert(heading);
-        let error = wrap_heading(target - heading).value;
         // Keep both sides in the requested travel direction, even at low throttle.
         let limit = self.maximum_turn.min(throttle.abs());
-        (self.gain * error).clamp(-limit, limit)
+        self.controller.set_output_limit(Some(limit));
+        self.controller
+            .update_angular(heading.value, target.value, dt)
     }
 }
 

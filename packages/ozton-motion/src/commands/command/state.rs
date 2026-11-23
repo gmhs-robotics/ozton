@@ -1,10 +1,11 @@
 //! Follower and settling state for a running command.
 use ozton_runtime::log_row;
 
-use super::*;
+use super::{pid::MotionPid, *};
 
 #[derive(Default)]
 pub(in crate::commands) struct State<'path> {
+    pid: MotionPid,
     progress: Option<Progress<'path>>,
     settled: Duration,
     fresh_range: Option<Duration>,
@@ -24,6 +25,7 @@ pub(in crate::commands) struct Step {
 
 impl<'path> State<'path> {
     pub(in crate::commands) fn pause(&mut self) {
+        self.pid.reset();
         self.settled = Duration::ZERO;
         self.settled_range = None;
         self.range_elapsed = Duration::MAX;
@@ -56,9 +58,14 @@ impl<'path> State<'path> {
                 options.maximum_wheel_speed.value,
             )
         };
-        let contact_motion = |touched, heading: Angle, speed, limit, settle: Duration| {
+        let forward_rate = feedback.forward_velocity.value;
+        let yaw_rate = feedback.angular_velocity.value;
+        let yaw_limit = 2.0 * options.maximum_wheel_speed.value / options.track_width.value;
+        let angular = |pid: &mut MotionPid, error| pid.yaw(error, yaw_rate, 0.0, yaw_limit, dt);
+        let mut contact_motion = |touched, heading: Angle, speed, limit, settle: Duration| {
             let error = error_at(heading);
             if touched {
+                self.pid.reset();
                 (
                     [0.0; 2],
                     slow && error.abs() <= options.heading_tolerance.value,
@@ -66,7 +73,11 @@ impl<'path> State<'path> {
                 )
             } else {
                 let linear = if error.abs() < 0.2 { speed } else { 0.0 };
-                (desaturate(drive(linear, 3.0 * error), limit), false, settle)
+                (
+                    desaturate(drive(linear, angular(&mut self.pid, error)), limit),
+                    false,
+                    settle,
+                )
             }
         };
         let mut fresh_alignment_range = false;
@@ -106,17 +117,52 @@ impl<'path> State<'path> {
                     && feedback.pose.position.distance(end.pose.position)
                         <= options.position_tolerance.value
                     && error_at(heading).abs() <= options.heading_tolerance.value;
-                let wheels = if ready {
+                let sample = FollowerSample {
+                    pose: feedback.pose,
+                    elapsed: Time::new::<second>(elapsed.as_secs_f64()),
+                    period: Time::new::<second>(dt.as_secs_f64()),
+                };
+                let wheels = if ready && slow {
                     [0.0; 2]
+                } else if progress.is_terminal(*follower, sample, options.position_tolerance.value)
+                {
+                    let delta = end.pose.position - feedback.pose.position;
+                    let distance = delta.length();
+                    let (linear, yaw_error) = if distance > options.position_tolerance.value {
+                        let toward = ozton_math::geometry::bearing(delta);
+                        let backwards = error_at(toward).abs() > core::f64::consts::FRAC_PI_2;
+                        let heading = toward
+                            + Angle::new::<radian>(if backwards {
+                                core::f64::consts::PI
+                            } else {
+                                0.0
+                            });
+                        let error = error_at(heading);
+                        let limit = path.limits().linear_speed.value * 0.4 * error.cos().max(0.0);
+                        (
+                            self.pid.forward(
+                                if backwards { -distance } else { distance },
+                                forward_rate,
+                                limit,
+                                dt,
+                            ),
+                            error,
+                        )
+                    } else {
+                        (
+                            self.pid.forward(0.0, forward_rate, 0.0, dt),
+                            error_at(heading),
+                        )
+                    };
+                    desaturate(
+                        drive(linear, angular(&mut self.pid, yaw_error)),
+                        path.limits().wheel_speed.value,
+                    )
                 } else {
                     follower::command(
                         *follower,
                         progress,
-                        FollowerSample {
-                            pose: feedback.pose,
-                            elapsed: Time::new::<second>(elapsed.as_secs_f64()),
-                            period: Time::new::<second>(dt.as_secs_f64()),
-                        },
+                        sample,
                         *reverse,
                         options.position_tolerance,
                     )
@@ -147,7 +193,14 @@ impl<'path> State<'path> {
                 let error = error_at(*heading);
                 let ready = error.abs() <= options.heading_tolerance.value;
                 (
-                    drive(0.0, if ready { 0.0 } else { 3.0 * error }),
+                    drive(
+                        0.0,
+                        if ready && slow {
+                            0.0
+                        } else {
+                            angular(&mut self.pid, error)
+                        },
+                    ),
                     ready && slow,
                     options.settle,
                 )
@@ -161,7 +214,14 @@ impl<'path> State<'path> {
                 };
                 let ready = error.abs() <= options.heading_tolerance.value;
                 (
-                    drive(0.0, if ready { 0.0 } else { 3.0 * error }),
+                    drive(
+                        0.0,
+                        if ready && slow {
+                            0.0
+                        } else {
+                            angular(&mut self.pid, error)
+                        },
+                    ),
                     ready && slow,
                     options.settle,
                 )
@@ -178,16 +238,19 @@ impl<'path> State<'path> {
                     ozton_math::geometry::bearing(delta)
                         + Angle::new::<radian>(if *reverse { core::f64::consts::PI } else { 0.0 }),
                 );
-                let linear = if reached || heading.abs() > 0.7 {
+                let sign = if *reverse { -1.0 } else { 1.0 };
+                let limit = if reached || heading.abs() > 0.9 {
                     0.0
                 } else {
-                    (2.5 * distance).min(maximum_speed.value) * if *reverse { -1.0 } else { 1.0 }
+                    maximum_speed.value * heading.cos()
                 };
-                (
-                    drive(linear, if reached { 0.0 } else { 3.0 * heading }),
-                    reached && slow,
-                    options.settle,
-                )
+                let linear = self.pid.forward(distance * sign, forward_rate, limit, dt);
+                let turn = if reached {
+                    0.0
+                } else {
+                    angular(&mut self.pid, heading)
+                };
+                (drive(linear, turn), reached && slow, options.settle)
             }
             Command::DriveDistance {
                 meters,
@@ -204,13 +267,19 @@ impl<'path> State<'path> {
                     }));
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
-                let speed = if reached || heading.abs() > 0.35 {
+                let limit = if reached || heading.abs() > 0.35 {
                     0.0
                 } else {
-                    (2.5 * error).clamp(-maximum_speed.value, maximum_speed.value)
+                    maximum_speed.value
+                };
+                let speed = self.pid.forward(error, forward_rate, limit, dt);
+                let turning = if facing && reached && slow {
+                    0.0
+                } else {
+                    angular(&mut self.pid, heading)
                 };
                 (
-                    drive(speed, if facing { 0.0 } else { 3.0 * heading }),
+                    drive(speed, turning),
                     reached && facing && slow,
                     options.settle,
                 )
@@ -223,16 +292,37 @@ impl<'path> State<'path> {
                 let start = *self
                     .start_travel
                     .get_or_insert(feedback.forward_travel.value);
-                let remaining =
-                    radius.value * sweep.value.abs() - (feedback.forward_travel.value - start);
-                let reached = remaining <= options.position_tolerance.value;
-                let speed = if reached {
+                let arc_length = radius.value * sweep.value.abs();
+                let travel = feedback.forward_travel.value - start;
+                let remaining = arc_length - travel;
+                let reached = remaining.abs() <= options.position_tolerance.value;
+                let start_heading = *self.start_heading.get_or_insert(feedback.pose.heading);
+                let curvature = sweep.value.signum() / radius.value;
+                let heading = error_at(
+                    start_heading + Angle::new::<radian>(travel.clamp(0.0, arc_length) * curvature),
+                );
+                let facing = heading.abs() <= options.heading_tolerance.value;
+                let wheel_limit = options.maximum_wheel_speed.value
+                    / (1.0 + options.track_width.value * curvature.abs() * 0.5);
+                let limit = if reached {
                     0.0
                 } else {
-                    (2.5 * remaining).min(maximum_speed.value)
+                    maximum_speed.value.min(wheel_limit)
                 };
-                let yaw_rate = speed * sweep.value.signum() / radius.value;
-                (drive(speed, yaw_rate), reached && slow, options.settle)
+                let speed = self.pid.forward(remaining, forward_rate, limit, dt);
+                let feedforward = speed * curvature;
+                let turning = if reached && facing && slow {
+                    0.0
+                } else {
+                    let correction_limit = if reached { 0.5 } else { 0.35 };
+                    self.pid
+                        .yaw(heading, yaw_rate, feedforward, correction_limit, dt)
+                };
+                (
+                    drive(speed, turning),
+                    reached && facing && slow,
+                    options.settle,
+                )
             }
             Command::Align(alignment) => {
                 self.range_elapsed = self.range_elapsed.saturating_add(dt);
@@ -260,27 +350,29 @@ impl<'path> State<'path> {
                     let heading_error = error_at(alignment.heading);
                     let position_ready = distance_error.abs() <= options.position_tolerance.value;
                     let heading_ready = heading_error.abs() <= options.heading_tolerance.value;
-                    let linear = if position_ready || heading_error.abs() > 0.2 {
+                    let limit = if position_ready || heading_error.abs() > 0.2 {
                         0.0
                     } else {
-                        (2.0 * distance_error * alignment.facing.direction()).clamp(
-                            -alignment.maximum_speed.value,
-                            alignment.maximum_speed.value,
-                        )
+                        alignment.maximum_speed.value
+                    };
+                    let linear = self.pid.forward(
+                        distance_error * alignment.facing.direction(),
+                        forward_rate,
+                        limit,
+                        dt,
+                    );
+                    let turn = if heading_ready && position_ready && slow {
+                        0.0
+                    } else {
+                        angular(&mut self.pid, heading_error)
                     };
                     (
-                        drive(
-                            linear,
-                            if heading_ready {
-                                0.0
-                            } else {
-                                3.0 * heading_error
-                            },
-                        ),
+                        drive(linear, turn),
                         position_ready && heading_ready && slow,
                         options.settle,
                     )
                 } else {
+                    self.pid.reset();
                     ([0.0; 2], false, options.settle)
                 }
             }
@@ -449,3 +541,6 @@ mod settling_tests {
         assert!(completed);
     }
 }
+
+#[cfg(test)]
+mod corner;

@@ -3,7 +3,7 @@ mod rectangle;
 use core::f64::consts::TAU;
 
 use glam::DVec2;
-pub use rectangle::{DepartureArc, RectangularClearance};
+pub use rectangle::{DepartureArc, PointDeparture, RectangularClearance, approach_heading};
 use uom::si::f64::{Angle, Length};
 
 use crate::{

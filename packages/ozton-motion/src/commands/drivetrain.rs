@@ -28,7 +28,7 @@ use vexide::{
 
 use super::{
     Command, CommandError, DriveOptions, Feedback, Follower, MotionPlatform, Runner,
-    TravelDirection, routine_settings::PATH_LOOKAHEAD,
+    TravelDirection, command::pid::angular_pid, routine_settings::PATH_LOOKAHEAD,
 };
 
 type TrackedDrive<A> = Drivetrain<Differential, SensorTracking, DifferentialLocalization, A>;
@@ -267,6 +267,14 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
                 CommandClock::new(CONTROL_PERIOD).ok_or(DriveMotionFault::InvalidCommand)?;
             let started = Instant::now();
             let mut blocked_since = None;
+            let mut dt = CONTROL_PERIOD;
+            let mut yaw_pid = angular_pid();
+            let half_width = drivetrain
+                .track_width()
+                .map_or(0.0, |width| width.value * 0.5);
+            if half_width > 0.0 {
+                yaw_pid.set_output_limit(Some(speed.value * 0.20 / half_width));
+            }
             let start_heading = read_heading(drivetrain).ok_or(DriveMotionFault::MissingHeading)?;
             while started.elapsed() < Duration::from_millis(800) {
                 if competition::mode() != CompetitionMode::Autonomous {
@@ -293,8 +301,14 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
                 } else {
                     blocked_since = None;
                 }
-                drivetrain.drive_wheel_speeds([speed, speed])?;
-                if clock.tick().await > MAX_CONTROL_GAP {
+                let correction =
+                    half_width * yaw_pid.update_angular(heading.value, start_heading.value, dt);
+                drivetrain.drive_wheel_speeds([
+                    Velocity::new::<meter_per_second>(speed.value - correction),
+                    Velocity::new::<meter_per_second>(speed.value + correction),
+                ])?;
+                dt = clock.tick().await;
+                if dt > MAX_CONTROL_GAP {
                     return Err(DriveMotionFault::NoContact);
                 }
             }

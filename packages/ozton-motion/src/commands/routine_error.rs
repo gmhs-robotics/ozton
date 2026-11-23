@@ -23,6 +23,7 @@ pub enum RoutineError<M> {
     InvalidMotionFeedback,
     PathStart,
     PathLost,
+    PositionUnsettled,
     NoProgress,
     Cancelled,
     DriverCancelled,
@@ -71,6 +72,7 @@ impl<M> RoutineError<M> {
             Motion::InsufficientClearance => Self::InsufficientClearance,
             Motion::PathStart => Self::PathStart,
             Motion::PathLost => Self::PathLost,
+            Motion::PositionUnsettled => Self::PositionUnsettled,
             Motion::UntrustedPose => Self::FieldPoseLost,
             Motion::NoProgress => Self::NoProgress,
         }
@@ -105,6 +107,7 @@ impl<M> RoutineError<M> {
             Self::InvalidMotionFeedback => "STOP: invalid motion feedback",
             Self::PathStart => "STOP: outside path start",
             Self::PathLost => "STOP: path lost",
+            Self::PositionUnsettled => "STOP: position shifted during the final turn",
             Self::NoProgress => "STOP: no autonomous progress",
             Self::Cancelled => "Autonomous cancelled",
             Self::DriverCancelled => "Driver routine cancelled",

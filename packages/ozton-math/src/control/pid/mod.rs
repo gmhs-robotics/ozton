@@ -109,13 +109,33 @@ impl Pid {
         if dt.is_zero() || !error.is_finite() || !feedforward.is_finite() {
             return 0.0;
         }
-        let seconds = dt.as_secs_f64();
         let derivative = self
             .controller
             .prev_measurement
-            .map_or(0.0, |last| (last - measurement) / seconds);
+            .map_or(0.0, |last| (last - measurement) / dt.as_secs_f64());
         self.controller.prev_measurement = Some(measurement);
-        self.controller.derivative += (derivative - self.controller.derivative)
+        self.update_with_rate(error, derivative, dt, filter, feedforward)
+    }
+
+    /// PID with an externally measured error rate and optional feedforward.
+    /// Useful for wrapped headings and localization estimates that can jump.
+    pub fn update_with_rate(
+        &mut self,
+        error: f64,
+        error_rate: f64,
+        dt: Duration,
+        filter: Duration,
+        feedforward: f64,
+    ) -> f64 {
+        if dt.is_zero()
+            || ![error, error_rate, feedforward]
+                .iter()
+                .all(|v| v.is_finite())
+        {
+            return 0.0;
+        }
+        let seconds = dt.as_secs_f64();
+        self.controller.derivative += (error_rate - self.controller.derivative)
             * (seconds / (seconds + filter.as_secs_f64()));
         let integrate = self
             .integration_range
@@ -129,6 +149,7 @@ impl Pid {
             feedforward,
         )
     }
+
     /// Construct a new PID controller from gain constants and an optional integration range.
     #[must_use]
     pub const fn new(kp: f64, ki: f64, kd: f64, integration_range: Option<f64>) -> Self {
