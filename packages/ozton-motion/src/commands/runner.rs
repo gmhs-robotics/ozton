@@ -6,11 +6,10 @@ use ozton_math::{
     uom::si::{
         angle::radian,
         f64::{Angle, Length, Velocity},
-        length::meter,
         velocity::meter_per_second,
     },
 };
-use ozton_runtime::clock::CommandClock;
+use ozton_runtime::{clock::CommandClock, log_event, log_row};
 use vexide::competition::{self, CompetitionMode};
 
 use super::{Alignment, Command, CommandError, DriveOptions, Feedback, command::State};
@@ -236,6 +235,13 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         self.robot.cancel_distance_reset();
         let stopped = self.robot.stop();
         if can_skip && stopped.is_ok() {
+            #[cfg(feature = "logging")]
+            log_event!(
+                Warn,
+                "motion",
+                "Optional command stopped ({}). Continuing.",
+                error.code()
+            );
             return Ok(false);
         }
         self.failed = true;
@@ -325,7 +331,16 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         if self.failed {
             return Err(CommandError::Cancelled);
         }
+        let status = command.status();
         if timeout.is_zero() || !command.valid(self.options) {
+            log_event!(
+                Error,
+                "motion",
+                "{status}: invalid command settings (timeout {} ms, track width {:.3} m, maximum wheel speed {:.3} m/s)",
+                timeout.as_millis(),
+                self.options.track_width.value,
+                self.options.maximum_wheel_speed.value
+            );
             return Err(CommandError::Configuration);
         }
         let mut active = ActiveCommand {
@@ -333,9 +348,19 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             completed: false,
         };
         let outcome = async {
-            let status = command.status();
             active.robot.show_status(status);
-            ozton_runtime::diagnostic_event!("auton_command={status}");
+            log_event!(Info, "motion", "{status} (timeout {:.2}s)", timeout.as_secs_f64());
+            log_row!(Debug, "MOTION_COMMAND", "state=start,command={status},timeout_ms={},route_remaining_ms={}", timeout.as_millis(), self.route_timeout.saturating_sub(self.started.elapsed()).as_millis());
+            #[cfg(feature = "logging")]
+            if let Some((path, reverse)) = command.path_start() {
+                log_row!(
+                    Debug, "PATH_PLAN",
+                    "start_x_m={:.5},start_y_m={:.5},start_heading_rad={:.5},end_x_m={:.5},end_y_m={:.5},end_heading_rad={:.5},length_m={:.5},duration_ms={:.0},reverse={reverse}",
+                    path.start().pose.position.x, path.start().pose.position.y, path.start().pose.heading.value,
+                    path.end().pose.position.x, path.end().pose.position.y, path.end().pose.heading.value,
+                    path.end().distance, path.end().time * 1000.0
+                );
+            }
             let started = Instant::now();
             let mut state = State::default();
             let mut initialized = false;
@@ -354,6 +379,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     return Err(CommandError::RouteTimeout);
                 }
                 if dt.is_zero() || dt > self.max_gap {
+                    log_event!(Error, "motion", "{status}: control tick was {:.1} ms, limit {:.1} ms", dt.as_secs_f64() * 1000.0, self.max_gap.as_secs_f64() * 1000.0);
                     return Err(CommandError::ControlGap);
                 }
                 if elapsed >= timeout {
@@ -378,6 +404,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         value
                     }
                     Err(error) if active.robot.recoverable(&error) => {
+                        log_row!(Trace, "MOTION_RETRY", "command={status},source=tracking,elapsed_ms={}", elapsed.as_millis());
                         let since = *retry_since.get_or_insert(Instant::now());
                         active.robot.pause().map_err(CommandError::StopFailed)?;
                         if since.elapsed() >= Duration::from_millis(300) {
@@ -391,6 +418,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     Err(error) => return Err(CommandError::Robot(error)),
                 };
                 let Some(feedback) = feedback else {
+                    log_row!(Trace, "MOTION_RETRY", "command={status},source=tracking_initializing,elapsed_ms={}", elapsed.as_millis());
                     active.robot.pause().map_err(CommandError::StopFailed)?;
                     state.pause();
                     progress_pose = None;
@@ -424,6 +452,10 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         if feedback.pose.position.distance(start.position) > 0.15
                             || wrap_heading(feedback.pose.heading - heading).value.abs() > 1.05
                         {
+                            log_event!(Error, "path", "Start mismatch. Pose ({:.3}, {:.3}) m at {:.3} rad, expected ({:.3}, {:.3}) m at {:.3} rad",
+                                feedback.pose.position.x, feedback.pose.position.y, feedback.pose.heading.value,
+                                start.position.x, start.position.y, heading.value
+                            );
                             return Err(CommandError::PathStart);
                         }
                     }
@@ -437,11 +469,21 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     dt,
                     self.options,
                 );
+                log_row!(
+                    Trace, "MOTION_STEP",
+                    "command={status},elapsed_ms={},dt_us={},x_m={:.5},y_m={:.5},heading_rad={:.5},progress_m={:.5},left_target_mps={:.5},right_target_mps={:.5},complete={},lost={}",
+                    elapsed.as_millis(), dt.as_micros(), feedback.pose.position.x, feedback.pose.position.y,
+                    feedback.pose.heading.value, step.progress, step.wheels[0], step.wheels[1], step.complete, step.lost
+                );
                 if step.lost {
+                    log_event!(Error, "path", "Follower lost path at {:.3} m progress. Pose ({:.3}, {:.3}) m at {:.3} rad",
+                        step.progress, feedback.pose.position.x, feedback.pose.position.y, feedback.pose.heading.value
+                    );
                     return Err(CommandError::PathLost);
                 }
                 if let Err(error) = active.robot.update_subsystems(dt) {
                     if active.robot.recoverable(&error) {
+                        log_row!(Trace, "MOTION_RETRY", "command={status},source=mechanism,elapsed_ms={}", elapsed.as_millis());
                         let since = *mechanism_retry_since.get_or_insert(Instant::now());
                         active.robot.pause().map_err(CommandError::StopFailed)?;
                         if since.elapsed() < Duration::from_millis(300) {
@@ -466,6 +508,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     {
                         Ok(()) => output_retry_since = None,
                         Err(error) if active.robot.recoverable(&error) => {
+                            log_row!(Trace, "MOTION_RETRY", "command={status},source=drive_output,elapsed_ms={}", elapsed.as_millis());
                             let since = *output_retry_since.get_or_insert(Instant::now());
                             active.robot.pause().map_err(CommandError::StopFailed)?;
                             if since.elapsed() >= Duration::from_millis(300) {
@@ -492,6 +535,10 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     } else {
                         progress_elapsed += dt;
                         if progress_elapsed >= Duration::from_millis(800) {
+                            log_event!(Error, "motion", "{status}: no progress for {} ms. Pose ({:.3}, {:.3}) m, wheel targets {:.3}/{:.3} m/s",
+                                progress_elapsed.as_millis(), feedback.pose.position.x, feedback.pose.position.y,
+                                step.wheels[0], step.wheels[1]
+                            );
                             return Err(CommandError::NoProgress);
                         }
                     }
@@ -499,12 +546,11 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     progress_pose = None;
                     progress_elapsed = Duration::ZERO;
                 }
-                // Serial diagnostics can be slower than feedback. Publish the
-                // actuator command before offering this sample to a reporter.
+                #[cfg(feature = "logging")]
                 active.robot.log_step(
                     self.started.elapsed(),
                     dt,
-                    Length::new::<meter>(step.progress),
+                    Length::new::<ozton_math::uom::si::length::meter>(step.progress),
                     step.wheels.map(Velocity::new::<meter_per_second>),
                 );
                 if step.complete {
@@ -519,6 +565,22 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             }
         }
         .await;
+        #[cfg(feature = "logging")]
+        match &outcome {
+            Ok(true) => log_row!(Debug, "MOTION_COMMAND", "state=complete,command={status}"),
+            Ok(false) => log_event!(
+                Warn,
+                "motion",
+                "{status}: timed out after {:.2}s, continuing",
+                timeout.as_secs_f64()
+            ),
+            Err(error) => log_row!(
+                Debug,
+                "MOTION_COMMAND",
+                "state=failed,command={status},reason={}",
+                error.code()
+            ),
+        }
         // Regular exits are finalized by the command policy. The guard owns cancellation cleanup.
         active.completed = true;
         outcome

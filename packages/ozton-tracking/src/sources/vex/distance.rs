@@ -1,20 +1,17 @@
 //! VEX distance sensors, readiness, and packet freshness.
 
-use std::{
-    cell::Cell,
-    io::{self, Write},
-    time::Duration,
-};
+use std::{cell::Cell, time::Duration};
 
 use arrayvec::ArrayVec;
 use futures_util::future::join_all;
+use ozton_diagnostics::{log_event, log_row};
 use ozton_math::uom::si::{
     f64::{Angle as UomAngle, Length},
     length::millimeter,
 };
 use vexide::{
     prelude::DistanceSensor,
-    smart::{PortError, SmartDevice, SmartPort, distance::DistanceReadyError},
+    smart::{SmartDevice, SmartPort, distance::DistanceReadyError},
     time::LowResolutionTime,
 };
 
@@ -91,10 +88,11 @@ impl DistanceDevice {
     }
 
     async fn initialize(&self) {
-        let port = self.sensor.port_number();
-        let _ = writeln!(
-            io::stderr().lock(),
-            "info: waiting for distance sensor on port {port}"
+        log_event!(
+            Info,
+            "distance",
+            "Waiting for sensor on port {}",
+            self.sensor.port_number()
         );
         let ready = match self.sensor.wait_ready().await {
             Err(DistanceReadyError::UnknownStatusCode {
@@ -104,31 +102,18 @@ impl DistanceDevice {
         };
         self.set_ready(ready.is_ok());
         match ready {
-            Ok(()) => {
-                let _ = writeln!(
-                    io::stderr().lock(),
-                    "info: distance sensor on port {port} ready"
-                );
-            }
-            Err(error) => {
-                let reason = match error {
-                    DistanceReadyError::UnknownStatusCode { code } => {
-                        format!("device detected, unrecognized status {code:#04x}")
-                    }
-                    DistanceReadyError::Port {
-                        source: PortError::Disconnected { .. },
-                    } => "no device connected".to_owned(),
-                    DistanceReadyError::Port {
-                        source: PortError::IncorrectDevice { actual, .. },
-                    } => {
-                        format!("wrong device type ({actual:?})")
-                    }
-                };
-                let _ = writeln!(
-                    io::stderr().lock(),
-                    "warning: distance sensor on port {port} unavailable ({reason}); continuing without its readings"
-                );
-            }
+            Ok(()) => log_event!(
+                Info,
+                "distance",
+                "Sensor on port {} ready",
+                self.sensor.port_number()
+            ),
+            Err(error) => log_event!(
+                Warn,
+                "distance",
+                "Sensor on port {} unavailable ({error}). Continuing without its readings.",
+                self.sensor.port_number()
+            ),
         }
     }
 }
@@ -204,6 +189,15 @@ impl Distances {
         {
             for (index, device) in self.devices.iter().enumerate() {
                 let observation = distance(&device.sensor, occluded & (1 << index) != 0);
+                log_row!(
+                    Trace,
+                    "DISTANCE_PACKET",
+                    "index={index},port={},read_ok={},object={},occluded={}",
+                    device.sensor.port_number(),
+                    observation.is_ok(),
+                    matches!(observation, Ok(Some(_))),
+                    occluded & (1 << index) != 0
+                );
                 device.set_ready(observation.is_ok());
                 let generation = device.readiness.get().generation;
                 self.cached[index] = observation.ok().flatten().map(|value| (generation, value));

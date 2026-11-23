@@ -1,6 +1,9 @@
 //! Convert timestamped tracking observations into differential robot pose and motion.
 use std::time::Duration;
 
+#[cfg(feature = "logging")]
+use ozton_diagnostics::log_event;
+use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{DVec2, Pose, compass_heading},
     uom::si::{
@@ -40,6 +43,7 @@ pub struct DifferentialLocalization {
     imu_heading_offset: Option<Angle>,
     occluded: u8,
     last_reset: DistanceReset,
+    #[cfg(feature = "logging")]
     fault: Option<Fault>,
     #[cfg(feature = "logging")]
     telemetry: telemetry::Telemetry,
@@ -74,6 +78,16 @@ impl DifferentialLocalization {
         self.imu_heading_offset = imu
             .filter(|heading| heading.value.is_finite())
             .map(|heading| pose.heading - compass_heading(heading));
+        log_row!(
+            Debug,
+            "START_POSE",
+            "x_m={:.5},y_m={:.5},heading_rad={:.5},imu_offset_rad={:.5}",
+            pose.position.x,
+            pose.position.y,
+            pose.heading.value,
+            self.imu_heading_offset
+                .map_or(f64::NAN, |angle| angle.value)
+        );
         true
     }
 
@@ -155,23 +169,52 @@ impl DifferentialLocalization {
                         .delta(before, after, self.drive, track_width, self.use_imu))
                 }) {
                 Ok(update) => {
+                    #[cfg(feature = "logging")]
                     if self.fault.take().is_some() {
-                        tracking_event(format_args!("tracking_recovered"));
+                        log_event!(Info, "tracking", "Localization feedback recovered");
                     }
                     update
                 }
-                Err(Fault::Initializing) => return Ok(None),
+                Err(Fault::Initializing) => {
+                    log_row!(
+                        Trace,
+                        "TRACKING_UPDATE",
+                        "status=initializing,snapshot_ms={}",
+                        snapshot.time.as_millis()
+                    );
+                    return Ok(None);
+                }
                 Err(fault) => {
+                    #[cfg(feature = "logging")]
                     if self.fault.replace(fault) != Some(fault) {
-                        tracking_event(format_args!("tracking_fault={fault:?}"));
+                        let reason = match fault {
+                            Fault::Initializing => "Waiting for a second tracking observation",
+                            Fault::Time => "Tracking timestamp repeated or exceeded maximum gap",
+                            Fault::Forward => "Forward travel unavailable",
+                            Fault::Heading => "Heading unavailable",
+                            Fault::Lateral => "Lateral travel unavailable",
+                            Fault::InvalidEstimate => "Estimator produced an invalid pose",
+                        };
+                        log_event!(
+                            Warn,
+                            "tracking",
+                            "{reason} at sample {} ms",
+                            snapshot.time.as_millis()
+                        );
                     }
+                    log_row!(
+                        Trace,
+                        "TRACKING_UPDATE",
+                        "status=fault,fault={fault:?},snapshot_ms={}",
+                        snapshot.time.as_millis()
+                    );
                     return Err(fault);
                 }
             };
 
         #[cfg(feature = "logging")]
         self.telemetry
-            .record(&update, &self.localizer, wheels, &ranges);
+            .record(&update, &self.localizer, wheels, &ranges, self.occluded);
 
         if update.reset != DistanceReset::Idle {
             self.last_reset = update.reset;
@@ -260,11 +303,4 @@ pub fn update_localization(
 ) -> Result<Option<Feedback>, Fault> {
     let sample = tracking.capture(positions, localization.occluded());
     localization.update(sample, width)
-}
-
-fn tracking_event(fields: std::fmt::Arguments<'_>) {
-    #[cfg(feature = "logging")]
-    ozton_diagnostics::serial::event(vexide::time::user_uptime(), fields);
-    #[cfg(not(feature = "logging"))]
-    let _ = fields;
 }

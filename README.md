@@ -12,10 +12,29 @@ that only need a heading, such as `turn_to`, take an `Angle`.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
 
-With `logging` enabled, use the USB stream or `OZTON.LOG` to inspect tracking.
-`LOCALIZATION` records estimator mode, pose trust, velocity and corrections per sample window.
-`LOCALIZATION_POSE` shows wheel odometry, the prediction before correction, the published
-estimate and the latest correction candidate when available. Join rows by `seq`.
-`TRACKING_INPUT` and `TRACKING_WHEEL` show the inputs used for that tick.
-`LOCALIZATION_RANGE` reports the latest range verdict, rejection reason or matched
-surface, and signed residual in meters. Missing numeric data appears as `NaN`.
+## Firmware logs
+
+Enable logging with `nix run .#upload -- --logging` from Override. The USB
+terminal shows timestamped errors, warnings, and info with a source and message.
+Insert a writable SD card before startup to append all five levels to
+`OZTON.LOG`. The writer flushes about once a second. `SD_GAP` reports buffer
+overflow or bytes whose write could not be confirmed.
+
+View the log with `cargo run -p ozton-tools -- view-log /path/to/OZTON.LOG`.
+Append `--kind MCL` or `--kind MOTION_STEP` to filter.
+
+Schema 2 is UTF-8 with one `DBG,KIND,key=value,...,level=LEVEL` record per line.
+`SESSION` starts each run. Split on commas and then on the first equals sign in
+each field before percent-decoding text values. Numeric fields include units
+where applicable. `NaN` marks an unavailable number. A schema 2 record without
+a final level field may be a partial write. `t_ms` is program time in
+milliseconds. Localization sample rows share `seq` and `t_ms`. Periodic robot
+samples have their own sequence.
+
+- `MOTION_STEP` and `PATH_FOLLOWER` show pose, progress, tracking error and wheel targets.
+- `LOCALIZATION_POSE` shows odometry, prediction, published estimate and correction candidate.
+- `MCL` shows particle pose, spread, correction gain and failure status.
+- `DSR` shows reset decisions, observed axes and corrected pose.
+- `LOCALIZATION_RANGE`, `DISTANCE_PACKET`, `TRACKING_INPUT` and `TRACKING_WHEEL`
+  show sensor inputs and range rejection reasons.
+- `MOTOR`, `DRIVE` and `IMU` show actuator commands and measured feedback.

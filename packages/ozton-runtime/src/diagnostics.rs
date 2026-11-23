@@ -1,4 +1,4 @@
-//! Opt-in USB and SD sampling for competition and autonomous runner ticks.
+//! Opt-in SD sampling for competition and autonomous runner ticks.
 
 #[cfg(feature = "logging")]
 use std::time::Instant;
@@ -9,15 +9,17 @@ pub use ozton_diagnostics::serial::FaultLog;
 use ozton_math::uom::si::f64::{Length, Velocity};
 use vexide::smart::SmartDevice;
 
-pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
-#[cfg(feature = "logging")]
-const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(20);
+mod sd;
+pub use sd::{flush_sd_logging, start_sd_logging};
 
-/// A sampled timestamp with its USB/SD routing.
+pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(20);
+/// Legacy interval for callers configured before periodic rows became SD-only.
+pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
+
+/// A sampled timestamp for SD telemetry.
 #[derive(Clone, Copy)]
 pub struct Frame {
     stamp: serial::Frame,
-    usb: bool,
 }
 
 impl core::ops::Deref for Frame {
@@ -28,36 +30,12 @@ impl core::ops::Deref for Frame {
 }
 
 impl Frame {
-    /// Write one diagnostic row to the destinations scheduled for this sample.
+    /// Write one diagnostic row to SD.
     pub fn row(&self, kind: &str, fields: std::fmt::Arguments<'_>) {
-        self.stamp.emit(kind, fields, self.usb);
+        self.stamp.row(kind, fields);
     }
 }
 
-/// Start the SD writer for a competition loop. Each wake writes one batch.
-/// VEXos file I/O is synchronous. Keep the task alive for the competition.
-pub fn start_sd_logging() -> Option<vexide::task::Task<()>> {
-    #[cfg(all(feature = "logging", target_os = "vexos"))]
-    return Some(vexide::task::spawn(async {
-        let mut failed = false;
-        loop {
-            vexide::time::sleep(Duration::from_secs(1)).await;
-            match ozton_diagnostics::sd::flush() {
-                Err(error) if !failed => {
-                    event(format_args!("sd_log_unavailable,error={error}"));
-                    failed = true;
-                }
-                Ok(()) if failed => {
-                    event(format_args!("sd_log_resumed"));
-                    failed = false;
-                }
-                _ => {}
-            }
-        }
-    }));
-    #[cfg(not(all(feature = "logging", target_os = "vexos")))]
-    None
-}
 use vexide::{competition::CompetitionMode, prelude::Motor, smart::motor::MotorControl};
 
 /// Motion state from the autonomous runner, in metres and metres per second.
@@ -173,10 +151,6 @@ impl<R> Telemetry<R> for () {
 pub struct Sampler<S> {
     #[cfg(feature = "logging")]
     clock: SampleClock,
-    #[cfg(feature = "logging")]
-    last_usb: Instant,
-    #[cfg(feature = "logging")]
-    usb_interval: Duration,
     source: PhantomData<S>,
 }
 
@@ -187,10 +161,6 @@ impl<S> Sampler<S> {
         Self {
             #[cfg(feature = "logging")]
             clock: SampleClock::new(Instant::now(), interval.min(SD_SAMPLE_INTERVAL)),
-            #[cfg(feature = "logging")]
-            last_usb: Instant::now(),
-            #[cfg(feature = "logging")]
-            usb_interval: interval,
             source: PhantomData,
         }
     }
@@ -207,20 +177,15 @@ impl<S> Sampler<S> {
     pub(crate) fn frame(&mut self, sample: Sample) -> Option<Frame> {
         #[cfg(feature = "logging")]
         {
-            let now = Instant::now();
-            let snapshot = self.clock.tick(now, sample.dt)?;
-            let usb = if now.saturating_duration_since(self.last_usb) >= self.usb_interval {
-                self.last_usb = now;
-                true
-            } else {
-                false
-            };
+            if !serial::sd_enabled() {
+                return None;
+            }
+            let snapshot = self.clock.tick(Instant::now(), sample.dt)?;
             let frame = Frame {
                 stamp: serial::Frame {
                     sequence: snapshot.sequence,
                     time: vexide::time::user_uptime(),
                 },
-                usb,
             };
             frame.row(
                 "LOOP",
@@ -325,6 +290,29 @@ pub fn report_differential<T: ozton_tracking::Tracking, L, A>(
     report_drive_motors(frame, drive.model.motor_groups());
 }
 
+/// Sample motors while a drivetrain-only autonomous command owns the robot.
+#[cfg(feature = "logging")]
+pub fn report_motion_drive<L, A>(
+    drive: &ozton_drivetrain::Drivetrain<
+        ozton_drivetrain::model::Differential,
+        ozton_tracking::sampling::SensorTracking,
+        L,
+        A,
+    >,
+) {
+    if serial::sd_enabled() {
+        let time = serial::now();
+        let frame = Frame {
+            stamp: serial::Frame {
+                sequence: time.as_micros().try_into().unwrap_or(u64::MAX),
+                time,
+            },
+        };
+        report_differential(frame, drive);
+        drive.tracking.report(frame);
+    }
+}
+
 #[cfg(feature = "logging")]
 fn report_drive_feedback(
     frame: Frame,
@@ -332,10 +320,12 @@ fn report_drive_feedback(
     diameter: Option<Length>,
 ) {
     let [left, right] = feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.position.value));
+    let [left_mps, right_mps] =
+        feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.velocity.value));
     let diameter = diameter.map_or(f64::NAN, |diameter| diameter.value);
     frame.row(
         "DRIVE",
-        format_args!("left_m={left:.5},right_m={right:.5},wheel_dia_m={diameter:.6}"),
+        format_args!("left_m={left:.5},right_m={right:.5},left_mps={left_mps:.5},right_mps={right_mps:.5},wheel_dia_m={diameter:.6}"),
     );
 }
 
@@ -419,6 +409,8 @@ impl MotorSample {
                 ("position", f64::from(rpm), angle.as_degrees(), None)
             }
         };
+        #[cfg(feature = "logging")]
+        let name = serial::field(name);
         frame.row("MOTOR", format_args!(
             "name={name},port={},measured_v={:.3},current_a={:.3},temp_c={:.2},rpm={:.2},torque_nm={:.4},request_v={:.3},position_deg={:.3},command_mode={mode},request_rpm={rpm},request_deg={position},brake_mode={brake:?}",
             self.port, self.volts, self.current, self.temperature, self.rpm, self.torque,
@@ -433,22 +425,11 @@ pub fn event(fields: std::fmt::Arguments<'_>) {
     ozton_diagnostics::serial::event(vexide::time::user_uptime(), fields);
 }
 
-#[cfg(feature = "logging")]
 #[macro_export]
 macro_rules! diagnostic_event {
     ($($arg:tt)*) => {
-        $crate::diagnostics::event(format_args!($($arg)*))
+        $crate::log_event!(Info, "diagnostics", $($arg)*)
     };
-}
-
-#[cfg(not(feature = "logging"))]
-#[macro_export]
-macro_rules! diagnostic_event {
-    ($($arg:tt)*) => {{
-        if false {
-            let _ = format_args!($($arg)*);
-        }
-    }};
 }
 
 #[cfg(all(test, feature = "logging"))]

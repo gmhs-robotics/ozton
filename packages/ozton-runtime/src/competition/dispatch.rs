@@ -38,7 +38,11 @@ where
             }
             Some(Err(error)) => {
                 if let Err(_stop) = self.stop() {
-                    crate::diagnostic_event!("driver_stop_failed,error={_stop}");
+                    crate::log_event!(
+                        Error,
+                        "driver",
+                        "Could not stop outputs after control fault ({_stop})"
+                    );
                 }
                 self.autonomous.report_driver_fault(Some(error.to_string()));
             }
@@ -52,7 +56,11 @@ where
                     .err()
                     .map(|error| {
                         if let Err(_stop) = self.stop_mechanisms() {
-                            crate::diagnostic_event!("driver_mechanism_stop_failed,error={_stop}");
+                            crate::log_event!(
+                                Error,
+                                "driver",
+                                "Could not stop mechanisms after fault ({_stop})"
+                            );
                         }
                         error.to_string()
                     });
@@ -74,6 +82,7 @@ where
             P::poll_tracking(self, mode);
         }
         P::after_tick(self, mode, tick);
+        #[cfg(feature = "logging")]
         self.record_diagnostics(Sample {
             mode,
             dt: tick.elapsed,
@@ -96,11 +105,11 @@ fn report_route_error<D, R, P>(
     P: Program<R, D>,
     R: CompetitionRobot,
 {
-    let _ = writeln!(
-        io::stderr().lock(),
-        "error: autonomous route {name:?} failed: {error}"
+    crate::log_event!(
+        Error,
+        "autonomous",
+        "Route {name:?} stopped in {mode:?} ({error})"
     );
-    crate::diagnostic_event!("route={name},mode={mode:?},error={error}");
     if let Some(status) = P::route_error(robot, mode, name, error) {
         robot.menu().status(status);
     } else {

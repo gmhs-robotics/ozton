@@ -269,13 +269,18 @@ where
     A: crate::diagnostics::Telemetry<Self>,
 {
     pub fn record_diagnostics(&mut self, sample: crate::diagnostics::Sample) {
+        #[cfg(feature = "logging")]
         A::record(self, sample);
+        #[cfg(not(feature = "logging"))]
+        let _ = sample;
     }
 
     /// Time from the driver tick start to the end of the wheel write.
     pub fn mark_driver_output(&mut self, tick: crate::competition::Tick) {
         #[cfg(feature = "logging")]
-        A::driver_output(self, tick.work());
+        if ozton_diagnostics::serial::sd_enabled() {
+            A::driver_output(self, tick.work());
+        }
         #[cfg(not(feature = "logging"))]
         let _ = tick;
     }

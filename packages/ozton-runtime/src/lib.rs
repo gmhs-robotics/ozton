@@ -7,6 +7,7 @@ pub mod diagnostics;
 pub mod motor;
 mod robot;
 pub mod task;
+pub use ozton_diagnostics::{log_event, log_row};
 pub use ozton_ui::{menu, selector};
 
 /// Retries an initial reference until established. Reconnection preserves the zero.

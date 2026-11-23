@@ -1,6 +1,7 @@
 //! Monte Carlo pose correction using timestamped, associated range observations.
 
 use glam::DVec2;
+use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
@@ -73,16 +74,28 @@ impl PoseEstimator for Mcl {
             count += 1;
         }
         if count == 0 {
+            log_row!(Trace, "MCL", "status=no_consistent_beams,beams=0");
             return None;
         }
-        let (change, rank) = fit_translation(&constraints[..count])?;
+        let Some((change, rank)) = fit_translation(&constraints[..count]) else {
+            log_row!(Trace, "MCL", "status=translation_fit_failed,beams={count}");
+            return None;
+        };
         let normal = (rank == 1).then_some(constraints[0].0.hit.normal);
         self.candidate.clone_from(&self.filter);
         self.candidate
             .propose_position(predicted.position + change, normal, noise);
-        let estimate = self
-            .candidate
-            .observe_position(&beams[..count], map, predicted.heading)?;
+        let Some(estimate) =
+            self.candidate
+                .observe_position(&beams[..count], map, predicted.heading)
+        else {
+            log_row!(
+                Trace,
+                "MCL",
+                "status=no_particle_estimate,beams={count},rank={rank}"
+            );
+            return None;
+        };
         let change = estimate.pose.position - predicted.position;
         let deviation = estimate.standard_deviation;
         // Weight the correction by particle concentration relative to the beams'
@@ -96,6 +109,11 @@ impl PoseEstimator for Mcl {
             (change, deviation.x.max(deviation.y))
         };
         if !correction.is_finite() || !spread.is_finite() || !noise.is_finite() || noise <= 0.0 {
+            log_row!(
+                Trace,
+                "MCL",
+                "status=invalid_spread_or_noise,beams={count},rank={rank},spread_m={spread:.5},noise_m={noise:.5}"
+            );
             return None;
         }
         let signal = correction.length().hypot(noise);
@@ -105,8 +123,27 @@ impl PoseEstimator for Mcl {
             ..predicted
         };
         if !pose.is_finite() {
+            log_row!(
+                Trace,
+                "MCL",
+                "status=invalid_candidate,beams={count},rank={rank}"
+            );
             return None;
         }
+        log_row!(
+            Trace,
+            "MCL",
+            "status=estimated,beams={count},rank={rank},particle_x_m={:.5},particle_y_m={:.5},particle_heading_rad={:.5},sigma_x_m={:.5},sigma_y_m={:.5},gain={gain:.5},dx_m={:.5},dy_m={:.5},candidate_x_m={:.5},candidate_y_m={:.5}",
+            estimate.pose.position.x,
+            estimate.pose.position.y,
+            estimate.pose.heading.value,
+            deviation.x,
+            deviation.y,
+            correction.x,
+            correction.y,
+            pose.position.x,
+            pose.position.y
+        );
         core::mem::swap(&mut self.filter, &mut self.candidate);
         Some(pose)
     }

@@ -25,6 +25,14 @@ pub(super) async fn drive_to_point<A: DriveAssist<Differential>>(
     drive: &mut TrackedDrive<A>,
     target: Pose,
 ) -> MotionResult {
+    ozton_runtime::log_row!(
+        Debug,
+        "POINT_REQUEST",
+        "x_m={:.5},y_m={:.5},heading_rad={:.5}",
+        target.position.x,
+        target.position.y,
+        target.heading.value
+    );
     if !target.is_finite() {
         return Err(CommandError::Configuration);
     }
@@ -32,6 +40,13 @@ pub(super) async fn drive_to_point<A: DriveAssist<Differential>>(
     let clearance = clearance(drive)?;
     let options = options(drive)?;
     if clearance.is_some_and(|field| !field.can_turn(target)) {
+        ozton_runtime::log_event!(
+            Error,
+            "path",
+            "Target ({:.3}, {:.3}) m lacks clearance to turn",
+            target.position.x,
+            target.position.y
+        );
         return Err(CommandError::InsufficientClearance);
     }
     let mut runner = Runner::new(

@@ -25,6 +25,29 @@ pub enum CommandError<E> {
     },
 }
 
+#[cfg(feature = "logging")]
+impl<E> CommandError<E> {
+    pub(super) fn code(&self) -> &'static str {
+        match self {
+            Self::Configuration => "configuration",
+            Self::Cancelled => "cancelled",
+            Self::RouteTimeout => "route_timeout",
+            Self::CommandTimeout => "command_timeout",
+            Self::ControlGap => "control_gap",
+            Self::InvalidFeedback => "invalid_feedback",
+            Self::InvalidPath => "invalid_path",
+            Self::InsufficientClearance => "insufficient_clearance",
+            Self::PathStart => "path_start",
+            Self::PathLost => "path_lost",
+            Self::UntrustedPose => "untrusted_pose",
+            Self::NoProgress => "no_progress",
+            Self::Robot(_) => "robot",
+            Self::StopFailed(_) => "stop_failed",
+            Self::StopFailedAfter { .. } => "stop_failed_after_error",
+        }
+    }
+}
+
 impl<E: fmt::Display> fmt::Display for CommandError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let description = match self {

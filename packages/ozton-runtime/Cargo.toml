@@ -23,4 +23,4 @@ ozton-tracking = { workspace = true }
 vex-sdk-mock = "0.2.0"
 
 [features]
-logging = ["ozton-diagnostics/logging"]
+logging = ["ozton-diagnostics/logging", "ozton-tracking/logging", "ozton-localization/logging"]

@@ -1,7 +1,6 @@
 //! IMU calibrated once before competition.
 
-use std::io::{self, Write};
-
+use ozton_diagnostics::log_event;
 use ozton_math::uom::si::{angle::radian, f64::Angle};
 use vexide::{prelude::InertialSensor, smart::SmartDevice};
 
@@ -20,11 +19,31 @@ pub(super) struct CalibratedImu(InertialSensor);
 
 impl CalibratedImu {
     pub(super) async fn initialize(mut imu: InertialSensor) -> Option<Self> {
-        let port = imu.port_number();
-        let _ = writeln!(io::stderr().lock(), "info: calibrating IMU on port {port}");
-        imu.calibrate().await.ok()?;
-        imu.reset_heading().ok()?;
-        let _ = writeln!(io::stderr().lock(), "info: IMU on port {port} ready");
+        log_event!(
+            Info,
+            "IMU",
+            "Calibrating sensor on port {}",
+            imu.port_number()
+        );
+        if let Err(error) = imu.calibrate().await {
+            log_event!(
+                Error,
+                "IMU",
+                "Calibration failed on port {} ({error})",
+                imu.port_number()
+            );
+            return None;
+        }
+        if let Err(error) = imu.reset_heading() {
+            log_event!(
+                Error,
+                "IMU",
+                "Could not zero heading on port {} ({error})",
+                imu.port_number()
+            );
+            return None;
+        }
+        log_event!(Info, "IMU", "Sensor on port {} ready", imu.port_number());
         Some(Self(imu))
     }
 

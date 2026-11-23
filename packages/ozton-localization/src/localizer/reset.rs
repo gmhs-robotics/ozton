@@ -1,6 +1,7 @@
 //! Coherent stationary collections for explicit distance resets.
 use std::time::Duration;
 
+use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{Pose, wrap_heading},
     localization::range::{Constraint, Rejection, Surface, fit_translation},
@@ -76,6 +77,11 @@ impl ResetWindow {
             || forward_velocity.hypot(lateral_velocity) > 0.025
             || angular_velocity.abs() > 0.06
         {
+            log_row!(
+                Trace,
+                "DSR",
+                "status=moving,v_forward_mps={forward_velocity:.4},v_lateral_mps={lateral_velocity:.4},yaw_radps={angular_velocity:.4}"
+            );
             self.restart();
             return ResetResult::Waiting;
         }
@@ -124,13 +130,30 @@ impl ResetWindow {
             count += 1;
         }
         if count == 0 {
+            log_row!(Trace, "DSR", "status=no_fresh_constraints");
             return ResetResult::Waiting;
         }
         if let Some((change, axes)) = fit_translation(&constraints[..count]) {
             if axes < self.minimum_axes {
+                log_row!(
+                    Trace,
+                    "DSR",
+                    "status=insufficient_axes,axes={axes},minimum_axes={},constraints={count}",
+                    self.minimum_axes
+                );
                 return ResetResult::Waiting;
             }
             if change.is_finite() {
+                log_row!(
+                    Debug,
+                    "DSR",
+                    "status=applied,axes={axes},constraints={count},dx_m={:.5},dy_m={:.5},x_m={:.5},y_m={:.5},heading_rad={:.5}",
+                    change.x,
+                    change.y,
+                    pose.position.x + change.x,
+                    pose.position.y + change.y,
+                    pose.heading.value
+                );
                 return ResetResult::Applied(
                     Pose {
                         position: pose.position + change,
@@ -140,6 +163,7 @@ impl ResetWindow {
                 );
             }
         }
+        log_row!(Debug, "DSR", "status=rejected,constraints={count}");
         ResetResult::Rejected
     }
 }

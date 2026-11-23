@@ -66,7 +66,11 @@ impl<E> TaskSlot<E> {
                 let elapsed = now.saturating_duration_since(std::mem::replace(&mut previous, now));
                 if let Err(error) = mechanism.update(mode, elapsed) {
                     if let Err(_stop) = mechanism.stop() {
-                        crate::diagnostic_event!("background_mechanism_stop_failed,error={_stop}");
+                        crate::log_event!(
+                            Error,
+                            "mechanism",
+                            "Could not stop outputs after background task failed ({_stop})"
+                        );
                     }
                     return Err(error);
                 }

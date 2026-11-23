@@ -160,7 +160,11 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
             match File::create("auton.csv").and_then(|file| journal.write_csv(file)) {
                 Ok(()) => journal.clear(),
                 Err(error) => {
-                    ozton::runtime::diagnostic_event!("telemetry_save_failed,error={error}");
+                    ozton::diagnostics::log_event!(
+                        Error,
+                        "telemetry",
+                        "Could not save telemetry ({error})"
+                    );
                 }
             }
         }

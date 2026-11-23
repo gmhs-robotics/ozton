@@ -6,6 +6,12 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "logging")]
+mod levels;
+mod macros;
+#[cfg(feature = "logging")]
+pub use levels::{Level, enabled, field, message, now, row, sd_enabled};
+
 /// Stamp shared by every row in one diagnostic sample.
 #[derive(Clone, Copy, Debug)]
 pub struct Frame {
@@ -30,44 +36,40 @@ impl Frame {
         )
     }
 
-    /// Emit one complete row to stdout.
+    /// Record a debug sample on SD.
     pub fn row(&self, kind: &str, fields: fmt::Arguments<'_>) {
-        self.emit(kind, fields, true);
+        #[cfg(feature = "logging")]
+        self.record(Level::Debug, kind, fields);
+        #[cfg(not(feature = "logging"))]
+        let _ = (kind, fields);
     }
 
-    /// Route a frame to the enabled sinks. SD-only frames skip USB formatting writes.
-    pub fn emit(&self, kind: &str, fields: fmt::Arguments<'_>, usb: bool) {
-        emit(
-            usb,
+    /// Record a sample at an explicit level on SD.
+    #[cfg(feature = "logging")]
+    pub fn record(&self, level: Level, kind: &str, fields: fmt::Arguments<'_>) {
+        levels::enqueue(
+            level,
             format_args!(
-                "DBG,{kind},seq={},t_ms={},{}",
+                "DBG,{kind},seq={},t_ms={},{fields}",
                 self.sequence,
-                self.time.as_millis(),
-                fields,
+                self.time.as_millis()
             ),
         );
     }
-}
 
-/// An event independent of periodic sampling.
-pub fn event(time: Duration, fields: fmt::Arguments<'_>) {
-    emit(
-        true,
-        format_args!("DBG,EVENT,t_ms={},{}", time.as_millis(), fields),
-    );
-}
-
-#[cfg(feature = "logging")]
-fn emit(usb: bool, row: fmt::Arguments<'_>) {
-    #[cfg(all(feature = "logging", target_os = "vexos"))]
-    crate::sd::enqueue(row);
-    if usb {
-        let _ = writeln!(io::stdout().lock(), "{row}");
+    /// Record a debug sample. The legacy USB flag is ignored.
+    pub fn emit(&self, kind: &str, fields: fmt::Arguments<'_>, _usb: bool) {
+        self.row(kind, fields);
     }
 }
 
-#[cfg(not(feature = "logging"))]
-fn emit(_: bool, _: fmt::Arguments<'_>) {}
+/// An informational event independent of periodic sampling.
+pub fn event(time: Duration, fields: fmt::Arguments<'_>) {
+    #[cfg(feature = "logging")]
+    message(Level::Info, time, "diagnostics", fields);
+    #[cfg(not(feature = "logging"))]
+    let _ = (time, fields);
+}
 
 /// Persistent status for outputs or controllers. Emits only fault/recovery
 /// edges while counting every observed failure. The clock runs only on edges.
@@ -113,16 +115,11 @@ impl FaultLog {
         let _ = (previous, details);
         #[cfg(feature = "logging")]
         if previous != Some(code) {
-            emit(
-                true,
-                format_args!(
-                    "DBG,FAULT,t_ms={},source={},code={},count={}{}",
-                    (self.clock)().as_millis(),
-                    self.source,
-                    code,
-                    self.count,
-                    details
-                ),
+            message(
+                Level::Error,
+                (self.clock)(),
+                self.source,
+                format_args!("Fault {code} (count {}){details}", self.count),
             );
         }
     }
@@ -133,15 +130,11 @@ impl FaultLog {
         let _ = previous;
         #[cfg(feature = "logging")]
         if let Some(previous) = previous {
-            emit(
-                true,
-                format_args!(
-                    "DBG,RECOVERED,t_ms={},source={},previous={},count={}",
-                    (self.clock)().as_millis(),
-                    self.source,
-                    previous,
-                    self.count
-                ),
+            message(
+                Level::Info,
+                (self.clock)(),
+                self.source,
+                format_args!("Recovered from {previous} (fault count {})", self.count),
             );
         }
     }

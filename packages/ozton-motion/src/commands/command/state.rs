@@ -1,4 +1,6 @@
 //! Follower and settling state for a running command.
+use ozton_runtime::log_row;
+
 use super::*;
 
 #[derive(Default)]
@@ -90,11 +92,10 @@ impl<'path> State<'path> {
                     ),
                 );
                 let end = path.end();
-                let tracking_error = path
+                let reference = path
                     .at_distance(Length::new::<meter>(progress.distance()))
-                    .pose
-                    .position
-                    .distance(feedback.pose.position);
+                    .pose;
+                let tracking_error = reference.position.distance(feedback.pose.position);
                 lost = tracking_error > 0.35
                     || (matches!(follower, Follower::Ramsete { .. })
                         && elapsed.as_secs_f64() >= end.time
@@ -120,6 +121,18 @@ impl<'path> State<'path> {
                         options.position_tolerance,
                     )
                 };
+                log_row!(
+                    Trace,
+                    "PATH_FOLLOWER",
+                    "progress_m={:.5},end_m={:.5},reference_x_m={:.5},reference_y_m={:.5},cross_track_m={tracking_error:.5},end_error_m={:.5},end_heading_error_rad={:.5},profile_ms={:.0},reverse={reverse},ready={ready},lost={lost}",
+                    progress.distance(),
+                    end.distance,
+                    reference.position.x,
+                    reference.position.y,
+                    feedback.pose.position.distance(end.pose.position),
+                    error_at(heading),
+                    end.time * 1000.0
+                );
                 if !lost {
                     let distance = if ready {
                         end.distance

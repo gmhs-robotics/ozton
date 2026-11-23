@@ -2,14 +2,14 @@
 
 use std::{
     fmt::{self, Write as _},
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{self, Write},
     sync::Mutex,
 };
 
-const PATH: &str = "OZTON.LOG";
-const BUFFER_BYTES: usize = 256 * 1024;
-const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=1\n";
+pub const PATH: &str = "OZTON.LOG";
+const BUFFER_BYTES: usize = 512 * 1024;
+const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=2,level=INFO\n";
 
 #[derive(Default)]
 struct Pending {
@@ -17,6 +17,8 @@ struct Pending {
     dropped_rows: u64,
     uncertain_bytes: usize,
     session_started: bool,
+    #[cfg(target_os = "vexos")]
+    probed: bool,
 }
 
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
@@ -24,11 +26,45 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     dropped_rows: 0,
     uncertain_bytes: 0,
     session_started: false,
+    #[cfg(target_os = "vexos")]
+    probed: false,
 });
 
 #[cfg(target_os = "vexos")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "vexos")]
+static ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "vexos")]
+pub(crate) fn enabled() -> bool {
+    ENABLED.load(Ordering::Relaxed)
+}
+
+/// Probe the card once per program run. A successful open enables enqueueing.
+#[cfg(target_os = "vexos")]
+pub fn enable_at_startup() -> Option<io::Result<()>> {
+    let mut pending = match PENDING.lock() {
+        Ok(pending) => pending,
+        Err(_) => return Some(Err(io::Error::other("SD log lock poisoned"))),
+    };
+    if pending.probed {
+        return None;
+    }
+    pending.probed = true;
+    Some(open_log().map(|_| ENABLED.store(true, Ordering::Relaxed)))
+}
+
+fn open_log() -> io::Result<File> {
+    OpenOptions::new().create(true).append(true).open(PATH)
+}
+
+#[cfg(target_os = "vexos")]
 pub(crate) fn enqueue(row: fmt::Arguments<'_>) {
-    let Ok(mut pending) = PENDING.lock() else {
+    if !enabled() {
+        return;
+    }
+    let Ok(mut pending) = PENDING.try_lock() else {
         return;
     };
     pending.push(row);
@@ -50,13 +86,12 @@ impl fmt::Write for BatchWriter<'_> {
 /// Competition schedules this separately from report collection.
 pub fn flush() -> io::Result<()> {
     let mut pending = PENDING
-        .lock()
-        .map_err(|_| io::Error::other("SD log lock poisoned"))?;
+        .try_lock()
+        .map_err(|_| io::Error::other("SD log buffer unavailable"))?;
     if pending.bytes.is_empty() && pending.dropped_rows == 0 && pending.uncertain_bytes == 0 {
         return Ok(());
     }
-    let file = OpenOptions::new().create(true).append(true).open(PATH)?;
-    pending.append(file)
+    pending.append(open_log()?)
 }
 
 impl Pending {
@@ -75,17 +110,17 @@ impl Pending {
         }
         if !self.session_started {
             file.write_all(SESSION)?;
+            self.session_started = true;
         }
         if self.dropped_rows != 0 || self.uncertain_bytes != 0 {
             writeln!(
                 file,
-                "DBG,SD_GAP,dropped_rows={},uncertain_bytes={}",
+                "DBG,SD_GAP,dropped_rows={},uncertain_bytes={},level=WARN",
                 self.dropped_rows, self.uncertain_bytes
             )?;
         }
         let result = file.write_all(&self.bytes).and_then(|()| file.flush());
         if result.is_ok() {
-            self.session_started = true;
             self.dropped_rows = 0;
             self.uncertain_bytes = 0;
         } else {
@@ -115,17 +150,36 @@ mod tests {
     #[test]
     fn log_appends_one_session_and_reports_a_gap() {
         let mut pending = Pending {
-            bytes: b"DBG,EVENT,t_ms=2,boot\n".to_vec(),
+            bytes: b"DBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\n".to_vec(),
             dropped_rows: 3,
             ..Pending::default()
         };
         let mut output = b"partial previous row".to_vec();
         pending.append(&mut output).unwrap();
-        pending.push(format_args!("DBG,EVENT,t_ms=4,ready"));
+        pending.push(format_args!(
+            "DBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO"
+        ));
         pending.append(&mut output).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "partial previous row\nDBG,SESSION,t_ms=0,schema=1\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0\nDBG,EVENT,t_ms=2,boot\nDBG,EVENT,t_ms=4,ready\n"
+            "partial previous row\nDBG,SESSION,t_ms=0,schema=2,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
         );
+    }
+
+    #[test]
+    fn failed_batch_does_not_create_a_second_session() {
+        let mut pending = Pending::default();
+        pending.push(format_args!("DBG,TEST,t_ms=1,level=TRACE"));
+        let mut header = [0; SESSION.len() + 1];
+        assert!(pending.append(header.as_mut_slice()).is_err());
+        let mut output = header.to_vec();
+        assert!(pending.uncertain_bytes > 0);
+
+        pending.push(format_args!("DBG,TEST,t_ms=2,level=TRACE"));
+        pending.append(&mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("DBG,SESSION").count(), 1);
+        assert!(output.contains("DBG,SD_GAP"));
+        assert!(output.contains("DBG,TEST,t_ms=2"));
     }
 }

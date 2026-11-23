@@ -1,9 +1,6 @@
 //! Programmed route selection and a budgeted competition loop for custom robots.
 
-use std::{
-    io::{self, Write},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use ozton_ui::RouteSelector;
 pub use ozton_ui::Ui;
@@ -70,12 +67,13 @@ pub trait CompetitionRobot: Sized {
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
-    fn route_failed(&mut self, _route: Self::Route, error: Self::Error) {
-        let _ = writeln!(
-            io::stderr().lock(),
-            "error: autonomous route failed: {error}"
+    fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
+        crate::log_event!(
+            Error,
+            "autonomous",
+            "Route {:?} stopped ({error})",
+            route.label()
         );
-        crate::diagnostic_event!("auton_error={error}");
         self.menu().status("Autonomous stopped");
     }
 }
@@ -108,10 +106,10 @@ impl<R: Copy + 'static, S> Autonomous<R, S> {
             return;
         }
         if let Some(message) = &fault {
-            let _ = writeln!(io::stderr().lock(), "error: driver control: {message}");
-            crate::diagnostic_event!("driver_fault,error={message}");
+            crate::log_event!(Error, "driver", "Control fault ({message})");
             self.menu.status(message);
         } else {
+            crate::log_event!(Info, "driver", "Control recovered");
             self.menu.status(DRIVER_STATUS);
         }
         self.last_driver_fault = fault;

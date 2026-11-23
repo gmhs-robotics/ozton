@@ -54,8 +54,10 @@ impl<M> RoutineError<M> {
             Motion::Robot(error) | Motion::StopFailed(error) => error,
             Motion::StopFailedAfter { cause, stop } => {
                 let cause = Self::from_runner(*cause);
-                ozton_runtime::diagnostic_event!(
-                    "auton_motion_failed,cause={cause:?},stop={stop:?}"
+                ozton_runtime::log_event!(
+                    Error,
+                    "motion",
+                    "Autonomous motion failed ({cause:?}), then stopping failed ({stop:?})"
                 );
                 stop
             }

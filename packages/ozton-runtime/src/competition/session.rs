@@ -18,8 +18,14 @@ use crate::clock::CONTROL_PERIOD;
 /// Vexide dispatches modes and cancels their futures. Ozton supplies the tick,
 /// output cleanup, route selection and telemetry within each mode.
 pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -> ! {
+    #[cfg(feature = "logging")]
     let _sd_writer = crate::diagnostics::start_sd_logging();
-    crate::diagnostic_event!("boot,control_period_us={}", R::CONTROL_PERIOD.as_micros());
+    crate::log_event!(
+        Info,
+        "competition",
+        "Ready with {:.1} ms control period",
+        R::CONTROL_PERIOD.as_secs_f64() * 1000.0
+    );
     CompeteExt::compete(robot).await
 }
 
@@ -29,13 +35,17 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     fn stop(&mut self) {
         self.0.set_autonomous_start(None);
         if let Err(error) = self.0.stop() {
-            crate::diagnostic_event!("competition_stop_failed,error={error}");
+            crate::log_event!(
+                Error,
+                "competition",
+                "Could not stop robot outputs ({error})"
+            );
         }
     }
 
     fn enter(&mut self, mode: CompetitionMode) {
         self.stop();
-        crate::diagnostic_event!("competition_mode={mode:?}");
+        crate::log_event!(Info, "competition", "Entered {mode:?} mode");
         self.0.menu().poll(mode == CompetitionMode::Disabled);
         self.0.mode_changed(mode);
     }
@@ -96,7 +106,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             robot
                 .menu()
                 .status(&format!("Autonomous: {}", route.label()));
-            crate::diagnostic_event!("auton_route={},state=start", route.label());
+            crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label());
             let result = match robot.stop() {
                 Ok(()) => {
                     robot.set_autonomous_start(Some(Instant::now()));
@@ -114,11 +124,16 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             match (result, stopped) {
                 (Some(Ok(())), Ok(())) => {
                     robot.menu().status("Autonomous complete");
-                    crate::diagnostic_event!("auton_route={},state=complete", route.label());
+                    crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label());
                 }
                 (None, Ok(())) => {
                     robot.menu().status("Autonomous cancelled");
-                    crate::diagnostic_event!("auton_route={},state=cancelled", route.label());
+                    crate::log_event!(
+                        Warn,
+                        "autonomous",
+                        "Route {:?} cancelled after mode change",
+                        route.label()
+                    );
                 }
                 (Some(Err(error)), Err(stop)) => {
                     robot.route_failed(route, error);

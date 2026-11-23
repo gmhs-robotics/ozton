@@ -2,13 +2,17 @@
 use std::time::Duration;
 
 use ozton_control::axis::{AxisController, AxisSample, Linear, Target};
-use ozton_diagnostics::{Event, Journal, calibration::CalibrationSample};
+#[cfg(feature = "logging")]
+use ozton_diagnostics::{Event, serial};
+use ozton_diagnostics::{Journal, calibration::CalibrationSample};
 use ozton_drivetrain::{
     Drivetrain,
     model::{Differential, Tank, WheelFeedback, WheelSpeedError},
 };
+#[cfg(feature = "logging")]
+use ozton_localization::localizer::{Correction, Update};
 use ozton_localization::localizer::{
-    Correction, Fault, Filter, Localizer, MAX_RANGES, PoseEstimator, Snapshot, Update,
+    Fault, Filter, Localizer, MAX_RANGES, PoseEstimator, Snapshot,
     vex::{Distances, SharedSensors},
 };
 use ozton_math::{
@@ -144,6 +148,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 (candidate, _) => candidate,
             };
         }
+        #[cfg(feature = "logging")]
         self.log_tracking(update);
         Ok(Some(Feedback {
             time: snapshot.time,
@@ -203,7 +208,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 })();
                 voltage.and_then(|voltage| {
                     #[cfg(feature = "logging")]
-                    self.journal.push(Event::new(
+                    self.record_event(Event::new(
                         self.time,
                         "drive",
                         "requested_volts",
@@ -248,13 +253,14 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     /// Sample applied voltage during a separately supervised characterization run.
     /// Call after sample() on each tick of the test. This method never moves a motor.
     pub fn log_feedforward_calibration(&mut self, names: [&'static str; 2]) {
-        if !self.journal.enabled() {
-            return;
-        }
-        let samples = self.feedforward_samples();
-        for (name, sample) in names.into_iter().zip(samples) {
-            if let Some(sample) = sample {
-                self.journal.push(sample.event(self.time, name));
+        #[cfg(not(feature = "logging"))]
+        let _ = names;
+        #[cfg(feature = "logging")]
+        if self.journal.enabled() || serial::sd_enabled() {
+            for (name, sample) in names.into_iter().zip(self.feedforward_samples()) {
+                if let Some(sample) = sample {
+                    self.record_event(sample.event(self.time, name));
+                }
             }
         }
     }
@@ -303,7 +309,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         #[cfg(not(feature = "logging"))]
         let _ = (elapsed, dt, progress, wheels);
         #[cfg(feature = "logging")]
-        self.journal.push(Event::new(
+        self.record_event(Event::new(
             self.time,
             "auton",
             "step",
@@ -317,13 +323,32 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         ));
     }
 
+    #[cfg(feature = "logging")]
+    fn record_event(&mut self, event: Event) {
+        if serial::sd_enabled() {
+            let [a, b, c, d, e] = event.values.map(|value| value.unwrap_or(f64::NAN));
+            serial::row(
+                serial::Level::Trace,
+                event.time,
+                "CHASSIS",
+                format_args!(
+                    "kind={},name={},a={a},b={b},c={c},d={d},e={e}",
+                    serial::field(event.kind),
+                    serial::field(event.name)
+                ),
+            );
+        }
+        self.journal.push(event);
+    }
+
+    #[cfg(feature = "logging")]
     fn log_tracking(&mut self, update: Update) {
-        if !self.journal.enabled() {
+        if !self.journal.enabled() && !serial::sd_enabled() {
             return;
         }
         let missing = f64::NAN;
         let raw = update.raw;
-        self.journal.push(Event::new(
+        self.record_event(Event::new(
             self.time,
             "tracking",
             "sensors",
@@ -335,7 +360,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 raw.imu.map_or(missing, |value| value.value),
             ],
         ));
-        self.journal.push(Event::new(
+        self.record_event(Event::new(
             self.time,
             "drive",
             "velocity",
@@ -354,7 +379,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             ("candidate", update.candidate),
         ] {
             if let Some(pose) = pose {
-                self.journal.push(Event::new(
+                self.record_event(Event::new(
                     self.time,
                     "tracking",
                     label,
@@ -368,7 +393,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 ));
             }
         }
-        self.journal.push(Event::new(
+        self.record_event(Event::new(
             self.time,
             "tracking",
             match update.correction {
@@ -398,7 +423,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                 Err(Rejection::Grazing) => "grazing",
                 Err(Rejection::Uncertain) => "uncertain",
             };
-            self.journal.push(Event::new(
+            self.record_event(Event::new(
                 self.time,
                 "range",
                 reason,

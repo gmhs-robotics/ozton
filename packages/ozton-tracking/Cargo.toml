@@ -13,12 +13,16 @@ edition = "2024"
 workspace = true
 
 [dependencies]
+ozton-diagnostics = { workspace = true }
 arrayvec = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 glam = { workspace = true }
 ozton-math = { workspace = true }
 vex-sdk = "0.29.0"
 vexide = { workspace = true }
+
+[features]
+logging = ["ozton-diagnostics/logging"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

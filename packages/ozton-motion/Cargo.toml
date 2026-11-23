@@ -28,7 +28,7 @@ ozton-tracking = { workspace = true }
 vex-sdk-mock = "0.2.0"
 
 [features]
-logging = []
+logging = ["ozton-runtime/logging"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

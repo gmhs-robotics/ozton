@@ -136,6 +136,7 @@ impl LocalizationBuilder {
             imu_heading_offset: None,
             occluded: 0,
             last_reset: DistanceReset::Idle,
+            #[cfg(feature = "logging")]
             fault: None,
             #[cfg(feature = "logging")]
             telemetry: Default::default(),

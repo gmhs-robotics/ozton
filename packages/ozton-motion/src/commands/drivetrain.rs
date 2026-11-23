@@ -49,7 +49,18 @@ pub enum DriveMotionFault {
 
 impl std::fmt::Display for DriveMotionFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        match self {
+            Self::Tracking(fault) => write!(f, "Tracking feedback unavailable ({fault:?})"),
+            Self::Output(error) => write!(f, "Could not command drive motors ({error})"),
+            Self::Brake(error) => write!(f, "Could not stop drive motors ({error})"),
+            Self::InvalidCommand => f.write_str("Invalid drivetrain command or wheel geometry"),
+            Self::MissingHeading => f.write_str("Field heading unavailable"),
+            Self::ContactFeedback => {
+                f.write_str("Motor feedback unavailable for contact detection")
+            }
+            Self::NoContact => f.write_str("Goal contact was not detected"),
+            Self::Cancelled => f.write_str("Drivetrain motion cancelled"),
+        }
     }
 }
 
@@ -99,6 +110,16 @@ impl<A: DriveAssist<Differential>> MotionPlatform for TrackedDrive<A> {
 
     fn pose_trusted(&self) -> bool {
         self.localization.pose_trusted()
+    }
+
+    #[cfg(feature = "logging")]
+    fn log_step(&mut self, elapsed: Duration, dt: Duration, _: Length, _: [Velocity; 2]) {
+        use ozton_runtime::diagnostics::{SD_SAMPLE_INTERVAL, report_motion_drive};
+
+        let period = SD_SAMPLE_INTERVAL.as_millis();
+        if elapsed.as_millis() / period != elapsed.saturating_sub(dt).as_millis() / period {
+            report_motion_drive(self);
+        }
     }
 
     fn request_distance_reset(&mut self) {
