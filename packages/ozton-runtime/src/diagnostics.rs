@@ -153,7 +153,7 @@ pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool
             "x_right_m={:.6},y_forward_m={:.6},heading_ccw_deg={:.3},trusted={}",
             pose.position.x,
             pose.position.y,
-            pose.heading.to_degrees(),
+            pose.heading.get::<ozton_math::uom::si::angle::degree>(),
             u8::from(trusted)
         ),
     );

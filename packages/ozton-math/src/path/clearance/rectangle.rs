@@ -23,9 +23,8 @@ pub struct DepartureArc {
 }
 
 impl RectangularClearance {
-    pub fn new(footprint: Footprint, half_extents: [Length; 2], margin: Length) -> Option<Self> {
-        let [right, forward] = half_extents;
-        let usable = DVec2::new(right.value, forward.value) - DVec2::splat(margin.value);
+    pub fn new(footprint: Footprint, half_extents: DVec2, margin: Length) -> Option<Self> {
+        let usable = half_extents - DVec2::splat(margin.value);
         (usable.is_finite() && usable.min_element() > 0.0 && margin.value >= 0.0)
             .then_some(Self { footprint, usable })
     }
@@ -50,7 +49,7 @@ impl RectangularClearance {
             return None;
         }
 
-        let heading = Angle::new::<uom::si::angle::radian>(start.heading);
+        let heading = start.heading;
         let forward = direction(heading);
         let basis = rotation(heading).abs();
         let width = self.footprint.half_extents.x;
@@ -137,10 +136,17 @@ mod tests {
     fn corner_departure_needs_space_and_reaches_a_turning_area() {
         let inches = Length::new::<inch>;
         let chassis = Footprint::new(inches(15.1), inches(15.0)).unwrap();
-        let field =
-            RectangularClearance::new(chassis, [inches(19.0), inches(21.25)], inches(0.5)).unwrap();
+        let field = RectangularClearance::new(
+            chassis,
+            crate::geometry::point(inches(19.0), inches(21.25)),
+            inches(0.5),
+        )
+        .unwrap();
         let gap = inches(0.25);
-        let start = Pose::new(inches(-10.45), inches(-12.75), Angle::default());
+        let start = Pose::new(
+            crate::geometry::point(inches(-10.45), inches(-12.75)),
+            Angle::default(),
+        );
         assert!(field.forward_to_turn(start, gap).is_none());
         let arc = field.departure_arc(start, inches(6.5), gap).unwrap();
         assert!(arc.sweep.value < 0.0);
@@ -148,13 +154,15 @@ mod tests {
         let advance = field.forward_to_turn(end, gap).unwrap();
         assert!(advance > inches(0.0));
         let turn = Pose {
-            position: end.position
-                + direction(Angle::new::<uom::si::angle::radian>(end.heading)) * advance.value,
+            position: end.position + direction(end.heading) * advance.value,
             ..end
         };
         assert!(field.can_turn(turn));
 
-        let flush = Pose::new(inches(-11.45), inches(-13.75), Angle::default());
+        let flush = Pose::new(
+            crate::geometry::point(inches(-11.45), inches(-13.75)),
+            Angle::default(),
+        );
         assert!(field.forward_to_turn(flush, gap).is_none());
         assert!(field.departure_arc(flush, inches(6.5), gap).is_none());
     }

@@ -19,11 +19,8 @@ pub struct Surface {
 }
 
 impl Surface {
-    pub const fn new(start_x: Length, start_y: Length, end_x: Length, end_y: Length) -> Self {
-        Self {
-            start: DVec2::new(start_x.value, start_y.value),
-            end: DVec2::new(end_x.value, end_y.value),
-        }
+    pub const fn new(start: DVec2, end: DVec2) -> Self {
+        Self { start, end }
     }
 
     pub fn is_valid(self) -> bool {
@@ -31,21 +28,8 @@ impl Surface {
     }
 }
 
-/// Horizontal sensor mount relative to The Origin: X right, Y forward; CCW bearing from +Y.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Mount {
-    pub offset: DVec2,
-    pub heading: f64,
-}
-
-impl Mount {
-    pub const fn new(x: Length, y: Length, heading: Angle) -> Self {
-        Self {
-            offset: DVec2::new(x.value, y.value),
-            heading: heading.value,
-        }
-    }
-}
+/// A sensor pose in the robot frame, with X right and Y forward.
+pub type Mount = Pose;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Hit {
@@ -56,19 +40,19 @@ pub struct Hit {
     pub incidence: f64,
 }
 
-pub fn cast(pose: Pose, mount: Mount, surfaces: &[Surface]) -> Option<Hit> {
+pub fn cast(pose: Pose, mount: Pose, surfaces: &[Surface]) -> Option<Hit> {
     cast_inner(pose, mount, surfaces, None)
 }
 
 /// Casts against eligible surfaces among the first 128 map entries. Hit indices
 /// always refer to the original map, including when nearer surfaces are masked.
-pub fn cast_masked(pose: Pose, mount: Mount, surfaces: &[Surface], mask: u128) -> Option<Hit> {
+pub fn cast_masked(pose: Pose, mount: Pose, surfaces: &[Surface], mask: u128) -> Option<Hit> {
     cast_inner(pose, mount, surfaces, Some(mask))
 }
 
-fn cast_inner(pose: Pose, mount: Mount, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
-    let origin = pose.transform_point(mount.offset);
-    let beam = direction(Angle::new::<radian>(pose.heading + mount.heading));
+fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
+    let origin = pose.transform_point(mount.position);
+    let beam = direction(pose.heading + mount.heading);
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
     for (index, surface) in surfaces.iter().enumerate() {
@@ -245,7 +229,7 @@ pub struct Constraint {
 
 pub fn constrain(
     pose: Pose,
-    mount: Mount,
+    mount: Pose,
     reading: RangeReading,
     gate: RangeGate,
     surfaces: &[Surface],
@@ -259,7 +243,7 @@ pub fn constrain(
 /// Validates a range against the nearest eligible surface with one ray cast.
 pub fn constrain_masked(
     pose: Pose,
-    mount: Mount,
+    mount: Pose,
     reading: RangeReading,
     gate: RangeGate,
     surfaces: &[Surface],
@@ -375,17 +359,15 @@ mod tests {
             end: DVec2::new(1.0, 1.0),
         };
         let pose = Pose::new(
-            Length::new::<meter>(0.1),
-            Length::new::<meter>(0.1),
+            crate::geometry::point(Length::new::<meter>(0.1), Length::new::<meter>(0.1)),
             Angle::new::<radian>(0.3),
         );
-        let mount = Mount {
-            offset: DVec2::new(0.1, 0.0),
-            heading: -core::f64::consts::FRAC_PI_2,
+        let mount = Pose {
+            position: DVec2::new(0.1, 0.0),
+            heading: Angle::new::<radian>(-core::f64::consts::FRAC_PI_2),
         };
         let true_pose = Pose::new(
-            Length::new::<meter>(0.0),
-            Length::new::<meter>(0.1),
+            crate::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.1)),
             Angle::new::<radian>(0.3),
         );
         let distance = cast(true_pose, mount, &[surface]).unwrap().distance;

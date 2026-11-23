@@ -3,7 +3,7 @@
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use glam::DVec2 as Vec2;
-use ozton_math::uom::si::f64::{Angle as Heading, Length};
+use ozton_math::uom::si::f64::Angle as Heading;
 use vexide::{
     math::Angle,
     smart::motor::Motor,
@@ -203,8 +203,8 @@ impl WheeledTracking {
     }
 
     /// Sets the currently tracked position to a new point.
-    pub fn set_position(&mut self, [x, y]: [Length; 2]) {
-        self.data.borrow_mut().position = Vec2::new(x.value, y.value);
+    pub fn set_position(&mut self, position: Vec2) {
+        self.data.borrow_mut().position = position;
     }
 }
 

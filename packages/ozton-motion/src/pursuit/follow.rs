@@ -290,7 +290,9 @@ fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
 
     let pose = Pose {
         position: start,
-        heading: start_angle.as_radians(),
+        heading: ozton_math::uom::si::f64::Angle::new::<ozton_math::uom::si::angle::radian>(
+            start_angle.as_radians(),
+        ),
     };
     -pursuit_curvature(pose.to_local(end))
 }

@@ -124,10 +124,10 @@ where
     >(
         &self,
         drivetrain: &'a mut Drivetrain<M, S, T, D>,
-        point: [Length; 2],
+        point: Vec2,
     ) -> TurnToPointFuture<'a, M, L, A, S, T, D> {
         TurnToPointFuture {
-            point: Vec2::from_array(point.map(|length| length.value)),
+            point,
             timeout: self.timeout,
             linear_tolerances: self.linear_tolerances,
             angular_tolerances: self.angular_tolerances,

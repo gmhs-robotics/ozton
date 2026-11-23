@@ -4,7 +4,6 @@ use glam::DVec3;
 use ozton_math::{
     geometry::{BodyDelta, Pose, direction},
     localization::ekf::PoseEkf,
-    uom::si::{angle::radian, f64::Angle},
 };
 
 use super::{Observations, PoseEstimator};
@@ -73,8 +72,8 @@ impl PoseEstimator for Ekf {
         for (sensor, constraint, distance) in observations.measurements() {
             let normal = constraint.hit.normal;
             let pose = candidate.pose();
-            let beam = direction(Angle::new::<radian>(pose.heading + sensor.mount.heading));
-            let endpoint = pose.transform_point(sensor.mount.offset) + beam * distance;
+            let beam = direction(pose.heading + sensor.mount.heading);
+            let endpoint = pose.transform_point(sensor.mount.position) + beam * distance;
             let surface = map[constraint.hit.surface];
             // The published orientation is independently tracked. Condition
             // this wall update on that orientation instead of treating sparse

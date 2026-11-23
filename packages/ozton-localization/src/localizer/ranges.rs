@@ -55,8 +55,8 @@ pub(super) fn inspect(
             .as_secs_f64();
         *previous = Some(sample.timestamp);
         let motion_during_age = (movement.translation.length()
-            + movement.heading.abs()
-                * (sample.distance.value.abs() + sensor.mount.offset.length()))
+            + movement.heading.value.abs()
+                * (sample.distance.value.abs() + sensor.mount.position.length()))
             * age
             / dt.as_secs_f64();
         if motion_during_age > sensor.sigma.value * 2.0 {

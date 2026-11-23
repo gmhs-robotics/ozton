@@ -45,7 +45,7 @@ impl HeadingCorrector {
             return 0.0;
         };
         let target = *self.target.get_or_insert(heading);
-        let error = wrap_heading(target - heading);
+        let error = wrap_heading(target - heading).value;
         // Keep both sides in the requested travel direction, even at low throttle.
         let limit = self.maximum_turn.min(throttle.abs());
         (self.gain * error).clamp(-limit, limit)

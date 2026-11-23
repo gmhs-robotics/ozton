@@ -11,7 +11,7 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{ParticleConfig, ParticleFilter},
-        range::{Mount, Surface, cast},
+        range::{Surface, cast},
     },
     uom::si::{
         angle::radian,
@@ -39,28 +39,20 @@ fn measure(name: &str, count: usize, mut step: impl FnMut(usize)) {
 fn main() -> Result<(), &'static str> {
     let map = [
         Surface::new(
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(-1.8),
+            ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(-1.8)),
+            ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
         ),
         Surface::new(
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(1.8),
+            ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
+            ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
         ),
         Surface::new(
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(1.8),
+            ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(1.8)),
         ),
         Surface::new(
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(-1.8),
+            ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(1.8)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(-1.8)),
         ),
     ];
     let sensors = [
@@ -70,16 +62,14 @@ fn main() -> Result<(), &'static str> {
         -core::f64::consts::FRAC_PI_2,
     ]
     .map(|yaw| {
-        RangeSensorConfig::new(Mount::new(
-            Length::new::<meter>(0.0),
-            Length::new::<meter>(0.0),
+        RangeSensorConfig::new(Pose::new(
+            ozton_math::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.0)),
             Angle::new::<radian>(yaw),
         ))
     });
     measure("four wall casts", 100_000, |tick| {
         let pose = Pose::new(
-            Length::new::<meter>(0.01),
-            Length::new::<meter>(-0.02),
+            ozton_math::geometry::point(Length::new::<meter>(0.01), Length::new::<meter>(-0.02)),
             Angle::new::<radian>((tick % 100) as f64 * 0.001),
         );
         for sensor in sensors {
@@ -148,7 +138,7 @@ fn main() -> Result<(), &'static str> {
     measure("MCL motion prediction", 10_000, |_| {
         filter.predict(black_box(BodyDelta {
             translation: glam::DVec2::new(0.0001, 0.001),
-            heading: 0.001,
+            heading: Angle::new::<radian>(0.001),
         }));
         black_box(&filter);
     });

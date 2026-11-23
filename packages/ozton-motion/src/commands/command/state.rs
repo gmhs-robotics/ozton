@@ -9,7 +9,7 @@ pub(in crate::commands) struct State<'path> {
     range_elapsed: Duration,
     settled_range: Option<Duration>,
     start_travel: Option<f64>,
-    start_heading: Option<f64>,
+    start_heading: Option<Angle>,
     next_marker: usize,
 }
 
@@ -42,8 +42,7 @@ impl<'path> State<'path> {
             .hypot(feedback.lateral_velocity.value)
             <= options.speed_tolerance.value
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
-        let error_at =
-            |heading| wrap_heading(Angle::new::<radian>(heading - feedback.pose.heading));
+        let error_at = |heading| wrap_heading(heading - feedback.pose.heading).value;
         let drive = |linear, angular| {
             desaturate(
                 wheel_speeds(
@@ -55,7 +54,7 @@ impl<'path> State<'path> {
                 options.maximum_wheel_speed.value,
             )
         };
-        let contact_motion = |touched, heading: f64, speed, limit, settle: Duration| {
+        let contact_motion = |touched, heading: Angle, speed, limit, settle: Duration| {
             let error = error_at(heading);
             if touched {
                 (
@@ -93,15 +92,17 @@ impl<'path> State<'path> {
                 let end = path.end();
                 let tracking_error = path
                     .at_distance(Length::new::<meter>(progress.distance()))
+                    .pose
                     .position
                     .distance(feedback.pose.position);
                 lost = tracking_error > 0.35
                     || (matches!(follower, Follower::Ramsete { .. })
                         && elapsed.as_secs_f64() >= end.time
                         && progress.distance() < end.distance - 0.20);
-                let heading = end.heading + if *reverse { core::f64::consts::PI } else { 0.0 };
+                let heading = end.pose.heading
+                    + Angle::new::<radian>(if *reverse { core::f64::consts::PI } else { 0.0 });
                 let ready = progress.distance() >= end.distance - options.position_tolerance.value
-                    && feedback.pose.position.distance(end.position)
+                    && feedback.pose.position.distance(end.pose.position)
                         <= options.position_tolerance.value
                     && error_at(heading).abs() <= options.heading_tolerance.value;
                 let wheels = if ready {
@@ -130,7 +131,7 @@ impl<'path> State<'path> {
                 (wheels, ready && slow, options.settle)
             }
             Command::Turn { heading } => {
-                let error = error_at(heading.value);
+                let error = error_at(*heading);
                 let ready = error.abs() <= options.heading_tolerance.value;
                 (
                     drive(0.0, if ready { 0.0 } else { 3.0 * error }),
@@ -139,8 +140,7 @@ impl<'path> State<'path> {
                 )
             }
             Command::TurnToPoint { target } => {
-                let delta =
-                    glam::DVec2::new(target[0].value, target[1].value) - feedback.pose.position;
+                let delta = *target - feedback.pose.position;
                 let error = if delta.length() <= options.position_tolerance.value {
                     0.0
                 } else {
@@ -158,18 +158,12 @@ impl<'path> State<'path> {
                 reverse,
                 maximum_speed,
             } => {
-                let delta = ozton_math::geometry::Pose::new(
-                    target[0],
-                    target[1],
-                    Angle::new::<radian>(0.0),
-                )
-                .position
-                    - feedback.pose.position;
+                let delta = *target - feedback.pose.position;
                 let distance = delta.length();
                 let reached = distance <= options.position_tolerance.value;
                 let heading = error_at(
                     ozton_math::geometry::bearing(delta)
-                        + if *reverse { core::f64::consts::PI } else { 0.0 },
+                        + Angle::new::<radian>(if *reverse { core::f64::consts::PI } else { 0.0 }),
                 );
                 let linear = if reached || heading.abs() > 0.7 {
                     0.0
@@ -191,10 +185,10 @@ impl<'path> State<'path> {
                     .start_travel
                     .get_or_insert(feedback.forward_travel.value);
                 let error = meters.value - (feedback.forward_travel.value - start);
-                let heading = error_at(heading.map_or_else(
-                    || *self.start_heading.get_or_insert(feedback.pose.heading),
-                    |angle| angle.value,
-                ));
+                let heading =
+                    error_at(heading.unwrap_or_else(|| {
+                        *self.start_heading.get_or_insert(feedback.pose.heading)
+                    }));
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let speed = if reached || heading.abs() > 0.35 {
@@ -250,7 +244,7 @@ impl<'path> State<'path> {
                         self.range_elapsed = Duration::ZERO;
                     }
                     let distance_error = range.distance.value - alignment.distance.value;
-                    let heading_error = error_at(alignment.heading.value);
+                    let heading_error = error_at(alignment.heading);
                     let position_ready = distance_error.abs() <= options.position_tolerance.value;
                     let heading_ready = heading_error.abs() <= options.heading_tolerance.value;
                     let linear = if position_ready || heading_error.abs() > 0.2 {
@@ -291,7 +285,7 @@ impl<'path> State<'path> {
                 touched,
             } => contact_motion(
                 touched(robot, feedback, elapsed),
-                heading.value,
+                *heading,
                 speed.value,
                 speed.value.abs(),
                 *settle,

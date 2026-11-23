@@ -88,7 +88,7 @@ pub fn forward_arc_end(start: Pose, radius: Length, sweep: Angle) -> Pose {
     let pivot = arc_pivot(start, radius, sweep);
     Pose {
         position: pivot + rotation(sweep).rotate(start.position - pivot),
-        heading: start.heading + sweep.value,
+        heading: start.heading + sweep,
     }
 }
 
@@ -106,7 +106,10 @@ mod tests {
     fn turn_requires_clearance_from_the_wall() {
         let m = Length::new::<meter>;
         let chassis = Footprint::new(m(0.4), m(0.5)).unwrap();
-        let wall = Surface::new(m(0.2), m(-1.0), m(0.2), m(0.25));
+        let wall = Surface::new(
+            crate::geometry::point(m(0.2), m(-1.0)),
+            crate::geometry::point(m(0.2), m(0.25)),
+        );
         let start = Pose::default();
         assert!(!chassis.can_turn(start, &[wall], m(0.0)));
         let clear = Pose {
@@ -125,7 +128,10 @@ mod tests {
         let sweep = Angle::new::<degree>(25.0);
         let radius = inches(50.0);
         let left = inches(-19.0).value;
-        let flush = Pose::new(inches(-19.0 + 15.1 / 2.0), inches(-12.75), Angle::default());
+        let flush = Pose::new(
+            crate::geometry::point(inches(-19.0 + 15.1 / 2.0), inches(-12.75)),
+            Angle::default(),
+        );
         let (min, _) = chassis
             .forward_arc_bounds(flush, radius, sweep * -1.0)
             .unwrap();

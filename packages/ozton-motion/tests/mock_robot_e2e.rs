@@ -247,10 +247,7 @@ fn basic_motion_reaches_distance_and_heading_goals() {
             .await
             .expect("motion output succeeds");
         motion
-            .turn_to_point(
-                &mut drivetrain,
-                [Length::new::<meter>(-1.2), Length::new::<meter>(1.2)],
-            )
+            .turn_to_point(&mut drivetrain, glam::DVec2::new(-1.2, 1.2))
             .await
             .expect("motion output succeeds");
     });
@@ -284,24 +281,15 @@ fn seeking_motion_reaches_multiple_waypoints() {
 
     block_on(async {
         motion
-            .move_to_point(
-                &mut drivetrain,
-                [Length::new::<meter>(0.0), Length::new::<meter>(1.0)],
-            )
+            .move_to_point(&mut drivetrain, glam::DVec2::new(0.0, 1.0))
             .await
             .expect("motion output succeeds");
         motion
-            .move_to_point(
-                &mut drivetrain,
-                [Length::new::<meter>(-1.0), Length::new::<meter>(1.0)],
-            )
+            .move_to_point(&mut drivetrain, glam::DVec2::new(-1.0, 1.0))
             .await
             .expect("motion output succeeds");
         motion
-            .move_to_point(
-                &mut drivetrain,
-                [Length::new::<meter>(-1.4), Length::new::<meter>(0.4)],
-            )
+            .move_to_point(&mut drivetrain, glam::DVec2::new(-1.4, 0.4))
             .await
             .expect("motion output succeeds");
     });
@@ -329,10 +317,7 @@ fn reverse_seeking_drives_backward_to_target() {
 
     block_on(async {
         motion
-            .move_to_point(
-                &mut drivetrain,
-                [Length::new::<meter>(0.0), Length::new::<meter>(1.0)],
-            )
+            .move_to_point(&mut drivetrain, glam::DVec2::new(0.0, 1.0))
             .reverse()
             .await
             .expect("motion output succeeds");

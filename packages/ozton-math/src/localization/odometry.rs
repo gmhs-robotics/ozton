@@ -19,7 +19,7 @@ pub fn body_delta(
             }),
             forward.0.value - forward.1.value * heading.value,
         ),
-        heading: heading.value,
+        heading,
     }
 }
 

@@ -11,7 +11,7 @@ use ozton_localization::{
     differential::{DifferentialLocalization, update_localization},
 };
 use ozton_math::{
-    geometry::{Pose, direction, wrap_heading},
+    geometry::{DVec2, Pose, direction, wrap_heading},
     path::Path,
     uom::si::{
         angle::radian,
@@ -114,20 +114,19 @@ impl<A: DriveAssist<Differential>> MotionPlatform for TrackedDrive<A> {
 /// All field and robot coordinates are ordered right, forward.
 #[derive(Clone, Copy, Debug)]
 pub struct GoalReset {
-    pub center: [Length; 2],
+    pub center: DVec2,
     pub contact_radius: Length,
-    pub bracket_from_origin: [Length; 2],
+    pub bracket_from_origin: DVec2,
 }
 
 impl GoalReset {
     fn contact_pose(self, heading: Angle) -> Option<Pose> {
-        let [right, forward] = self.bracket_from_origin;
         if !self.contact_radius.value.is_finite() || self.contact_radius.value <= 0.0 {
             return None;
         }
-        let mut pose = Pose::new(self.center[0], self.center[1], heading);
+        let mut pose = Pose::new(self.center, heading);
         pose.position -= direction(heading) * self.contact_radius.value;
-        pose.position = pose.transform_point(glam::DVec2::new(-right.value, -forward.value));
+        pose.position = pose.transform_point(-self.bracket_from_origin);
         pose.is_finite().then_some(pose)
     }
 }
@@ -143,11 +142,7 @@ pub trait DrivetrainMotion {
     }
     /// Drive to a field point, then settle at the supplied heading.
     /// A configured footprint enables wall departure on empty rectangular fields.
-    async fn drive_to_point(
-        &mut self,
-        target: [Length; 2],
-        final_heading: Angle,
-    ) -> Result<(), CommandError<DriveMotionFault>>;
+    async fn drive_to_point(&mut self, target: Pose) -> Result<(), CommandError<DriveMotionFault>>;
     /// Turn in place when the current pose has room for the configured footprint.
     async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<DriveMotionFault>>;
     async fn drive_path(
@@ -196,12 +191,8 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
             .ok_or(DriveMotionFault::InvalidCommand)
     }
 
-    async fn drive_to_point(
-        &mut self,
-        target: [Length; 2],
-        final_heading: Angle,
-    ) -> Result<(), CommandError<DriveMotionFault>> {
-        point::drive_to_point(self, target, final_heading).await
+    async fn drive_to_point(&mut self, target: Pose) -> Result<(), CommandError<DriveMotionFault>> {
+        point::drive_to_point(self, target).await
     }
 
     async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<DriveMotionFault>> {
@@ -261,7 +252,7 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
                     return Err(DriveMotionFault::Cancelled);
                 }
                 let heading = read_heading(drivetrain).ok_or(DriveMotionFault::MissingHeading)?;
-                if wrap_heading(heading - start_heading).abs() > 0.15 {
+                if wrap_heading(heading - start_heading).value.abs() > 0.15 {
                     return Err(DriveMotionFault::NoContact);
                 }
                 let [Some(left), Some(right)] = drivetrain.wheel_load() else {
@@ -348,11 +339,10 @@ mod tests {
 
     #[test]
     fn goal_center_and_imu_heading_locate_the_offset_bracket() {
-        let lengths = |values: [f64; 2]| values.map(Length::new::<meter>);
         let goal = GoalReset {
-            center: lengths([2.0, 3.0]),
+            center: DVec2::new(2.0, 3.0),
             contact_radius: Length::new::<meter>(0.5),
-            bracket_from_origin: lengths([0.2, 0.1]),
+            bracket_from_origin: DVec2::new(0.2, 0.1),
         };
         let forward = goal.contact_pose(Angle::new::<radian>(0.0)).unwrap();
         assert!((forward.position - glam::DVec2::new(1.8, 2.4)).length() < 1e-12);

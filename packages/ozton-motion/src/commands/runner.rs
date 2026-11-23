@@ -414,13 +414,15 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 }
                 if !initialized {
                     if let Some((path, reverse)) = command.path_start() {
-                        let start = path.start();
-                        let heading =
-                            start.heading + if reverse { core::f64::consts::PI } else { 0.0 };
+                        let start = path.start().pose;
+                        let heading = start.heading
+                            + Angle::new::<radian>(if reverse {
+                                core::f64::consts::PI
+                            } else {
+                                0.0
+                            });
                         if feedback.pose.position.distance(start.position) > 0.15
-                            || wrap_heading(Angle::new::<radian>(feedback.pose.heading - heading))
-                                .abs()
-                                > 1.05
+                            || wrap_heading(feedback.pose.heading - heading).value.abs() > 1.05
                         {
                             return Err(CommandError::PathStart);
                         }
@@ -480,10 +482,9 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 if step.wheels.iter().any(|v| v.abs() > 0.08) {
                     let anchor = *progress_pose.get_or_insert(feedback.pose);
                     if feedback.pose.position.distance(anchor.position) > 0.008
-                        || wrap_heading(Angle::new::<radian>(
-                            feedback.pose.heading - anchor.heading,
-                        ))
-                        .abs()
+                        || wrap_heading(feedback.pose.heading - anchor.heading)
+                            .value
+                            .abs()
                             > 0.025
                     {
                         progress_pose = Some(feedback.pose);

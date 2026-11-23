@@ -110,7 +110,7 @@ where
         let position = this.drivetrain.localization.position();
         let heading = this.drivetrain.localization.heading();
         let to_target = this.point - position;
-        let target_heading = Angle::from_radians(ozton_math::geometry::bearing(to_target));
+        let target_heading = Angle::from_radians(ozton_math::geometry::bearing(to_target).value);
 
         let linear_error = state.initial_forward_travel - forward_travel;
         let angular_error = (heading - target_heading).wrapped_half();

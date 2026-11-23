@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use ozton_math::{
-    geometry::Pose,
+    geometry::{DVec2, Pose},
     uom::si::f64::{Angle, Length, Velocity},
 };
 
@@ -16,7 +16,7 @@ impl<R: MotionPlatform> Runner<'_, R> {
     }
     pub async fn drive_to_point(
         &mut self,
-        target: [Length; 2],
+        target: DVec2,
         maximum_speed: Velocity,
         reverse: bool,
         timeout: Duration,

@@ -9,7 +9,7 @@ use ozton_math::{
     geometry::Pose,
     localization::{
         mcl::ParticleConfig,
-        range::{Mount, RangeGate, Rejection, Surface},
+        range::{RangeGate, Rejection, Surface},
     },
     uom::{
         ConstZero,
@@ -35,45 +35,56 @@ const CONFIG: OdometryConfig = OdometryConfig {
 };
 const MAP: [Surface; 2] = [
     Surface::new(
-        Length {
-            value: 1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: 1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: -1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: 1.0,
-            ..Length::ZERO
-        },
+        ozton_math::geometry::point(
+            Length {
+                value: 1.0,
+                ..Length::ZERO
+            },
+            Length {
+                value: 1.0,
+                ..Length::ZERO
+            },
+        ),
+        ozton_math::geometry::point(
+            Length {
+                value: -1.0,
+                ..Length::ZERO
+            },
+            Length {
+                value: 1.0,
+                ..Length::ZERO
+            },
+        ),
     ),
     Surface::new(
-        Length {
-            value: -1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: 1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: -1.0,
-            ..Length::ZERO
-        },
-        Length {
-            value: -1.0,
-            ..Length::ZERO
-        },
+        ozton_math::geometry::point(
+            Length {
+                value: -1.0,
+                ..Length::ZERO
+            },
+            Length {
+                value: 1.0,
+                ..Length::ZERO
+            },
+        ),
+        ozton_math::geometry::point(
+            Length {
+                value: -1.0,
+                ..Length::ZERO
+            },
+            Length {
+                value: -1.0,
+                ..Length::ZERO
+            },
+        ),
     ),
 ];
 const SENSOR: RangeSensorConfig = RangeSensorConfig {
     mount_height: Length::ZERO,
-    mount: Mount::new(Length::ZERO, Length::ZERO, Angle::ZERO),
+    mount: Pose::new(
+        ozton_math::geometry::point(Length::ZERO, Length::ZERO),
+        Angle::ZERO,
+    ),
     gate: RangeGate::DEFAULT,
     bias: Length::ZERO,
     sigma: Length {
@@ -86,9 +97,8 @@ const SENSOR: RangeSensorConfig = RangeSensorConfig {
 const SENSORS: [RangeSensorConfig; 2] = [
     SENSOR,
     RangeSensorConfig {
-        mount: Mount::new(
-            Length::ZERO,
-            Length::ZERO,
+        mount: Pose::new(
+            ozton_math::geometry::point(Length::ZERO, Length::ZERO),
             Angle {
                 value: std::f64::consts::FRAC_PI_2,
                 ..Angle::ZERO
@@ -111,8 +121,7 @@ fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
             shadow,
         },
         Pose::new(
-            Length::new::<meter>(-0.08),
-            Length::new::<meter>(0.08),
+            ozton_math::geometry::point(Length::new::<meter>(-0.08), Length::new::<meter>(0.08)),
             Angle::new::<radian>(0.0),
         ),
         &MAP,
@@ -349,8 +358,7 @@ fn relative_alignment_does_not_depend_on_pose_association() {
     );
     let constraint = ozton_math::localization::range::constrain(
         Pose::new(
-            Length::new::<meter>(0.0),
-            Length::new::<meter>(0.5),
+            ozton_math::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.5)),
             Angle::new::<radian>(0.0),
         ),
         SENSOR.mount,
@@ -386,23 +394,22 @@ fn zero_track_width_preserves_heading_and_uses_available_travel() {
     tracker.update(snapshot(10), &[]).unwrap_err();
     let mut missing = snapshot(20);
     missing.imu = None;
-    assert_eq!(tracker.update(missing, &[]).unwrap().pose.heading, 0.0);
+    assert_eq!(
+        tracker.update(missing, &[]).unwrap().pose.heading.value,
+        0.0
+    );
 }
 
 #[test]
 fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range() {
     let map = [
         Surface::new(
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(0.5),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(0.5),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(0.5)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(0.5)),
         ),
         Surface::new(
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(1.0),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
         ),
     ];
     let sensor = RangeSensorConfig {
@@ -479,9 +486,8 @@ fn dsr_rejects_translation_lateral_and_rotation_until_rest_dwell_and_fresh_colle
 #[test]
 fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
     let opposite = RangeSensorConfig {
-        mount: Mount::new(
-            Length::new::<meter>(0.0),
-            Length::new::<meter>(0.0),
+        mount: Pose::new(
+            ozton_math::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.0)),
             Angle::new::<radian>(std::f64::consts::PI),
         ),
         surface: None,
@@ -493,16 +499,12 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
     };
     let map = [
         Surface::new(
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(1.0),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
         ),
         Surface::new(
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(-1.0),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(-1.0)),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(-1.0)),
         ),
     ];
     for sensors in [[forward, opposite], [opposite, forward]] {
@@ -543,16 +545,12 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
 fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
     let map = [
         Surface::new(
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(0.5),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(0.5),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(0.5)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(0.5)),
         ),
         Surface::new(
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(1.0),
-            Length::new::<meter>(-1.0),
-            Length::new::<meter>(1.0),
+            ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
+            ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
         ),
     ];
     let sensors = [RangeSensorConfig {
@@ -567,8 +565,7 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
             shadow: false,
         },
         Pose::new(
-            Length::new::<meter>(0.0),
-            Length::new::<meter>(0.08),
+            ozton_math::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.08)),
             Angle::new::<radian>(0.0),
         ),
         &map,

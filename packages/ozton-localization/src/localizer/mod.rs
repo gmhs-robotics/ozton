@@ -6,10 +6,7 @@ use glam::DVec2;
 use ozton_math::{
     geometry::{BodyDelta, Pose, wrap_heading},
     localization::range::Surface,
-    uom::si::{
-        angle::radian,
-        f64::{Angle as UomAngle, Time},
-    },
+    uom::si::f64::Time,
 };
 use ozton_tracking::{
     Tracking as TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
@@ -148,7 +145,7 @@ impl<'a> Localizer<'a> {
             return None;
         }
         let pose = Pose {
-            heading: wrap_heading(UomAngle::new::<radian>(pose.heading)),
+            heading: wrap_heading(pose.heading),
             ..pose
         };
         Some(Self {
@@ -283,7 +280,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             return false;
         }
         let pose = Pose {
-            heading: wrap_heading(UomAngle::new::<radian>(pose.heading)),
+            heading: wrap_heading(pose.heading),
             ..pose
         };
         self.trust = PoseTrust::Trusted;
@@ -404,7 +401,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         }
         self.odometry = odometry;
         self.forward_velocity = movement.translation.y / seconds;
-        self.angular_velocity = movement.heading / seconds;
+        self.angular_velocity = movement.heading.value / seconds;
         self.forward_travel += movement.translation.y;
         let mut reports = [None; MAX_RANGES];
         let (checking_pose, active_ranges) = if self.reset.is_some() {
@@ -536,7 +533,7 @@ impl<E: PoseEstimator> TracksPosition for Localizer<'_, E> {
 }
 impl<E: PoseEstimator> TracksHeading for Localizer<'_, E> {
     fn heading(&self) -> Angle {
-        Angle::from_radians(self.pose.heading)
+        Angle::from_radians(self.pose.heading.value)
     }
 }
 impl<E: PoseEstimator> TracksForwardTravel for Localizer<'_, E> {

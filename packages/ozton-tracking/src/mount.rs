@@ -50,19 +50,19 @@ impl MountAxes {
     }
 
     /// Converts survey lengths from The Origin to right/forward/up robot coordinates.
-    pub const fn point(self, x: Length, y: Length, up: Length) -> Vec3<Length> {
+    pub const fn point(self, survey: Vec3<Length>) -> Vec3<Length> {
         let (x_right, x_forward) = self.x.right_forward();
         let (y_right, y_forward) = self.y.right_forward();
         Vec3 {
             right: Length {
-                value: x.value * x_right + y.value * y_right,
+                value: survey.right.value * x_right + survey.forward.value * y_right,
                 ..Length::ZERO
             },
             forward: Length {
-                value: x.value * x_forward + y.value * y_forward,
+                value: survey.right.value * x_forward + survey.forward.value * y_forward,
                 ..Length::ZERO
             },
-            up,
+            up: survey.up,
         }
     }
 }
@@ -174,18 +174,14 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                axes.point(
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(0.0),
-                    Length::new::<meter>(0.0)
-                ),
+                axes.point(position!(0 m, 0 m, 0 m)),
                 position!(0 m, 0 m, 0 m)
             );
-            let point = axes.point(
+            let point = axes.point(Vec3::new(
                 Length::new::<meter>(x),
                 Length::new::<meter>(y),
                 Length::new::<meter>(0.3),
-            );
+            ));
             assert_eq!(point, position!(-0.1 m, 0.2 m, 0.3 m));
 
             let yaw = 0.4;
@@ -215,10 +211,10 @@ mod tests {
                 ..Angle::ZERO
             },
         );
-        assert_eq!(MOUNT.mount.offset.x, -0.0508);
-        assert_eq!(MOUNT.mount.offset.y, 0.2);
+        assert_eq!(MOUNT.mount.position.x, -0.0508);
+        assert_eq!(MOUNT.mount.position.y, 0.2);
         assert_eq!(MOUNT.mount_height.value, 0.3);
-        assert_eq!(MOUNT.mount.heading, -core::f64::consts::FRAC_PI_2);
+        assert_eq!(MOUNT.mount.heading.value, -core::f64::consts::FRAC_PI_2);
     }
 
     #[test]

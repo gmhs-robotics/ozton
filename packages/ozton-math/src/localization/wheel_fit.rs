@@ -1,5 +1,6 @@
 //! Least-squares body motion from projected wheel travel.
 use glam::{DMat2, DMat3, DVec2, DVec3};
+use uom::si::{angle::radian, f64::Angle};
 
 use crate::geometry::BodyDelta;
 const RANK_TOLERANCE: f64 = 1e-9;
@@ -7,7 +8,7 @@ const RANK_TOLERANCE: f64 = 1e-9;
 /// Solve observations in the right/forward frame with an optional known yaw.
 pub fn fit_wheel_motion(
     observations: impl Iterator<Item = (DVec3, f64)> + Clone,
-    yaw: Option<f64>,
+    yaw: Option<Angle>,
     partial: bool,
 ) -> Option<BodyDelta> {
     let yaw_scale = observations
@@ -19,7 +20,7 @@ pub fn fit_wheel_motion(
     let mut rhs = DVec3::ZERO;
     for (mut row, mut travel) in observations {
         if let Some(yaw) = yaw {
-            travel -= row.z * yaw;
+            travel -= row.z * yaw.value;
             row.z = 0.0;
         } else {
             row.z /= yaw_scale;
@@ -43,7 +44,7 @@ pub fn fit_wheel_motion(
         let result = normal.inverse() * rhs;
         return Some(BodyDelta {
             translation: result.truncate(),
-            heading: result.z / yaw_scale,
+            heading: Angle::new::<radian>(result.z / yaw_scale),
         });
     }
 
@@ -51,7 +52,7 @@ pub fn fit_wheel_motion(
         return None;
     }
     let heading = if let Some(heading) = yaw {
-        heading
+        heading.value
     } else if translation.determinant() <= RANK_TOLERANCE * xx * yy {
         // For parallel wheels, a difference in lever arms can still resolve yaw.
         let (along, cross, travel) = if xx >= yy {
@@ -84,6 +85,6 @@ pub fn fit_wheel_motion(
     };
     (planar.is_finite() && heading.is_finite()).then_some(BodyDelta {
         translation: planar,
-        heading,
+        heading: Angle::new::<radian>(heading),
     })
 }

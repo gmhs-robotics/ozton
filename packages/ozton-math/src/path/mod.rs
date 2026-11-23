@@ -3,10 +3,9 @@
 use alloc::vec::Vec;
 
 use glam::DVec2;
-use uom::si::{
-    angle::radian,
-    f64::{Acceleration, Angle, Length, Time, Velocity},
-};
+use uom::si::f64::{Acceleration, Length, Time, Velocity};
+
+use crate::geometry::Pose;
 
 pub mod clearance;
 pub mod follower;
@@ -20,9 +19,9 @@ pub struct Waypoint {
 
 impl Waypoint {
     /// Creates a waypoint from right/forward field lengths.
-    pub const fn new(x: Length, y: Length, speed_fraction: f64) -> Self {
+    pub const fn new(position: DVec2, speed_fraction: f64) -> Self {
         Self {
-            position: DVec2::new(x.value, y.value),
+            position,
             speed_fraction,
         }
     }
@@ -86,8 +85,7 @@ pub const MAX_POINTS: usize = 4096;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PathSample {
-    pub position: DVec2,
-    pub heading: f64,
+    pub pose: Pose,
     pub curvature: f64,
     pub distance: f64,
     pub speed: f64,
@@ -179,8 +177,7 @@ impl Path {
                 return Err(PathError::InvalidPoint(index));
             }
             samples.push(PathSample {
-                position: point.position,
-                heading: crate::geometry::bearing(chord),
+                pose: Pose::new(point.position, crate::geometry::bearing(chord)),
                 curvature,
                 distance,
                 speed,
@@ -260,12 +257,7 @@ impl Path {
 fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> PathSample {
     let fraction = (distance - a.distance) / (b.distance - a.distance);
     PathSample {
-        position: a.position.lerp(b.position, fraction),
-        heading: crate::geometry::wrap_heading(Angle::new::<radian>(
-            a.heading
-                + crate::geometry::wrap_heading(Angle::new::<radian>(b.heading - a.heading))
-                    * fraction,
-        )),
+        pose: a.pose.interpolate(b.pose, fraction),
         curvature: a.curvature + (b.curvature - a.curvature) * fraction,
         speed,
         distance,

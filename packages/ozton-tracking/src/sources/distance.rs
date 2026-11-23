@@ -3,7 +3,8 @@
 use std::time::Duration;
 
 use ozton_math::{
-    localization::range::{Mount, RangeGate, RangeReading, Rejection, Surface},
+    geometry::Pose,
+    localization::range::{RangeGate, RangeReading, Rejection, Surface},
     uom::{
         ConstZero,
         si::{
@@ -19,7 +20,7 @@ pub const MAX_RANGES: usize = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeSensorConfig {
-    pub mount: Mount,
+    pub mount: Pose,
     /// Beam height in the same chassis frame as the planar mount.
     pub mount_height: Length,
     pub gate: RangeGate,
@@ -32,7 +33,7 @@ pub struct RangeSensorConfig {
 
 impl RangeSensorConfig {
     /// Default V5 range gates, no bias, and 25 mm observation noise.
-    pub const fn new(mount: Mount) -> Self {
+    pub const fn new(mount: Pose) -> Self {
         Self {
             mount,
             mount_height: Length::ZERO,
@@ -51,13 +52,15 @@ impl RangeSensorConfig {
     pub const fn at_mount(position: Vec3<Length>, bearing: Angle) -> Self {
         Self {
             mount_height: position.up,
-            ..Self::new(Mount::new(position.right, position.forward, bearing))
+            ..Self::new(Pose::new(
+                ozton_math::geometry::point(position.right, position.forward),
+                bearing,
+            ))
         }
     }
 
     pub fn valid(self, map: &[Surface]) -> bool {
-        self.mount.offset.is_finite()
-            && self.mount.heading.is_finite()
+        self.mount.is_finite()
             && self.mount_height.value.is_finite()
             && self.gate.is_valid()
             && self.bias.value.is_finite()

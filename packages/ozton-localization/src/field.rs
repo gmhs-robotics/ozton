@@ -1,5 +1,9 @@
 //! Surveyed VEX V5 field perimeters in centered field coordinates.
-use ozton_math::{localization::range::Surface, uom::si::f64::Length};
+use ozton_math::{
+    geometry::{DVec2, point},
+    localization::range::Surface,
+    uom::si::f64::Length,
+};
 use ozton_tracking::{mount::Vec3, position, sources::distance::RangeSensorConfig};
 
 /// A rectangular perimeter with vertical walls.
@@ -44,10 +48,10 @@ impl Field {
         let right = self.max.right;
         let front = self.max.forward;
         [
-            Surface::new(left, rear, right, rear),
-            Surface::new(right, rear, right, front),
-            Surface::new(right, front, left, front),
-            Surface::new(left, front, left, rear),
+            Surface::new(point(left, rear), point(right, rear)),
+            Surface::new(point(right, rear), point(right, front)),
+            Surface::new(point(right, front), point(left, front)),
+            Surface::new(point(left, front), point(left, rear)),
         ]
     }
 
@@ -100,9 +104,9 @@ impl From<Field> for FieldMap {
 
 impl FieldMap {
     /// Half extents of an unobstructed rectangular field in right/forward order.
-    pub(crate) fn rectangular_half_extents(&self) -> Option<[Length; 2]> {
+    pub(crate) fn rectangular_half_extents(&self) -> Option<DVec2> {
         let field = self.perimeter.filter(|_| self.faces.len() == 4)?;
-        Some([field.max.right, field.max.forward])
+        Some(point(field.max.right, field.max.forward))
     }
 
     /// Add a surveyed surface. Leave movable game objects out of the fixed map.
@@ -122,8 +126,7 @@ impl FieldMap {
     /// Add a clipped square footprint as eight faces using the same height band.
     pub fn add_octagon(
         &mut self,
-        right: Length,
-        forward: Length,
+        center: DVec2,
         half_width: Length,
         corner: Length,
         bottom: Length,
@@ -142,8 +145,7 @@ impl FieldMap {
         ];
         if !(corner.value > 0.0 && corner < half_width)
             || self.faces.len() + corners.len() > u128::BITS as usize
-            || !right.value.is_finite()
-            || !forward.value.is_finite()
+            || !center.is_finite()
             || !bottom.value.is_finite()
             || !top.value.is_finite()
             || bottom >= top
@@ -155,7 +157,7 @@ impl FieldMap {
         for (index, (x, y)) in corners.into_iter().enumerate() {
             let (end_x, end_y) = corners[(index + 1) % corners.len()];
             let face = VerticalSurface::new(
-                Surface::new(right + x, forward + y, right + end_x, forward + end_y),
+                Surface::new(center + point(x, y), center + point(end_x, end_y)),
                 bottom,
                 top,
             );
@@ -201,8 +203,7 @@ mod tests {
         // Exercise map entries above the former 32-surface limit.
         for offset in 0..4 {
             assert!(field.add_octagon(
-                meters(0.5),
-                meters(0.15 * f64::from(offset)),
+                DVec2::new(0.5, 0.15 * f64::from(offset)),
                 meters(0.05),
                 meters(0.01),
                 meters(0.0),
@@ -210,8 +211,7 @@ mod tests {
             ));
         }
         assert!(field.add_octagon(
-            meters(0.0),
-            meters(0.8),
+            DVec2::new(0.0, 0.8),
             meters(0.1),
             meters(0.02),
             meters(0.0),

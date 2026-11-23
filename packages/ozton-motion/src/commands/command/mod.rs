@@ -5,7 +5,7 @@ use std::time::Duration;
 use ozton_localization::{Feedback, MAX_RANGES};
 use ozton_math::{
     desaturate,
-    geometry::{Pose, wheel_speeds, wrap_heading},
+    geometry::{DVec2, Pose, wheel_speeds, wrap_heading},
     path::{
         Path,
         follower::{self, Follower, FollowerSample, Progress},
@@ -170,11 +170,11 @@ pub enum Command<'a, R> {
     },
     /// Aim toward a surveyed field point while holding translation stopped.
     TurnToPoint {
-        target: [Length; 2],
+        target: DVec2,
     },
     /// Closed-loop field-point navigation using full planar pose, including lateral drift.
     DriveToPoint {
-        target: [Length; 2],
+        target: DVec2,
         reverse: bool,
         maximum_speed: Velocity,
     },
@@ -235,13 +235,9 @@ impl<R> Command<'_, R> {
     }
 
     /// Field target in right/forward order.
-    pub const fn drive_to_point(
-        [right, forward]: [Length; 2],
-        maximum_speed: Velocity,
-        reverse: bool,
-    ) -> Self {
+    pub const fn drive_to_point(target: DVec2, maximum_speed: Velocity, reverse: bool) -> Self {
         Self::DriveToPoint {
-            target: [right, forward],
+            target,
             maximum_speed,
             reverse,
         }
@@ -300,13 +296,13 @@ impl<R> Command<'_, R> {
                         .all(|pair| pair[0].distance <= pair[1].distance)
             }
             Self::Turn { heading } => heading.value.is_finite(),
-            Self::TurnToPoint { target } => target.iter().all(|coord| coord.value.is_finite()),
+            Self::TurnToPoint { target } => target.is_finite(),
             Self::DriveToPoint {
                 target,
                 maximum_speed,
                 ..
             } => {
-                target.iter().all(|v| v.value.is_finite())
+                target.is_finite()
                     && maximum_speed.value.is_finite()
                     && maximum_speed.value > 0.0
                     && maximum_speed.value <= options.maximum_wheel_speed.value

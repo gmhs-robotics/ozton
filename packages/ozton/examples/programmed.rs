@@ -35,7 +35,10 @@ const START_HEADING: Angle = Angle {
     value: -core::f64::consts::FRAC_PI_2,
     ..Angle::ZERO
 };
-const START: Pose = Pose::new(Length::ZERO, Length::ZERO, START_HEADING);
+const START: Pose = Pose::new(
+    ozton::math::geometry::point(Length::ZERO, Length::ZERO),
+    START_HEADING,
+);
 const CONFIG: DifferentialConfig = {
     let mut config = DifferentialConfig::new(
         Length {
@@ -208,10 +211,8 @@ async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
     let tracking = TrackingSetup {
         imu: Some(InertialSensor::new(p.port_7)),
         map: vec![Surface::new(
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(-1.8),
-            Length::new::<meter>(1.8),
-            Length::new::<meter>(1.8),
+            ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
+            ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
         )],
         ranges: vec![DistanceTracker::new(
             p.port_8,

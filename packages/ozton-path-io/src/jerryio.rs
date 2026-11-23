@@ -48,8 +48,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
             return Err(ImportError::InvalidRow(line_number));
         }
         points.push(Waypoint::new(
-            Length::new::<inch>(x),
-            Length::new::<inch>(y),
+            ozton_math::geometry::point(Length::new::<inch>(x), Length::new::<inch>(y)),
             speed / 127.0,
         ));
     }

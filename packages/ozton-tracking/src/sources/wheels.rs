@@ -232,7 +232,7 @@ mod tests {
                 true,
             );
             assert!(motion.translation.distance(DVec2::new(0.0, 0.1)) < 1e-12);
-            assert!((motion.heading - heading).abs() < 1e-12);
+            assert!((motion.heading.value - heading).abs() < 1e-12);
         }
     }
 
@@ -263,13 +263,13 @@ mod tests {
         let same = Snapshot::default();
         let motion = layout.delta(same, same, None, None, false);
         assert!(motion.translation.distance(travel) < 1e-12);
-        assert!((motion.heading - yaw).abs() < 1e-12);
+        assert!((motion.heading.value - yaw).abs() < 1e-12);
 
         layout.observe(&[None, positions[1], positions[2]]);
         layout.observe(&[Some(length(200.0)), positions[1], positions[2]]);
         let motion = layout.delta(same, same, None, None, false);
         assert_eq!(motion.translation, DVec2::ZERO);
-        assert_eq!(motion.heading, 0.0);
+        assert_eq!(motion.heading.value, 0.0);
     }
 
     #[test]

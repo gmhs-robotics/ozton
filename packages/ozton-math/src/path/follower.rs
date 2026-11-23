@@ -59,6 +59,7 @@ impl<'path> Progress<'path> {
         let maximum = self.distance + advance_limit.value.max(0.0);
         let mut best_error = position.distance_squared(
             path.at_distance(Length::new::<meter>(self.distance))
+                .pose
                 .position,
         );
         let mut best_distance = self.distance;
@@ -67,13 +68,13 @@ impl<'path> Progress<'path> {
             if a.distance > maximum {
                 break;
             }
-            let segment = b.position - a.position;
+            let segment = b.pose.position - a.pose.position;
             let length = b.distance - a.distance;
             let lower = ((self.distance - a.distance) / length).clamp(0.0, 1.0);
             let upper = ((maximum - a.distance) / length).clamp(lower, 1.0);
-            let projection = ((position - a.position).dot(segment) / segment.length_squared())
+            let projection = ((position - a.pose.position).dot(segment) / segment.length_squared())
                 .clamp(lower, upper);
-            let error = position.distance_squared(a.position + segment * projection);
+            let error = position.distance_squared(a.pose.position + segment * projection);
             if error < best_error {
                 best_error = error;
                 best_distance = a.distance + projection * length;
@@ -95,16 +96,17 @@ impl<'path> Progress<'path> {
             let [_, exit] = circle_segment_fractions(
                 position,
                 Length::new::<meter>(radius),
-                a.position,
-                b.position,
+                a.pose.position,
+                b.pose.position,
             );
             if let Some(exit) = exit
                 && a.distance + (b.distance - a.distance) * exit >= self.distance
             {
-                return a.position.lerp(b.position, exit);
+                return a.pose.position.lerp(b.pose.position, exit);
             }
         }
         path.at_distance(Length::new::<meter>(self.distance + radius))
+            .pose
             .position
     }
 }
@@ -133,7 +135,7 @@ pub fn command(
         position_tolerance.value,
     );
     let sign = if reverse { -1.0 } else { 1.0 };
-    let facing = if reverse { PI } else { 0.0 };
+    let facing = Angle::new::<radian>(if reverse { PI } else { 0.0 });
     let end = path.end();
     let limits = path.limits();
     let (linear, angular) = match follower {
@@ -146,17 +148,15 @@ pub fn command(
             let reference = path.at_distance(Length::new::<meter>(progress.distance));
             let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
             if target.y < 0.0 {
-                (0.0, 2.0 * crate::geometry::bearing(target))
+                (0.0, 2.0 * crate::geometry::bearing(target).value)
             } else {
                 (sign * speed, speed * pursuit_curvature(target))
             }
         }
         Follower::Ramsete { b, zeta } => {
             let reference = path.at_time(Time::new::<second>(elapsed + dt));
-            let error = pose.to_local(reference.position);
-            let heading_error = wrap_heading(Angle::new::<radian>(
-                reference.heading + facing - pose.heading,
-            ));
+            let error = pose.to_local(reference.pose.position);
+            let heading_error = wrap_heading(reference.pose.heading + facing - pose.heading).value;
             let velocity = sign * reference.speed;
             let omega = reference.speed * reference.curvature;
             let gain = 2.0 * zeta * libm::sqrt(omega * omega + b * velocity * velocity);
@@ -178,15 +178,16 @@ pub fn command(
         Follower::Ramsete { .. } => elapsed + dt >= end.time,
     };
     let (linear, angular) = if terminal {
-        let error = pose.to_local(end.position);
-        let heading_error = wrap_heading(Angle::new::<radian>(end.heading + facing - pose.heading));
+        let error = pose.to_local(end.pose.position);
+        let heading_error = wrap_heading(end.pose.heading + facing - pose.heading).value;
         let distance = error.length();
         if distance > position_tolerance {
             let travel_heading = crate::geometry::bearing(error);
-            let backward = travel_heading.abs() > PI / 2.0;
-            let bearing = wrap_heading(Angle::new::<radian>(
-                travel_heading + if backward { PI } else { 0.0 },
-            ));
+            let backward = travel_heading.value.abs() > PI / 2.0;
+            let bearing = wrap_heading(
+                travel_heading + Angle::new::<radian>(if backward { PI } else { 0.0 }),
+            )
+            .value;
             let terminal_speed = (2.0 * distance).min(limits.linear_speed.value * 0.4);
             (
                 terminal_speed * libm::cos(bearing) * if backward { -1.0 } else { 1.0 },

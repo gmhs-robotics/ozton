@@ -361,7 +361,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
                     [
                         pose.position.x,
                         pose.position.y,
-                        pose.heading,
+                        pose.heading.value,
                         update.forward_velocity,
                         update.angular_velocity,
                     ],

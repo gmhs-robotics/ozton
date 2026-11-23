@@ -135,7 +135,7 @@ where
             heading
         };
         let angle_error = (drive_heading
-            - Angle::from_radians(ozton_math::geometry::bearing(local_target)))
+            - Angle::from_radians(ozton_math::geometry::bearing(local_target).value))
         .wrapped_half();
         let mut projected_cte = distance_error * angle_error.sin();
 

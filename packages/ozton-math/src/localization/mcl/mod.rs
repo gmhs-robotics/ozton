@@ -11,7 +11,7 @@ use uom::si::{
     length::meter,
 };
 
-use super::range::{Mount, Surface, ray_distance};
+use super::range::{Surface, ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
 
 const MAX_PARTICLES: usize = 128;
@@ -49,7 +49,7 @@ struct Particle {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Beam {
-    pub mount: Mount,
+    pub mount: Pose,
     pub distance: Length,
     pub max_range: Length,
     /// Eligible surfaces for this beam, including mounting-height eligibility.
@@ -123,11 +123,8 @@ impl ParticleFilter {
             let noise = self.random.normal3() * self.config.initial_spread;
             self.particles.push(Particle {
                 pose: Pose::new(
-                    Length::new::<meter>(pose.position.x + noise.x),
-                    Length::new::<meter>(pose.position.y + noise.y),
-                    Angle::new::<radian>(wrap_heading(Angle::new::<radian>(
-                        pose.heading + noise.z,
-                    ))),
+                    pose.position + noise.truncate(),
+                    wrap_heading(pose.heading + Angle::new::<radian>(noise.z)),
                 ),
                 weight,
             });
@@ -138,7 +135,7 @@ impl ParticleFilter {
         if !delta.is_finite() {
             return;
         }
-        let magnitude = delta.translation.length() + delta.heading.abs();
+        let magnitude = delta.translation.length() + delta.heading.value.abs();
         if magnitude == 0.0 || !magnitude.is_finite() {
             return;
         }
@@ -147,7 +144,7 @@ impl ParticleFilter {
             let noise = self.random.normal3() * spread;
             particle.pose = particle.pose.integrate(BodyDelta {
                 translation: delta.translation + DVec2::new(noise.x, noise.y),
-                heading: delta.heading + noise.z,
+                heading: delta.heading + Angle::new::<radian>(noise.z),
             });
         }
     }
@@ -204,7 +201,7 @@ impl ParticleFilter {
         for particle in &mut self.particles {
             particle.pose.heading = heading;
         }
-        self.observe_beams(beams, map, Some(rotation(Angle::new::<radian>(heading))))
+        self.observe_beams(beams, map, Some(rotation(heading)))
     }
 
     /// Updates each beam once, returning the estimate before any resampling.
@@ -225,8 +222,7 @@ impl ParticleFilter {
                     || !beam.max_range.value.is_finite()
                     || beam.distance.value <= 0.0
                     || beam.distance > beam.max_range
-                    || !beam.mount.offset.is_finite()
-                    || !beam.mount.heading.is_finite()
+                    || !beam.mount.is_finite()
             })
         {
             return None;
@@ -240,11 +236,10 @@ impl ParticleFilter {
                 * (mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture)))
                 .clamp(1e-12, 1e12);
             let mut total = 0.0;
-            let body_direction = direction(Angle::new::<radian>(beam.mount.heading));
+            let body_direction = direction(beam.mount.heading);
             for particle in &mut self.particles {
-                let orientation = fixed_rotation
-                    .unwrap_or_else(|| rotation(Angle::new::<radian>(particle.pose.heading)));
-                let origin = particle.pose.position + orientation.rotate(beam.mount.offset);
+                let orientation = fixed_rotation.unwrap_or_else(|| rotation(particle.pose.heading));
+                let origin = particle.pose.position + orientation.rotate(beam.mount.position);
                 let direction = orientation.rotate(body_direction);
                 let matched = ray_distance(origin, direction, map, beam.surface_mask).map_or(
                     0.0,
@@ -278,7 +273,7 @@ impl ParticleFilter {
         let mut headings = DVec2::ZERO;
         for particle in &self.particles {
             position += particle.pose.position * particle.weight;
-            headings += direction(Angle::new::<radian>(particle.pose.heading)) * particle.weight;
+            headings += direction(particle.pose.heading) * particle.weight;
         }
         let heading = bearing(headings);
         let mut variance = DVec3::ZERO;
@@ -287,7 +282,7 @@ impl ParticleFilter {
             let difference = DVec3::new(
                 error.x,
                 error.y,
-                wrap_heading(Angle::new::<radian>(particle.pose.heading - heading)),
+                wrap_heading(particle.pose.heading - heading).value,
             );
             variance += difference * difference * particle.weight;
         }

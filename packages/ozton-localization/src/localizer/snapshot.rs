@@ -92,7 +92,11 @@ pub(crate) fn delta(
         .filter(|angle| angle.is_finite())
         .or_else(|| {
             (config.track_width.value > 0.0)
-                .then(|| Some((right? - left?) / config.track_width.value))
+                .then(|| {
+                    Some(Angle::new::<radian>(
+                        (right? - left?) / config.track_width.value,
+                    ))
+                })
                 .flatten()
                 .filter(|angle| angle.is_finite())
         });
@@ -110,7 +114,7 @@ pub(crate) fn delta(
         return Ok((
             BodyDelta {
                 translation: glam::DVec2::ZERO,
-                heading: 0.0,
+                heading: Angle::default(),
             },
             dt,
         ));
@@ -119,11 +123,7 @@ pub(crate) fn delta(
     let forward = forward.unwrap_or_default();
     let lengths = |(travel, offset)| (Length::new::<meter>(travel), Length::new::<meter>(offset));
     Ok((
-        body_delta(
-            lengths(forward),
-            lateral.map(lengths),
-            Angle::new::<radian>(heading),
-        ),
+        body_delta(lengths(forward), lateral.map(lengths), heading),
         dt,
     ))
 }

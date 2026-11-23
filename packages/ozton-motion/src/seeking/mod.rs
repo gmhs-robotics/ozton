@@ -5,7 +5,6 @@ use std::time::Duration;
 use glam::DVec2 as Vec2;
 use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
-use ozton_math::uom::si::f64::Length;
 use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
 
 mod move_to_point;
@@ -59,12 +58,12 @@ where
     >(
         &self,
         drivetrain: &'a mut Drivetrain<M, S, T, D>,
-        point: [Length; 2],
+        point: Vec2,
     ) -> MoveToPointFuture<'a, M, L, A, S, T, D> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,
-            target_point: Vec2::from_array(point.map(|length| length.value)),
+            target_point: point,
             timeout: self.timeout,
             tolerances: self.tolerances,
             linear_controller: self.linear_controller.clone(),

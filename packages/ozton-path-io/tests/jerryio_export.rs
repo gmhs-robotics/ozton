@@ -25,9 +25,9 @@ fn actual_export_uses_field_coordinates_and_real_end_point() {
         },
     )
     .unwrap();
-    assert_eq!(path.start().position.to_array(), [0.0, 0.0]);
+    assert_eq!(path.start().pose.position.to_array(), [0.0, 0.0]);
     assert_eq!(
-        path.end().position.to_array(),
+        path.end().pose.position.to_array(),
         [-21.466, -11.599].map(|x| Length::new::<inch>(x).get::<meter>())
     );
     assert_eq!(path.end().speed, 0.0);
@@ -43,10 +43,22 @@ fn projection_keeps_the_current_branch_at_a_crossing() {
     use ozton_math::path::Waypoint;
     let path = Path::new(
         &[
-            Waypoint::new(Length::new::<meter>(-1.0), Length::new::<meter>(-1.0), 1.0),
-            Waypoint::new(Length::new::<meter>(1.0), Length::new::<meter>(1.0), 1.0),
-            Waypoint::new(Length::new::<meter>(-1.0), Length::new::<meter>(1.0), 1.0),
-            Waypoint::new(Length::new::<meter>(1.0), Length::new::<meter>(-1.0), 1.0),
+            Waypoint::new(
+                ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(-1.0)),
+                1.0,
+            ),
+            Waypoint::new(
+                ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
+                1.0,
+            ),
+            Waypoint::new(
+                ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
+                1.0,
+            ),
+            Waypoint::new(
+                ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(-1.0)),
+                1.0,
+            ),
         ],
         Limits {
             track_width: Length::new::<meter>(0.3),
@@ -62,6 +74,7 @@ fn projection_keeps_the_current_branch_at_a_crossing() {
     for i in 1..=15 {
         let point = path
             .at_distance(Length::new::<meter>(f64::from(i) * 0.1))
+            .pose
             .position;
         progress.update(point, Length::new::<meter>(0.11));
     }

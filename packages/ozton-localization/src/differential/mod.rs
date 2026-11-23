@@ -2,9 +2,8 @@
 use std::time::Duration;
 
 use ozton_math::{
-    geometry::{Pose, compass_heading},
+    geometry::{DVec2, Pose, compass_heading},
     uom::si::{
-        angle::radian,
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
         length::meter,
@@ -31,7 +30,7 @@ pub use builder::{DsrUse, LocalizationBuilder};
 /// Pose estimator state. Accepts observations without owning or reading hardware.
 pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
-    rectangular_half_extents: Option<[Length; 2]>,
+    rectangular_half_extents: Option<DVec2>,
     wheels: WheelOdometry,
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
@@ -44,7 +43,7 @@ pub struct DifferentialLocalization {
 
 impl DifferentialLocalization {
     /// Half extents of the configured field if it has only a rectangular perimeter.
-    pub fn rectangular_half_extents(&self) -> Option<[Length; 2]> {
+    pub fn rectangular_half_extents(&self) -> Option<DVec2> {
         self.rectangular_half_extents
     }
 
@@ -70,7 +69,7 @@ impl DifferentialLocalization {
         }
         self.imu_heading_offset = imu
             .filter(|heading| heading.value.is_finite())
-            .map(|heading| Angle::new::<radian>(pose.heading) - compass_heading(heading));
+            .map(|heading| pose.heading - compass_heading(heading));
         true
     }
 

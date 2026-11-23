@@ -76,8 +76,7 @@ impl Sim {
     fn new(reverse: bool) -> Self {
         Self {
             pose: Pose::new(
-                Length::new::<meter>(0.0),
-                Length::new::<meter>(0.0),
+                ozton_math::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.0)),
                 Angle::new::<radian>(if reverse { PI } else { 0.0 }),
             ),
             travel: 0.0,
@@ -138,7 +137,7 @@ impl MotionPlatform for Sim {
         self.travel += speed * dt;
         self.pose = self.pose.integrate(BodyDelta {
             translation: DVec2::new(0.0, speed * dt),
-            heading: angular_speed * dt,
+            heading: Angle::new::<radian>(angular_speed * dt),
         });
         Ok(Some(Feedback {
             time: now.saturating_duration_since(self.started),
@@ -209,8 +208,10 @@ fn route() -> Path {
         .map(|index| {
             let x = f64::from(index) * 0.05;
             Waypoint::new(
-                Length::new::<meter>(-0.22 * x.powi(2)),
-                Length::new::<meter>(x),
+                ozton_math::geometry::point(
+                    Length::new::<meter>(-0.22 * x.powi(2)),
+                    Length::new::<meter>(x),
+                ),
                 0.8,
             )
         })
@@ -258,7 +259,7 @@ fn forward_arc_reaches_the_expected_pose() {
             .unwrap();
         let robot = runner.robot_ref();
         assert!(robot.pose.position.distance(end.position) <= OPTIONS.position_tolerance.value);
-        assert!((robot.pose.heading - end.heading).abs() <= OPTIONS.heading_tolerance.value);
+        assert!((robot.pose.heading - end.heading).value.abs() <= OPTIONS.heading_tolerance.value);
         assert_eq!(robot.wheels, [0.0; 2]);
     });
 }
@@ -304,7 +305,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                     .unwrap();
                 let robot = runner.robot();
                 assert!(
-                    robot.pose.position.distance(path.end().position)
+                    robot.pose.position.distance(path.end().pose.position)
                         <= OPTIONS.position_tolerance.value
                 );
                 assert_eq!(robot.wheels, [0.0; 2]);
@@ -316,9 +317,10 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                     .run_while(
                         Command::DriveDistance {
                             meters: Length::new::<meter>(0.4),
-                            heading: Some(Angle::new::<radian>(
-                                path.end().heading + if reverse { PI } else { 0.0 },
-                            )),
+                            heading: Some(
+                                path.end().pose.heading
+                                    + Angle::new::<radian>(if reverse { PI } else { 0.0 }),
+                            ),
                             maximum_speed: Velocity::new::<meter_per_second>(0.4),
                         },
                         Duration::from_secs(1),
@@ -432,7 +434,7 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
             runner
                 .run_while(
                     Command::DriveToPoint {
-                        target: [Length::new::<meter>(-0.10), Length::new::<meter>(0.20)],
+                        target: glam::DVec2::new(-0.10, 0.20),
                         reverse,
                         maximum_speed: Velocity::new::<meter_per_second>(0.5),
                     },
@@ -490,7 +492,7 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         let moved = runner
             .try_run_while(
                 Command::DriveToPoint {
-                    target: [Length::new::<meter>(0.0), Length::new::<meter>(0.1)],
+                    target: glam::DVec2::new(0.0, 0.1),
                     reverse: false,
                     maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },
@@ -505,7 +507,7 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
         runner
             .run_while(
                 Command::DriveToPoint {
-                    target: [Length::new::<meter>(0.0), Length::new::<meter>(0.1)],
+                    target: glam::DVec2::new(0.0, 0.1),
                     reverse: false,
                     maximum_speed: Velocity::new::<meter_per_second>(0.3),
                 },

@@ -5,7 +5,7 @@ use ozton_math::{
     geometry::Pose,
     path::clearance::RectangularClearance,
     uom::si::{
-        angle::{degree, radian},
+        angle::degree,
         f64::{Angle, Length, Velocity},
         length::meter,
         velocity::meter_per_second,
@@ -23,17 +23,15 @@ type MotionResult<T = ()> = Result<T, CommandError<DriveMotionFault>>;
 
 pub(super) async fn drive_to_point<A: DriveAssist<Differential>>(
     drive: &mut TrackedDrive<A>,
-    target: [Length; 2],
-    final_heading: Angle,
+    target: Pose,
 ) -> MotionResult {
-    let target_pose = Pose::new(target[0], target[1], final_heading);
-    if !target_pose.is_finite() {
+    if !target.is_finite() {
         return Err(CommandError::Configuration);
     }
 
     let clearance = clearance(drive)?;
     let options = options(drive)?;
-    if clearance.is_some_and(|field| !field.can_turn(target_pose)) {
+    if clearance.is_some_and(|field| !field.can_turn(target)) {
         return Err(CommandError::InsufficientClearance);
     }
     let mut runner = Runner::new(
@@ -47,12 +45,17 @@ pub(super) async fn drive_to_point<A: DriveAssist<Differential>>(
         depart_wall(&mut runner, field, options).await?;
     }
     runner
-        .run(Command::TurnToPoint { target }, AUTON_STAGE_TIMEOUT)
+        .run(
+            Command::TurnToPoint {
+                target: target.position,
+            },
+            AUTON_STAGE_TIMEOUT,
+        )
         .await?;
     runner
-        .drive_to_point(target, AUTON_SPEED, false, AUTON_STAGE_TIMEOUT)
+        .drive_to_point(target.position, AUTON_SPEED, false, AUTON_STAGE_TIMEOUT)
         .await?;
-    turn_checked(&mut runner, clearance, final_heading).await?;
+    turn_checked(&mut runner, clearance, target.heading).await?;
     runner.finish_command()
 }
 
@@ -107,7 +110,7 @@ async fn depart_wall<A: DriveAssist<Differential>>(
     };
 
     if advance > Length::new::<meter>(0.0) {
-        let heading = Angle::new::<radian>(runner.robot_ref().localization.pose().heading);
+        let heading = runner.robot_ref().localization.pose().heading;
         runner
             .drive_distance(advance, heading, speed, AUTON_STAGE_TIMEOUT)
             .await?;

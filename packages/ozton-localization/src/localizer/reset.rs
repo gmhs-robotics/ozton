@@ -4,7 +4,6 @@ use std::time::Duration;
 use ozton_math::{
     geometry::{Pose, wrap_heading},
     localization::range::{Constraint, Rejection, Surface, fit_translation},
-    uom::si::{angle::radian, f64::Angle},
 };
 use ozton_tracking::sources::distance::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 
@@ -82,7 +81,7 @@ impl ResetWindow {
         }
         if self.anchor.is_some_and(|(_, anchor)| {
             pose.position.distance(anchor.position) > 0.012
-                || wrap_heading(Angle::new::<radian>(pose.heading - anchor.heading)).abs() > 0.02
+                || wrap_heading(pose.heading - anchor.heading).value.abs() > 0.02
         }) {
             self.restart();
         }

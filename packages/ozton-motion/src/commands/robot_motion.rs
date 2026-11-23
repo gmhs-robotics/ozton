@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use ozton_math::{
-    geometry::Pose,
+    geometry::{DVec2, Pose},
     path::{Limits, Path, Waypoint, follower::Follower},
     uom::si::f64::{Angle, Length, Velocity},
 };
@@ -42,15 +42,15 @@ pub trait RobotMotion: Sized {
 
     async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<Self::Error>>;
 
-    async fn turn_toward(&mut self, target: [Length; 2]) -> Result<(), CommandError<Self::Error>>;
+    async fn turn_toward(&mut self, target: DVec2) -> Result<(), CommandError<Self::Error>>;
 
-    async fn drive_to(&mut self, target: [Length; 2]) -> Result<(), CommandError<Self::Error>> {
+    async fn drive_to(&mut self, target: DVec2) -> Result<(), CommandError<Self::Error>> {
         self.drive_to_with(target, TravelDirection::Forward).await
     }
 
     async fn drive_to_with(
         &mut self,
-        target: [Length; 2],
+        target: DVec2,
         direction: TravelDirection,
     ) -> Result<(), CommandError<Self::Error>>;
 
@@ -140,13 +140,13 @@ where
         self.run_command(Command::Turn { heading }).await
     }
 
-    async fn turn_toward(&mut self, target: [Length; 2]) -> Result<(), CommandError<Self::Error>> {
+    async fn turn_toward(&mut self, target: DVec2) -> Result<(), CommandError<Self::Error>> {
         self.run_command(Command::TurnToPoint { target }).await
     }
 
     async fn drive_to_with(
         &mut self,
-        target: [Length; 2],
+        target: DVec2,
         direction: TravelDirection,
     ) -> Result<(), CommandError<Self::Error>> {
         let options = P::drive_options(self).ok_or(CommandError::Configuration)?;

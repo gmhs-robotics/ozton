@@ -5,10 +5,9 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{Beam, ParticleConfig, ParticleFilter},
-        range::{Constraint, Mount, fit_translation},
+        range::{Constraint, fit_translation},
     },
     uom::si::{
-        angle::radian,
         f64::{Angle, Length},
         length::meter,
     },
@@ -48,9 +47,9 @@ impl PoseEstimator for Mcl {
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose> {
         let Observations { predicted, map, .. } = observations;
         let empty = Beam {
-            mount: Mount {
-                offset: DVec2::ZERO,
-                heading: 0.0,
+            mount: Pose {
+                position: DVec2::ZERO,
+                heading: Angle::default(),
             },
             distance: Length::new::<meter>(0.0),
             max_range: Length::new::<meter>(0.0),
@@ -81,11 +80,9 @@ impl PoseEstimator for Mcl {
         self.candidate.clone_from(&self.filter);
         self.candidate
             .propose_position(predicted.position + change, normal, noise);
-        let estimate = self.candidate.observe_position(
-            &beams[..count],
-            map,
-            Angle::new::<radian>(predicted.heading),
-        )?;
+        let estimate = self
+            .candidate
+            .observe_position(&beams[..count], map, predicted.heading)?;
         let change = estimate.pose.position - predicted.position;
         let deviation = estimate.standard_deviation;
         // Weight the correction by particle concentration relative to the beams'
