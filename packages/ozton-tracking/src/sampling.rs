@@ -19,18 +19,16 @@ use crate::{
 pub enum TrackingBuildError {
     WheelGeometry,
     RangeLayout,
-    RangeStartup,
     ImuStartup,
 }
 
 impl std::fmt::Display for TrackingBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::WheelGeometry => "invalid tracking-wheel geometry",
-            Self::RangeLayout => "invalid distance sensor layout",
-            Self::RangeStartup => "distance sensors did not become ready",
-            Self::ImuStartup => "IMU startup calibration failed",
-        })
+        match self {
+            Self::WheelGeometry => f.write_str("invalid tracking-wheel geometry"),
+            Self::RangeLayout => write!(f, "too many distance sensors (maximum {MAX_RANGES})"),
+            Self::ImuStartup => f.write_str("IMU startup calibration failed"),
+        }
     }
 }
 
@@ -79,8 +77,7 @@ impl TrackingBuilder {
         let distances = Distances::new(self.ranges)
             .ok_or(TrackingBuildError::RangeLayout)?
             .initialize(Duration::from_secs(3))
-            .await
-            .ok_or(TrackingBuildError::RangeStartup)?;
+            .await;
         let mut sensors = Sensors::default().into_shared_reader();
         if let Some(port) = self.imu {
             sensors = sensors

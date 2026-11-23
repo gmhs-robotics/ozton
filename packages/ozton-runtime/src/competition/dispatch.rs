@@ -96,6 +96,10 @@ fn report_route_error<D, R, P>(
     P: Program<R, D>,
     R: CompetitionRobot,
 {
+    let _ = writeln!(
+        io::stderr().lock(),
+        "error: autonomous route {name:?} failed: {error}"
+    );
     crate::diagnostic_event!("route={name},mode={mode:?},error={error}");
     if let Some(status) = P::route_error(robot, mode, name, error) {
         robot.menu().status(status);

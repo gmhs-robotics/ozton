@@ -93,7 +93,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
     ) -> Option<Self> {
         self.distances = Distances::new(ranges)?
             .initialize(Duration::from_secs(3))
-            .await?;
+            .await;
         Some(self)
     }
 

@@ -2,9 +2,7 @@
 
 use std::{
     cell::Cell,
-    future::Future,
-    pin::pin,
-    task::{Context, Poll, Waker},
+    io::{self, Write},
     time::Duration,
 };
 
@@ -15,7 +13,7 @@ use ozton_math::uom::si::{
 };
 use vexide::{
     prelude::DistanceSensor,
-    smart::{SmartDevice, SmartPort},
+    smart::{PortError, SmartDevice, SmartPort},
     time::LowResolutionTime,
 };
 
@@ -117,20 +115,34 @@ impl Distances {
         Some(distances)
     }
 
-    /// Wait for every installed sensor at startup, bounded by a single deadline.
-    pub async fn initialize(self, timeout: Duration) -> Option<Self> {
+    /// Give sensors a shared startup deadline. Unready devices keep their
+    /// observation slots and are checked again during capture.
+    pub async fn initialize(self, timeout: Duration) -> Self {
         let started = std::time::Instant::now();
         loop {
+            let timed_out = started.elapsed() >= timeout;
             for device in &self.devices {
-                let mut ready = pin!(device.sensor.wait_ready());
-                let result = ready.as_mut().poll(&mut Context::from_waker(Waker::noop()));
-                device.set_ready(matches!(result, Poll::Ready(Ok(()))));
+                let status = device.sensor.status();
+                let ready = matches!(status, Ok(0x82 | 0x86));
+                device.set_ready(ready);
+                if timed_out && !ready {
+                    let port = device.sensor.port_number();
+                    let reason = match status {
+                        Ok(0) => "still initializing".to_owned(),
+                        Ok(code) => format!("unexpected status {code:#04x}"),
+                        Err(PortError::Disconnected { .. }) => "no device connected".to_owned(),
+                        Err(PortError::IncorrectDevice { actual, .. }) => {
+                            format!("wrong device type ({actual:?})")
+                        }
+                    };
+                    let _ = writeln!(
+                        io::stderr().lock(),
+                        "warning: distance sensor on port {port} unavailable after {timeout:?} ({reason}); continuing without its readings"
+                    );
+                }
             }
-            if self.ready_count() == self.len() {
-                return Some(self);
-            }
-            if started.elapsed() >= timeout {
-                return None;
+            if timed_out || self.ready_count() == self.len() {
+                return self;
             }
             vexide::time::sleep(RANGE_PERIOD).await;
         }
