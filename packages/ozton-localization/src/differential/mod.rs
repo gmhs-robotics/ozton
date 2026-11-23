@@ -31,6 +31,7 @@ pub use builder::{DsrUse, LocalizationBuilder};
 /// Pose estimator state. Accepts observations without owning or reading hardware.
 pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
+    rectangular_half_extents: Option<[Length; 2]>,
     wheels: WheelOdometry,
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
@@ -42,6 +43,11 @@ pub struct DifferentialLocalization {
 }
 
 impl DifferentialLocalization {
+    /// Half extents of the configured field if it has only a rectangular perimeter.
+    pub fn rectangular_half_extents(&self) -> Option<[Length; 2]> {
+        self.rectangular_half_extents
+    }
+
     pub fn set_competition_mode(&mut self, mode: vexide::competition::CompetitionMode) {
         use vexide::competition::CompetitionMode;
         self.localizer.set_corrections_enabled(

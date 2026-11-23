@@ -1,8 +1,9 @@
 //! Swept-footprint checks for arcs and in-place turns of a rectangular robot.
-
+mod rectangle;
 use core::f64::consts::TAU;
 
 use glam::DVec2;
+pub use rectangle::{DepartureArc, RectangularClearance};
 use uom::si::f64::{Angle, Length};
 
 use crate::{

@@ -33,6 +33,7 @@ use super::{
 
 type TrackedDrive<A> = Drivetrain<Differential, SensorTracking, DifferentialLocalization, A>;
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
+mod point;
 
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
@@ -136,6 +137,19 @@ impl GoalReset {
 pub trait DrivetrainMotion {
     fn poll_tracking(&mut self, mode: CompetitionMode) -> Result<Option<Feedback>, Fault>;
     fn set_start_pose(&mut self, pose: Pose) -> Result<(), DriveMotionFault>;
+    /// Register the starting pose for this route and align the IMU to it.
+    fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault> {
+        self.set_start_pose(starting_pose)
+    }
+    /// Drive to a field point, then settle at the supplied heading.
+    /// A configured footprint enables wall departure on empty rectangular fields.
+    async fn drive_to_point(
+        &mut self,
+        target: [Length; 2],
+        final_heading: Angle,
+    ) -> Result<(), CommandError<DriveMotionFault>>;
+    /// Turn in place when the current pose has room for the configured footprint.
+    async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<DriveMotionFault>>;
     async fn drive_path(
         &mut self,
         path: &Path,
@@ -180,6 +194,18 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
             .register_start(pose, heading)
             .then_some(())
             .ok_or(DriveMotionFault::InvalidCommand)
+    }
+
+    async fn drive_to_point(
+        &mut self,
+        target: [Length; 2],
+        final_heading: Angle,
+    ) -> Result<(), CommandError<DriveMotionFault>> {
+        point::drive_to_point(self, target, final_heading).await
+    }
+
+    async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<DriveMotionFault>> {
+        point::turn_to(self, heading).await
     }
 
     async fn drive_path(

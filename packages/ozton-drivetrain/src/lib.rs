@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use assist::{AssistChain, AssistedDrivetrain, DriveAssist, DriveAssists};
 use model::{Balancing, Differential, DrivetrainModel, Holonomic, Tank};
+pub use ozton_math::path::clearance::Footprint;
 use ozton_math::uom::si::f64::{AngularVelocity, ElectricPotential, Length, Velocity};
 pub use ozton_tracking::encoders::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad};
 use ozton_tracking::{
@@ -36,6 +37,7 @@ pub struct Drivetrain<M: DrivetrainModel, T: Tracking, L, A = ()> {
     wheels: Option<Wheels>,
     track_width: Option<Length>,
     wheelbase: Option<Length>,
+    footprint: Option<Footprint>,
     driver_output: bool,
     assists: A,
     assist_tick: Option<Instant>,
@@ -52,6 +54,7 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
             wheels: None,
             track_width: None,
             wheelbase: None,
+            footprint: None,
             driver_output: false,
             assists: (),
             assist_tick: None,
@@ -86,6 +89,7 @@ impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
             wheels: self.wheels,
             track_width: self.track_width,
             wheelbase: self.wheelbase,
+            footprint: self.footprint,
             driver_output: self.driver_output,
             assists: map(self.assists),
             assist_tick: None,
@@ -96,6 +100,16 @@ impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
 
     pub fn assisted(&mut self) -> AssistedDrivetrain<'_, M, T, L, A> {
         AssistedDrivetrain { drive: self }
+    }
+
+    /// Register the horizontal chassis envelope for clearance-aware motion.
+    pub fn with_footprint(mut self, footprint: Footprint) -> Self {
+        self.footprint = Some(footprint);
+        self
+    }
+
+    pub fn footprint(&self) -> Option<Footprint> {
+        self.footprint
     }
 
     /// Consume an output fault recorded by the assisted driver interface.

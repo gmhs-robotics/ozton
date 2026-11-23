@@ -10,6 +10,22 @@ pub struct Field {
 }
 
 impl Field {
+    /// A centered rectangular field with the given interior dimensions and wall height.
+    pub fn rectangle(width: Length, length: Length, wall_height: Length) -> Option<Self> {
+        if ![width, length, wall_height]
+            .iter()
+            .all(|dimension| dimension.value.is_finite() && dimension.value > 0.0)
+        {
+            return None;
+        }
+        let right = width / 2.0;
+        let front = length / 2.0;
+        Some(Self {
+            min: Vec3::new(-right, -front, Length::default()),
+            max: Vec3::new(right, front, wall_height),
+        })
+    }
+
     /// Portable VEX field, nominal inside dimensions from Override Appendix A.
     pub const PORTABLE: Self = Self {
         min: position!(-70.20 in, -70.20 in, 0 in),
@@ -67,6 +83,7 @@ impl VerticalSurface {
 #[derive(Default)]
 pub struct FieldMap {
     faces: Vec<VerticalSurface>,
+    perimeter: Option<Field>,
 }
 
 impl From<Field> for FieldMap {
@@ -76,11 +93,18 @@ impl From<Field> for FieldMap {
                 .surfaces()
                 .map(|surface| VerticalSurface::new(surface, field.min.up, field.max.up))
                 .into(),
+            perimeter: Some(field),
         }
     }
 }
 
 impl FieldMap {
+    /// Half extents of an unobstructed rectangular field in right/forward order.
+    pub(crate) fn rectangular_half_extents(&self) -> Option<[Length; 2]> {
+        let field = self.perimeter.filter(|_| self.faces.len() == 4)?;
+        Some([field.max.right, field.max.forward])
+    }
+
     /// Add a surveyed surface. Leave movable game objects out of the fixed map.
     pub fn add(&mut self, face: VerticalSurface) -> bool {
         if self.faces.len() >= u128::BITS as usize

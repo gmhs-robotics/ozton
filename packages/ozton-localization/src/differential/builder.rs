@@ -128,6 +128,7 @@ impl LocalizationBuilder {
         self.ranges.apply(&mut localizer);
         Some(DifferentialLocalization {
             localizer,
+            rectangular_half_extents: self.field.rectangular_half_extents(),
             wheels: WheelOdometry::new(tracking.wheel_projections()),
             drive: self.drive,
             use_imu: self.use_imu,
