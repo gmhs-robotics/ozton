@@ -137,6 +137,8 @@ impl LocalizationBuilder {
             occluded: 0,
             last_reset: DistanceReset::Idle,
             fault: None,
+            #[cfg(feature = "logging")]
+            telemetry: Default::default(),
         })
     }
 }

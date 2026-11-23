@@ -11,3 +11,11 @@ meters. Use `geometry::point(x, y)` to convert two unit-bearing lengths. Command
 that only need a heading, such as `turn_to`, take an `Angle`.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
+
+With `logging` enabled, use the USB stream or `OZTON.LOG` to inspect tracking.
+`LOCALIZATION` records estimator mode, pose trust, velocity and corrections per sample window.
+`LOCALIZATION_POSE` shows wheel odometry, the prediction before correction, the published
+estimate and the latest correction candidate when available. Join rows by `seq`.
+`TRACKING_INPUT` and `TRACKING_WHEEL` show the inputs used for that tick.
+`LOCALIZATION_RANGE` reports the latest range verdict, rejection reason or matched
+surface, and signed residual in meters. Missing numeric data appears as `NaN`.

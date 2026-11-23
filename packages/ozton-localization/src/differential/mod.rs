@@ -24,6 +24,8 @@ use crate::{
 };
 
 mod builder;
+#[cfg(feature = "logging")]
+mod telemetry;
 use builder::RangeUses;
 pub use builder::{DsrUse, LocalizationBuilder};
 
@@ -39,6 +41,8 @@ pub struct DifferentialLocalization {
     occluded: u8,
     last_reset: DistanceReset,
     fault: Option<Fault>,
+    #[cfg(feature = "logging")]
+    telemetry: telemetry::Telemetry,
 }
 
 impl DifferentialLocalization {
@@ -164,6 +168,10 @@ impl DifferentialLocalization {
                     return Err(fault);
                 }
             };
+
+        #[cfg(feature = "logging")]
+        self.telemetry
+            .record(&update, &self.localizer, wheels, &ranges);
 
         if update.reset != DistanceReset::Idle {
             self.last_reset = update.reset;

@@ -258,6 +258,11 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.pose
     }
 
+    /// Whether range corrections are currently enabled by the tracking policy.
+    pub fn corrections_enabled(&self) -> bool {
+        self.corrections_enabled
+    }
+
     pub fn estimator_name(&self) -> &'static str {
         self.filter.name(self.config.shadow)
     }
