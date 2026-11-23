@@ -184,6 +184,12 @@ pub enum Command<'a, R> {
         heading: Option<Angle>,
         maximum_speed: Velocity,
     },
+    /// Forward travel at constant curvature, with a positive sweep turning left.
+    DriveArc {
+        radius: Length,
+        sweep: Angle,
+        maximum_speed: Velocity,
+    },
     Align(Alignment),
     Contact(Contact<R>),
     /// Approach until the caller confirms contact, then brake and settle.
@@ -210,6 +216,7 @@ impl<R> Command<'_, R> {
             Self::Turn { .. } | Self::TurnToPoint { .. } => "Autonomous: turn",
             Self::DriveToPoint { .. } => "Autonomous: drive to point",
             Self::DriveDistance { .. } => "Autonomous: drive distance",
+            Self::DriveArc { .. } => "Autonomous: drive arc",
             Self::DistanceReset => "Autonomous: distance reset",
             Self::Contact(_) | Self::ApproachContact { .. } => "Autonomous: approach contact",
             Self::Align(_) => "Autonomous: align",
@@ -244,6 +251,7 @@ impl<R> Command<'_, R> {
         matches!(
             self,
             Self::DriveToPoint { .. }
+                | Self::DriveArc { .. }
                 | Self::TurnToPoint { .. }
                 | Self::Follow { .. }
                 | Self::FollowMarked { .. }
@@ -310,6 +318,20 @@ impl<R> Command<'_, R> {
             } => {
                 meters.value.is_finite()
                     && heading.is_none_or(|angle| angle.value.is_finite())
+                    && maximum_speed.value > 0.0
+                    && maximum_speed.value <= options.maximum_wheel_speed.value
+            }
+            Self::DriveArc {
+                radius,
+                sweep,
+                maximum_speed,
+            } => {
+                radius.value.is_finite()
+                    && radius.value >= options.track_width.value / 2.0
+                    && sweep.value.is_finite()
+                    && sweep.value != 0.0
+                    && sweep.value.abs() <= core::f64::consts::TAU
+                    && (radius.value * sweep.value).is_finite()
                     && maximum_speed.value > 0.0
                     && maximum_speed.value <= options.maximum_wheel_speed.value
             }

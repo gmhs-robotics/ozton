@@ -8,6 +8,7 @@ use uom::si::{
     f64::{Acceleration, Angle, Length, Time, Velocity},
 };
 
+pub mod clearance;
 pub mod follower;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.

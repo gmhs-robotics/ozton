@@ -230,6 +230,40 @@ fn route() -> Path {
 }
 
 #[test]
+fn forward_arc_reaches_the_expected_pose() {
+    block_on(async {
+        let mut robot = Sim::new(false);
+        let radius = Length::new::<meter>(0.45);
+        let sweep = Angle::new::<radian>(-0.45);
+        let end = ozton_math::path::clearance::forward_arc_end(robot.pose, radius, sweep);
+        let mut runner = Runner::new(
+            &mut robot,
+            OPTIONS,
+            Duration::from_millis(5),
+            Duration::from_millis(100),
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        runner
+            .run_while(
+                Command::DriveArc {
+                    radius,
+                    sweep,
+                    maximum_speed: Velocity::new::<meter_per_second>(0.25),
+                },
+                Duration::from_secs(2),
+                || true,
+            )
+            .await
+            .unwrap();
+        let robot = runner.robot_ref();
+        assert!(robot.pose.position.distance(end.position) <= OPTIONS.position_tolerance.value);
+        assert!((robot.pose.heading - end.heading).abs() <= OPTIONS.heading_tolerance.value);
+        assert_eq!(robot.wheels, [0.0; 2]);
+    });
+}
+
+#[test]
 fn followers_converge_and_cancel_with_mechanisms_running() {
     block_on(async {
         let path = route();

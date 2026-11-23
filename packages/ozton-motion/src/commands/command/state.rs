@@ -208,6 +208,25 @@ impl<'path> State<'path> {
                     options.settle,
                 )
             }
+            Command::DriveArc {
+                radius,
+                sweep,
+                maximum_speed,
+            } => {
+                let start = *self
+                    .start_travel
+                    .get_or_insert(feedback.forward_travel.value);
+                let remaining =
+                    radius.value * sweep.value.abs() - (feedback.forward_travel.value - start);
+                let reached = remaining <= options.position_tolerance.value;
+                let speed = if reached {
+                    0.0
+                } else {
+                    (2.5 * remaining).min(maximum_speed.value)
+                };
+                let yaw_rate = speed * sweep.value.signum() / radius.value;
+                (drive(speed, yaw_rate), reached && slow, options.settle)
+            }
             Command::Align(alignment) => {
                 self.range_elapsed = self.range_elapsed.saturating_add(dt);
                 let range = feedback.ranges[alignment.sensor].filter(|range| {
