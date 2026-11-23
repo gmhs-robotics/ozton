@@ -42,6 +42,7 @@
           cargoRoot = "cargo-v5";
           buildAndTestSubdir = "cargo-v5";
           cargoLock.lockFile = "${cargo-v5}/Cargo.lock";
+          buildFeatures = [ "field-control" ];
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.udev ];
         };

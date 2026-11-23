@@ -3,11 +3,11 @@
     "cargo-v5": {
       "flake": false,
       "locked": {
-        "lastModified": 1793336881,
-        "narHash": "sha256-snA9ng5zoHAuutY0ef+nD9xwmi4Wh5103XS1pxIEG7c=",
+        "lastModified": 1795431394,
+        "narHash": "sha256-OHecK2556AuDtFJE4tHQnwF+ZKkAmyUPODPvkX1xuqU=",
         "owner": "gmhs-robotics",
         "repo": "cargo-v5",
-        "rev": "7a8fd5ec6fdb3b550e92f067067d0037a5e066cc",
+        "rev": "46067761e8c5cc721215eaacc65a35b451844e15",
         "type": "github"
       },
       "original": {
