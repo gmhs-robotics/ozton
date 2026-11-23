@@ -18,7 +18,6 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        <Autonomous<R, S> as Telemetry<Self>>::controller(self, None);
         stop_program(self)
     }
 

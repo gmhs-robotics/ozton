@@ -268,11 +268,6 @@ impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
 where
     A: crate::diagnostics::Telemetry<Self>,
 {
-    /// Include the sample already read by the driver callback in stock diagnostics.
-    pub fn record_controller(&mut self, state: &vexide::controller::ControllerState) {
-        A::controller(self, Some(state));
-    }
-
     pub fn record_diagnostics(&mut self, sample: crate::diagnostics::Sample) {
         A::record(self, sample);
     }

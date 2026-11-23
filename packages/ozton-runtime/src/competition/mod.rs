@@ -148,11 +148,6 @@ where
 {
     fn record(robot: &mut Robot<D, C, T, X, P, Self>, sample: Sample) {
         if let Some(frame) = robot.autonomous.sampler.frame(sample) {
-            #[cfg(feature = "logging")]
-            crate::diagnostics::report_controller(
-                frame,
-                robot.autonomous.sampler.controller.as_ref(),
-            );
             robot.drivetrain.report(frame);
             robot.tracking.report(frame);
             robot.mechanisms.report(frame);
@@ -162,18 +157,6 @@ where
 
     fn status(robot: &mut Robot<D, C, T, X, P, Self>, status: &str) {
         robot.autonomous.status(status);
-    }
-
-    fn controller(
-        robot: &mut Robot<D, C, T, X, P, Self>,
-        state: Option<&vexide::controller::ControllerState>,
-    ) {
-        #[cfg(feature = "logging")]
-        {
-            robot.autonomous.sampler.controller = state.copied();
-        }
-        #[cfg(not(feature = "logging"))]
-        let _ = (robot, state);
     }
 
     fn driver_output(robot: &mut Robot<D, C, T, X, P, Self>, elapsed: Duration) {

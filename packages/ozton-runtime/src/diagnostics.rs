@@ -162,7 +162,6 @@ pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool
 /// UI hooks for a builder's runtime slot. Omitted diagnostics add no tick work.
 pub trait Telemetry<R> {
     fn record(robot: &mut R, sample: Sample);
-    fn controller(_robot: &mut R, _state: Option<&vexide::controller::ControllerState>) {}
     fn driver_output(_robot: &mut R, _elapsed: Duration) {}
     fn status(_robot: &mut R, _status: &str) {}
 }
@@ -172,8 +171,6 @@ impl<R> Telemetry<R> for () {
 }
 
 pub struct Sampler<S> {
-    #[cfg(feature = "logging")]
-    pub(crate) controller: Option<vexide::controller::ControllerState>,
     #[cfg(feature = "logging")]
     clock: SampleClock,
     #[cfg(feature = "logging")]
@@ -188,8 +185,6 @@ impl<S> Sampler<S> {
         #[cfg(not(feature = "logging"))]
         let _ = interval;
         Self {
-            #[cfg(feature = "logging")]
-            controller: None,
             #[cfg(feature = "logging")]
             clock: SampleClock::new(Instant::now(), interval.min(SD_SAMPLE_INTERVAL)),
             #[cfg(feature = "logging")]
@@ -361,23 +356,6 @@ fn report_drive_motors(frame: Frame, groups: &[Box<[Motor]>]) {
             }
         }
     }
-}
-
-/// Report connected controller axes and buttons using Ozton's stock field names.
-pub fn report_controller(frame: Frame, input: Option<&vexide::controller::ControllerState>) {
-    let Some(input) = input else {
-        frame.row("INPUT", format_args!("ready=0"));
-        return;
-    };
-    frame.row("INPUT", format_args!(
-            "throttle={:.4},turn={:.4},r1={},r2={},l1={},l2={},x={},a={},b={},up={},down={},boost={},ready=1",
-            input.left_stick.y(), input.right_stick.x(), u8::from(input.button_r1.is_pressed()),
-            u8::from(input.button_r2.is_pressed()), u8::from(input.button_l1.is_pressed()),
-            u8::from(input.button_l2.is_pressed()), u8::from(input.button_x.is_pressed()),
-            u8::from(input.button_a.is_pressed()), u8::from(input.button_b.is_pressed()),
-            u8::from(input.button_up.is_pressed()), u8::from(input.button_down.is_pressed()),
-            u8::from(input.button_y.is_pressed()),
-        ));
 }
 
 /// Report the tracking IMU's sampled orientation and diagnostic telemetry.

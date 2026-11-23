@@ -3,9 +3,9 @@
 use std::{f64::consts::PI, fs::File, time::Duration};
 
 use ozton_diagnostics::{Journal, calibration::CalibrationSample};
+use ozton_drivetrain::model::ArcadeInput;
 use ozton_localization::localizer::Snapshot;
 use ozton_math::uom::si::f64::{Angle, Length};
-use vexide::controller::ControllerState;
 
 use super::{ConfiguredChassis, setup::ChassisDriverCommand};
 
@@ -94,14 +94,15 @@ impl CalibrationSession {
         })
     }
 
-    /// Evaluate one A-held calibration sample and return the drive command to apply.
+    /// Evaluate one calibration tick using the held state of the driver binding.
     pub fn driver(
         &mut self,
         drive: &mut ConfiguredChassis,
-        input: &ControllerState,
+        pressed: bool,
+        command: ArcadeInput,
         dt: Duration,
     ) -> (Option<ChassisDriverCommand>, &'static str) {
-        self.run.tick(&self.case, drive, input, dt)
+        self.run.tick(&self.case, drive, pressed, command, dt)
     }
 
     /// Call on disable or controller loss. A new trial requires A to be released.
@@ -163,13 +164,13 @@ impl CalibrationRun {
         &mut self,
         case: &PreparedCalibration,
         drive: &mut ConfiguredChassis,
-        state: &ControllerState,
+        pressed: bool,
+        command: ArcadeInput,
         dt: Duration,
     ) -> (Option<ChassisDriverCommand>, &'static str) {
         if self.file.is_some_and(|file| file != case.file) {
             return (None, "Save previous calibration first");
         }
-        let pressed = state.button_a.is_pressed();
         if !pressed && self.start.is_none() {
             self.require_release = false;
             return (None, "Hold A to sample");
@@ -212,6 +213,7 @@ impl CalibrationRun {
         {
             return self.abort("Trial expired. Release A.");
         }
+        let (forward, turn) = command.scaled_axes();
         let [left, right] = match case.trial {
             Trial::Range(index, reference) => {
                 if let Some(raw) = drive.chassis.drivetrain.tracking.distances.latest(index)
@@ -235,11 +237,8 @@ impl CalibrationRun {
                 }
                 [0.0; 2]
             }
-            Trial::Turn(_) => {
-                let steer = state.right_stick.x();
-                [steer, -steer]
-            }
-            Trial::Straight(_) | Trial::Feedforward => [state.left_stick.y(); 2],
+            Trial::Turn(_) => [turn, -turn],
+            Trial::Straight(_) | Trial::Feedforward => [forward; 2],
         };
         if matches!(case.trial, Trial::Feedforward) {
             let names = ["drive_left", "drive_right"];

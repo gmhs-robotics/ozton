@@ -126,7 +126,6 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
         let Ok(input) = robot.controller.state() else {
             return robot.stop_mechanisms();
         };
-        robot.record_controller(&input);
         robot.mechanisms.intake.on = input.button_r1.is_pressed();
         robot.drive_driver(ArcadeInput::new(input.left_stick.y(), input.right_stick.x()).into())
     }
