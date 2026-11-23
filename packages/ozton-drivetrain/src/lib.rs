@@ -1,7 +1,7 @@
 //! A motion model, the robot's physical geometry, and its tracking system.
 use std::time::Instant;
 
-use assist::{AssistChain, AssistedDrivetrain, DriveAssist};
+use assist::{AssistChain, AssistedDrivetrain, DriveAssist, DriveAssists};
 use model::{Balancing, Differential, DrivetrainModel, Holonomic, Tank};
 use ozton_math::uom::si::f64::{AngularVelocity, ElectricPotential, Length, Velocity};
 pub use ozton_tracking::encoders::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad};
@@ -59,6 +59,14 @@ impl<M: DrivetrainModel, T: Tracking, L> Drivetrain<M, T, L> {
             wheel_feedback: [None; 2],
         }
     }
+
+    /// Install a collection whose type is independent of the selected assists.
+    pub fn with_drive_assists(
+        self,
+        assists: DriveAssists<M>,
+    ) -> Drivetrain<M, T, L, DriveAssists<M>> {
+        self.map_assists(|()| assists)
+    }
 }
 
 impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
@@ -67,6 +75,10 @@ impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
         self,
         assist: B,
     ) -> Drivetrain<M, T, L, AssistChain<A, B>> {
+        self.map_assists(|previous| AssistChain(previous, assist))
+    }
+
+    fn map_assists<B>(self, map: impl FnOnce(A) -> B) -> Drivetrain<M, T, L, B> {
         Drivetrain {
             model: self.model,
             tracking: self.tracking,
@@ -75,7 +87,7 @@ impl<M: DrivetrainModel, T: Tracking, L, A> Drivetrain<M, T, L, A> {
             track_width: self.track_width,
             wheelbase: self.wheelbase,
             driver_output: self.driver_output,
-            assists: AssistChain(self.assists, assist),
+            assists: map(self.assists),
             assist_tick: None,
             output_fault: None,
             wheel_feedback: self.wheel_feedback,

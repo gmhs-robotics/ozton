@@ -1,4 +1,4 @@
-//! Typed command assists and the assisted drivetrain view.
+//! Command assists and the assisted drivetrain view.
 
 use std::time::{Duration, Instant};
 
@@ -8,6 +8,9 @@ use crate::{
     Drivetrain,
     model::{ArcadeInput, Balancing, DrivetrainModel, Tank, arcade_mix},
 };
+
+mod collection;
+pub use collection::DriveAssists;
 
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
