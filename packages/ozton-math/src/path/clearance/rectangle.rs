@@ -8,7 +8,7 @@ use uom::si::{
 };
 
 use super::{Footprint, forward_arc_end};
-use crate::geometry::{Pose, direction, rotation};
+use crate::geometry::{Pose, direction};
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectangularClearance {
@@ -34,7 +34,11 @@ impl RectangularClearance {
     }
 
     fn turn_area(self, reserve: f64) -> DVec2 {
-        self.usable - DVec2::splat(self.footprint.half_extents.length() + reserve)
+        self.usable - DVec2::splat(self.footprint.turn_radius() + reserve)
+    }
+
+    fn contains_bounds(self, min: DVec2, max: DVec2) -> bool {
+        min.cmpge(-self.usable).all() && max.cmple(self.usable).all()
     }
 
     /// Distance to the first position with room to pivot, following the current heading.
@@ -49,14 +53,9 @@ impl RectangularClearance {
             return None;
         }
 
-        let heading = start.heading;
-        let forward = direction(heading);
-        let basis = rotation(heading).abs();
-        let width = self.footprint.half_extents.x;
-        let height = self.footprint.half_extents.y;
-        let extent = basis * width + basis.perp().abs() * height;
-        let straight_area = self.usable - extent;
-        if !start.position.abs().cmple(straight_area).all() {
+        let forward = direction(start.heading);
+        let (min, max) = self.footprint.bounds(start);
+        if !self.contains_bounds(min, max) {
             return None;
         }
 
@@ -78,12 +77,9 @@ impl RectangularClearance {
             }
         }
         // The straight segment lies inside a convex rectangle. Its two ends suffice.
-        (enter <= leave
-            && (start.position + enter * forward)
-                .abs()
-                .cmple(straight_area)
-                .all())
-        .then_some(Length::new::<meter>(enter))
+        let displacement = enter * forward;
+        (enter <= leave && self.contains_bounds(min + displacement, max + displacement))
+            .then_some(Length::new::<meter>(enter))
     }
 
     /// Try successively wider arcs in both directions, including a straight continuation.
@@ -115,7 +111,7 @@ impl RectangularClearance {
                 let (min, max) = self
                     .footprint
                     .forward_arc_bounds(start, arc.radius, arc.sweep)?;
-                (min.cmpge(-self.usable).all() && max.cmple(self.usable).all()).then_some((
+                self.contains_bounds(min, max).then_some((
                     arc,
                     straight.value
                         + (arc.radius.value + minimum_radius.value) * arc.sweep.value.abs(),
@@ -135,18 +131,24 @@ mod tests {
     #[test]
     fn corner_departure_needs_space_and_reaches_a_turning_area() {
         let inches = Length::new::<inch>;
-        let chassis = Footprint::new(inches(15.1), inches(15.0)).unwrap();
-        let field = RectangularClearance::new(
-            chassis,
-            crate::geometry::point(inches(19.0), inches(21.25)),
-            inches(0.5),
+        let chassis = Footprint::from_extents(
+            inches(7.55),
+            inches(7.55),
+            inches(7.761804),
+            inches(7.238196),
         )
         .unwrap();
+        let half_extents = crate::geometry::point(inches(19.0), inches(21.25));
+        let field = RectangularClearance::new(chassis, half_extents, inches(0.5)).unwrap();
         let gap = inches(0.25);
+        let (corner_from_cc, _) = chassis.bounds(Pose::default());
+        let flush = Pose::new(-half_extents - corner_from_cc, Angle::default());
         let start = Pose::new(
-            crate::geometry::point(inches(-10.45), inches(-12.75)),
-            Angle::default(),
+            flush.position + DVec2::splat(inches(1.0).value),
+            flush.heading,
         );
+        let expected_cc = crate::geometry::point(inches(-10.45), inches(-12.488196));
+        assert!((start.position - expected_cc).length() < 1e-12);
         assert!(field.forward_to_turn(start, gap).is_none());
         let arc = field.departure_arc(start, inches(6.5), gap).unwrap();
         assert!(arc.sweep.value < 0.0);
@@ -159,11 +161,19 @@ mod tests {
         };
         assert!(field.can_turn(turn));
 
-        let flush = Pose::new(
-            crate::geometry::point(inches(-11.45), inches(-13.75)),
-            Angle::default(),
-        );
         assert!(field.forward_to_turn(flush, gap).is_none());
         assert!(field.departure_arc(flush, inches(6.5), gap).is_none());
+
+        let field = RectangularClearance::new(chassis, half_extents, inches(0.0)).unwrap();
+        let rear_sweep = Pose::new(
+            crate::geometry::point(inches(0.0), inches(-13.6)),
+            Angle::default(),
+        );
+        assert!(field.forward_to_turn(rear_sweep, gap).is_none());
+        let clear_sweep = Pose::new(
+            crate::geometry::point(inches(0.0), inches(-13.45)),
+            Angle::default(),
+        );
+        assert!(field.forward_to_turn(clear_sweep, gap).is_some());
     }
 }
