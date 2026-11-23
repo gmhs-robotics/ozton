@@ -129,7 +129,7 @@ impl Distances {
                     let port = device.sensor.port_number();
                     let reason = match status {
                         Ok(0) => "still initializing".to_owned(),
-                        Ok(code) => format!("unexpected status {code:#04x}"),
+                        Ok(code) => format!("device detected, unrecognized status {code:#04x}"),
                         Err(PortError::Disconnected { .. }) => "no device connected".to_owned(),
                         Err(PortError::IncorrectDevice { actual, .. }) => {
                             format!("wrong device type ({actual:?})")
