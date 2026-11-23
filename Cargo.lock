@@ -135,6 +135,7 @@ dependencies = [
  "futures-core",
  "futures-task",
  "pin-project-lite",
+ "slab",
 ]
 
 [[package]]
@@ -307,6 +308,7 @@ name = "ozton-tracking"
 version = "0.4.0"
 dependencies = [
  "arrayvec",
+ "futures-util",
  "glam",
  "ozton-math",
  "vex-sdk",
@@ -440,6 +442,12 @@ dependencies = [
  "quote",
  "syn 3.0.5",
 ]
+
+[[package]]
+name = "slab"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smart-leds-trait"

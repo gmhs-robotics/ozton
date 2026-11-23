@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use futures_util::future::join;
 use ozton_math::{geometry::compass_heading, uom::si::f64::Length};
 use vexide::{prelude::InertialSensor, time::LowResolutionTime};
 
@@ -127,6 +128,24 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
             lateral,
             distances: (),
         }
+    }
+}
+
+impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
+    /// Calibrate the IMU while the separately owned distance sensors start up.
+    pub async fn initialize_with_distances(
+        self,
+        imu: Option<InertialSensor>,
+        distances: Distances,
+    ) -> Option<(Self, Distances)> {
+        let orientation = async {
+            match imu {
+                Some(imu) => self.with_imu(imu).await,
+                None => Some(self),
+            }
+        };
+        let (sensors, distances) = join(orientation, distances.initialize()).await;
+        Some((sensors?, distances))
     }
 }
 

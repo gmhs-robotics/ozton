@@ -7,6 +7,7 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
+use futures_util::future::join_all;
 use ozton_math::uom::si::{
     f64::{Angle as UomAngle, Length},
     length::millimeter,
@@ -88,6 +89,48 @@ impl DistanceDevice {
         readiness.set(ready);
         self.readiness.set(readiness);
     }
+
+    async fn initialize(&self) {
+        let port = self.sensor.port_number();
+        let _ = writeln!(
+            io::stderr().lock(),
+            "info: waiting for distance sensor on port {port}"
+        );
+        let ready = match self.sensor.wait_ready().await {
+            Err(DistanceReadyError::UnknownStatusCode {
+                code: ALTERNATE_READY_STATUS,
+            }) => Ok(()),
+            result => result,
+        };
+        self.set_ready(ready.is_ok());
+        match ready {
+            Ok(()) => {
+                let _ = writeln!(
+                    io::stderr().lock(),
+                    "info: distance sensor on port {port} ready"
+                );
+            }
+            Err(error) => {
+                let reason = match error {
+                    DistanceReadyError::UnknownStatusCode { code } => {
+                        format!("device detected, unrecognized status {code:#04x}")
+                    }
+                    DistanceReadyError::Port {
+                        source: PortError::Disconnected { .. },
+                    } => "no device connected".to_owned(),
+                    DistanceReadyError::Port {
+                        source: PortError::IncorrectDevice { actual, .. },
+                    } => {
+                        format!("wrong device type ({actual:?})")
+                    }
+                };
+                let _ = writeln!(
+                    io::stderr().lock(),
+                    "warning: distance sensor on port {port} unavailable ({reason}); continuing without its readings"
+                );
+            }
+        }
+    }
 }
 
 /// Distance devices polled once per packet window and shared by higher-level
@@ -121,47 +164,7 @@ impl Distances {
     /// Wait for each sensor to finish initializing. Devices that return errors
     /// keep their observation slots and are checked again during capture.
     pub async fn initialize(self) -> Self {
-        for device in &self.devices {
-            let port = device.sensor.port_number();
-            let _ = writeln!(
-                io::stderr().lock(),
-                "info: waiting for distance sensor on port {port}"
-            );
-            let ready = match device.sensor.wait_ready().await {
-                Err(DistanceReadyError::UnknownStatusCode {
-                    code: ALTERNATE_READY_STATUS,
-                }) => Ok(()),
-                result => result,
-            };
-            device.set_ready(ready.is_ok());
-            match ready {
-                Ok(()) => {
-                    let _ = writeln!(
-                        io::stderr().lock(),
-                        "info: distance sensor on port {port} ready"
-                    );
-                }
-                Err(error) => {
-                    let reason = match error {
-                        DistanceReadyError::UnknownStatusCode { code } => {
-                            format!("device detected, unrecognized status {code:#04x}")
-                        }
-                        DistanceReadyError::Port {
-                            source: PortError::Disconnected { .. },
-                        } => "no device connected".to_owned(),
-                        DistanceReadyError::Port {
-                            source: PortError::IncorrectDevice { actual, .. },
-                        } => {
-                            format!("wrong device type ({actual:?})")
-                        }
-                    };
-                    let _ = writeln!(
-                        io::stderr().lock(),
-                        "warning: distance sensor on port {port} unavailable ({reason}); continuing without its readings"
-                    );
-                }
-            }
-        }
+        join_all(self.devices.iter().map(DistanceDevice::initialize)).await;
         self
     }
 

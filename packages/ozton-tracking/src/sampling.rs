@@ -72,17 +72,12 @@ impl TrackingBuilder {
         if self.wheels.iter().any(|wheel| !wheel.is_valid()) {
             return Err(TrackingBuildError::WheelGeometry);
         }
-        let distances = Distances::new(self.ranges)
-            .ok_or(TrackingBuildError::RangeLayout)?
-            .initialize()
-            .await;
-        let mut sensors = Sensors::default().into_shared_reader();
-        if let Some(port) = self.imu {
-            sensors = sensors
-                .with_imu(InertialSensor::new(port))
-                .await
-                .ok_or(TrackingBuildError::ImuStartup)?;
-        }
+        let distances = Distances::new(self.ranges).ok_or(TrackingBuildError::RangeLayout)?;
+        let (sensors, distances) = Sensors::default()
+            .into_shared_reader()
+            .initialize_with_distances(self.imu.map(InertialSensor::new), distances)
+            .await
+            .ok_or(TrackingBuildError::ImuStartup)?;
         Ok(SensorTracking {
             sensors,
             distances,

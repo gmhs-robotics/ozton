@@ -1,5 +1,7 @@
 //! IMU calibrated once before competition.
 
+use std::io::{self, Write};
+
 use ozton_math::uom::si::{angle::radian, f64::Angle};
 use vexide::{prelude::InertialSensor, smart::SmartDevice};
 
@@ -18,8 +20,11 @@ pub(super) struct CalibratedImu(InertialSensor);
 
 impl CalibratedImu {
     pub(super) async fn initialize(mut imu: InertialSensor) -> Option<Self> {
+        let port = imu.port_number();
+        let _ = writeln!(io::stderr().lock(), "info: calibrating IMU on port {port}");
         imu.calibrate().await.ok()?;
         imu.reset_heading().ok()?;
+        let _ = writeln!(io::stderr().lock(), "info: IMU on port {port} ready");
         Some(Self(imu))
     }
 

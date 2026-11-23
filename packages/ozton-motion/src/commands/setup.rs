@@ -106,7 +106,7 @@ impl DifferentialConfig {
         let left = build_motor_side(left)?;
         let right = build_motor_side(right)?;
         let TrackingSetup {
-            mut sensors,
+            sensors,
             imu,
             map,
             ranges,
@@ -115,10 +115,7 @@ impl DifferentialConfig {
             forward_offset,
             lateral_offset,
         } = tracking;
-        let distances = Distances::new(ranges)
-            .ok_or(SetupError::Tracking)?
-            .initialize()
-            .await;
+        let distances = Distances::new(ranges).ok_or(SetupError::Tracking)?;
         let mounts = distances.configs().to_vec();
         let localizer = Localizer::new_owned(
             Config {
@@ -136,16 +133,15 @@ impl DifferentialConfig {
             mounts,
         )
         .ok_or(SetupError::Tracking)?;
-        if let Some(imu) = imu {
-            sensors = sensors.with_imu(imu).await.ok_or(SetupError::Tracking)?;
-        }
+        let (sensors, distances) = sensors
+            .into_shared_reader()
+            .initialize_with_distances(imu, distances)
+            .await
+            .ok_or(SetupError::Tracking)?;
         let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
         let drivetrain = Drivetrain::new(
             Differential::new(left, right),
-            ChassisSensors {
-                sensors: sensors.into_shared_reader(),
-                distances,
-            },
+            ChassisSensors { sensors, distances },
             localizer,
         )
         .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
