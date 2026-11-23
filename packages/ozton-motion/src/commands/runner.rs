@@ -13,7 +13,7 @@ use ozton_math::{
 use ozton_runtime::clock::CommandClock;
 use vexide::competition::{self, CompetitionMode};
 
-use super::{Alignment, Command, DriveOptions, Feedback, command::State};
+use super::{Alignment, Command, CommandError, DriveOptions, Feedback, command::State};
 
 /// Connects an application robot to the same executor used by simulated robots.
 pub trait MotionPlatform {
@@ -56,28 +56,6 @@ pub trait MotionPlatform {
         _wheels: [Velocity; 2],
     ) {
     }
-}
-
-#[derive(Debug)]
-pub enum CommandError<E> {
-    Configuration,
-    Cancelled,
-    RouteTimeout,
-    CommandTimeout,
-    ControlGap,
-    InvalidFeedback,
-    InvalidPath,
-    PathStart,
-    PathLost,
-    UntrustedPose,
-    NoProgress,
-    Robot(E),
-    /// An output could not be stopped. Even optional commands cannot recover from this.
-    StopFailed(E),
-    StopFailedAfter {
-        cause: Box<Self>,
-        stop: E,
-    },
 }
 
 /// Reuse one runner across all commands to enforce an overall route deadline.

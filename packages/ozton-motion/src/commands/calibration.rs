@@ -317,6 +317,15 @@ impl CalibrationRun {
     }
 }
 
+/// Bounded motor voltage from a supervised calibration sample.
+pub struct CalibrationOutput([f64; 2]);
+
+impl CalibrationOutput {
+    pub(super) fn volts(&self) -> [f64; 2] {
+        self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ozton_math::uom::si::length::meter;
@@ -350,14 +359,5 @@ mod tests {
         assert!(csv.contains("forward-offset,drive,-2,0.04"));
         assert!(csv.contains("lateral-offset,drive,-2,-0.03"));
         assert!(!run.record_travel(Trial::Straight(1.0), start, start, 0.06));
-    }
-}
-
-/// Bounded motor voltage from a supervised calibration sample.
-pub struct CalibrationOutput([f64; 2]);
-
-impl CalibrationOutput {
-    pub(super) fn volts(&self) -> [f64; 2] {
-        self.0
     }
 }

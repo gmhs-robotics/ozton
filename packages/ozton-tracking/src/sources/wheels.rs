@@ -216,7 +216,7 @@ mod tests {
             ..Snapshot::default()
         };
         let after = Snapshot {
-            drive: [Some(length(5.06)), Some(length(3.14))],
+            drive: [Some(length(5.06)), Some(length(3.0 + 0.14))],
             ..before
         };
         for (imu, heading) in [(None, 0.2), (Some(2.0), 2.0)] {

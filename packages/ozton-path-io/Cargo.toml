@@ -6,5 +6,8 @@ license.workspace = true
 version = "0.4.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 ozton-math = { workspace = true }

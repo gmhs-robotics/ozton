@@ -157,7 +157,7 @@ impl Program<CompetitionBot, ConfiguredChassis> for Controls {
             match File::create("auton.csv").and_then(|file| journal.write_csv(file)) {
                 Ok(()) => journal.clear(),
                 Err(error) => {
-                    ozton::runtime::diagnostic_event!("telemetry_save_failed,error={error}")
+                    ozton::runtime::diagnostic_event!("telemetry_save_failed,error={error}");
                 }
             }
         }
@@ -188,12 +188,14 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
 // ANCHOR_END: route
 
 #[vexide::main]
-async fn main(p: Peripherals) {
+async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
     // ANCHOR: prepare_path
     let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
-        .expect("valid path export");
-    let straight_path =
-        Rc::new(Path::new(&points, CONFIG.path_limits()).expect("valid profiled path"));
+        .map_err(|error| format!("Invalid path export: {error:?}"))?;
+    let straight_path = Rc::new(
+        Path::new(&points, CONFIG.path_limits())
+            .map_err(|error| format!("Invalid profiled path: {error:?}"))?,
+    );
     // ANCHOR_END: prepare_path
     let side = |first, second, direction| {
         [
@@ -221,7 +223,7 @@ async fn main(p: Peripherals) {
     let drive = CONFIG
         .build(left, right, tracking)
         .await
-        .expect("valid chassis");
+        .map_err(|error| format!("Invalid chassis: {error:?}"))?;
     let intake = Intake {
         motor: Motor::new(p.port_5, Gearset::Green, Direction::Forward),
         on: false,
@@ -237,6 +239,6 @@ async fn main(p: Peripherals) {
         .with_diagnostics::<()>(Duration::from_millis(250))
         .build()
         .compete()
-        .await;
+        .await
     // ANCHOR_END: assemble
 }

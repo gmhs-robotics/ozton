@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "x_right * y_right + x_forward * y_forward == 0.0")]
     fn parallel_survey_axes_are_invalid() {
         MountAxes::new(MountDirection::Forward, MountDirection::Backward);
     }

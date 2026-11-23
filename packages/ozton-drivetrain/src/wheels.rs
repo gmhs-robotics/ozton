@@ -1,5 +1,7 @@
 //! Calibrated wheel velocity actuation.
 
+use core::{error::Error, fmt};
+
 use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::encoders::Wheels;
 use vexide::{
@@ -12,6 +14,25 @@ pub enum WheelSpeedError {
     InvalidCommand,
     MissingWheelGeometry,
     Port(PortError),
+}
+
+impl fmt::Display for WheelSpeedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidCommand => f.write_str("Invalid wheel speed command"),
+            Self::MissingWheelGeometry => f.write_str("Missing wheel geometry"),
+            Self::Port(error) => error.fmt(f),
+        }
+    }
+}
+
+impl Error for WheelSpeedError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Port(error) => Some(error),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) fn drive_speed(

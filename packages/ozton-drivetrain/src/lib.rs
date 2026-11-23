@@ -199,18 +199,13 @@ impl<M: DrivetrainModel + MotorGroups, T: Tracking, L, A> Drivetrain<M, T, L, A>
         if N != groups.len() || volts.iter().any(|voltage| !voltage.value.is_finite()) {
             return coast(groups);
         }
-        groups
-            .iter_mut()
-            .zip(volts)
-            .fold(Ok(()), |result, (group, voltage)| {
-                result.and(each_motor(group, |motor| {
-                    if voltage.value == 0.0 {
-                        return motor.brake(BrakeMode::Coast);
-                    }
-                    let limit = motor.max_voltage();
-                    motor.set_voltage(voltage.value.clamp(-limit, limit))
-                }))
-            })
+        command_groups(groups.iter_mut().zip(volts), |motor, voltage| {
+            if voltage.value == 0.0 {
+                return motor.brake(BrakeMode::Coast);
+            }
+            let limit = motor.max_voltage();
+            motor.set_voltage(voltage.value.clamp(-limit, limit))
+        })
     }
 }
 
@@ -294,31 +289,43 @@ pub(crate) fn normalized_voltage<const N: usize>(
     if powers.iter().any(|power| !power.is_finite()) {
         return coast(groups);
     }
-    groups
-        .iter_mut()
-        .zip(ozton_math::desaturate(powers, 1.0))
-        .fold(Ok(()), |result, (group, power)| {
-            result.and(each_motor(group, |motor| {
-                if power == 0.0 {
-                    motor.brake(BrakeMode::Coast)
-                } else {
-                    motor.set_voltage(power * motor.max_voltage())
-                }
-            }))
-        })
+    command_groups(
+        groups.iter_mut().zip(ozton_math::desaturate(powers, 1.0)),
+        |motor, power| {
+            if power == 0.0 {
+                motor.brake(BrakeMode::Coast)
+            } else {
+                motor.set_voltage(power * motor.max_voltage())
+            }
+        },
+    )
+}
+
+fn command_groups<'a, T: Copy>(
+    groups: impl IntoIterator<Item = (&'a mut Box<[Motor]>, T)>,
+    mut command: impl FnMut(&mut Motor, T) -> Result<(), PortError>,
+) -> Result<(), PortError> {
+    let mut result = Ok(());
+    for (group, input) in groups {
+        result = result.and(each_motor(group, |motor| command(motor, input)));
+    }
+    result
 }
 
 pub(crate) fn each_motor(
     motors: &mut [Motor],
     mut command: impl FnMut(&mut Motor) -> Result<(), PortError>,
 ) -> Result<(), PortError> {
-    motors
-        .iter_mut()
-        .fold(Ok(()), |result, motor| result.and(command(motor)))
+    // Every motor must receive the command, including after an earlier failure.
+    let mut result = Ok(());
+    for motor in motors {
+        result = result.and(command(motor));
+    }
+    result
 }
 
 pub(crate) fn coast(groups: &mut [Box<[Motor]>]) -> Result<(), PortError> {
-    groups.iter_mut().fold(Ok(()), |result, group| {
-        result.and(each_motor(group, |motor| motor.brake(BrakeMode::Coast)))
+    command_groups(groups.iter_mut().zip(std::iter::repeat(())), |motor, ()| {
+        motor.brake(BrakeMode::Coast)
     })
 }

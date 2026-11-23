@@ -31,7 +31,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     let arguments: Vec<_> = env::args_os().skip(1).collect();
     let mut stdout = io::stdout().lock();
     match arguments.as_slice() {
-        [] => Err(USAGE.into()),
         [help] if help == "--help" || help == "-h" => {
             writeln!(
                 stdout,

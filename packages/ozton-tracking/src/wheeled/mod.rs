@@ -187,35 +187,6 @@ impl WheeledTracking {
         )
     }
 
-    // MARK: Heading Calculation
-
-    /// Determines the orientation of the robot.
-    ///
-    /// "raw" in this case refers to the fact that the angle returned by this method has not been
-    /// offset by any amount (meaning the user's "initial heading" configuration isn't considered),
-    /// and has unspecified bounds (it may be out of the range of [0, 2π]). The angle is guaranteed
-    /// to be counterclockwise-positive, but is otherwise a raw reading from whatever sensor is
-    /// being used to determine orientation (either tracking wheels or a [`Gyro`]).
-    ///
-    /// To determine the final heading value returned by [`Self::heading`], you must add the heading
-    /// offset value and wrap the angle from [0, 2π] using [`Angle::wrapped_positive`].
-    ///
-    /// # Errors
-    ///
-    /// There are two ways to determine robot orientation with wheeled tracking. You can either use
-    /// a [`Gyro`], or you can use two parallel tracking wheels with roughly the same offset
-    /// (spacing) from the center of rotation on the robot.
-    ///
-    /// - If the gyro fails to return a value, then [`HeadingError::Imu`] will be returned, and a
-    ///   fallback wheeled heading may be available to use in this error type if the tracking setup
-    ///   has parallel tracking wheels that support it.
-    /// - If a tracking wheel fails then [`HeadingError::RotarySensor`] will be returned containing
-    ///   the underlying error that occurred.
-    ///
-    /// # Panics
-    ///
-    /// An assertion will panic if both `gyro` and `parallel_wheels` is `None`. This should never
-    /// happen.
     /// Reports whether tracking has a continuous position estimate.
     pub fn is_ready(&self) -> bool {
         self.data.borrow().ready

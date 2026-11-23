@@ -8,6 +8,7 @@ pub mod axis;
 pub mod drive;
 pub mod lift;
 pub mod loops;
+pub mod mechanism;
 
 mod tolerances;
 pub use tolerances::{Settling, Tolerances};

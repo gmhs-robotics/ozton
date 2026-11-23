@@ -261,13 +261,11 @@ fn basic_motion_reaches_distance_and_heading_goals() {
 
     assert!(
         (final_position.y - 1.2).abs() < 0.08,
-        "expected forward Y close to 1.2, got {:?}",
-        final_position
+        "expected forward Y close to 1.2, got {final_position:?}"
     );
     assert!(
         final_position.x.abs() < 0.08,
-        "expected right X near 0, got {:?}",
-        final_position
+        "expected right X near 0, got {final_position:?}"
     );
     assert!(
         wrap_radians(final_heading - std::f64::consts::FRAC_PI_2).abs() < 0.08,
@@ -314,8 +312,7 @@ fn seeking_motion_reaches_multiple_waypoints() {
 
     assert!(
         final_position.distance(Vec2::new(-1.4, 0.4)) < 0.09,
-        "expected final position near target, got {:?}",
-        final_position
+        "expected final position near target, got {final_position:?}"
     );
     assert!(
         final_velocity.abs() < 0.08,

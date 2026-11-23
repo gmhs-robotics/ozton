@@ -36,7 +36,7 @@ fn measure(name: &str, count: usize, mut step: impl FnMut(usize)) {
     );
 }
 
-fn main() {
+fn main() -> Result<(), &'static str> {
     let map = [
         Surface::new(
             Length::new::<meter>(-1.8),
@@ -115,7 +115,8 @@ fn main() {
             estimator,
             shadow: false,
         };
-        let mut localizer = Localizer::new(config, Pose::default(), &map, &sensors).unwrap();
+        let mut localizer = Localizer::new(config, Pose::default(), &map, &sensors)
+            .ok_or("invalid localizer benchmark configuration")?;
         if name.starts_with("driver") {
             localizer.set_corrections_enabled(false);
         }
@@ -142,7 +143,8 @@ fn main() {
             .ok();
         });
     }
-    let mut filter = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
+    let mut filter = ParticleFilter::new(Pose::default(), ParticleConfig::default())
+        .ok_or("invalid MCL benchmark configuration")?;
     measure("MCL motion prediction", 10_000, |_| {
         filter.predict(black_box(BodyDelta {
             translation: glam::DVec2::new(0.0001, 0.001),
@@ -150,4 +152,5 @@ fn main() {
         }));
         black_box(&filter);
     });
+    Ok(())
 }

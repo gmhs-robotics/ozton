@@ -298,7 +298,7 @@ impl<'path> State<'path> {
                 fresh_alignment_range
                     && self
                         .settled_range
-                        .is_some_and(|start| elapsed - start >= settle)
+                        .is_some_and(|start| elapsed.saturating_sub(start) >= settle)
             }
         } else {
             ready && self.settled >= settle

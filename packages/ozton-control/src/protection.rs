@@ -176,7 +176,7 @@ mod tests {
         );
         for i in 0..10 {
             let _ = guard.update(
-                Angle::new::<radian>(-0.01 * i as f64),
+                Angle::new::<radian>(-0.01 * f64::from(i)),
                 1.0,
                 Duration::from_millis(10),
             );

@@ -2,6 +2,13 @@
 use super::*;
 
 impl WheeledTracking {
+    /// Read the counterclockwise-positive heading before applying the configured offset.
+    /// The gyro is preferred. A gyro fault can include a fallback heading from two
+    /// parallel tracking wheels, whose own errors retain the underlying sensor failure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if neither heading source is configured.
     pub(super) fn compute_raw_heading<G: Gyro, T: RotarySensor>(
         gyro: Option<&G>,
         parallel_wheels: Option<(&TrackingWheel<T>, &TrackingWheel<T>)>,

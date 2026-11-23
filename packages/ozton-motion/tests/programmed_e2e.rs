@@ -200,6 +200,10 @@ impl MotionPlatform for Sim {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "invalid path fixture must fail the test"
+)]
 fn route() -> Path {
     let points: Vec<_> = (0..=12)
         .map(|index| {
@@ -222,7 +226,7 @@ fn route() -> Path {
             lateral_acceleration: Acceleration::new::<meter_per_second_squared>(1.0),
         },
     )
-    .unwrap()
+    .expect("valid motion path fixture")
 }
 
 #[test]
@@ -316,7 +320,7 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
         .unwrap();
         let markers = [
             PathMarker::new(Length::new::<meter>(0.10), |robot: &mut Sim| {
-                robot.intake = true
+                robot.intake = true;
             }),
             PathMarker::new(Length::new::<meter>(0.40), |robot: &mut Sim| {
                 assert!(robot.intake_moving_ticks > 0);

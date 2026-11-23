@@ -187,7 +187,8 @@ fn slope(samples: impl Iterator<Item = (f64, f64)> + Clone) -> Option<(f64, f64)
         return None;
     }
     let value = cross / norm;
-    let rmse = (samples.map(|(x, y)| (y - value * x).powi(2)).sum::<f64>() / count as f64).sqrt();
+    let rmse =
+        (samples.map(|(x, y)| (y - value * x).powi(2)).sum::<f64>() / f64::from(count)).sqrt();
     (value.is_finite() && rmse.is_finite()).then_some((value, rmse))
 }
 

@@ -10,10 +10,12 @@ pub trait RouteSelector<A> {
     fn status(&mut self, message: &str);
 }
 
+type RouteSelectorFactory<A> = dyn FnOnce(Vec<(String, A)>) -> Box<dyn RouteSelector<A>>;
+
 /// Build a stock Brain menu or give the route list to a custom UI factory.
 pub enum Ui<A> {
     Brain(Display),
-    Custom(Box<dyn FnOnce(Vec<(String, A)>) -> Box<dyn RouteSelector<A>>>),
+    Custom(Box<RouteSelectorFactory<A>>),
 }
 
 impl<A: Copy + 'static> Ui<A> {

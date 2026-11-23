@@ -88,7 +88,7 @@ impl ResetWindow {
         }
         let (started, _) = *self.anchor.get_or_insert((now, pose));
         // Require 120 ms of measured rest before collecting any packets.
-        if now - started < Duration::from_millis(120) {
+        if now.saturating_sub(started) < Duration::from_millis(120) {
             return ResetResult::Waiting;
         }
         let collection_start = *self.collecting.get_or_insert(now);
@@ -98,7 +98,7 @@ impl ResetWindow {
                     Ok(_) => {
                         *stored = report
                             .observation
-                            .filter(|v| v.timestamp >= collection_start)
+                            .filter(|v| v.timestamp >= collection_start);
                     }
                     Err(Rejection::Duplicate)
                         if report.observation.is_some_and(|sample| !sample.occluded) => {}
@@ -106,7 +106,7 @@ impl ResetWindow {
                 }
             }
         }
-        if now - collection_start < Duration::from_millis(45) {
+        if now.saturating_sub(collection_start) < Duration::from_millis(45) {
             return ResetResult::Waiting;
         }
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];

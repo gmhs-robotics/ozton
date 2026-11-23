@@ -14,7 +14,7 @@ use ozton_runtime::{
 };
 
 use super::{
-    Alignment, Command, CommandError, MotionControls, Runner,
+    Alignment, Command, CommandError, MotionControls, MotionPlatform, Runner,
     routine_settings::{
         AUTON_SPEED, PATH_ACCELERATION, PATH_DECELERATION, PATH_LATERAL_ACCELERATION,
         PATH_LOOKAHEAD,
@@ -244,25 +244,28 @@ where
     }
 }
 
+type RouteRobot<D, C, T, X, P, R, S> = Robot<D, C, T, X, P, Autonomous<R, S>>;
+type RouteRunner<'a, D, C, T, X, P, R, S> = Result<
+    (Runner<'a, RouteRobot<D, C, T, X, P, R, S>>, Duration),
+    CommandError<<RouteRobot<D, C, T, X, P, R, S> as MotionPlatform>::Error>,
+>;
+
 fn route_runner<D, C, T, X, P, R, S>(
-    robot: &mut Robot<D, C, T, X, P, Autonomous<R, S>>,
-) -> Result<
-    (Runner<'_, Robot<D, C, T, X, P, Autonomous<R, S>>>, Duration),
-    CommandError<<P as MotionControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error>,
->
+    robot: &mut RouteRobot<D, C, T, X, P, R, S>,
+) -> RouteRunner<'_, D, C, T, X, P, R, S>
 where
-    P: MotionControls<Robot<D, C, T, X, P, Autonomous<R, S>>>,
+    P: MotionControls<RouteRobot<D, C, T, X, P, R, S>>,
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
     X: ozton_runtime::competition::Mechanism<
-            <P as MotionControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+            <P as MotionControls<RouteRobot<D, C, T, X, P, R, S>>>::Error,
         >,
     P: Program<
-            Robot<D, C, T, X, P, Autonomous<R, S>>,
+            RouteRobot<D, C, T, X, P, R, S>,
             D,
-            Error = <P as MotionControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+            Error = <P as MotionControls<RouteRobot<D, C, T, X, P, R, S>>>::Error,
         >,
     R: RouteSet,
-    Autonomous<R, S>: Telemetry<Robot<D, C, T, X, P, Autonomous<R, S>>>,
+    Autonomous<R, S>: Telemetry<RouteRobot<D, C, T, X, P, R, S>>,
 {
     let started = robot
         .autonomous

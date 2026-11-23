@@ -71,9 +71,10 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        if this.state.is_none() {
+        let state = if let Some(state) = &mut this.state {
+            state
+        } else {
             if !this.lookahead_distance.is_finite() || this.lookahead_distance <= 0.0 {
-                this.state = None;
                 return Poll::Ready(
                     this.drivetrain
                         .model
@@ -86,7 +87,6 @@ where
             let position = this.drivetrain.localization.position();
 
             let Some(mut next) = this.waypoints.next() else {
-                this.state = None;
                 return Poll::Ready(
                     this.drivetrain
                         .model
@@ -113,7 +113,6 @@ where
                 next = if let Some(next_waypoint) = this.waypoints.next() {
                     next_waypoint
                 } else {
-                    this.state = None;
                     return Poll::Ready(crate::finish_motion(
                         this.drivetrain.model.stop_now(),
                         crate::MotionOutcome::Settled,
@@ -129,7 +128,6 @@ where
                 next.position,
             ) {
                 (None, None) => {
-                    this.state = None;
                     return Poll::Ready(
                         this.drivetrain
                             .model
@@ -152,16 +150,14 @@ where
                 }
             };
 
-            this.state = Some(State {
+            this.state.insert(State {
                 sleep: sleep(Duration::from_millis(5)),
                 start_time: now,
                 lookahead_point,
                 current,
                 next,
-            });
-        }
-
-        let state = this.state.as_mut().unwrap();
+            })
+        };
 
         if Pin::new(&mut state.sleep).poll(cx).is_pending() {
             return Poll::Pending;

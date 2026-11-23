@@ -6,6 +6,9 @@ license.workspace = true
 version = "0.4.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
 [dependencies]
 ozton-localization = { workspace = true }
 ozton-ui = { workspace = true }
@@ -15,6 +18,9 @@ vexide = { workspace = true }
 ozton-math = { workspace = true }
 ozton-drivetrain = { workspace = true }
 ozton-tracking = { workspace = true }
+
+[target.'cfg(not(target_os = "vexos"))'.dev-dependencies]
+vex-sdk-mock = "0.2.0"
 
 [features]
 logging = ["ozton-diagnostics/logging"]

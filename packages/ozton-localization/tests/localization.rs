@@ -99,6 +99,10 @@ const SENSORS: [RangeSensorConfig; 2] = [
     },
 ];
 
+#[expect(
+    clippy::expect_used,
+    reason = "invalid fixture configuration must fail the test"
+)]
 fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
     Localizer::new(
         Config {
@@ -114,7 +118,7 @@ fn localizer(estimator: Estimator, shadow: bool) -> Localizer<'static> {
         &MAP,
         &SENSORS,
     )
-    .unwrap()
+    .expect("valid localization fixture")
 }
 
 fn snapshot(t: u64) -> Snapshot {
