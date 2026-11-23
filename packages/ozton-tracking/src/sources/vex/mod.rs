@@ -91,9 +91,7 @@ impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
         mut self,
         ranges: impl IntoIterator<Item = DistanceTracker>,
     ) -> Option<Self> {
-        self.distances = Distances::new(ranges)?
-            .initialize(Duration::from_secs(3))
-            .await;
+        self.distances = Distances::new(ranges)?.initialize().await;
         Some(self)
     }
 

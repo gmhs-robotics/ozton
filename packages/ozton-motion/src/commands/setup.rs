@@ -117,7 +117,7 @@ impl DifferentialConfig {
         } = tracking;
         let distances = Distances::new(ranges)
             .ok_or(SetupError::Tracking)?
-            .initialize(Duration::from_secs(3))
+            .initialize()
             .await;
         let mounts = distances.configs().to_vec();
         let localizer = Localizer::new_owned(

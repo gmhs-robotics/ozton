@@ -1,6 +1,4 @@
 //! Sampling hardware independently of pose estimation.
-use std::time::Duration;
-
 use glam::DVec3;
 use ozton_math::uom::si::f64::Length;
 use vexide::{prelude::InertialSensor, smart::SmartPort};
@@ -76,7 +74,7 @@ impl TrackingBuilder {
         }
         let distances = Distances::new(self.ranges)
             .ok_or(TrackingBuildError::RangeLayout)?
-            .initialize(Duration::from_secs(3))
+            .initialize()
             .await;
         let mut sensors = Sensors::default().into_shared_reader();
         if let Some(port) = self.imu {

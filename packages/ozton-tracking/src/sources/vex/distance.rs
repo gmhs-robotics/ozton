@@ -13,7 +13,7 @@ use ozton_math::uom::si::{
 };
 use vexide::{
     prelude::DistanceSensor,
-    smart::{PortError, SmartDevice, SmartPort},
+    smart::{PortError, SmartDevice, SmartPort, distance::DistanceReadyError},
     time::LowResolutionTime,
 };
 
@@ -115,37 +115,46 @@ impl Distances {
         Some(distances)
     }
 
-    /// Give sensors a shared startup deadline. Unready devices keep their
-    /// observation slots and are checked again during capture.
-    pub async fn initialize(self, timeout: Duration) -> Self {
-        let started = std::time::Instant::now();
-        loop {
-            let timed_out = started.elapsed() >= timeout;
-            for device in &self.devices {
-                let status = device.sensor.status();
-                let ready = matches!(status, Ok(0x82 | 0x86));
-                device.set_ready(ready);
-                if timed_out && !ready {
-                    let port = device.sensor.port_number();
-                    let reason = match status {
-                        Ok(0) => "still initializing".to_owned(),
-                        Ok(code) => format!("device detected, unrecognized status {code:#04x}"),
-                        Err(PortError::Disconnected { .. }) => "no device connected".to_owned(),
-                        Err(PortError::IncorrectDevice { actual, .. }) => {
+    /// Wait for each sensor to finish initializing. Devices that return errors
+    /// keep their observation slots and are checked again during capture.
+    pub async fn initialize(self) -> Self {
+        for device in &self.devices {
+            let port = device.sensor.port_number();
+            let _ = writeln!(
+                io::stderr().lock(),
+                "info: waiting for distance sensor on port {port}"
+            );
+            let ready = device.sensor.wait_ready().await;
+            device.set_ready(ready.is_ok());
+            match ready {
+                Ok(()) => {
+                    let _ = writeln!(
+                        io::stderr().lock(),
+                        "info: distance sensor on port {port} ready"
+                    );
+                }
+                Err(error) => {
+                    let reason = match error {
+                        DistanceReadyError::UnknownStatusCode { code } => {
+                            format!("device detected, unrecognized status {code:#04x}")
+                        }
+                        DistanceReadyError::Port {
+                            source: PortError::Disconnected { .. },
+                        } => "no device connected".to_owned(),
+                        DistanceReadyError::Port {
+                            source: PortError::IncorrectDevice { actual, .. },
+                        } => {
                             format!("wrong device type ({actual:?})")
                         }
                     };
                     let _ = writeln!(
                         io::stderr().lock(),
-                        "warning: distance sensor on port {port} unavailable after {timeout:?} ({reason}); continuing without its readings"
+                        "warning: distance sensor on port {port} unavailable ({reason}); continuing without its readings"
                     );
                 }
             }
-            if timed_out || self.ready_count() == self.len() {
-                return self;
-            }
-            vexide::time::sleep(RANGE_PERIOD).await;
         }
+        self
     }
 
     pub fn configs(&self) -> &[RangeSensorConfig] {
@@ -183,20 +192,10 @@ impl Distances {
             .is_none_or(|last| time.saturating_sub(last) >= RANGE_PERIOD)
         {
             for (index, device) in self.devices.iter().enumerate() {
-                // Runtime status is a connection check. Rejoining never runs calibration.
-                device.set_ready(matches!(device.sensor.status(), Ok(0x82 | 0x86)));
-                let readiness = device.readiness.get();
-                self.cached[index] = if readiness.ready {
-                    match distance(&device.sensor, occluded & (1 << index) != 0) {
-                        Ok(observation) => observation.map(|value| (readiness.generation, value)),
-                        Err(()) => {
-                            device.set_ready(false);
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
+                let observation = distance(&device.sensor, occluded & (1 << index) != 0);
+                device.set_ready(observation.is_ok());
+                let generation = device.readiness.get().generation;
+                self.cached[index] = observation.ok().flatten().map(|value| (generation, value));
             }
             self.last_poll = Some(time);
         }
