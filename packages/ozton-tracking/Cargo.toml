@@ -16,6 +16,7 @@ workspace = true
 arrayvec = { workspace = true }
 glam = { workspace = true }
 ozton-math = { workspace = true }
+vex-sdk = "0.29.0"
 vexide = { workspace = true }
 
 [package.metadata.docs.rs]

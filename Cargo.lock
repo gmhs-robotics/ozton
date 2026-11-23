@@ -309,6 +309,7 @@ dependencies = [
  "arrayvec",
  "glam",
  "ozton-math",
+ "vex-sdk",
  "vexide",
 ]
 

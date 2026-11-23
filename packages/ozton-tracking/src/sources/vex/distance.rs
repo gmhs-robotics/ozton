@@ -23,6 +23,9 @@ use crate::{
     sources::distance::{MAX_RANGES, RangeObservation, RangeSensorConfig},
 };
 
+mod compat;
+use compat::{ALTERNATE_READY_STATUS, read_object};
+
 const RANGE_PERIOD: Duration = Duration::from_millis(33);
 
 /// An owned distance sensor and its surveyed right/forward/up mounting point.
@@ -124,7 +127,12 @@ impl Distances {
                 io::stderr().lock(),
                 "info: waiting for distance sensor on port {port}"
             );
-            let ready = device.sensor.wait_ready().await;
+            let ready = match device.sensor.wait_ready().await {
+                Err(DistanceReadyError::UnknownStatusCode {
+                    code: ALTERNATE_READY_STATUS,
+                }) => Ok(()),
+                result => result,
+            };
             device.set_ready(ready.is_ok());
             match ready {
                 Ok(()) => {
@@ -206,14 +214,14 @@ impl Distances {
 
 fn distance(sensor: &DistanceSensor, occluded: bool) -> Result<Option<RangeObservation>, ()> {
     let before = sensor.timestamp().map_err(|_| ())?;
-    let Some(reading) = sensor.object().map_err(|_| ())? else {
+    let Some((millimeters, confidence)) = read_object(sensor)? else {
         return Ok(None);
     };
     let after = sensor.timestamp().map_err(|_| ())?;
     Ok((before == after).then(|| RangeObservation {
         timestamp: stamp(after),
-        distance: Length::new::<millimeter>(f64::from(reading.distance)),
-        confidence: reading.confidence,
+        distance: Length::new::<millimeter>(f64::from(millimeters)),
+        confidence,
         occluded,
     }))
 }
