@@ -9,14 +9,16 @@ use ozton_math::{
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
 
+mod actions;
 mod approach;
 mod drive;
 mod error;
 mod safety;
 mod session;
+pub use actions::PathActions;
 pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
-use session::PoseSession;
+use session::{PoseSession, Trajectory};
 
 use super::Seeking;
 
@@ -279,6 +281,22 @@ impl Seeking {
         follower: crate::pursuit::profiled::Follower,
         reverse: bool,
     ) -> Result<(), PoseMotionError<D::Error>> {
+        self.follow_path_with_actions(drive, path, follower, reverse, &mut PathActions::new())
+            .await
+    }
+
+    /// Execute a continuous trajectory with nonblocking mechanism actions.
+    pub async fn follow_path_with_actions<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        path: &ozton_math::path::Path,
+        follower: crate::pursuit::profiled::Follower,
+        reverse: bool,
+        actions: &mut PathActions<'_>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        if !actions.valid(path) {
+            return Err(PoseMotionError::Configuration);
+        }
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let field = approach::clearance(drive, self.config.safety.clearance)?;
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
@@ -302,12 +320,15 @@ impl Seeking {
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .follow(
-                path,
-                follower,
-                reverse,
-                target,
-                field,
-                self.config.timing.stage_timeout,
+                Trajectory {
+                    path,
+                    follower,
+                    reverse,
+                    target,
+                    clearance: field,
+                    timeout: self.config.timing.stage_timeout,
+                },
+                actions,
             )
             .await;
         session.finish(result)

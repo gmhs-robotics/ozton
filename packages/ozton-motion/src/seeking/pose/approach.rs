@@ -4,12 +4,16 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{DVec2, Pose, bearing},
-    path::clearance::{RectangularClearance, approach_heading},
+    path::clearance::{AStar, RectangularClearance, approach_heading},
     uom::si::f64::Angle,
 };
 use ozton_runtime::clock::CONTROL_PERIOD;
 
-use super::{PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
+use super::{
+    PathActions, PoseDrive, Seeking, TravelDirection,
+    error::PoseMotionError,
+    session::{PoseSession, Trajectory},
+};
 use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
@@ -65,7 +69,14 @@ async fn approach<D: PoseDrive>(
     let options = session.options;
     let config = settings.config();
     let start = session.drive.pose();
-    // Prefer a single continuous maneuver, including a clearance-aware wall departure.
+    let movable = session.drive.movable_obstacles();
+    let preferred = clearance.and_then(|mut field| {
+        for polygon in movable.iter().flatten() {
+            field = field.with_polygon(*polygon)?;
+        }
+        Some(field)
+    });
+    // Prefer a continuous maneuver that avoids fixed and movable objects.
     // A planned trajectory failure is not silently retried as a different command.
     if let Some(heading) = final_heading {
         let target = Pose::new(target.position, heading);
@@ -73,23 +84,30 @@ async fn approach<D: PoseDrive>(
             .travel
             .map(|d| matches!(d, TravelDirection::Backward));
         let span = ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::Planner);
-        let plan = ozton_math::path::planner::plan(
-            start,
-            target,
-            config.path_limits(options.track_width),
-            clearance,
-            direction,
-        );
+        let plan = if clearance.is_none() || preferred.is_some() {
+            ozton_math::path::planner::plan(
+                start,
+                target,
+                config.path_limits(options.track_width),
+                preferred,
+                direction,
+            )
+        } else {
+            None
+        };
         drop(span);
         if let Some(plan) = plan {
             return session
                 .follow(
-                    &plan.path,
-                    config.follower(),
-                    plan.reverse,
-                    target,
-                    clearance,
-                    settings.config.timing.stage_timeout,
+                    Trajectory {
+                        path: &plan.path,
+                        follower: config.follower(),
+                        reverse: plan.reverse,
+                        target,
+                        clearance,
+                        timeout: settings.config.timing.stage_timeout,
+                    },
+                    &mut PathActions::new(),
                 )
                 .await;
         }
@@ -111,25 +129,32 @@ async fn approach<D: PoseDrive>(
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
         let start = session.drive.pose();
-        let displacement = target.position - start.position;
-        let reverse = match settings.travel {
-            Some(travel) => matches!(travel, TravelDirection::Backward),
-            None => {
-                approach_heading(
-                    start.heading,
-                    final_heading.unwrap_or(start.heading),
-                    displacement,
-                )
-                .0
+        let route = clearance
+            .and_then(|field| {
+                AStar::new()
+                    .with_waypoint_reserve(options.position_tolerance)
+                    .plan(&field, start.position, target.position, &movable)
+            })
+            .unwrap_or_else(|| vec![target.position]);
+        for (index, point) in route.iter().copied().enumerate() {
+            let start = session.drive.pose();
+            let displacement = point - start.position;
+            if displacement.length() <= tolerance {
+                continue;
             }
-        };
-        if displacement.length() > tolerance {
+            let end_heading = if index + 1 == route.len() {
+                final_heading.unwrap_or(start.heading)
+            } else {
+                bearing(route[index + 1] - point)
+            };
+            let reverse = match settings.travel {
+                Some(travel) => matches!(travel, TravelDirection::Backward),
+                None => approach_heading(start.heading, end_heading, displacement).0,
+            };
             let heading =
                 bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
-            // A point-only target does not require enough space to rotate at
-            // the destination; only the actual approach orientation must fit.
             if clearance.is_some_and(|field| {
-                !field.contains_translation(Pose::new(start.position, heading), target.position)
+                !field.contains_translation(Pose::new(start.position, heading), point)
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -140,17 +165,17 @@ async fn approach<D: PoseDrive>(
                 settings.config.timing.stage_timeout,
             )
             .await?;
+            session
+                .run(
+                    DifferentialTarget::DriveToPoint {
+                        target: point,
+                        maximum_speed: options.maximum_wheel_speed,
+                        reverse,
+                    },
+                    settings.config.timing.stage_timeout,
+                )
+                .await?;
         }
-        session
-            .run(
-                DifferentialTarget::DriveToPoint {
-                    target: target.position,
-                    maximum_speed: options.maximum_wheel_speed,
-                    reverse,
-                },
-                settings.config.timing.stage_timeout,
-            )
-            .await?;
         if let Some(heading) = final_heading {
             turn_checked(
                 session,

@@ -1,7 +1,7 @@
 //! Physical-velocity feedback seeking.
 
 mod pose;
-pub use pose::{DriveMotionFault, PoseDrive, PoseMotionError, TravelDirection};
+pub use pose::{DriveMotionFault, PathActions, PoseDrive, PoseMotionError, TravelDirection};
 
 /// Reusable physical motion template for a calibrated drivetrain.
 #[derive(Clone, Copy, Debug, PartialEq)]

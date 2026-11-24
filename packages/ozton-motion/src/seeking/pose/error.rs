@@ -12,6 +12,7 @@ pub enum PoseMotionError<E> {
     PositionUnsettled,
     UntrustedPose,
     NoProgress,
+    Mechanism(ozton_runtime::mechanism::MechanismError),
     Drive(E),
     StopFailed(E),
     StopFailedAfter { cause: Box<Self>, stop: E },
@@ -29,6 +30,7 @@ impl<E> PoseMotionError<E> {
             Self::PositionUnsettled => "position_unsettled",
             Self::UntrustedPose => "untrusted_pose",
             Self::NoProgress => "no_progress",
+            Self::Mechanism(_) => "mechanism",
             Self::Drive(_) => "robot",
             Self::StopFailed(_) | Self::StopFailedAfter { .. } => "stop_failed",
         }
@@ -47,6 +49,7 @@ impl<E: fmt::Display> fmt::Display for PoseMotionError<E> {
             Self::PositionUnsettled => "Position shifted outside tolerance during the final turn",
             Self::UntrustedPose => "Untrusted field pose",
             Self::NoProgress => "Pose seeking made no progress",
+            Self::Mechanism(error) => return error.fmt(f),
             Self::Drive(error) => return error.fmt(f),
             Self::StopFailed(error) => return write!(f, "Motion stop failed: {error}"),
             Self::StopFailedAfter { cause, stop } => {
@@ -61,6 +64,7 @@ impl<E: Error + 'static> Error for PoseMotionError<E> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Drive(error) | Self::StopFailed(error) => Some(error),
+            Self::Mechanism(error) => Some(error),
             Self::StopFailedAfter { cause, .. } => Some(cause.as_ref()),
             _ => None,
         }

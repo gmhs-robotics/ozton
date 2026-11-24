@@ -8,12 +8,21 @@ use ozton_math::{
 use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_event, log_row};
 
 use super::{
-    PoseDrive, PoseMotionError,
+    PathActions, PoseDrive, PoseMotionError,
     safety::{limit_wall_command, safe_feedback},
 };
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
+
+pub(super) struct Trajectory<'a> {
+    pub path: &'a ozton_math::path::Path,
+    pub follower: crate::pursuit::profiled::Follower,
+    pub reverse: bool,
+    pub target: ozton_math::geometry::Pose,
+    pub clearance: Option<ozton_math::path::clearance::RectangularClearance>,
+    pub timeout: Duration,
+}
 
 pub(super) struct PoseSession<'a, D: PoseDrive> {
     pub(super) drive: &'a mut D,
@@ -219,14 +228,19 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
     pub(super) async fn follow(
         &mut self,
-        path: &ozton_math::path::Path,
-        follower: crate::pursuit::profiled::Follower,
-        reverse: bool,
-        target: ozton_math::geometry::Pose,
-        clearance: Option<ozton_math::path::clearance::RectangularClearance>,
-        timeout: Duration,
+        trajectory: Trajectory<'_>,
+        actions: &mut PathActions<'_>,
     ) -> Result<(), PoseMotionError<D::Error>> {
         use ozton_math::uom::si::{f64::Time, time::second};
+
+        let Trajectory {
+            path,
+            follower,
+            reverse,
+            target,
+            clearance,
+            timeout,
+        } = trajectory;
 
         use crate::pursuit::profiled::{self, FollowerSample, Progress as PathProgress};
         let start = Instant::now();
@@ -305,6 +319,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if cross > 0.20 {
                 return Err(PoseMotionError::PositionUnsettled);
             }
+            actions
+                .advance(
+                    progress.distance(),
+                    (end.time - geometric.time).max(0.0),
+                    false,
+                )
+                .map_err(PoseMotionError::Mechanism)?;
             // Bound time-reference lead to avoid chasing a distant reference after lag.
             reference_time = profiled::advance_reference_time(
                 reference_time,
@@ -400,6 +421,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             );
             self.drive.log_step(self.started.elapsed(), dt);
             if complete {
+                actions
+                    .advance(end.distance, 0.0, true)
+                    .map_err(PoseMotionError::Mechanism)?;
                 log_event!(Info, "motion", "Trajectory: settled");
                 return Ok(());
             }
