@@ -86,9 +86,7 @@ impl FieldMap {
 
     /// Add a surveyed surface. Leave movable game objects out of the fixed map.
     pub fn add(&mut self, face: Surface) -> bool {
-        if self.faces.len() >= u128::BITS as usize
-            || !face.is_valid()
-        {
+        if self.faces.len() >= u128::BITS as usize || !face.is_valid() {
             return false;
         }
         self.faces.push(face);

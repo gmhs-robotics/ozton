@@ -3,7 +3,11 @@ use super::*;
 #[test]
 fn orthogonal_beams_reduce_seeded_initial_error() {
     let map = [
-        Surface::new(DVec2::new(-1.0, -1.0), DVec2::new(-1.0, 1.0), crate::qty!(1 m)),
+        Surface::new(
+            DVec2::new(-1.0, -1.0),
+            DVec2::new(-1.0, 1.0),
+            crate::qty!(1 m),
+        ),
         Surface::new(DVec2::ONE, DVec2::new(-1.0, 1.0), crate::qty!(1 m)),
     ];
     let beams = [0.0, core::f64::consts::FRAC_PI_2].map(|heading| Beam {
