@@ -5,7 +5,6 @@ use vexide::{
     math::Angle,
     smart::{
         PortError,
-        imu::{InertialError, InertialSensor},
         motor::Motor,
         rotation::RotationSensor,
     },
@@ -96,45 +95,6 @@ impl<T: RotarySensor, const N: usize> RotarySensor for [T; N] {
 
     fn position(&self) -> Result<Angle, Self::Error> {
         self.as_slice().position()
-    }
-}
-
-/// A "gyroscope," or a sensor that measures the robot's heading and angular velocity
-pub trait Gyro {
-    /// The error returned when [`Gyro::heading`] or [`Gyro::angular_velocity`] fails. This
-    /// describes a hardware error.
-    type Error;
-
-    /// Returns the heading of the robot as an [`Angle`]
-    fn heading(&self) -> Result<Angle, Self::Error>;
-
-    /// Returns the horizontal angular velocity
-    fn angular_velocity(&self) -> Result<f64, Self::Error>;
-}
-
-impl Gyro for InertialSensor {
-    type Error = InertialError;
-
-    fn heading(&self) -> Result<Angle, Self::Error> {
-        InertialSensor::heading(self).map(|angle| Angle::FULL_TURN - angle)
-    }
-
-    fn angular_velocity(&self) -> Result<f64, Self::Error> {
-        InertialSensor::gyro_rate(self)
-            .map(|rate| (-rate.z).to_radians())
-            .map_err(|err| InertialError::Port { source: err })
-    }
-}
-
-impl Gyro for Rc<InertialSensor> {
-    type Error = InertialError;
-
-    fn heading(&self) -> Result<Angle, Self::Error> {
-        <InertialSensor as Gyro>::heading(self.as_ref())
-    }
-
-    fn angular_velocity(&self) -> Result<f64, Self::Error> {
-        <InertialSensor as Gyro>::angular_velocity(self.as_ref())
     }
 }
 

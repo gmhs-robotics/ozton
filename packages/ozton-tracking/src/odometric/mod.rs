@@ -31,8 +31,6 @@ mod motors;
 pub use motors::SharedMotors;
 #[cfg(all(feature = "vex", feature = "logging"))]
 pub(crate) use motors::command_targets;
-#[cfg(feature = "vex")]
-pub mod holonomic;
 mod projection;
 pub mod wheel;
 

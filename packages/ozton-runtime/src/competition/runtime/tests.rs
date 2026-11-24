@@ -37,9 +37,7 @@ impl OztonCompete for Application {
 fn application_driver_runs_once_per_activation_with_fault_cleanup() {
     vexide::runtime::block_on(async {
         let mut runtime = Runtime::new(Application {
-            drive: FakeDrive {
-                writes: Vec::new(),
-            },
+            drive: FakeDrive { writes: Vec::new() },
             driver_entries: 0,
         });
 
@@ -77,9 +75,7 @@ fn route_choice_is_read_once_at_autonomous_entry() {
     vexide::runtime::block_on(async {
         let reads = Rc::new(Cell::new(0));
         let mut runtime = Runtime::new(Application {
-            drive: FakeDrive {
-                writes: Vec::new(),
-            },
+            drive: FakeDrive { writes: Vec::new() },
             driver_entries: 0,
         })
         .with_ui(Ui::custom({

@@ -5,9 +5,7 @@ use std::{fmt::Display, time::Duration};
 use ozton_ui::RouteSelector;
 use vexide::{competition::CompetitionMode, display::Display as BrainDisplay};
 
-use super::{
-    Compete, RobotRoute, Ui, selector_task::TaskSelector, session,
-};
+use super::{Compete, RobotRoute, Ui, selector_task::TaskSelector, session};
 use crate::{clock::CONTROL_PERIOD, localization::LocalizationWorker};
 
 /// Hardware and behavior supplied by an application to the competition runtime.

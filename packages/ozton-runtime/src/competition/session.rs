@@ -9,12 +9,11 @@ use std::{
     time::Duration,
 };
 
+use ozton_ui::RouteSelector;
 use vexide::{
     competition::{self, Compete, CompetitionMode, CompetitionRuntime},
     time::sleep,
 };
-
-use ozton_ui::RouteSelector;
 
 use super::{OztonCompete, Runtime};
 use crate::clock::CONTROL_PERIOD;
@@ -122,7 +121,12 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
     pub(super) async fn disabled(&mut self) {
         let _activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Disabled);
-        while_in_mode(pending::<()>(), CompetitionMode::Disabled, R::CONTROL_PERIOD).await;
+        while_in_mode(
+            pending::<()>(),
+            CompetitionMode::Disabled,
+            R::CONTROL_PERIOD,
+        )
+        .await;
     }
 
     pub(super) async fn driver(&mut self) {
@@ -153,7 +157,8 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
                 .selector
                 .status(&format!("Autonomous: {}", route.label()));
             crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label());
-            let result = while_in_mode(route.run(&mut runtime.robot), mode, R::CONTROL_PERIOD).await;
+            let result =
+                while_in_mode(route.run(&mut runtime.robot), mode, R::CONTROL_PERIOD).await;
             if competition::mode() != mode || result.is_none() {
                 // Do not write motor outputs or status for an obsolete activation.
                 return;

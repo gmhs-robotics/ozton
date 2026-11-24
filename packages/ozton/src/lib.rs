@@ -19,7 +19,6 @@ pub mod autonomous;
 pub mod prelude {
     pub use crate::{
         autonomous::{ControlError, ControlResult, Follower},
-        control::Tolerances,
         drivetrain::{Drive, Drivetrain, HasLocalization, LateralDrive, model::DriveConfigError},
         motion::{
             Arcade, DriveTuning, Holonomic, Seeking, Tank, arcade::ArcadeInput,
@@ -32,7 +31,7 @@ pub mod prelude {
         },
         tracking::{
             Measurement, MeasurementSink, NoTracking, Tracking, TrackingSource,
-            TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity, WheeledTracking,
+            TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
             range::DistanceTracker,
         },
     };

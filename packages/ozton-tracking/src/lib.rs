@@ -23,13 +23,11 @@
 //! }
 //! ```
 //!
-//! Additionally, a reference implementation of a tracking system that performs wheeled odometry is
-//! provided by the [`odometric`] module.
+//! Use mounted wheel observations with the localization crate for pose estimation.
 //!
 //! # Units
 //!
-//! Use metres, radians, seconds and SI derivatives for new code. Historical wheeled
-//! APIs retain the caller's wheel-diameter unit; use metres there for interoperability.
+//! Use metres, radians, seconds and SI derivatives.
 
 pub mod absolute;
 #[cfg(all(feature = "vex", feature = "logging"))]
@@ -47,9 +45,7 @@ mod sensor;
 pub mod snapshot;
 
 #[cfg(feature = "vex")]
-pub use odometric::holonomic::WheeledTracking;
-#[cfg(feature = "vex")]
-pub use sensor::{Gyro, RotarySensor};
+pub use sensor::RotarySensor;
 
 /// A tracking system and its optional calibrated drive-wheel source.
 pub trait TrackingSystem {

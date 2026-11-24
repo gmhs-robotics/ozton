@@ -1,8 +1,8 @@
 //! Run a drivetrain's localization at the robot's control period.
 
-use vexide::competition::CompetitionMode;
 use ozton_localization::differential::DifferentialLocalization;
 use ozton_tracking::{Tracking, TrackingSources, TrackingSystem};
+use vexide::competition::CompetitionMode;
 mod worker;
 pub use worker::LocalizationWorker;
 
