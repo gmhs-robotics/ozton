@@ -1,0 +1,19 @@
+/* Keep mdBook's native themes, navigation and accessibility. */
+:root {
+    --content-max-width: 850px;
+}
+.content main {
+    line-height: 1.7;
+}
+.content main > h1:first-child {
+    letter-spacing: -0.035em;
+}
+.content main h2 {
+    letter-spacing: -0.02em;
+}
+.content main pre {
+    border-radius: 6px;
+}
+.content main a {
+    text-underline-offset: 0.15em;
+}

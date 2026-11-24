@@ -14,4 +14,4 @@ In a walled area, measure the sensor mounts and wall dimensions, enable MCL, and
 
 ## Check the result
 
-Record the initial configuration and battery voltage for each trial. Compare time to settle, endpoint error and overshoot across repeated runs. Use the [logging and profiling guide](recording.html) to identify timing gaps before changing PID gains. A simulated test passing does not establish physical accuracy.
+Record the initial configuration and battery voltage for each trial. Compare time to settle, endpoint error and overshoot across repeated runs. Use the [logging and profiling guide](recording.md) to identify timing gaps before changing PID gains. A simulated test passing does not establish physical accuracy.

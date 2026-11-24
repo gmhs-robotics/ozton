@@ -12,7 +12,7 @@ const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[
 ];
 ```
 
-Pass your robot to Runtime::new, add Ui::Brain(display), then await compete. Select a route while disabled. The selection is read when autonomous begins. See [the complete first robot](getting-started.html) for context.
+Pass your robot to Runtime::new, add Ui::Brain(display), then await compete. Select a route while disabled. The selection is read when autonomous begins. See [the complete first robot](getting-started.md) for context.
 
 ## Mode changes
 

@@ -1,0 +1,27 @@
+name: Documentation
+
+on:
+  push:
+    paths: ['docs/**', 'packages/ozton/examples/**', 'vercel.json', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['docs/**', 'packages/ozton/examples/**', 'vercel.json', '.github/workflows/docs.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+        with:
+          persist-credentials: false
+      - run: sh docs/install-mdbook.sh
+      - run: docs/.bin/mdbook build docs
+      - name: Verify rendered chapters and search
+        run: |
+          test -s docs/book/index.html
+          test -s docs/book/getting-started.html
+          test -s docs/book/recording.html
+          find docs/book -maxdepth 1 -name 'searchindex*' -size +0c | grep .

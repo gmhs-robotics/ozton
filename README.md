@@ -40,6 +40,8 @@ motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 
 Enable the `logging` feature to record detailed telemetry and profiling to `OZTON3.LOG` on a writable SD card. Decode it with `python3 tools/decode_log.py OZTON3.LOG`. See [logging and profiling](docs/src/recording.md) for the record format and interpretation.
 
+Build the documentation locally with `mdbook build docs`, or preview changes with `mdbook serve docs --open`.
+
 Ozton is developed in the open. Hardware validation is still necessary: CI checks the Rust workspace, simulations and V5 compilation, not how accurately your specific robot moves.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).

@@ -15,7 +15,14 @@ These are host and cross-compile checks, not hardware tests. For firmware, build
 
 ## Documentation
 
-The source pages live in docs/src and the dependency-free static site builder is docs/build.mjs. Run node docs/build.mjs to generate docs/site. Vercel reads the root vercel.json and builds the site directly from GitHub when the repository is connected to the ozton-docs project. The build command is node docs/build.mjs and the output directory is docs/site. Keep ozton.eli.best on that project. Use main as the production branch once the guide is merged; development branches receive preview deployments. Do not deploy unreviewed main-branch firmware changes merely to publish documentation.
+The book uses [mdBook](https://rust-lang.github.io/mdBook/). Chapters live in `docs/src`, the navigation is defined in `docs/src/SUMMARY.md`, and the configuration is in `docs/book.toml`. Install mdBook 0.5.3 locally, then run:
+
+```sh
+mdbook serve docs --open
+mdbook build docs
+```
+
+Vercel uses the root `vercel.json` to install the pinned, checksum-verified mdBook binary and build the book. The output is `docs/book`. Connect the existing ozton-docs project to gmhs-robotics/ozton in Vercel Git settings. Set the production branch to main once the changes are merged. Other branches receive previews. The custom domain remains ozton.eli.best. The independent Documentation GitHub Actions workflow checks the book on changes, without requiring firmware compilation.
 
 ## Contributing
 

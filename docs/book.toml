@@ -1,0 +1,29 @@
+[book]
+title = "The Ozton Book"
+description = "A practical guide to building VEX V5 robots in Rust with Ozton."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[rust]
+edition = "2024"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/gmhs-robotics/ozton"
+git-repository-icon = "fa-github"
+edit-url-template = "https://github.com/gmhs-robotics/ozton/edit/fix/motion-convergence/docs/{path}"
+site-url = "/"
+additional-css = ["theme/ozton.css"]
+
+[output.html.playground]
+runnable = false
+copyable = true
+
+[output.html.search]
+enable = true
+heading-split-level = 3

@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "node docs/build.mjs",
-  "installCommand": "true",
-  "outputDirectory": "docs/site"
+  "installCommand": "sh docs/install-mdbook.sh",
+  "buildCommand": "docs/.bin/mdbook build docs",
+  "outputDirectory": "docs/book"
 }

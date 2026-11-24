@@ -6,10 +6,10 @@ You do not need a particle filter, a CAD model or even a tracking wheel to get s
 
 ## Where to begin
 
-- [Getting started](getting-started.html) walks through a complete two-motor robot.
-- [Coordinates and units](coordinates.html) explains the coordinate system used throughout the API.
-- [Localization](localization.html) explains how to register your sensors and estimate the robot's position.
-- [Motion commands](motion.html) explains which controller to use for each task.
-- [API map](api.html) points to the types and source code.
+- [Getting started](getting-started.md) walks through a complete two-motor robot.
+- [Coordinates and units](coordinates.md) explains the coordinate system used throughout the API.
+- [Localization](localization.md) explains how to register your sensors and estimate the robot's position.
+- [Motion commands](motion.md) explains which controller to use for each task.
+- [API map](api.md) points to the types and source code.
 
-This guide describes the fix/motion-convergence development branch. Its API is not necessarily the same as a published crate or main. Pin the exact revision you have tested on your robot. Read [development](development.html) before updating competition firmware.
+This guide describes the fix/motion-convergence development branch. Its API is not necessarily the same as a published crate or main. Pin the exact revision you have tested on your robot. Read [development](development.md) before updating competition firmware.
