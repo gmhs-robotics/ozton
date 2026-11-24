@@ -19,7 +19,11 @@ The Python decoder is in the Ozton repository, not necessarily your application 
 - LEGACY_MOTION_TICK and LEGACY_PURSUIT_TICK: normalized controller outputs.
 - PROFILE: per-stage execution-time summaries.
 
-Shared drivetrain reporters are rate-limited to one hardware snapshot per 10 ms, so a background reporter and motion command do not both read the same devices. The scheduler may produce fewer samples; use actual timestamps. Serialization reuses scratch buffers and a bounded schema dictionary.
+Ozton starts the diagnostics task automatically when competition begins. It reads the Brain's smart-port device table once per sampling frame (nominally 10 ms) and records every connected motor, including raw vexide motors in your own mechanisms. No reporter or registration is required in application code. The task uses read-only SDK access: it does not create another motor handle, change device settings or issue commands.
+
+Motor rows use the port number as the stable identifier. Shared Ozton motor groups also supply the exact software command (including voltage); for unregistered motors the SDK's available mode, brake, RPM and position target registers are recorded instead. Unknown requested values are NaN, not fabricated from measured voltage. Localization workers automatically supply pose, calibrated wheel feedback and IMU samples. During motion, a shared rate gate avoids duplicate drivetrain snapshots.
+
+The scheduler may produce fewer samples; use actual timestamps. Serialization reuses scratch buffers and a bounded schema dictionary. `ozton::run` handles startup error and panic logging, SD writer lifetime and the startup duration. With logging disabled, no hardware-sampling task is started.
 
 ## Read profiling records
 

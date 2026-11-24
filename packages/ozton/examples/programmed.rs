@@ -15,7 +15,6 @@ use ozton::{
     runtime::{
         CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
         competition::{Program, RegisteredRoute},
-        diagnostics::{Frame, MotorSample},
     },
     tracking::{mount::Vec3, range::DistanceTracker},
     uom::{
@@ -101,12 +100,6 @@ impl RobotLayout for Controls {
     type Mechanisms = Mechanisms;
     type Routes = RegisteredRoute<Self, RouteError>;
     type Report = ();
-}
-
-impl ozton::runtime::diagnostics::ComponentReport for Mechanisms {
-    fn report(&self, frame: Frame) {
-        MotorSample::read(&self.intake.motor).write(frame, "intake");
-    }
 }
 
 impl ozton::runtime::competition::Mechanism<RouteError> for Mechanisms {}
@@ -203,7 +196,8 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
 // ANCHOR_END: route
 
 #[vexide::main]
-async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
+async fn main(p: Peripherals) -> std::process::ExitCode {
+    ozton::run(async move {
     // ANCHOR: prepare_path
     let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
         .map_err(|error| format!("Invalid path export: {error:?}"))?;
@@ -241,7 +235,7 @@ async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
         on: false,
     };
     // ANCHOR: assemble
-    RobotBuilder::new()
+    Ok::<_, Box<dyn std::error::Error>>(RobotBuilder::new()
         .with_controller(p.primary_controller)
         .with_drivetrain(drive)
         .with_mechanisms(Mechanisms { intake })
@@ -249,8 +243,8 @@ async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
         .with_auton([route!("Straight", straight)])
         .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
         .with_diagnostics::<()>(Duration::from_millis(250))
-        .build()
-        .compete()
-        .await
+        .build())
     // ANCHOR_END: assemble
+    })
+    .await
 }

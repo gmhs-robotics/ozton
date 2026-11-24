@@ -172,12 +172,10 @@ where
     R: RouteSet,
     S: Report<Robot<D, C, X, P, Self, B>>,
     D: ComponentReport,
-    X: ComponentReport,
 {
     fn record(robot: &mut Robot<D, C, X, P, Self, B>, sample: Sample) {
         if let Some(frame) = robot.autonomous.sampler.frame(sample) {
             robot.drivetrain.report(frame);
-            robot.mechanisms.report(frame);
             S::collect(robot, frame, sample);
         }
     }

@@ -86,3 +86,22 @@ impl Drop for Startup {
         crate::diagnostics::flush_sd_logging();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NeverStart;
+
+    impl Application for NeverStart {
+        async fn compete(self) -> ! {
+            match std::future::pending::<std::convert::Infallible>().await {}
+        }
+    }
+
+    #[test]
+    fn startup_error_returns_failure_without_starting_competition() {
+        let exit = vexide::runtime::block_on(run(async { Err::<NeverStart, _>("bad geometry") }));
+        assert_eq!(exit, ExitCode::FAILURE);
+    }
+}
