@@ -269,7 +269,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 dt.as_secs_f64(),
                 geometric,
                 end,
-                self.config.lookahead.value.max(self.options.position_tolerance.value * 2.0),
+                self.config
+                    .lookahead
+                    .value
+                    .max(self.options.position_tolerance.value * 2.0),
             );
             let sample = FollowerSample {
                 pose: feedback.pose,

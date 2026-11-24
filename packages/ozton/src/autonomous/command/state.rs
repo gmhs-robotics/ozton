@@ -147,7 +147,8 @@ impl<'path> State<'path> {
                     dt.as_secs_f64(),
                     geometric,
                     end,
-                    self.terminal_distance.max(options.position_tolerance.value * 2.0),
+                    self.terminal_distance
+                        .max(options.position_tolerance.value * 2.0),
                 );
                 let sample = FollowerSample {
                     pose: feedback.pose,
