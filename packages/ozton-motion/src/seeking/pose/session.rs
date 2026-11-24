@@ -406,7 +406,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
         self.drive.request_distance_reset();
-        log_event!(Info, "localization", "Stationary distance correction: requested");
+        log_event!(
+            Info,
+            "localization",
+            "Stationary distance correction: requested"
+        );
         loop {
             let dt = self.tick().await?;
             if started.elapsed() >= timeout {
@@ -424,7 +428,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     return Err(PoseMotionError::InvalidFeedback);
                 }
                 if feedback.reset_accepted {
-                    log_event!(Info, "localization", "Stationary distance correction: accepted");
+                    log_event!(
+                        Info,
+                        "localization",
+                        "Stationary distance correction: accepted"
+                    );
                     return Ok(true);
                 }
             }
