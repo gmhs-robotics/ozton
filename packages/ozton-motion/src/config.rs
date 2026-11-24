@@ -6,7 +6,7 @@ use ozton_math::uom::si::f64::{Acceleration, Angle, AngularVelocity, Length, Vel
 use crate::basic::differential::{DriveOptions, DriveTuning};
 
 /// Defaults are deliberately conservative; applications should supply measured values.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MotionConfig {
     pub tuning: DriveTuning,
     pub wheel_speed: Velocity,

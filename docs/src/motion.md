@@ -8,7 +8,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 - Seeking: move to a point, optionally specify the final heading, or execute a distance, turn, arc or prepared path. The default backend uses calibrated wheel velocities, feedback and field clearance.
 - PurePursuit: follow waypoints with normalized motor output and an endpoint controller.
 
-Basic and PurePursuit use normalized motor fractions. Seeking's default outer loops produce physical linear and angular velocities. For simple drivetrains without calibrated wheel-speed output, `Seeking::normalized()` opts into the original point-only voltage controller. Its gains use motor fractions instead; do not reuse physical velocity gains in that backend.
+Basic and PurePursuit use normalized motor fractions. Seeking's default outer loops produce physical linear and angular velocities. For simple drivetrains without calibrated wheel-speed output, `Seeking::normalized()` opts into the normalized voltage controller for point and pose targets. Its gains use motor fractions instead; do not reuse physical velocity gains in that backend. It turns in place at the endpoint when a final heading is requested and does not perform physical trajectory planning or footprint checks.
 
 ## A first closed-loop move
 

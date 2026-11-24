@@ -399,6 +399,28 @@ fn default_motions_chain_to_a_route() {
     assert!(drivetrain.localization().position().distance(target) < 0.025);
 }
 
+#[test]
+fn unified_normalized_seeking_handles_point_and_pose_targets() {
+    let mut drivetrain = new_drivetrain();
+    let seeking = seeking_motion()
+        .with_heading_tolerance(ozton_math::angle!(4 deg))
+        .with_angular_velocity_tolerance(ozton_math::units::angular_velocity!(0.12, radian_per_second))
+        .with_timeout(Duration::from_secs(4));
+    let target = ozton_math::position_xyh!(0 m, 0.6 m, 90 deg);
+    block_on(async {
+        assert_eq!(
+            seeking.move_to_point(&mut drivetrain, Vec2::new(0.0, 0.3)).await.unwrap(),
+            ozton_motion::MotionOutcome::Settled
+        );
+        assert_eq!(
+            seeking.move_to_pose(&mut drivetrain, target).await.unwrap(),
+            ozton_motion::MotionOutcome::Settled
+        );
+    });
+    assert!(drivetrain.localization().position().distance(target.position) < 0.06);
+    assert!(wrap_radians(drivetrain.localization().heading().value - target.heading.value).abs() < 0.08);
+}
+
 fn wrap_radians(angle: f64) -> f64 {
     (angle + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI
 }

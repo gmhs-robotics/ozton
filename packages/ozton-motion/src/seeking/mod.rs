@@ -11,7 +11,8 @@ use ozton_control::{
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
-    uom::si::f64::{Length, Velocity},
+    geometry::Pose,
+    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
 };
 
 mod move_to_point;
@@ -23,7 +24,7 @@ pub use pose::{DriveMotionFault, PoseDrive, PoseMotionError, TravelDirection};
 
 /// One reusable seeking primitive. The default backend uses calibrated physical
 /// wheel velocities and can seek either a point or a complete pose.
-/// Use `Seeking::normalized()` for lightweight point-only voltage control
+/// Use `Seeking::normalized()` for lightweight normalized voltage control
 /// on a drivetrain that does not implement `PoseDrive`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Seeking<C = crate::MotionConfig> {
@@ -75,12 +76,15 @@ where
     /// is the robot's linear forward velocity.
     pub tolerances: Tolerances<Linear>,
 
+    /// Final heading and yaw-rate settling conditions for pose targets.
+    pub angular_tolerances: Tolerances,
+
     /// Maximum duration the motion can take before being cancelled.
     pub timeout: Option<Duration>,
 }
 
 impl Seeking {
-    /// Opt into the original normalized-output point-seeking backend.
+    /// Opt into the normalized-output seeking backend.
     /// Its PID gains are motor fractions, not metres or radians per second.
     pub const fn normalized() -> Seeking<Normalized> {
         let linear = Pid::new(1.2, 0.0, 0.06, None).with_output_limit(0.65);
@@ -211,6 +215,10 @@ where
                 linear_controller,
                 lateral_controller,
                 tolerances: crate::LINEAR_SETTLING,
+                angular_tolerances: Tolerances::new()
+                    .error(crate::defaults::AUTON_HEADING_TOLERANCE)
+                    .velocity(crate::defaults::AUTON_ANGULAR_SPEED_TOLERANCE)
+                    .duration(crate::defaults::AUTON_SETTLE_TIME),
                 timeout: Some(crate::defaults::AUTON_STAGE_TIMEOUT),
             },
             travel: None,
@@ -260,14 +268,34 @@ where
     }
 
     #[must_use]
+    pub const fn with_heading_tolerance(mut self, value: Angle) -> Self {
+        self.config.angular_tolerances.error_tolerance = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_velocity_tolerance(mut self, value: AngularVelocity) -> Self {
+        self.config.angular_tolerances.velocity_tolerance = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_tolerances(mut self, tolerances: Tolerances) -> Self {
+        self.config.angular_tolerances = tolerances;
+        self
+    }
+
+    #[must_use]
     pub const fn with_tolerance_duration(mut self, value: Duration) -> Self {
         self.config.tolerances.duration = Some(value);
+        self.config.angular_tolerances.duration = Some(value);
         self
     }
 
     #[must_use]
     pub const fn without_tolerance_duration(mut self) -> Self {
         self.config.tolerances.duration = None;
+        self.config.angular_tolerances.duration = None;
         self
     }
 
@@ -283,6 +311,7 @@ where
                 linear_controller: controller,
                 lateral_controller: self.config.lateral_controller,
                 tolerances: self.config.tolerances,
+                angular_tolerances: self.config.angular_tolerances,
                 timeout: self.config.timeout,
             },
             travel: self.travel,
@@ -301,6 +330,7 @@ where
                 lateral_controller: controller,
                 linear_controller: self.config.linear_controller,
                 tolerances: self.config.tolerances,
+                angular_tolerances: self.config.angular_tolerances,
                 timeout: self.config.timeout,
             },
             travel: self.travel,
@@ -328,6 +358,9 @@ where
             drivetrain,
             reverse: matches!(self.travel, Some(TravelDirection::Backward)),
             target_point: point.into(),
+            final_heading: None,
+            angular_tolerances: self.config.angular_tolerances,
+            heading_controller: self.config.lateral_controller.clone(),
             timeout: self.config.timeout,
             tolerances: self.config.tolerances,
             linear_controller: self.config.linear_controller.clone(),
@@ -335,5 +368,32 @@ where
             state: None,
         }
     }
-}
 
+    /// Move to a point and then settle at the specified absolute heading.
+    pub fn move_to_point_at_heading<
+        'a,
+        M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
+    >(
+        &self,
+        drivetrain: &'a mut M,
+        point: impl Into<Vec2>,
+        heading: Angle,
+    ) -> MoveToPointFuture<'a, M, L, A> {
+        let mut future = self.move_to_point(drivetrain, point);
+        future.final_heading = Some(heading);
+        future
+    }
+
+    /// Move to a complete pose with normalized motor-output feedback.
+    pub fn move_to_pose<
+        'a,
+        M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
+    >(
+        &self,
+        drivetrain: &'a mut M,
+        target: Pose,
+    ) -> MoveToPointFuture<'a, M, L, A> {
+        self.move_to_point_at_heading(drivetrain, target.position, target.heading)
+    }
+
+}

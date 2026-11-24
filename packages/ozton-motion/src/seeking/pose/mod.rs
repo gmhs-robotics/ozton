@@ -23,7 +23,7 @@ use super::Seeking;
 
 pub const DEFAULT_STAGE_TIMEOUT: Duration = AUTON_STAGE_TIMEOUT;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TravelDirection {
     Forward,
     Backward,
