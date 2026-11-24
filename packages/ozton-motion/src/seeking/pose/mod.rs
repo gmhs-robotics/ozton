@@ -603,12 +603,7 @@ impl Seeking {
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
-        let result = session
-            .run(
-                target,
-                self.config.timing.stage_timeout,
-            )
-            .await;
+        let result = session.run(target, self.config.timing.stage_timeout).await;
         session.finish(result)
     }
 

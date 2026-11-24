@@ -1,6 +1,7 @@
 //! Prepared distance-only ray casting for particle likelihoods.
 
 use glam::DVec2;
+
 use super::Surface;
 
 /// Precomputed segment geometry for repeated distance-only ray queries.
@@ -53,7 +54,10 @@ impl RayFace {
     }
 }
 
-pub(in crate::localization) fn prepare_faces(surfaces: &[Surface], faces: &mut alloc::vec::Vec<RayFace>) {
+pub(in crate::localization) fn prepare_faces(
+    surfaces: &[Surface],
+    faces: &mut alloc::vec::Vec<RayFace>,
+) {
     faces.clear();
     faces.extend(surfaces.iter().take(128).copied().map(RayFace::new));
 }

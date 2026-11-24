@@ -1,8 +1,9 @@
 //! Full ray hits for distance-reset geometry.
 
 use glam::DVec2;
-use crate::geometry::{Pose, direction, rotation};
+
 use super::{Hit, Surface};
+use crate::geometry::{Pose, direction, rotation};
 
 pub fn cast(pose: Pose, mount: Pose, surfaces: &[Surface]) -> Option<Hit> {
     cast_inner(pose, mount, surfaces, None)

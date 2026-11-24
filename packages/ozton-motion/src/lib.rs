@@ -21,8 +21,8 @@ pub use arcade::Arcade;
 pub use basic::differential::DriveTuning;
 pub use curvature::CurvatureDrive;
 pub use holonomic::Holonomic;
-pub use tank::Tank;
 #[cfg(feature = "vex")]
 pub use seeking::Seeking;
+pub use tank::Tank;
 
 pub mod ramsete;
