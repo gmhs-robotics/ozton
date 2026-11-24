@@ -114,26 +114,27 @@ pub fn command(
         }
     } else {
         match follower {
-        Follower::PurePursuit { lookahead } => {
-            let virtual_pose = Pose {
-                heading: pose.heading + facing,
-                ..pose
+            Follower::PurePursuit { lookahead } => {
+                let virtual_pose = Pose {
+                    heading: pose.heading + facing,
+                    ..pose
+                };
+                let target =
+                    virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
+                if target.y < 0.0 {
+                    (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
+                } else {
+                    let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
+                    let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
+                    (sign * speed, speed * pursuit_curvature(target))
                 }
-            let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-            if target.y < 0.0 {
-                (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
-            } else {
-                let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
-                let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
-                (sign * speed, speed * pursuit_curvature(target))
             }
+            Follower::Ramsete { b, zeta } => crate::ramsete::Ramsete { b, zeta }.twist(
+                pose,
+                path.at_time(Time::new::<second>(elapsed + dt)),
+                reverse,
+            ),
         }
-        Follower::Ramsete { b, zeta } => crate::ramsete::Ramsete { b, zeta }.twist(
-            pose,
-            path.at_time(Time::new::<second>(elapsed + dt)),
-            reverse,
-        ),
-    };
     };
     desaturate(
         wheel_speeds(
