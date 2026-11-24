@@ -1,20 +1,17 @@
+//! One periodic hardware sampling task, independent of competition mode.
+
 use std::time::Instant;
 
-use ozton_drivetrain::{Drivetrain, MotorGroups, model::Drive};
-use ozton_tracking::{TrackingSystem, odometric::DifferentialTracking};
 use vexide::{
     competition,
     task::{Task, spawn},
     time::sleep,
 };
 
-use super::{
-    ComponentReport, Frame, SD_SAMPLE_INTERVAL, Sample, Sampler, report_drive_feedback,
-    report_drive_motors,
-};
+use super::{SD_SAMPLE_INTERVAL, Sample, Sampler};
 
-/// Sample application diagnostics independently of driver and autonomous control.
-pub fn start_diagnostics(mut report: impl FnMut(Frame) + 'static) -> Task<()> {
+/// Sample connected hardware once per frame. No application reporters required.
+pub(crate) fn start_diagnostics() -> Task<()> {
     spawn(async move {
         let mut sampler = Sampler::<()>::new(SD_SAMPLE_INTERVAL);
         sampler.report_control_ticks = false;
@@ -29,41 +26,9 @@ pub fn start_diagnostics(mut report: impl FnMut(Frame) + 'static) -> Task<()> {
                 dt,
                 motion: None,
             }) {
-                report(frame);
+                let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
+                ozton_tracking::hardware::sample(frame.stamp);
             }
         }
     })
-}
-
-/// Capture shared sensor and motor handles without borrowing the drive from its owner.
-pub fn drivetrain_reporter<M, T, L>(drive: &Drivetrain<M, T, L>) -> impl Fn(Frame) + 'static
-where
-    M: Drive + MotorGroups,
-    T: TrackingSystem + ComponentReport + 'static,
-    L: ComponentReport + 'static,
-{
-    let groups = drive.model.motor_groups().to_vec();
-    let diameter = drive.wheel_diameter();
-    let state = drive.localization_state();
-    let stamp = drive.diagnostic_stamp();
-    move |frame| {
-        let Some(state) = state.upgrade() else { return };
-        let Ok(state) = state.try_borrow() else {
-            return;
-        };
-        if !super::claim_drive_sample(&stamp, frame.time) {
-            return;
-        }
-        let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
-        let (tracking, localization) = &*state;
-        if groups.len() == 2 {
-            let feedback = tracking
-                .drive_wheels()
-                .map_or([None; 2], DifferentialTracking::feedback);
-            report_drive_feedback(frame, feedback, diameter);
-        }
-        report_drive_motors(frame, &groups);
-        localization.report(frame);
-        tracking.report(frame);
-    }
 }

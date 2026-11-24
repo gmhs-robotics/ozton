@@ -13,7 +13,7 @@ pub use ozton_math::{
 pub use ozton_motion as motion;
 pub use ozton_path_io as path_io;
 pub use ozton_runtime as runtime;
-pub use ozton_runtime::route;
+pub use ozton_runtime::{route, run};
 pub use ozton_tracking::{self as tracking, sensor_layout, shared_motors};
 pub use ozton_ui as ui;
 

@@ -20,8 +20,9 @@ use crate::clock::CONTROL_PERIOD;
 /// Vexide dispatches modes and cancels their futures. Ozton supplies the tick,
 /// output cleanup, route selection and telemetry within each mode.
 pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -> ! {
+    let _startup = crate::startup::Startup::begin();
     #[cfg(feature = "logging")]
-    let _sd_writer = crate::diagnostics::start_sd_logging();
+    let _diagnostics = crate::diagnostics::start_diagnostics();
     crate::log_event!(
         Info,
         "competition",

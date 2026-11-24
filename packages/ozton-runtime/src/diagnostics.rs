@@ -6,17 +6,15 @@ use std::{marker::PhantomData, time::Duration};
 use ozton_diagnostics::serial;
 pub use ozton_diagnostics::serial::FaultLog;
 use ozton_math::uom::si::f64::{Length, Velocity};
-#[cfg(feature = "logging")]
-use ozton_tracking::odometric::SharedMotors;
 use vexide::smart::SmartDevice;
 
 #[cfg(feature = "logging")]
 mod background;
 #[cfg(feature = "logging")]
-pub use background::{drivetrain_reporter, start_diagnostics};
+pub(crate) use background::start_diagnostics;
 
 mod sd;
-pub use sd::{flush_sd_logging, start_sd_logging};
+pub(crate) use sd::{flush_sd_logging, start_sd_logging};
 
 pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -112,7 +110,7 @@ where
             if groups.len() == 2 {
                 report_drive_feedback(frame, self.feedback(), self.wheel_diameter());
             }
-            report_drive_motors(frame, groups);
+            // The central hardware sampler records all connected motors.
         }
         self.localization().report(frame);
         self.tracking().report(frame);
@@ -225,17 +223,19 @@ impl<S> Sampler<S> {
                     ),
                 );
             }
-            frame.row("MODE", format_args!("mode={:?}", sample.mode));
-            frame.row(
-                "BATTERY",
-                format_args!(
-                    "volts={:.3},current_a={:.3},capacity={:.3},temp_c={}",
-                    vexide::battery::voltage(),
-                    vexide::battery::current(),
-                    vexide::battery::capacity(),
-                    vexide::battery::temperature(),
-                ),
-            );
+            if !self.report_control_ticks {
+                frame.row("MODE", format_args!("mode={:?}", sample.mode));
+                frame.row(
+                    "BATTERY",
+                    format_args!(
+                        "volts={:.3},current_a={:.3},capacity={:.3},temp_c={}",
+                        vexide::battery::voltage(),
+                        vexide::battery::current(),
+                        vexide::battery::capacity(),
+                        vexide::battery::temperature(),
+                    ),
+                );
+            }
             if let Some(motion) = sample.motion {
                 frame.row(
                     "AUTON",
@@ -312,10 +312,8 @@ pub fn report_differential<T: ozton_tracking::TrackingSystem, L>(
     frame: Frame,
     drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
-    use ozton_drivetrain::MotorGroups;
-
     report_drive_feedback(frame, drive.feedback(), drive.wheel_diameter());
-    report_drive_motors(frame, drive.model.motor_groups());
+
 }
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.
@@ -358,28 +356,6 @@ fn report_drive_feedback(
         "DRIVE",
         format_args!("left_m={left:.5},right_m={right:.5},left_mps={left_mps:.5},right_mps={right_mps:.5},wheel_dia_m={diameter:.6}"),
     );
-}
-
-#[cfg(feature = "logging")]
-fn report_drive_motors(frame: Frame, groups: &[SharedMotors]) {
-    let names: &[&str] = match groups.len() {
-        2 => &["l", "r"],
-        4 => &["fl", "fr", "bl", "br"],
-        _ => &[],
-    };
-    for (group, motors) in groups.iter().enumerate() {
-        let Ok(motors) = motors.try_borrow() else {
-            continue;
-        };
-        for (index, motor) in motors.iter().enumerate() {
-            let sample = MotorSample::read(motor);
-            if let Some(name) = names.get(group) {
-                sample.write(frame, format_args!("drive_{name}{}", index + 1));
-            } else {
-                sample.write(frame, format_args!("drive_{}_{}", group + 1, index + 1));
-            }
-        }
-    }
 }
 
 /// Report the tracking IMU's sampled orientation and diagnostic telemetry.

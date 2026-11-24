@@ -3,7 +3,7 @@
 /// Probe and start the SD writer before initializing devices. Keep the task
 /// alive for the program. Competition also calls this for applications that
 /// leave SD initialization to the runtime.
-pub fn start_sd_logging() -> Option<vexide::task::Task<()>> {
+pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
     #[cfg(all(feature = "logging", target_os = "vexos"))]
     {
         use std::time::Duration;
@@ -53,7 +53,7 @@ pub fn start_sd_logging() -> Option<vexide::task::Task<()>> {
 }
 
 /// Give the startup error record a chance to reach the card before exiting.
-pub fn flush_sd_logging() {
+pub(crate) fn flush_sd_logging() {
     #[cfg(all(feature = "logging", target_os = "vexos"))]
     if let Err(error) = ozton_diagnostics::sd::flush() {
         ozton_diagnostics::log_event!(Warn, "SD", "Final flush failed ({error})");

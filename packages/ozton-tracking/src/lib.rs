@@ -32,6 +32,9 @@
 //! APIs retain the caller's wheel-diameter unit; use metres there for interoperability.
 
 pub mod absolute;
+#[cfg(all(feature = "vex", feature = "logging"))]
+#[doc(hidden)]
+pub mod hardware;
 pub mod inertial;
 mod measurement;
 pub use measurement::MeasurementSink;
