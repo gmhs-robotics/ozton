@@ -12,7 +12,9 @@ use ozton_math::{
 use ozton_runtime::{clock::CommandClock, log_event, log_row};
 use vexide::competition::{self, CompetitionMode};
 
-use super::{Alignment, Command, CommandError, DriveOptions, Feedback, command::State};
+use super::{
+    Alignment, Command, CommandError, DriveOptions, DriveTuning, Feedback, command::State,
+};
 
 /// Connects an application robot to the same executor used by simulated robots.
 pub trait MotionPlatform {
@@ -63,6 +65,7 @@ pub struct Runner<'a, R: MotionPlatform> {
     robot: &'a mut R,
     clock: CommandClock,
     options: DriveOptions,
+    tuning: DriveTuning,
     started: Instant,
     route_timeout: Duration,
     max_gap: Duration,
@@ -85,12 +88,22 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             robot,
             clock: CommandClock::new(period).ok_or(CommandError::Configuration)?,
             options,
+            tuning: DriveTuning::STANDARD,
             started: Instant::now(),
             route_timeout,
             max_gap,
             failed: false,
             stop_on_drop: true,
         })
+    }
+
+    /// Use these PID gains for subsequent commands in this session.
+    pub fn with_tuning(mut self, tuning: DriveTuning) -> Result<Self, CommandError<R::Error>> {
+        if !tuning.valid() {
+            return Err(CommandError::Configuration);
+        }
+        self.tuning = tuning;
+        Ok(self)
     }
 
     /// Finish a single command while leaving retained subsystem goals in place.
@@ -362,7 +375,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 );
             }
             let started = Instant::now();
-            let mut state = State::default();
+            let mut state = State::new(self.tuning);
             let mut initialized = false;
             let mut retry_since = None;
             let mut mechanism_retry_since = None;

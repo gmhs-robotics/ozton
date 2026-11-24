@@ -34,6 +34,8 @@ use super::{
 type TrackedDrive<A> = Drivetrain<Differential, SensorTracking, DifferentialLocalization, A>;
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 mod point;
+mod pose_seeking;
+pub use pose_seeking::PoseSeeking;
 
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
@@ -213,7 +215,7 @@ impl<A: DriveAssist<Differential>> DrivetrainMotion for TrackedDrive<A> {
     }
 
     async fn drive_to_point(&mut self, target: Pose) -> Result<(), CommandError<DriveMotionFault>> {
-        point::drive_to_point(self, target).await
+        PoseSeeking::default().move_to_pose(self, target).await
     }
 
     async fn turn_to(&mut self, heading: Angle) -> Result<(), CommandError<DriveMotionFault>> {

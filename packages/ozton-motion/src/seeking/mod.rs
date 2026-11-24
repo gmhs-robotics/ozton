@@ -3,7 +3,11 @@
 use std::time::Duration;
 
 use glam::DVec2 as Vec2;
-use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
+use ozton_control::{
+    Tolerances,
+    axis::Linear,
+    loops::{Feedback, Pid},
+};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
 use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
 
@@ -41,12 +45,27 @@ where
     pub timeout: Option<Duration>,
 }
 
+impl Default for Seeking<Pid, Pid> {
+    fn default() -> Self {
+        let mut linear_controller = Pid::new(1.2, 0.0, 0.06, None);
+        linear_controller.set_output_limit(Some(0.65));
+        let mut lateral_controller = Pid::new(1.8, 0.0, 0.06, None);
+        lateral_controller.set_output_limit(Some(0.55));
+        Self {
+            linear_controller,
+            lateral_controller,
+            tolerances: crate::LINEAR_SETTLING,
+            timeout: Some(crate::commands::routine_settings::AUTON_STAGE_TIMEOUT),
+        }
+    }
+}
+
 impl<L, A> Seeking<L, A>
 where
     L: Feedback<State = f64, Signal = f64> + Unpin + Clone,
     A: Feedback<State = f64, Signal = f64> + Unpin + Clone,
 {
-    /// Moves the robot to a 2D point.
+    /// Moves the robot to a field point in metres, with coordinates right and forward.
     ///
     /// The final heading of the robot after this motion executes is undefined.
     pub fn move_to_point<
@@ -58,12 +77,12 @@ where
     >(
         &self,
         drivetrain: &'a mut Drivetrain<M, S, T, D>,
-        point: Vec2,
+        point: impl Into<Vec2>,
     ) -> MoveToPointFuture<'a, M, L, A, S, T, D> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,
-            target_point: point,
+            target_point: point.into(),
             timeout: self.timeout,
             tolerances: self.tolerances,
             linear_controller: self.linear_controller.clone(),

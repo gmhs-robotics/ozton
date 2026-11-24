@@ -1,5 +1,4 @@
 use std::{
-    f64::consts::FRAC_PI_2,
     future::Future,
     pin::Pin,
     task::Poll,
@@ -21,6 +20,7 @@ use ozton_math::uom::si::{
 use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
 use vexide::{
     math::Angle,
+    smart::motor::Motor,
     time::{Sleep, sleep},
 };
 
@@ -103,14 +103,28 @@ where
 
         let position = this.drivetrain.localization.position();
         let heading = this.drivetrain.localization.heading();
-
+        let velocity = this.drivetrain.localization.linear_velocity();
         let local_target = this.target_point - position;
-        let mut distance_error = local_target.length();
+        let distance_error = local_target.length();
+        let feedback_error = if !this.target_point.is_finite() {
+            Some(crate::MotionError::InvalidTarget)
+        } else if !distance_error.is_finite()
+            || !heading.as_radians().is_finite()
+            || !velocity.is_finite()
+        {
+            Some(crate::MotionError::InvalidFeedback)
+        } else {
+            None
+        };
+        if let Some(error) = feedback_error {
+            this.state = None;
+            return Poll::Ready(stop_with_error(this.drivetrain, error));
+        }
 
         let settled = this.tolerances.check_with(
             &mut state.settling,
             Length::new::<meter>(distance_error),
-            Velocity::new::<meter_per_second>(this.drivetrain.localization.linear_velocity()),
+            Velocity::new::<meter_per_second>(velocity),
             now,
         );
         let timed_out = this
@@ -129,43 +143,40 @@ where
             ));
         }
 
-        let drive_heading = if this.reverse {
-            heading + Angle::from_radians(std::f64::consts::PI)
+        let within_position_tolerance = distance_error == 0.0
+            || this
+                .tolerances
+                .error_tolerance
+                .is_some_and(|tolerance| distance_error < tolerance.value);
+        let (linear_output, angular_output) = if within_position_tolerance {
+            (0.0, 0.0)
         } else {
-            heading
+            let drive_heading = if this.reverse {
+                heading + Angle::from_radians(std::f64::consts::PI)
+            } else {
+                heading
+            };
+            let angle_error = (drive_heading
+                - Angle::from_radians(ozton_math::geometry::bearing(local_target).value))
+            .wrapped_half();
+            // Keep steering authority close to the goal and when facing away from it.
+            let steering_error = angle_error.as_radians() * distance_error.max(0.5);
+            let angular = this.lateral_controller.update(-steering_error, 0.0, dt);
+            let direction = if this.reverse { -1.0 } else { 1.0 };
+            let linear = this
+                .linear_controller
+                .update(-direction * distance_error, 0.0, dt);
+            let alignment = (2.0 * angle_error.cos() - 1.0).max(0.0);
+            (linear * alignment * alignment, angular)
         };
-        let angle_error = (drive_heading
-            - Angle::from_radians(ozton_math::geometry::bearing(local_target).value))
-        .wrapped_half();
-        let mut projected_cte = distance_error * angle_error.sin();
 
-        if !this.reverse && angle_error.as_radians().abs() > FRAC_PI_2 {
-            projected_cte *= -1.0;
-            distance_error *= -1.0;
+        if !linear_output.is_finite() || !angular_output.is_finite() {
+            this.state = None;
+            return Poll::Ready(stop_with_error(
+                this.drivetrain,
+                crate::MotionError::InvalidOutput,
+            ));
         }
-
-        let turn_in_place = this.reverse && angle_error.as_radians().abs() > FRAC_PI_2 / 3.0;
-        let angular_measurement = if turn_in_place {
-            -angle_error.as_radians()
-        } else {
-            -projected_cte
-        };
-        let angular_output = this.lateral_controller.update(angular_measurement, 0.0, dt)
-            * if this.reverse && !turn_in_place {
-                -1.0
-            } else {
-                1.0
-            };
-        let linear_output = if turn_in_place {
-            0.0
-        } else {
-            let signed_distance = if this.reverse {
-                -distance_error
-            } else {
-                distance_error
-            };
-            this.linear_controller.update(-signed_distance, 0.0, dt) * angle_error.cos().abs()
-        };
 
         if let Err(output) = this
             .drivetrain
@@ -185,6 +196,17 @@ where
         cx.waker().wake_by_ref();
         Poll::Pending
     }
+}
+
+fn stop_with_error<M: Arcade, S: Tracking, T, D>(
+    drivetrain: &mut Drivetrain<M, S, T, D>,
+    error: crate::MotionError<M::Error>,
+) -> Result<crate::MotionOutcome, crate::MotionError<M::Error>> {
+    drivetrain
+        .model
+        .drive_arcade(0.0, 0.0)
+        .map_err(crate::MotionError::Stop)?;
+    Err(error)
 }
 
 // MARK: Generic Modifiers
@@ -316,10 +338,15 @@ where
         self
     }
 
-    /// Modifies this motion's linear output limit.
+    /// Modifies this motion's linear output limit as a fraction of motor voltage.
     pub const fn with_linear_output_limit(&mut self, limit: f64) -> &mut Self {
         self.linear_controller.set_output_limit(Some(limit));
         self
+    }
+
+    /// Sets the linear output limit in volts for V5 motors.
+    pub const fn with_linear_voltage_limit(&mut self, volts: f64) -> &mut Self {
+        self.with_linear_output_limit(volts / Motor::V5_MAX_VOLTAGE)
     }
 
     /// Removes this motion's linear output limit.
@@ -338,6 +365,16 @@ where
     S: Tracking,
     T: TracksPosition + TracksHeading + TracksVelocity,
 {
+    /// Modifies this motion's angular PID gains.
+    pub const fn with_angular_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
+        self.with_lateral_gains(kp, ki, kd)
+    }
+
+    /// Modifies this motion's angular proportional gain (`kp`).
+    pub const fn with_angular_kp(&mut self, kp: f64) -> &mut Self {
+        self.with_lateral_kp(kp)
+    }
+
     /// Modifies this motion's lateral PID gains.
     pub const fn with_lateral_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
         self.lateral_controller.set_gains(kp, ki, kd);

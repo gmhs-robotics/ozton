@@ -22,8 +22,12 @@ pub mod prelude {
             Drivetrain,
             model::{Arcade, ArcadeInput, DriveConfigError, Holonomic, Tank},
         },
-        motion::commands::{
-            Follower, MotionControls, RobotMotion, ScoringControls, TimedMotion, TravelDirection,
+        motion::{
+            Basic, DriveTuning, PoseSeeking, Seeking,
+            commands::{
+                Follower, MotionControls, RobotMotion, ScoringControls, TimedMotion,
+                TravelDirection,
+            },
         },
         runtime::{
             CompetitionBot, Robot, RobotBuilder, RobotLayout,
@@ -31,7 +35,7 @@ pub mod prelude {
         },
         tracking::{
             DummyTracking, NoTracking, TracksForwardTravel, TracksHeading, TracksPosition,
-            TracksVelocity, sources::vex::DistanceTracker,
+            TracksVelocity, WheeledTracking, sources::vex::DistanceTracker,
         },
     };
 }

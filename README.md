@@ -5,10 +5,49 @@ Rust drivetrain, tracking, and competition control for VEX V5, built with vexide
 See [AGENTS.md](AGENTS.md) for development, deployment, and route documentation.
 The [programmed example](packages/ozton/examples/programmed.rs) shows a complete robot.
 
-Use `Pose::new(position, heading)` for a full destination and pass it to
-`drivetrain.drive_to_point(target_pose)`. Positions use `DVec2` in right/forward
-meters. Use `geometry::point(x, y)` to convert two unit-bearing lengths. Commands
-that only need a heading, such as `turn_to`, take an `Angle`.
+## Autonomous motion
+
+Pass a mutable drivetrain to each motion. For a calibrated differential drive
+with Ozton's live field localization, `PoseSeeking` plans clearance from walls,
+settles with wheel and heading feedback, and stops on disable or timeout.
+
+```rust
+let seeking = PoseSeeking::default()
+    .with_position_tolerance(Length::new::<inch>(0.75))
+    .with_heading_tolerance(Angle::new::<degree>(2.0));
+
+seeking.move_to_pose(&mut drivetrain, Pose::default()).await?;
+seeking.reverse().move_to_point(&mut drivetrain, (0.45, 0.60)).await?;
+```
+
+Use `with_tuning(DriveTuning { linear, angular })` to supply both PIDs for a
+chassis. The outer loops command metres per second and radians per second.
+`with_wheel_speed` limits the wheels. `with_timeout` sets a per-stage timeout,
+and `with_budget` limits the full departure, approach and final turn.
+
+`Seeking` and `Basic` work with any `Arcade` drivetrain whose tracker supplies
+the required feedback. Ozton provides `ozton::tracking::WheeledTracking` for
+wheeled odometry. Point coordinates are right and forward in metres. Use
+`geometry::point(x, y)` to convert two unit-bearing lengths.
+
+```rust
+let seeking = Seeking::default();
+let outcome = seeking
+    .move_to_point(&mut drivetrain, (0.61, 0.61))
+    .reverse()
+    .with_angular_kp(0.4)
+    .without_timeout()
+    .with_linear_voltage_limit(Motor::V5_MAX_VOLTAGE * 0.75)
+    .await?;
+
+let basic = Basic::default();
+let outcome = basic.drive_distance(&mut drivetrain, Length::new::<inch>(24.0)).await?;
+```
+
+The generic motions return `MotionOutcome::Settled` or `MotionOutcome::TimedOut`.
+`with_linear_output_limit(0.75)` sets the same throttle cap as the voltage form.
+For a custom motion, write an async function that takes `&mut Drivetrain` and
+requires only the tracking traits it uses.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
 

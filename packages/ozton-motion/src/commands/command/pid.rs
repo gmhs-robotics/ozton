@@ -4,31 +4,39 @@ use ozton_math::control::Pid;
 use ozton_runtime::log_row;
 
 use super::*;
+use crate::commands::DriveTuning;
 
 const RATE_FILTER: Duration = Duration::from_millis(55);
 
 pub(in crate::commands) const fn angular_pid() -> Pid {
-    Pid::new(5.4, 1.1, 0.24, Some(0.24))
+    DriveTuning::STANDARD.angular
 }
 
 pub(super) struct MotionPid {
     forward: Pid,
     angular: Pid,
+    forward_limit: f64,
+    angular_limit: f64,
 }
 
 impl Default for MotionPid {
     fn default() -> Self {
-        Self {
-            // The Match trace spent 5.4 s approaching the last 0.20 m. Use a
-            // stronger approach, with velocity damping and integral near the goal.
-            forward: Pid::new(4.2, 0.9, 0.18, Some(0.08)),
-            // The previous 3.0 P turn stopped near the 2-degree threshold.
-            angular: angular_pid(),
-        }
+        Self::new(DriveTuning::STANDARD)
     }
 }
 
 impl MotionPid {
+    pub(super) fn new(tuning: DriveTuning) -> Self {
+        let mut pid = Self {
+            forward: tuning.linear,
+            angular: tuning.angular,
+            forward_limit: tuning.linear.output_limit().unwrap_or(f64::INFINITY),
+            angular_limit: tuning.angular.output_limit().unwrap_or(f64::INFINITY),
+        };
+        pid.reset();
+        pid
+    }
+
     pub(super) fn reset(&mut self) {
         self.forward.reset();
         self.angular.reset();
@@ -45,7 +53,8 @@ impl MotionPid {
             self.forward.reset();
             return 0.0;
         }
-        self.forward.set_output_limit(Some(limit));
+        self.forward
+            .set_output_limit(Some(limit.min(self.forward_limit)));
         let output = self
             .forward
             .update_with_rate(error, -measured_rate, dt, RATE_FILTER, 0.0);
@@ -65,7 +74,8 @@ impl MotionPid {
         limit: f64,
         dt: Duration,
     ) -> f64 {
-        self.angular.set_output_limit(Some(limit));
+        self.angular
+            .set_output_limit(Some(limit.min(self.angular_limit)));
         let output = feedforward
             + self.angular.update_with_rate(
                 error,

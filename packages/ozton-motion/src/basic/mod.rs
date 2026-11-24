@@ -3,7 +3,11 @@
 use std::time::Duration;
 
 use glam::DVec2 as Vec2;
-use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
+use ozton_control::{
+    Tolerances,
+    axis::Linear,
+    loops::{AngularPid, Feedback, Pid},
+};
 use ozton_drivetrain::{Drivetrain, model::Arcade};
 use ozton_math::uom::si::{
     angle::radian,
@@ -14,6 +18,10 @@ use ozton_tracking::{
     Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 use vexide::math::Angle;
+
+use crate::commands::routine_settings::{
+    AUTON_ANGULAR_SPEED_TOLERANCE, AUTON_HEADING_TOLERANCE, AUTON_SETTLE_TIME, AUTON_STAGE_TIMEOUT,
+};
 
 mod drive;
 mod turn_to_point;
@@ -44,13 +52,31 @@ where
     pub timeout: Option<Duration>,
 }
 
+impl Default for Basic<Pid, AngularPid> {
+    fn default() -> Self {
+        let mut linear_controller = Pid::new(1.2, 0.0, 0.06, None);
+        linear_controller.set_output_limit(Some(0.65));
+        let mut angular_controller = AngularPid::new(1.6, 0.0, 0.08, None);
+        angular_controller.set_output_limit(Some(0.55));
+        Self {
+            linear_controller,
+            angular_controller,
+            linear_tolerances: crate::LINEAR_SETTLING,
+            angular_tolerances: Tolerances::new()
+                .error(AUTON_HEADING_TOLERANCE)
+                .velocity(AUTON_ANGULAR_SPEED_TOLERANCE)
+                .duration(AUTON_SETTLE_TIME),
+            timeout: Some(AUTON_STAGE_TIMEOUT),
+        }
+    }
+}
+
 impl<L, A> Basic<L, A>
 where
     L: Feedback<State = f64, Signal = f64> + Unpin + Clone,
     A: Feedback<State = Angle, Signal = f64> + Unpin + Clone,
 {
-    /// Moves the robot forwards by a given distance (measured in wheel units) while
-    /// turning to face a heading.
+    /// Moves the robot forwards by a given distance while turning to face a heading.
     ///
     /// Negative `target_distance` values will move the robot backwards.
     pub fn drive_distance_at_heading<
@@ -78,7 +104,7 @@ where
         }
     }
 
-    /// Moves the robot forwards by a given distance (measured in wheel units).
+    /// Moves the robot forwards by a given distance.
     ///
     /// Negative `distance` values will move the robot backwards.
     pub fn drive_distance<
@@ -124,10 +150,10 @@ where
     >(
         &self,
         drivetrain: &'a mut Drivetrain<M, S, T, D>,
-        point: Vec2,
+        point: impl Into<Vec2>,
     ) -> TurnToPointFuture<'a, M, L, A, S, T, D> {
         TurnToPointFuture {
-            point,
+            point: point.into(),
             timeout: self.timeout,
             linear_tolerances: self.linear_tolerances,
             angular_tolerances: self.angular_tolerances,

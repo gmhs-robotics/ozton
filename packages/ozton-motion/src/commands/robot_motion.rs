@@ -21,7 +21,7 @@ use super::{
     },
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum TravelDirection {
     Forward,
     Backward,

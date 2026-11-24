@@ -24,6 +24,13 @@ pub(in crate::commands) struct Step {
 }
 
 impl<'path> State<'path> {
+    pub(in crate::commands) fn new(tuning: crate::commands::DriveTuning) -> Self {
+        Self {
+            pid: MotionPid::new(tuning),
+            ..Self::default()
+        }
+    }
+
     pub(in crate::commands) fn pause(&mut self) {
         self.pid.reset();
         self.settled = Duration::ZERO;
@@ -299,7 +306,12 @@ impl<'path> State<'path> {
                 let start_heading = *self.start_heading.get_or_insert(feedback.pose.heading);
                 let curvature = sweep.value.signum() / radius.value;
                 let heading = error_at(
-                    start_heading + Angle::new::<radian>(travel.clamp(0.0, arc_length) * curvature),
+                    start_heading
+                        + if reached {
+                            *sweep
+                        } else {
+                            Angle::new::<radian>(travel.clamp(0.0, arc_length) * curvature)
+                        },
                 );
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let wheel_limit = options.maximum_wheel_speed.value

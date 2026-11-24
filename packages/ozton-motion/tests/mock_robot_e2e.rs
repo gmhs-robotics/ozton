@@ -39,6 +39,7 @@ struct SimState {
     throttle_command: f64,
     drove_backward: bool,
     turn_command: f64,
+    first_turn: Option<f64>,
     max_linear_velocity: f64,
     max_angular_velocity: f64,
     last_update: Instant,
@@ -55,6 +56,7 @@ impl SimState {
             throttle_command: 0.0,
             drove_backward: false,
             turn_command: 0.0,
+            first_turn: None,
             max_linear_velocity,
             max_angular_velocity,
             last_update: Instant::now(),
@@ -106,6 +108,9 @@ impl Arcade for MockArcadeModel {
         state.throttle_command = throttle.clamp(-1.0, 1.0);
         state.drove_backward |= state.throttle_command < -0.1;
         state.turn_command = steer.clamp(-1.0, 1.0);
+        if steer != 0.0 {
+            state.first_turn.get_or_insert(steer);
+        }
         Ok(())
     }
 }
@@ -330,6 +335,55 @@ fn reverse_seeking_drives_backward_to_target() {
         "reverse motion missed target: {final_position:?}"
     );
     assert!(drove_backward, "reverse motion never drove backward");
+}
+
+#[test]
+fn reverse_seeking_corrects_an_oblique_approach() {
+    let mut drivetrain = new_drivetrain();
+    let motion = seeking_motion();
+    let target = Vec2::new(0.45, -1.0);
+    let outcome = block_on(
+        motion
+            .move_to_point(&mut drivetrain, (target.x, target.y))
+            .reverse()
+            .with_timeout(Duration::from_secs(2)),
+    )
+    .expect("motion output succeeds");
+    assert!(
+        drivetrain
+            .model
+            .state
+            .borrow()
+            .first_turn
+            .is_some_and(|steer| steer < 0.0)
+    );
+    assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
+    assert!(drivetrain.localization.position().distance(target) < 0.05);
+}
+
+#[test]
+fn default_motions_chain_to_a_route() {
+    let mut drivetrain = new_drivetrain();
+    let target = Vec2::new(0.1, 0.35);
+    block_on(async {
+        let outcome = Basic::default()
+            .drive_distance(&mut drivetrain, Length::new::<meter>(0.6))
+            .await
+            .expect("drive output succeeds");
+        assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
+
+        let outcome = Seeking::default()
+            .move_to_point(&mut drivetrain, (target.x, target.y))
+            .reverse()
+            .with_angular_kp(0.4)
+            .without_timeout()
+            .with_linear_voltage_limit(vexide::smart::motor::Motor::V5_MAX_VOLTAGE * 0.75)
+            .with_timeout(Duration::from_secs(5))
+            .await
+            .expect("seeking output succeeds");
+        assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
+    });
+    assert!(drivetrain.localization.position().distance(target) < 0.025);
 }
 
 fn wrap_radians(angle: f64) -> f64 {
