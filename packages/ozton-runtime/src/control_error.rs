@@ -4,8 +4,9 @@ use core::{error::Error, fmt};
 
 use ozton_drivetrain::{DriveMotionFault, model::WheelSpeedError};
 use ozton_motion::seeking::PoseMotionError;
-use ozton_runtime::mechanism::MechanismError;
 use vexide::controller::ControllerError;
+
+use crate::mechanism::MechanismError;
 
 pub type ControlResult<T = ()> = Result<T, ControlError>;
 
