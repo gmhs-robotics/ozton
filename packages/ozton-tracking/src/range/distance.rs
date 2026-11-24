@@ -265,7 +265,11 @@ impl DistanceDevice {
                 "distance",
                 "Port {} initial packet probe: {}",
                 self.sensor.port_number(),
-                if observation.is_ok() { "responsive" } else { "not ready" }
+                if observation.is_ok() {
+                    "responsive"
+                } else {
+                    "not ready"
+                }
             );
         }
         if observation.is_err() {

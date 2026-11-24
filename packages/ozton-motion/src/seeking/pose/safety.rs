@@ -206,8 +206,8 @@ mod tests {
         let mut feedback = sample(0.00011);
         feedback.pose = Pose::new(DVec2::new(0.48862, 0.01052), qty!(-0.89179 rad));
         feedback.angular_velocity = qty!(0 rad/s);
-        let config = MotionConfig::DEFAULT
-            .with_braking_deceleration(qty!(0.55 m/s^2), qty!(3 rad/s^2));
+        let config =
+            MotionConfig::DEFAULT.with_braking_deceleration(qty!(0.55 m/s^2), qty!(3 rad/s^2));
         let uncertainty = [0.1117, 0.0607, 0.0474];
         assert!(safe_feedback(field, feedback, config, uncertainty));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));

@@ -99,8 +99,14 @@ impl RectangularClearance {
         let l = direction(pose.heading - crate::qty!(90 deg));
         let support = |axis: DVec2| {
             let mut corner_max = f64::NEG_INFINITY;
-            for x in [-self.footprint.half_extents.x, self.footprint.half_extents.x] {
-                for y in [-self.footprint.half_extents.y, self.footprint.half_extents.y] {
+            for x in [
+                -self.footprint.half_extents.x,
+                self.footprint.half_extents.x,
+            ] {
+                for y in [
+                    -self.footprint.half_extents.y,
+                    self.footprint.half_extents.y,
+                ] {
                     let corner = pose
                         .transform_point(self.footprint.center_offset + DVec2::new(x, y))
                         - pose.position;
