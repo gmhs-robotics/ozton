@@ -220,8 +220,11 @@ name = "ozton-drivetrain"
 version = "0.4.0"
 dependencies = [
  "glam",
+ "ozton-diagnostics",
+ "ozton-localization",
  "ozton-math",
  "ozton-tracking",
+ "vex-sdk-mock",
  "vexide",
 ]
 
@@ -249,13 +252,10 @@ name = "ozton-motion"
 version = "0.4.0"
 dependencies = [
  "glam",
+ "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-localization",
  "ozton-math",
- "ozton-runtime",
- "ozton-tracking",
- "vex-sdk-mock",
- "vexide",
 ]
 
 [[package]]
@@ -266,6 +266,7 @@ dependencies = [
  "ozton-drivetrain",
  "ozton-localization",
  "ozton-math",
+ "ozton-motion",
  "ozton-tracking",
  "ozton-ui",
  "vex-sdk-mock",

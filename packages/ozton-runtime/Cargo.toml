@@ -15,6 +15,7 @@ ozton-ui = { workspace = true }
 ozton-diagnostics = { workspace = true }
 vexide = { workspace = true }
 ozton-math = { workspace = true }
+ozton-motion = { workspace = true }
 ozton-drivetrain = { workspace = true, features = ["vex"] }
 ozton-tracking = { workspace = true, features = ["vex"] }
 
@@ -22,4 +23,4 @@ ozton-tracking = { workspace = true, features = ["vex"] }
 vex-sdk-mock = "0.2.0"
 
 [features]
-logging = ["ozton-diagnostics/logging", "ozton-tracking/logging", "ozton-localization/logging"]
+logging = ["ozton-diagnostics/logging", "ozton-tracking/logging", "ozton-localization/logging", "ozton-motion/logging", "ozton-drivetrain/logging"]

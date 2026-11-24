@@ -16,11 +16,21 @@ workspace = true
 glam = { workspace = true }
 vexide = { workspace = true, optional = true }
 ozton-math = { workspace = true }
+ozton-localization = { workspace = true }
+ozton-diagnostics = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [features]
 default = ["vex"]
 vex = ["dep:vexide", "ozton-tracking/vex"]
+logging = ["ozton-diagnostics/logging", "ozton-tracking/logging"]
+
+[target.'cfg(not(target_os = "vexos"))'.dev-dependencies]
+vex-sdk-mock = "0.2.0"
+
+[[test]]
+name = "tracking_startup"
+required-features = ["vex"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

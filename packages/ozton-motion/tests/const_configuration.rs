@@ -21,7 +21,6 @@ fn constant_templates_preserve_configuration() {
     assert_eq!(RAMSETE.zeta, 0.8);
 }
 
-#[cfg(feature = "vex")]
 #[test]
 fn seeking_template_is_const() {
     use ozton_motion::Seeking;
