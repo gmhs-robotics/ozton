@@ -181,7 +181,7 @@ impl<'a> Localizer<'a> {
             angular_velocity: 0.0,
             reset: None,
             dsr_config: DsrConfig::default(),
-            mcl_correction_gain: 0.4,
+            mcl_correction_gain: 1.0,
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
             reset_ranges: eligible,

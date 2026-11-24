@@ -6,7 +6,7 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{Beam, BeamQuality, ParticleConfig, ParticleFilter},
-        range::{Constraint, Rejection, fit_consensus},
+        range::{Constraint, Rejection, cast_masked, fit_consensus},
     },
     uom::si::f64::Angle,
 };
@@ -31,7 +31,7 @@ impl Mcl {
             candidate,
             config,
             yaw_rate: 0.0,
-            correction_gain: 0.4,
+            correction_gain: 1.0,
         })
     }
 }
@@ -98,21 +98,43 @@ impl PoseEstimator for Mcl {
         }; MAX_RANGES];
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
-        let measurements = observations
-            .associated_measurements(self.config.max_range_residual.map(|limit| limit.value));
-        for (sensor, constraint, distance) in measurements {
-            let range = ozton_math::qty!((distance.max(constraint.hit.distance)) m);
+        let mut constraint_count = 0;
+        for (sensor, report) in observations.sensors.iter().zip(observations.reports) {
+            let Some(report) = report else { continue };
+            let Some(distance) = report.calibrated_distance else { continue };
+            let hit = match report.constraint {
+                Ok(constraint) => constraint.hit,
+                // Edge and incidence gates protect the linearized wall fit, not
+                // the nonlinear particle likelihood.
+                Err(Rejection::NearEdge | Rejection::Grazing) => {
+                    let Some(hit) = cast_masked(predicted, sensor.mount, map, sensor.surface_mask)
+                    else {
+                        continue;
+                    };
+                    hit
+                }
+                Err(_) => continue,
+            };
+            if self.config.max_range_residual.is_some_and(|limit| {
+                (distance.value - hit.distance).abs() > limit.value
+            }) {
+                continue;
+            }
+            let range = ozton_math::qty!((distance.value.max(hit.distance)) m);
             let range_sigma = sensor.range_sigma(range).max(self.config.range_sigma.value);
-            let sigma = range_sigma * constraint.hit.incidence.abs();
             let gate = sensor.effective_gate();
             qualities[count] = BeamQuality {
                 min_range: gate.min_range,
                 sigma: ozton_math::qty!((range_sigma) m),
             };
-            constraints[count] = (constraint, sigma);
+            if let Ok(constraint) = report.constraint {
+                constraints[constraint_count] =
+                    (constraint, range_sigma * hit.incidence.abs());
+                constraint_count += 1;
+            }
             beams[count] = Beam {
                 mount: sensor.mount,
-                distance: ozton_math::qty!((distance) m),
+                distance,
                 max_range: gate.max_range,
                 surface_mask: sensor.surface_mask,
             };
@@ -143,25 +165,21 @@ impl PoseEstimator for Mcl {
             );
             return None;
         }
-        let Some(fit) = fit_consensus(&constraints[..count]) else {
-            log_row!(Trace, "MCL", "status=translation_fit_failed,beams={count}");
-            return None;
-        };
-        let (change, rank, normal) = (fit.change, fit.axes, fit.normal);
-        let mut accepted = 0;
-        let mut noise = f64::INFINITY;
-        for index in 0..count {
-            if fit.mask & (1 << index) != 0 {
-                beams[accepted] = beams[index];
-                qualities[accepted] = qualities[index];
-                noise = noise.min(constraints[index].1);
-                accepted += 1;
-            }
-        }
-        count = accepted;
+        // A coherent linear fit may seed recovery particles, but cannot
+        // veto independent nonlinear likelihood measurements.
+        let fit = fit_consensus(&constraints[..constraint_count]);
+        let rank = fit.map_or(0, |fit| fit.axes);
         self.candidate.clone_from(&self.filter);
-        self.candidate
-            .propose_position(predicted.position + change, normal, noise);
+        if let Some(fit) = fit {
+            let noise = constraints[..constraint_count]
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| fit.mask & (1 << index) != 0)
+                .map(|(_, (_, sigma))| *sigma)
+                .fold(f64::INFINITY, f64::min);
+            self.candidate
+                .propose_position(predicted.position + fit.change, fit.normal, noise);
+        }
         let Some(estimate) = self.candidate.observe_position_with_quality(
             &beams[..count],
             &qualities[..count],
@@ -177,27 +195,8 @@ impl PoseEstimator for Mcl {
         };
         let change = estimate.pose.position - predicted.position;
         let deviation = estimate.standard_deviation;
-        // Weight the correction by particle concentration relative to the beams'
-        // measurement noise. A lone normal leaves translation along the wall intact.
-        let (correction, spread) = if let Some(normal) = normal {
-            (
-                normal * change.dot(normal),
-                DVec2::new(deviation.x, deviation.y).dot(normal.abs()),
-            )
-        } else {
-            (change, deviation.x.max(deviation.y))
-        };
-        if !correction.is_finite() || !spread.is_finite() || !noise.is_finite() || noise <= 0.0 {
-            log_row!(
-                Trace,
-                "MCL",
-                "status=invalid_spread_or_noise,beams={count},rank={rank},spread_m={spread:.5},noise_m={noise:.5}"
-            );
-            return None;
-        }
-        // Do not increase correction authority merely because the range is noisier.
-        let signal = correction.length().hypot(self.config.range_sigma.value);
-        let gain = self.correction_gain * signal / (signal + spread);
+        let correction = change;
+        let gain = self.correction_gain;
         let pose = Pose {
             position: predicted.position + correction * gain,
             ..predicted

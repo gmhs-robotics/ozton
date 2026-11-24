@@ -18,7 +18,7 @@ pub struct ParticleConfig {
     pub seed: u64,
     /// Initial position and heading standard deviations.
     pub initial_spread: DVec3,
-    /// Motion standard deviations per meter of travel or radian of rotation.
+    /// Motion diffusion coefficients: variance grows with accumulated travel.
     pub motion_noise: DVec3,
     pub range_sigma: Length,
     pub outlier_weight: f64,
@@ -179,7 +179,7 @@ impl ParticleFilter {
         if magnitude == 0.0 || !magnitude.is_finite() {
             return;
         }
-        let spread = self.config.motion_noise * magnitude;
+        let spread = self.config.motion_noise * libm::sqrt(magnitude);
         for particle in &mut self.particles {
             let noise = self.random.normal3() * spread;
             particle.pose = particle.pose.integrate(BodyDelta {

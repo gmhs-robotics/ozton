@@ -62,7 +62,7 @@ impl Default for LocalizationBuilder {
             ranges: RangeUses::default(),
             dsr_config: DsrConfig::default(),
             maximum_odometry_gap: Duration::from_millis(100),
-            mcl_correction_gain: 0.4,
+            mcl_correction_gain: 1.0,
             velocity_config: crate::VelocityConfig::default(),
         }
     }
