@@ -6,7 +6,7 @@
 pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
     #[cfg(all(feature = "logging", target_os = "vexos"))]
     {
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use ozton_diagnostics::{log_event, sd};
         match sd::enable_at_startup()? {
@@ -23,13 +23,32 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
         }
         Some(vexide::task::spawn(async {
             let mut failed = false;
+            let mut last_sync = Instant::now();
+            let mut delay = Duration::from_millis(40);
             loop {
-                vexide::time::sleep(Duration::from_secs(1)).await;
-                ozton_diagnostics::profile::flush_summary();
-                let _span = ozton_diagnostics::profile::Span::new(
+                vexide::time::sleep(delay).await;
+                let sync = last_sync.elapsed() >= Duration::from_secs(1);
+                if sync {
+                    ozton_diagnostics::profile::flush_summary();
+                    ozton_diagnostics::log_row!(
+                        Trace,
+                        "SD_QUEUE",
+                        "queued_bytes={}",
+                        sd::queued_bytes()
+                    );
+                    last_sync = Instant::now();
+                }
+                let started = Instant::now();
+                let span = ozton_diagnostics::profile::Span::new(
                     ozton_diagnostics::profile::Stage::SdFlush,
                 );
-                match sd::flush() {
+                let result = sd::flush_chunk(4096, sync);
+                drop(span);
+                // A slow SDK call cannot be preempted. Reduce I/O duty cycle
+                // instead of scheduling back-to-back writes on the executor.
+                delay = (started.elapsed() * 8)
+                    .clamp(Duration::from_millis(40), Duration::from_millis(500));
+                match result {
                     Err(error) if !failed => {
                         log_event!(
                             Warn,
@@ -39,7 +58,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                         );
                         failed = true;
                     }
-                    Ok(()) if failed => {
+                    Ok(_) if failed => {
                         log_event!(Info, "SD", "Recording resumed on {}", sd::PATH);
                         failed = false;
                     }

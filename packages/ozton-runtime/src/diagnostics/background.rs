@@ -51,6 +51,10 @@ pub(crate) fn start_diagnostics() -> Task<()> {
         let mut previous = Instant::now();
         loop {
             sleep(HARDWARE_SAMPLE_INTERVAL).await;
+            #[cfg(target_os = "vexos")]
+            if ozton_diagnostics::sd::under_pressure() {
+                continue;
+            }
             let now = Instant::now();
             let dt = now.saturating_duration_since(previous);
             previous = now;

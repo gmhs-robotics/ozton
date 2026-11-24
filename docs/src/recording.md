@@ -1,6 +1,6 @@
 # Logging and profiling
 
-Build firmware with the logging feature and insert a writable SD card before starting the program. USB shows operational messages. The SD sink records detailed telemetry in OZTON3.LOG, using the compact schema-3 format. Logging is optional; normal competition firmware can omit it.
+Build firmware with the logging feature and insert a writable SD card before starting the program. USB shows operational messages. The SD sink records detailed telemetry in OZTON3.LOG, using the lossless schema-4 delta format. Logging is optional; normal competition firmware can omit it.
 
 ```sh
 cargo build --release --features logging
@@ -19,7 +19,7 @@ The Python decoder is in the Ozton repository, not necessarily your application 
 - LEGACY_MOTION_TICK and LEGACY_PURSUIT_TICK: normalized controller outputs.
 - PROFILE: per-stage execution-time summaries.
 
-Ozton starts the diagnostics task automatically when competition begins. It reads the Brain's smart-port device table once per sampling frame (nominally 10 ms) and records every connected motor, including raw vexide motors in your own mechanisms. No reporter or registration is required in application code. The task uses read-only SDK access: it does not create another motor handle, change device settings or issue commands.
+Ozton starts the diagnostics task automatically when competition begins. It reads the Brain's smart-port device table once per sampling frame (nominally 25 ms) and records every connected motor, including raw vexide motors in your own mechanisms. No reporter or registration is required in application code. The task uses read-only SDK access: it does not create another motor handle, change device settings or issue commands.
 
 Motor rows use the port number as the stable identifier. Shared Ozton motor groups also supply the exact software command (including voltage); for unregistered motors the SDK's available mode, brake, RPM and position target registers are recorded instead. Unknown requested values are NaN, not fabricated from measured voltage. Localization workers automatically supply pose, calibrated wheel feedback and IMU samples. During motion, a shared rate gate avoids duplicate drivetrain snapshots.
 
@@ -35,4 +35,4 @@ A long flush or planning spike may delay the next control tick. A high average i
 
 ## Format
 
-SESSION marks a new run. S rows define a schema ID, record kind and field names; R rows use that ID and list values. Uncompressed DBG records also occur. Schemas are re-emitted for each flush batch. The decoder handles both forms. Preserve original logs so a later decoder can recover all available fields.
+SESSION marks a new run. S rows define a schema ID, record kind and field names; R rows use that ID and list values. Uncompressed DBG records also occur. Schema 4 adds D rows: a hexadecimal change mask followed by only the changed values, with independent histories for named devices/ports. Full S/R keyframes are emitted after sync or recovery. All recorded timestamps and numeric precision are preserved; the decoder also reads schema 3. The writer keeps the file open, submits roughly 4 KiB per write, syncs about once a second and backs off after slow calls. SD_QUEUE reports backlog. Optional hardware sampling pauses under pressure and the bounded queue reserves space for operational records. No synchronous VEXos I/O call has a guaranteed latency. Preserve original logs so a later decoder can recover all available fields.

@@ -9,29 +9,47 @@ use std::{
 
 pub const PATH: &str = "OZTON3.LOG";
 const BUFFER_BYTES: usize = 512 * 1024;
-const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=3,level=INFO\n";
+const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=4,level=INFO\n";
+const RESERVED_BYTES: usize = 32 * 1024;
+
+struct Stream {
+    schema: String,
+    identity: String,
+    previous: String,
+    emitted: bool,
+}
 
 #[derive(Default)]
 struct Pending {
     bytes: Vec<u8>,
+    head: usize,
     dropped_rows: u64,
     uncertain_bytes: usize,
     session_started: bool,
-    schemas: Vec<(String, bool)>,
+    schemas: Vec<Stream>,
     row: String,
     schema: String,
+    identity: String,
+    values: String,
+    #[cfg(target_os = "vexos")]
+    file: Option<File>,
     #[cfg(target_os = "vexos")]
     probed: bool,
 }
 
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
     bytes: Vec::new(),
+    head: 0,
     dropped_rows: 0,
     uncertain_bytes: 0,
     session_started: false,
     schemas: Vec::new(),
     row: String::new(),
     schema: String::new(),
+    identity: String::new(),
+    values: String::new(),
+    #[cfg(target_os = "vexos")]
+    file: None,
     #[cfg(target_os = "vexos")]
     probed: false,
 });
@@ -58,7 +76,10 @@ pub fn enable_at_startup() -> Option<io::Result<()>> {
         return None;
     }
     pending.probed = true;
-    Some(open_log().map(|_| ENABLED.store(true, Ordering::Relaxed)))
+    Some(open_log().map(|file| {
+        pending.file = Some(file);
+        ENABLED.store(true, Ordering::Relaxed);
+    }))
 }
 
 fn open_log() -> io::Result<File> {
@@ -66,14 +87,29 @@ fn open_log() -> io::Result<File> {
 }
 
 #[cfg(target_os = "vexos")]
-pub(crate) fn enqueue(row: fmt::Arguments<'_>) {
+pub(crate) fn enqueue(row: fmt::Arguments<'_>, priority: bool) {
     if !enabled() {
         return;
     }
     let Ok(mut pending) = PENDING.try_lock() else {
         return;
     };
+    if !priority && pending.queued_bytes() >= BUFFER_BYTES - RESERVED_BYTES {
+        pending.dropped_rows = pending.dropped_rows.saturating_add(1);
+        return;
+    }
     pending.push(row);
+}
+
+/// Pending data not yet submitted to the card.
+pub fn queued_bytes() -> usize {
+    PENDING
+        .try_lock()
+        .map_or(BUFFER_BYTES, |pending| pending.queued_bytes())
+}
+
+pub fn under_pressure() -> bool {
+    queued_bytes() >= BUFFER_BYTES / 2
 }
 
 struct BatchWriter<'a>(&'a mut Vec<u8>);
@@ -88,19 +124,46 @@ impl fmt::Write for BatchWriter<'_> {
     }
 }
 
-/// Append buffered rows to the card. An unavailable card leaves rows queued.
-/// Competition schedules this separately from report collection.
+/// Emergency/final flush. The periodic writer uses bounded chunks instead.
 pub fn flush() -> io::Result<()> {
+    flush_chunk(usize::MAX, true).map(|_| ())
+}
+
+/// Submit at most one chunk of complete lines, optionally syncing the file.
+/// VEXos writes and syncs synchronously; callers must yield between chunks.
+pub fn flush_chunk(max_bytes: usize, sync: bool) -> io::Result<usize> {
     let mut pending = PENDING
         .try_lock()
         .map_err(|_| io::Error::other("SD log buffer unavailable"))?;
-    if pending.bytes.is_empty() && pending.dropped_rows == 0 && pending.uncertain_bytes == 0 {
-        return Ok(());
+    if pending.queued_bytes() == 0 && !sync {
+        return Ok(0);
     }
-    pending.append(open_log()?)
+    #[cfg(target_os = "vexos")]
+    let mut file = match pending.file.take() {
+        Some(file) => file,
+        None => open_log()?,
+    };
+    #[cfg(not(target_os = "vexos"))]
+    let mut file = open_log()?;
+    let result = pending.append_chunk(&mut file, max_bytes, sync);
+    #[cfg(target_os = "vexos")]
+    if result.is_ok() {
+        pending.file = Some(file);
+    }
+    result
 }
 
 impl Pending {
+    fn queued_bytes(&self) -> usize {
+        self.bytes.len() - self.head
+    }
+
+    fn reset_streams(&mut self) {
+        for stream in &mut self.schemas {
+            stream.emitted = false;
+        }
+    }
+
     fn push(&mut self, row: fmt::Arguments<'_>) {
         // Reuse both scratch strings and schema storage. The steady-state
         // path performs no per-record heap allocation or intermediate field Vec.
@@ -121,32 +184,72 @@ impl Pending {
             } else {
                 self.schema.clear();
                 self.schema.push_str(kind);
-                for (key, _) in parts.clone().filter_map(|part| part.split_once('=')) {
+                self.identity.clear();
+                self.values.clear();
+                for (i, (key, value)) in parts.filter_map(|part| part.split_once('=')).enumerate() {
                     self.schema.push(',');
                     self.schema.push_str(key);
+                    if matches!(key, "port" | "name") {
+                        self.identity.push_str(key);
+                        self.identity.push('=');
+                        self.identity.push_str(value);
+                        self.identity.push(',');
+                    }
+                    if i != 0 {
+                        self.values.push(',');
+                    }
+                    self.values.push_str(value);
                 }
-                let found = self.schemas.iter().position(|(old, _)| *old == self.schema);
+                let found = self.schemas.iter().position(|stream| {
+                    stream.schema == self.schema && stream.identity == self.identity
+                });
                 if found.is_none() && self.schemas.len() >= 128 {
                     writeln!(BatchWriter(&mut self.bytes), "{}", self.row)
                 } else {
                     let index = found.unwrap_or(self.schemas.len());
-                    let emit = found.is_none_or(|index| !self.schemas[index].1);
+                    let previous = found
+                        .map(|index| &self.schemas[index])
+                        .filter(|stream| stream.emitted);
                     let mut output = BatchWriter(&mut self.bytes);
                     let encoded = (|| -> fmt::Result {
-                        if emit {
+                        if let Some(previous) = previous {
+                            if let Some(mask) = delta_mask(&previous.previous, &self.values) {
+                                let delta_size = 18
+                                    + self
+                                        .values
+                                        .split(',')
+                                        .enumerate()
+                                        .filter(|(i, _)| mask & (1 << i) != 0)
+                                        .map(|(_, value)| value.len() + 1)
+                                        .sum::<usize>();
+                                if delta_size < self.values.len() {
+                                    write!(output, "D,{index},{mask:x}")?;
+                                    for (i, value) in self.values.split(',').enumerate() {
+                                        if mask & (1 << i) != 0 {
+                                            write!(output, ",{value}")?;
+                                        }
+                                    }
+                                    return writeln!(output);
+                                }
+                            }
+                        } else {
                             writeln!(output, "S,{index},{}", self.schema)?;
                         }
-                        write!(output, "R,{index}")?;
-                        for (_, value) in parts.filter_map(|part| part.split_once('=')) {
-                            write!(output, ",{value}")?;
-                        }
-                        writeln!(output)
+                        writeln!(output, "R,{index},{}", self.values)
                     })();
                     if encoded.is_ok() {
-                        if found.is_none() {
-                            self.schemas.push((self.schema.clone(), true));
+                        if let Some(index) = found {
+                            let stream = &mut self.schemas[index];
+                            stream.previous.clear();
+                            stream.previous.push_str(&self.values);
+                            stream.emitted = true;
                         } else {
-                            self.schemas[index].1 = true;
+                            self.schemas.push(Stream {
+                                schema: self.schema.clone(),
+                                identity: self.identity.clone(),
+                                previous: self.values.clone(),
+                                emitted: true,
+                            });
                         }
                     }
                     encoded
@@ -161,36 +264,87 @@ impl Pending {
         }
     }
 
+    #[cfg(test)]
     fn append(&mut self, mut file: impl Write) -> io::Result<()> {
-        if !self.session_started || self.uncertain_bytes != 0 {
-            // A previous writer or power loss can leave an incomplete last row.
-            file.write_all(b"\n")?;
-        }
-        if !self.session_started {
-            file.write_all(SESSION)?;
-            self.session_started = true;
-        }
-        if self.dropped_rows != 0 || self.uncertain_bytes != 0 {
-            writeln!(
-                file,
-                "DBG,SD_GAP,dropped_rows={},uncertain_bytes={},level=WARN",
-                self.dropped_rows, self.uncertain_bytes
-            )?;
-        }
-        let result = file.write_all(&self.bytes).and_then(|()| file.flush());
-        if result.is_ok() {
-            self.dropped_rows = 0;
-            self.uncertain_bytes = 0;
-        } else {
-            // Some bytes may already be on disk. Avoid replaying partial batches.
-            self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.bytes.len());
-        }
-        self.bytes.clear();
-        for (_, emitted) in &mut self.schemas {
-            *emitted = false;
-        }
-        result
+        self.append_chunk(&mut file, usize::MAX, true).map(|_| ())
     }
+
+    fn append_chunk(
+        &mut self,
+        file: &mut impl Write,
+        max_bytes: usize,
+        sync: bool,
+    ) -> io::Result<usize> {
+        let remaining = &self.bytes[self.head..];
+        let len = if remaining.len() <= max_bytes {
+            remaining.len()
+        } else {
+            remaining[..max_bytes]
+                .iter()
+                .rposition(|&byte| byte == b'\n')
+                .map(|i| i + 1)
+                .unwrap_or_else(|| remaining.iter().position(|&b| b == b'\n').map_or(remaining.len(), |i| i + 1))
+        };
+        let result = (|| -> io::Result<()> {
+            if !self.session_started || self.uncertain_bytes != 0 {
+                file.write_all(b"\n")?;
+            }
+            if !self.session_started {
+                file.write_all(SESSION)?;
+                self.session_started = true;
+            }
+            if self.dropped_rows != 0 || self.uncertain_bytes != 0 {
+                writeln!(
+                    file,
+                    "DBG,SD_GAP,dropped_rows={},uncertain_bytes={},level=WARN",
+                    self.dropped_rows, self.uncertain_bytes
+                )?;
+            }
+            file.write_all(&remaining[..len])?;
+            if sync {
+                file.flush()?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.queued_bytes());
+            self.bytes.clear();
+            self.head = 0;
+            self.reset_streams();
+            return Err(error);
+        }
+        self.dropped_rows = 0;
+        self.uncertain_bytes = 0;
+        self.head += len;
+        if self.head == self.bytes.len() {
+            self.bytes.clear();
+            self.head = 0;
+        } else if self.head >= 64 * 1024 && self.head >= self.bytes.len() / 2 {
+            let remaining = self.queued_bytes();
+            self.bytes.copy_within(self.head.., 0);
+            self.bytes.truncate(remaining);
+            self.head = 0;
+        }
+        if sync {
+            self.reset_streams();
+        }
+        Ok(len)
+    }
+}
+
+/// A bit identifies a changed field. No rounding or sample omission is used.
+fn delta_mask(previous: &str, current: &str) -> Option<u64> {
+    let mut old = previous.split(',');
+    let mut mask = 0_u64;
+    for (i, value) in current.split(',').enumerate() {
+        if i >= 64 {
+            return None;
+        }
+        if old.next()? != value {
+            mask |= 1 << i;
+        }
+    }
+    old.next().is_none().then_some(mask)
 }
 
 #[cfg(test)]
@@ -223,8 +377,40 @@ mod tests {
         pending.append(&mut output).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "partial previous row\nDBG,SESSION,t_ms=0,schema=3,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
+            "partial previous row\nDBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
         );
+    }
+
+    #[test]
+    fn delta_rows_keep_device_histories_separate() {
+        let mut pending = Pending::default();
+        for (port, rpm) in [(1, 10), (2, 20), (1, 11), (2, 21)] {
+            pending.push(format_args!(
+                "DBG,MOTOR,port={port},rpm={rpm},constant=123456789012345678901234567890,level=TRACE"
+            ));
+        }
+        let output = String::from_utf8(pending.bytes).unwrap();
+        assert!(output.contains("D,0,2,11\n"));
+        assert!(output.contains("D,1,2,21\n"));
+    }
+
+    #[test]
+    fn chunked_writes_preserve_rows_and_reset_at_sync() {
+        let mut pending = Pending::default();
+        for value in 0..10 {
+            pending.push(format_args!("DBG,TEST,value={value},level=TRACE"));
+        }
+        let mut output = Vec::new();
+        while pending.queued_bytes() != 0 {
+            pending.append_chunk(&mut output, 32, false).unwrap();
+        }
+        pending.append_chunk(&mut output, 32, true).unwrap();
+        pending.push(format_args!("DBG,TEST,value=11,level=TRACE"));
+        pending.append(&mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert_eq!(output.matches("DBG,SESSION").count(), 1);
+        assert_eq!(output.matches("S,0,TEST").count(), 2);
+        assert!(output.contains("R,0,11,TRACE\n"));
     }
 
     #[test]

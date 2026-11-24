@@ -110,7 +110,7 @@ pub fn row(level: Level, time: Duration, kind: &str, fields: fmt::Arguments<'_>)
 
 pub(super) fn enqueue(level: Level, fields: fmt::Arguments<'_>) {
     #[cfg(target_os = "vexos")]
-    crate::sd::enqueue(format_args!("{fields},level={}", level.label()));
+    crate::sd::enqueue(format_args!("{fields},level={}", level.label()), level.usb());
     #[cfg(not(target_os = "vexos"))]
     let _ = (level, fields);
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode OZTON3.LOG to JSON Lines or schema-2-compatible DBG rows.
+"""Decode schema 3/4 Ozton logs to JSON Lines or schema-2-compatible DBG rows.
 
 Usage: python3 tools/decode_log.py OZTON3.LOG > telemetry.jsonl
        python3 tools/decode_log.py OZTON3.LOG --legacy > telemetry.log
@@ -10,6 +10,7 @@ from urllib.parse import unquote
 
 def records(lines):
     schemas = {}
+    previous = {}
     session = 0
     for line in lines:
         parts = line.rstrip("\r\n").split(",")
@@ -17,19 +18,42 @@ def records(lines):
             continue
         if parts[0] == "S" and len(parts) >= 4:
             schemas[parts[1]] = (parts[2], parts[3:])
+            previous.pop(parts[1], None)
             continue
         if parts[0] == "R":
             schema = schemas.get(parts[1])
             if schema is None or len(parts) - 2 != len(schema[1]):
                 continue
             kind, keys = schema
+            previous[parts[1]] = parts[2:]
             fields = dict(zip(keys, parts[2:]))
+        elif parts[0] == "D":
+            schema = schemas.get(parts[1])
+            base = previous.get(parts[1])
+            if schema is None or base is None or len(parts) < 3:
+                continue
+            try:
+                mask = int(parts[2], 16)
+            except ValueError:
+                previous.pop(parts[1], None)
+                continue
+            if mask < 0 or mask >> len(base) or mask.bit_count() != len(parts) - 3:
+                previous.pop(parts[1], None)
+                continue
+            changed = iter(parts[3:])
+            values = [next(changed) if mask & (1 << i) else v for i, v in enumerate(base)]
+            previous[parts[1]] = values
+            kind, keys = schema
+            fields = dict(zip(keys, values))
         elif parts[0] == "DBG":
             kind = parts[1]
             fields = dict(p.split("=", 1) for p in parts[2:] if "=" in p)
             if kind == "SESSION":
                 session += 1
                 schemas.clear()
+                previous.clear()
+            elif kind == "SD_GAP" and fields.get("uncertain_bytes", "0") != "0":
+                previous.clear()
         else:
             continue
         yield session, kind, fields
