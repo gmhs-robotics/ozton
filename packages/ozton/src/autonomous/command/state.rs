@@ -15,6 +15,7 @@ pub(in crate::autonomous) struct State<'path> {
     next_marker: usize,
     initial_feedback: Option<Feedback>,
     reference_time: f64,
+    terminal_distance: f64,
     terminal: bool,
     terminal_turn: bool,
 }
@@ -43,6 +44,7 @@ impl<'path> State<'path> {
     pub(in crate::autonomous) fn new(config: ozton_motion::MotionConfig) -> Self {
         Self {
             differential: DifferentialFeedback::new(config.tuning).with_config(config),
+            terminal_distance: config.lookahead.value,
             ..Self::default()
         }
     }
@@ -140,9 +142,13 @@ impl<'path> State<'path> {
                 let heading_error = error_at(heading).abs();
                 let ready = distance <= options.position_tolerance.value
                     && heading_error <= options.heading_tolerance.value;
-                self.reference_time = (self.reference_time + dt.as_secs_f64())
-                    .min(geometric.time + 0.25)
-                    .min(end.time);
+                self.reference_time = profiled::advance_reference_time(
+                    self.reference_time,
+                    dt.as_secs_f64(),
+                    geometric,
+                    end,
+                    self.terminal_distance.max(options.position_tolerance.value * 2.0),
+                );
                 let sample = FollowerSample {
                     pose: feedback.pose,
                     elapsed: Time::new::<second>(self.reference_time),

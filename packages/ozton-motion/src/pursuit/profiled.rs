@@ -31,6 +31,25 @@ impl Follower {
     }
 }
 
+/// Advance a monotonic moving reference. Limit lead while far from the endpoint,
+/// but release the time gate inside the terminal neighborhood: otherwise a
+/// zero-speed reference can approach the final time asymptotically and stall.
+pub fn advance_reference_time(
+    previous: f64,
+    dt: f64,
+    geometric: ozton_math::path::PathSample,
+    end: ozton_math::path::PathSample,
+    terminal_distance: f64,
+) -> f64 {
+    let next = previous + dt;
+    let limit = if end.distance - geometric.distance <= terminal_distance {
+        end.time
+    } else {
+        geometric.time + 0.25
+    };
+    next.min(limit).max(previous).min(end.time)
+}
+
 /// Whether to stop using the moving reference and settle at the final pose.
 pub fn is_terminal(
     progress: &Progress<'_>,

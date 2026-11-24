@@ -298,7 +298,7 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                         || true,
                     )
                     .await
-                    .unwrap();
+                    .unwrap_or_else(|error| panic!("{follower:?} reverse={reverse}: {error:?}"));
                 let robot = runner.robot();
                 assert!(
                     robot.pose.position.distance(path.end().pose.position)

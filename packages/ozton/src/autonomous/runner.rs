@@ -66,6 +66,7 @@ pub struct Runner<'a, R: MotionPlatform> {
     clock: CommandClock,
     options: DriveOptions,
     config: MotionConfig,
+    explicit_config: bool,
     #[cfg(feature = "logging")]
     started: Instant,
     max_gap: Duration,
@@ -98,6 +99,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 maximum_gap: max_gap,
                 ..MotionConfig::default()
             },
+            explicit_config: false,
             #[cfg(feature = "logging")]
             started: Instant::now(),
             max_gap,
@@ -126,6 +128,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         self.max_gap = config.maximum_gap;
         self.options = options;
         self.config = config;
+        self.explicit_config = true;
         Ok(self)
     }
 
@@ -381,7 +384,16 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 );
             }
             let started = Instant::now();
-            let mut state = State::new(self.config);
+            let mut config = self.config;
+            // Older callers explicitly supply their path's physical limits.
+            // Respect that profile unless the application installed a robot-wide policy.
+            if !self.explicit_config && let Some((path, _)) = command.path_start() {
+                let limits = path.limits();
+                config.acceleration = limits.acceleration;
+                config.deceleration = limits.deceleration;
+                config.lateral_acceleration = limits.lateral_acceleration;
+            }
+            let mut state = State::new(config);
             let mut initialized = false;
             let mut retry_since = None;
             let mut mechanism_retry_since = None;

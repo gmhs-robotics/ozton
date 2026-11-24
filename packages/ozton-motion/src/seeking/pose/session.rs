@@ -264,9 +264,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::PositionUnsettled);
             }
             // Bound time-reference lead to avoid chasing a distant reference after lag.
-            reference_time = (reference_time + dt.as_secs_f64())
-                .min(geometric.time + 0.25)
-                .min(end.time);
+            reference_time = profiled::advance_reference_time(
+                reference_time,
+                dt.as_secs_f64(),
+                geometric,
+                end,
+                self.config.lookahead.value.max(self.options.position_tolerance.value * 2.0),
+            );
             let sample = FollowerSample {
                 pose: feedback.pose,
                 elapsed: Time::new::<second>(reference_time),
