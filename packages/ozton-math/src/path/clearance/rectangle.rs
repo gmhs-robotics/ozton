@@ -286,7 +286,8 @@ mod tests {
                 let (min, max) = chassis.forward_arc_bounds(pose, radius, sweep).unwrap();
                 assert!(field.contains_aabb(min, max), "{pose:?}");
                 pose = forward_arc_end(pose, radius, sweep);
-                let end = pose.position + direction(pose.heading) * crate::qty!((distance) in).value;
+                let end =
+                    pose.position + direction(pose.heading) * crate::qty!((distance) in).value;
                 assert!(field.contains_translation(pose, end), "{pose:?}");
                 pose.position = end;
             }
