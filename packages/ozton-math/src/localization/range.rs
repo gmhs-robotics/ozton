@@ -6,7 +6,9 @@ use uom::{
     si::f64::{Length, Time},
 };
 
-use crate::geometry::{Pose, direction, rotation};
+use crate::geometry::Pose;
+#[cfg(test)]
+use crate::geometry::direction;
 
 /// A finite reflecting face along an XY segment, with constant vertical extent.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,174 +64,12 @@ pub struct Hit {
     pub incidence: f64,
 }
 
-pub fn cast(pose: Pose, mount: Pose, surfaces: &[Surface]) -> Option<Hit> {
-    cast_inner(pose, mount, surfaces, None)
-}
+mod cast;
+mod prepared;
 
-/// Casts against eligible surfaces among the first 128 map entries. Hit indices
-/// always refer to the original map, including when nearer surfaces are masked.
-pub fn cast_masked(pose: Pose, mount: Pose, surfaces: &[Surface], mask: u128) -> Option<Hit> {
-    cast_inner(pose, mount, surfaces, Some(mask))
-}
-
-fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
-    let orientation = rotation(pose.heading);
-    let origin = pose.position + orientation.rotate(mount.position);
-    let beam = orientation.rotate(direction(mount.heading));
-    let mut nearest = None;
-    let mut nearest_distance = f64::INFINITY;
-    for (index, surface) in surfaces.iter().enumerate() {
-        if mask.is_some_and(|mask| index >= u128::BITS as usize || mask & (1u128 << index) == 0) {
-            continue;
-        }
-        let Some((distance, fraction)) =
-            intersection(origin, beam, surface.start, surface.end - surface.start)
-        else {
-            continue;
-        };
-        if distance >= nearest_distance {
-            continue;
-        }
-        let segment = surface.end - surface.start;
-        let length_squared = segment.length_squared();
-        nearest_distance = distance;
-        nearest = Some((index, segment, length_squared, fraction));
-    }
-    let (surface, segment, length_squared, fraction) = nearest?;
-    let length = libm::sqrt(length_squared);
-    let normal = segment.perp() / length;
-    Some(Hit {
-        surface,
-        distance: nearest_distance,
-        edge_distance: fraction.min(1.0 - fraction) * length,
-        normal,
-        incidence: beam.dot(normal),
-    })
-}
-
-/// Precomputed segment geometry for repeated distance-only ray queries.
-/// The index in the prepared array is the original surface index.
-#[derive(Clone, Copy)]
-pub(super) struct RayFace {
-    start: DVec2,
-    segment: DVec2,
-    parallel_threshold: f64,
-}
-
-impl RayFace {
-    fn new(surface: Surface) -> Self {
-        let segment = surface.end - surface.start;
-        let length_squared = segment.length_squared();
-        Self {
-            start: surface.start,
-            segment,
-            parallel_threshold: if length_squared > 1e-12 {
-                length_squared * 1e-18
-            } else {
-                f64::INFINITY
-            },
-        }
-    }
-
-    /// Compare cross-product numerators before dividing. Rejected and
-    /// non-nearest intersections need no division or segment normalization.
-    #[inline]
-    fn nearer(self, origin: DVec2, beam: DVec2, nearest: f64) -> Option<f64> {
-        let denominator = beam.perp_dot(self.segment);
-        if denominator * denominator <= self.parallel_threshold {
-            return None;
-        }
-        let offset = self.start - origin;
-        let sign = if denominator < 0.0 { -1.0 } else { 1.0 };
-        let denominator = denominator.abs();
-        let fraction = offset.perp_dot(beam) * sign;
-        if !(0.0..=denominator).contains(&fraction) {
-            return None;
-        }
-        let distance = offset.perp_dot(self.segment) * sign;
-        if distance > 0.0 && distance <= nearest * denominator {
-            let distance = distance / denominator;
-            if distance.is_finite() {
-                return Some(distance);
-            }
-        }
-        None
-    }
-}
-
-pub(super) fn prepare_faces(surfaces: &[Surface], faces: &mut alloc::vec::Vec<RayFace>) {
-    faces.clear();
-    faces.extend(surfaces.iter().take(128).copied().map(RayFace::new));
-}
-
-pub(super) fn prepared_ray_distance(
-    origin: DVec2,
-    beam: DVec2,
-    faces: &[RayFace],
-    mut mask: u128,
-    maximum: f64,
-) -> Option<f64> {
-    let mut nearest = maximum;
-    let mut found = false;
-    while mask != 0 {
-        let index = mask.trailing_zeros() as usize;
-        let Some(face) = faces.get(index) else {
-            break;
-        };
-        mask &= mask - 1;
-        if let Some(distance) = face.nearer(origin, beam, nearest) {
-            nearest = distance;
-            found = true;
-        }
-    }
-    found.then_some(nearest)
-}
-
-/// Nearest eligible distance for a world-space ray with a unit direction.
-/// Iterate only visible faces and skip normal/edge calculations used by DSR.
-pub fn ray_distance(
-    origin: DVec2,
-    beam: DVec2,
-    surfaces: &[Surface],
-    mut mask: u128,
-) -> Option<f64> {
-    let mut nearest = f64::INFINITY;
-    while mask != 0 {
-        let index = mask.trailing_zeros() as usize;
-        let Some(surface) = surfaces.get(index) else {
-            break;
-        };
-        mask &= mask - 1;
-        if let Some(distance) = RayFace::new(*surface).nearer(origin, beam, nearest) {
-            nearest = distance;
-        }
-    }
-    nearest.is_finite().then_some(nearest)
-}
-
-fn intersection(origin: DVec2, beam: DVec2, start: DVec2, segment: DVec2) -> Option<(f64, f64)> {
-    let length_squared = segment.length_squared();
-    let denominator = beam.perp_dot(segment);
-    if length_squared <= 1e-12 || denominator * denominator <= length_squared * 1e-18 {
-        return None;
-    }
-    let offset = start - origin;
-    let sign = if denominator < 0.0 { -1.0 } else { 1.0 };
-    let scale = denominator.abs();
-    let fraction = offset.perp_dot(beam) * sign;
-    if !(0.0..=scale).contains(&fraction) {
-        return None;
-    }
-    let distance = offset.perp_dot(segment) * sign;
-    if distance <= 0.0 || !distance.is_finite() {
-        return None;
-    }
-    let inverse = 1.0 / scale;
-    let distance = distance * inverse;
-    distance
-        .is_finite()
-        .then_some((distance, fraction * inverse))
-}
+pub use cast::{cast, cast_masked};
+pub use prepared::ray_distance;
+pub(super) use prepared::{RayFace, prepare_faces, prepared_ray_distance};
 
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
 #[derive(Debug, Clone, Copy)]
