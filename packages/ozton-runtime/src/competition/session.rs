@@ -138,11 +138,16 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             super::activation::advance();
             match result {
                 Some(Ok(())) => match robot.stop() {
-                        Ok(()) => {
-                            robot.menu().status("Autonomous complete");
-                            crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label());
-                        }
-                        Err(error) => robot.route_failed(route, error),
+                    Ok(()) => {
+                        robot.menu().status("Autonomous complete");
+                        crate::log_event!(
+                            Info,
+                            "autonomous",
+                            "Completed route {:?}",
+                            route.label()
+                        );
+                    }
+                    Err(error) => robot.route_failed(route, error),
                 },
                 Some(Err(error)) => {
                     let stopped = robot.stop();

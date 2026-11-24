@@ -117,7 +117,12 @@ impl<E> TaskSlot<E> {
             self.0 = None;
             return Ok(());
         }
-        let Some(task) = self.0.as_mut().map(|task| &mut task.task).filter(|task| task.is_finished()) else {
+        let Some(task) = self
+            .0
+            .as_mut()
+            .map(|task| &mut task.task)
+            .filter(|task| task.is_finished())
+        else {
             return Ok(());
         };
         let mut context = Context::from_waker(Waker::noop());

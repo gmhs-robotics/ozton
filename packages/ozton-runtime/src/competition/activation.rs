@@ -2,10 +2,10 @@
 //! Dropping the callback invalidates its work even if a short intermediate
 //! mode never gets polled. No motor writes are performed by this guard.
 
-use vexide::competition::{self, CompetitionMode};
-
 #[cfg(target_os = "vexos")]
 use std::sync::atomic::{AtomicU32, Ordering};
+
+use vexide::competition::{self, CompetitionMode};
 #[cfg(target_os = "vexos")]
 static ACTIVATION: AtomicU32 = AtomicU32::new(0);
 
