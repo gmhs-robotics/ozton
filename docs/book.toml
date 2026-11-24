@@ -15,7 +15,6 @@ edition = "2024"
 default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/gmhs-robotics/ozton"
-git-repository-icon = "fa-github"
 edit-url-template = "https://github.com/gmhs-robotics/ozton/edit/fix/motion-convergence/docs/{path}"
 site-url = "/"
 additional-css = ["theme/ozton.css"]
