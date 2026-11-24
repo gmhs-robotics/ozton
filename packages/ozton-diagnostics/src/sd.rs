@@ -10,6 +10,7 @@ use std::{
 pub const PATH: &str = "OZTON3.LOG";
 const BUFFER_BYTES: usize = 512 * 1024;
 const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=4,level=INFO\n";
+#[cfg(target_os = "vexos")]
 const RESERVED_BYTES: usize = 32 * 1024;
 
 struct Stream {
@@ -77,6 +78,7 @@ pub fn enable_at_startup() -> Option<io::Result<()>> {
     }
     pending.probed = true;
     Some(open_log().map(|file| {
+        pending.bytes.reserve(BUFFER_BYTES);
         pending.file = Some(file);
         ENABLED.store(true, Ordering::Relaxed);
     }))
@@ -94,7 +96,7 @@ pub(crate) fn enqueue(row: fmt::Arguments<'_>, priority: bool) {
     let Ok(mut pending) = PENDING.try_lock() else {
         return;
     };
-    if !priority && pending.queued_bytes() >= BUFFER_BYTES - RESERVED_BYTES {
+    if !priority && pending.bytes.len() >= BUFFER_BYTES - RESERVED_BYTES {
         pending.dropped_rows = pending.dropped_rows.saturating_add(1);
         return;
     }
@@ -283,7 +285,12 @@ impl Pending {
                 .iter()
                 .rposition(|&byte| byte == b'\n')
                 .map(|i| i + 1)
-                .unwrap_or_else(|| remaining.iter().position(|&b| b == b'\n').map_or(remaining.len(), |i| i + 1))
+                .unwrap_or_else(|| {
+                    remaining
+                        .iter()
+                        .position(|&b| b == b'\n')
+                        .map_or(remaining.len(), |i| i + 1)
+                })
         };
         let result = (|| -> io::Result<()> {
             if !self.session_started || self.uncertain_bytes != 0 {

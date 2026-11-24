@@ -13,6 +13,8 @@ def records(lines):
     previous = {}
     session = 0
     for line in lines:
+        if not line.endswith("\n"):
+            continue
         parts = line.rstrip("\r\n").split(",")
         if len(parts) < 2:
             continue
@@ -23,6 +25,7 @@ def records(lines):
         if parts[0] == "R":
             schema = schemas.get(parts[1])
             if schema is None or len(parts) - 2 != len(schema[1]):
+                previous.pop(parts[1], None)
                 continue
             kind, keys = schema
             previous[parts[1]] = parts[2:]
