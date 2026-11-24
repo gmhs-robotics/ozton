@@ -15,7 +15,7 @@ These are host and cross-compile checks, not hardware tests. For firmware, build
 
 ## Documentation
 
-The source pages live in docs/src and the dependency-free static site builder is docs/build.mjs. Run node docs/build.mjs to generate docs/site. Deploy that output to the existing ozton-docs Vercel project, keeping the ozton.eli.best domain. Do not deploy unreviewed main-branch firmware changes merely to publish documentation.
+The source pages live in docs/src and the dependency-free static site builder is docs/build.mjs. Run node docs/build.mjs to generate docs/site. Vercel reads the root vercel.json and builds the site directly from GitHub when the repository is connected to the ozton-docs project. The build command is node docs/build.mjs and the output directory is docs/site. Keep ozton.eli.best on that project. Use main as the production branch once the guide is merged; development branches receive preview deployments. Do not deploy unreviewed main-branch firmware changes merely to publish documentation.
 
 ## Contributing
 
