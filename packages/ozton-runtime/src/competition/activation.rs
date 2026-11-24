@@ -67,9 +67,10 @@ impl Token {
     }
 
     pub(crate) fn active(self) -> bool {
+        let status = competition::status();
         current() == self.activation
-            && competition::mode() == self.mode
-            && competition::is_connected() == self.connected
+            && status.mode() == self.mode
+            && status.is_connected() == self.connected
     }
 }
 

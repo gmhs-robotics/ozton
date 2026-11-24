@@ -126,7 +126,7 @@ impl<D> Schedule<D> {
         {
             // Reset baselines if an intervening mode was too short to run
             // its callback. Always-on localization retains its continuity.
-            (self.start)(drive, self.modes, CompetitionMode::Disabled, period);
+            let _ = (self.start)(drive, self.modes, CompetitionMode::Disabled, period);
         }
         (self.start)(drive, self.modes, mode, period)
     }

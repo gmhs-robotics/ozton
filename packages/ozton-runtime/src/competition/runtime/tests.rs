@@ -38,7 +38,7 @@ fn application_driver_runs_once_per_activation_with_fault_cleanup() {
         });
 
         for activation in 1..=2 {
-            Compete::driver(&mut runtime).await;
+            session::CompetitionSession(&mut runtime).driver().await;
             let robot = &runtime.robot;
             assert_eq!(robot.driver_entries, activation);
             assert_eq!(
@@ -83,16 +83,16 @@ fn route_choice_is_read_once_at_autonomous_entry() {
             move |_| Selector(reads)
         }));
 
-        Compete::disabled(&mut runtime).await;
+        session::CompetitionSession(&mut runtime).disabled().await;
         assert_eq!(
             runtime.robot.drive.writes.first().copied(),
             Some("stop drive")
         );
-        Compete::driver(&mut runtime).await;
+        session::CompetitionSession(&mut runtime).driver().await;
         assert_eq!(reads.get(), 0);
-        Compete::autonomous(&mut runtime).await;
+        session::CompetitionSession(&mut runtime).autonomous().await;
         assert_eq!(reads.get(), 1);
-        Compete::autonomous(&mut runtime).await;
+        session::CompetitionSession(&mut runtime).autonomous().await;
         assert_eq!(reads.get(), 2);
     });
 }
@@ -111,7 +111,7 @@ fn direct_enabled_handoff_does_not_stop_latched_outputs() {
 
         // Simulate an already-commanded motor and an enabled driver entry.
         // The driver itself writes output, then faults; only the fault stops it.
-        Compete::driver(&mut runtime).await;
+        session::CompetitionSession(&mut runtime).driver().await;
         assert_eq!(runtime.robot.drive.writes, ["auton", "drive", "stop drive"]);
     });
 }

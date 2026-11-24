@@ -1,14 +1,16 @@
 //! Competition lifecycle and cancellation built on vexide's Compete runtime.
 
 use std::{
+    convert::Infallible,
     future::{Future, poll_fn},
+    ops::ControlFlow,
     pin::{Pin, pin},
     task::Poll,
     time::{Duration, Instant},
 };
 
 use vexide::{
-    competition::{self, Compete, CompeteExt, CompetitionMode},
+    competition::{self, Compete, CompetitionMode, CompetitionRuntime},
     time::sleep,
 };
 
@@ -26,7 +28,68 @@ pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -
         "Ready with {:.1} ms control period",
         R::CONTROL_PERIOD.as_secs_f64() * 1000.0
     );
-    CompeteExt::compete(robot).await
+    // Capture the connection identity when vexide creates the callback, not
+    // when it first polls it. An unpolled callback may already be obsolete.
+    match CompetitionRuntime::<R, Infallible, _, _, _, _, _>::builder(robot)
+        .on_connect(|robot| Box::pin(async { ControlFlow::Continue(robot.connected().await) }))
+        .on_disconnect(|robot| Box::pin(async { ControlFlow::Continue(robot.disconnected().await) }))
+        .while_disabled(|robot| mode_future(robot, CompetitionMode::Disabled))
+        .while_autonomous(|robot| mode_future(robot, CompetitionMode::Autonomous))
+        .while_driving(|robot| mode_future(robot, CompetitionMode::Driver))
+        .finish()
+        .await
+    {}
+}
+
+/// Vexide 0.9 polls the old callback once after observing a phase change.
+/// Returning Ready here can make it incorrectly consume the connected or
+/// disconnected phase as if that hook had completed. Quiesce and let vexide
+/// drop the old callback instead.
+async fn hold_mode(work: impl Future<Output = ()>, mut active: impl FnMut() -> bool) {
+    let mut work = Some(Box::pin(work));
+    poll_fn(|cx| {
+        if !active() {
+            work = None;
+        } else if let Some(future) = &mut work {
+            if future.as_mut().poll(cx).is_ready() {
+                work = None;
+            }
+        }
+        // Never signal completion of a mode callback to a different phase.
+        Poll::<()>::Pending
+    })
+    .await
+}
+
+pub(super) async fn run_mode<R: CompetitionRobot>(
+    robot: &mut R,
+    mode: CompetitionMode,
+    connected: bool,
+) {
+    let work = async {
+        let mut session = CompetitionSession(robot);
+        match mode {
+            CompetitionMode::Disabled => session.disabled().await,
+            CompetitionMode::Autonomous => session.autonomous().await,
+            CompetitionMode::Driver => session.driver().await,
+        }
+    };
+    hold_mode(work, || {
+        let status = competition::status();
+        status.mode() == mode && status.is_connected() == connected
+    })
+    .await;
+}
+
+fn mode_future<R: CompetitionRobot>(
+    robot: &mut R,
+    mode: CompetitionMode,
+) -> Pin<Box<dyn Future<Output = ControlFlow<Infallible>> + '_>> {
+    let connected = competition::is_connected();
+    Box::pin(async move {
+        run_mode(robot, mode, connected).await;
+        ControlFlow::Continue(())
+    })
 }
 
 pub(super) struct CompetitionSession<'a, R>(pub(super) &'a mut R);
@@ -180,15 +243,15 @@ where
     }
 
     async fn disabled(&mut self) {
-        CompetitionSession(self).disabled().await;
+        run_mode(self, CompetitionMode::Disabled, competition::is_connected()).await;
     }
 
     async fn driver(&mut self) {
-        CompetitionSession(self).driver().await;
+        run_mode(self, CompetitionMode::Driver, competition::is_connected()).await;
     }
 
     async fn autonomous(&mut self) {
-        CompetitionSession(self).autonomous().await;
+        run_mode(self, CompetitionMode::Autonomous, competition::is_connected()).await;
     }
 }
 
@@ -219,4 +282,53 @@ pub(crate) async fn while_in_mode<T>(
 
 pub(super) fn control_sleep(period: Duration, work: Duration) -> Duration {
     period.saturating_sub(work).max(Duration::from_millis(1))
+}
+
+#[cfg(all(test, not(target_os = "vexos")))]
+mod tests {
+    use std::{cell::Cell, task::{Context, Waker}};
+
+    use super::*;
+
+    #[test]
+    fn obsolete_mode_never_polls_old_work_or_reports_completion() {
+        struct OnDrop<'a>(&'a Cell<bool>);
+        impl Drop for OnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.set(true);
+            }
+        }
+
+        let active = Cell::new(true);
+        let polls = Cell::new(0);
+        let dropped = Cell::new(false);
+        let work = async {
+            let _drop = OnDrop(&dropped);
+            poll_fn(|_| {
+                polls.set(polls.get() + 1);
+                Poll::<()>::Pending
+            })
+            .await;
+        };
+        let mut callback = pin!(hold_mode(work, || active.get()));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(callback.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(polls.get(), 1);
+        active.set(false);
+        assert!(callback.as_mut().poll(&mut cx).is_pending());
+        assert!(dropped.get());
+        active.set(true);
+        assert!(callback.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(polls.get(), 1);
+    }
+
+    #[test]
+    fn completed_mode_remains_quiescent_until_vexide_drops_it() {
+        let entries = Cell::new(0);
+        let mut callback = pin!(hold_mode(async { entries.set(entries.get() + 1); }, || true));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(callback.as_mut().poll(&mut cx).is_pending());
+        assert!(callback.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(entries.get(), 1);
+    }
 }
