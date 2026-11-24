@@ -25,7 +25,6 @@ pub(super) struct PoseSession<'a, D: PoseDrive> {
     tuning: DriveTuning,
     clock: CommandClock,
     started: Instant,
-    budget: Duration,
     finished: bool,
 }
 
@@ -34,9 +33,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         drive: &'a mut D,
         options: DriveOptions,
         tuning: DriveTuning,
-        budget: Duration,
     ) -> Result<Self, PoseMotionError<D::Error>> {
-        if !options.valid() || !tuning.valid() || budget < CONTROL_PERIOD {
+        if !options.valid() || !tuning.valid() {
             return Err(PoseMotionError::Configuration);
         }
         Ok(Self {
@@ -45,7 +43,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             tuning,
             clock: CommandClock::new(CONTROL_PERIOD).ok_or(PoseMotionError::Configuration)?,
             started: Instant::now(),
-            budget,
             finished: false,
         })
     }
@@ -54,9 +51,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let dt = self.clock.tick().await;
         if !autonomous_active() {
             return Err(PoseMotionError::Cancelled);
-        }
-        if self.started.elapsed() >= self.budget {
-            return Err(PoseMotionError::RouteTimeout);
         }
         if dt.is_zero() || dt > MAX_CONTROL_GAP {
             return Err(PoseMotionError::ControlGap);
@@ -80,11 +74,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         log_row!(
             Debug,
             "MOTION_COMMAND",
-            "state=start,command={status},timeout_ms={},route_remaining_ms={}",
-            timeout.as_millis(),
-            self.budget
-                .saturating_sub(self.started.elapsed())
-                .as_millis()
+            "state=start,command={status},timeout_ms={}",
+            timeout.as_millis()
         );
         let result = self.run_stage(target, timeout, status).await;
         match &result {

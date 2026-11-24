@@ -58,15 +58,15 @@ pub trait MotionPlatform {
     }
 }
 
-/// Reuse one runner across all commands to enforce an overall route deadline.
+/// Reuse one runner across commands to share motion settings.
 /// Dropping it stops drive and registered subsystems, including when vexide cancels autonomous.
 pub struct Runner<'a, R: MotionPlatform> {
     robot: &'a mut R,
     clock: CommandClock,
     options: DriveOptions,
     tuning: DriveTuning,
+    #[cfg(feature = "logging")]
     started: Instant,
-    route_timeout: Duration,
     max_gap: Duration,
     failed: bool,
     stop_on_drop: bool,
@@ -78,9 +78,8 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         options: DriveOptions,
         period: Duration,
         max_gap: Duration,
-        route_timeout: Duration,
     ) -> Result<Self, CommandError<R::Error>> {
-        if !Self::valid_configuration(options, period, max_gap, route_timeout) {
+        if !Self::valid_configuration(options, period, max_gap) {
             return Err(CommandError::Configuration);
         }
         Ok(Self {
@@ -88,8 +87,8 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             clock: CommandClock::new(period).ok_or(CommandError::Configuration)?,
             options,
             tuning: DriveTuning::STANDARD,
+            #[cfg(feature = "logging")]
             started: Instant::now(),
-            route_timeout,
             max_gap,
             failed: false,
             stop_on_drop: true,
@@ -113,24 +112,13 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         Ok(())
     }
 
-    pub fn valid_configuration(
-        options: DriveOptions,
-        period: Duration,
-        max_gap: Duration,
-        route_timeout: Duration,
-    ) -> bool {
-        options.valid()
-            && CommandClock::new(period).is_some()
-            && max_gap >= period
-            && route_timeout >= period
+    pub fn valid_configuration(options: DriveOptions, period: Duration, max_gap: Duration) -> bool {
+        options.valid() && CommandClock::new(period).is_some() && max_gap >= period
     }
 
     pub(super) fn check_active(&mut self) -> Result<(), CommandError<R::Error>> {
         if self.failed {
             return Err(self.finish_error(CommandError::Cancelled));
-        }
-        if self.started.elapsed() >= self.route_timeout {
-            return Err(self.finish_error(CommandError::RouteTimeout));
         }
         Ok(())
     }
@@ -145,20 +133,14 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         self.robot
     }
 
-    /// Remaining time on this runner's original deadline. Helpers and loop
-    /// iterations must share this clock rather than starting new runners.
     /// Physical drive options used for this session.
     pub fn options(&self) -> DriveOptions {
         self.options
     }
 
-    pub fn remaining(&self) -> Duration {
-        self.route_timeout.saturating_sub(self.started.elapsed())
-    }
-
     /// Wait at zero drive output for a data-dependent condition. The predicate
     /// can capture calibrated thresholds; every tick still services mechanisms,
-    /// tracking, cancellation and the original route deadline.
+    /// tracking and cancellation.
     pub async fn wait_until(
         &mut self,
         ready: impl FnMut(&R) -> bool,
@@ -267,7 +249,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
     }
 
     /// Returns false after a clean alignment timeout. The next command can run
-    /// a fallback under the original route deadline.
+    /// a fallback while autonomous remains active.
     pub async fn try_align(
         &mut self,
         alignment: Alignment,
@@ -362,7 +344,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         let outcome = async {
             active.robot.show_status(status);
             log_event!(Info, "motion", "{status} (timeout {:.2}s)", timeout.as_secs_f64());
-            log_row!(Debug, "MOTION_COMMAND", "state=start,command={status},timeout_ms={},route_remaining_ms={}", timeout.as_millis(), self.route_timeout.saturating_sub(self.started.elapsed()).as_millis());
+            log_row!(Debug, "MOTION_COMMAND", "state=start,command={status},timeout_ms={}", timeout.as_millis());
             #[cfg(feature = "logging")]
             if let Some((path, reverse)) = command.path_start() {
                 log_row!(
@@ -386,9 +368,6 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 let elapsed = started.elapsed();
                 if !enabled() {
                     return Err(CommandError::Cancelled);
-                }
-                if self.started.elapsed() >= self.route_timeout {
-                    return Err(CommandError::RouteTimeout);
                 }
                 if dt.is_zero() || dt > self.max_gap {
                     log_event!(Error, "motion", "{status}: control tick was {:.1} ms, limit {:.1} ms", dt.as_secs_f64() * 1000.0, self.max_gap.as_secs_f64() * 1000.0);

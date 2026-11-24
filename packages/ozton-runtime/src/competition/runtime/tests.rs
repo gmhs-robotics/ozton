@@ -84,6 +84,10 @@ fn route_choice_is_read_once_at_autonomous_entry() {
         }));
 
         Compete::disabled(&mut runtime).await;
+        assert_eq!(
+            runtime.robot.drive.writes.first().copied(),
+            Some("stop drive")
+        );
         Compete::driver(&mut runtime).await;
         assert_eq!(reads.get(), 0);
         Compete::autonomous(&mut runtime).await;

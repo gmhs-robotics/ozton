@@ -262,21 +262,13 @@ where
     R: RouteSet,
     Autonomous<R, S>: Telemetry<RouteRobot<D, C, X, P, R, S, B>>,
 {
-    let started = robot
+    robot
         .autonomous
         .started_at()
         .ok_or(CommandError::Cancelled)?;
-    let limits = P::session_limits(robot);
-    if !limits.valid() {
-        return Err(CommandError::Configuration);
-    }
-    let remaining = limits.total.saturating_sub(started.elapsed());
     let period = P::motion_period(robot);
-    if remaining < period {
-        return Err(CommandError::RouteTimeout);
-    }
     let options = P::drive_options(robot).ok_or(CommandError::Configuration)?;
     let gap = P::maximum_motion_gap(robot);
-    let runner = Runner::new(robot, options, period, gap, remaining)?;
-    Ok((runner, limits.stage))
+    let runner = Runner::new(robot, options, period, gap)?;
+    Ok((runner, super::routine_settings::AUTON_STAGE_TIMEOUT))
 }

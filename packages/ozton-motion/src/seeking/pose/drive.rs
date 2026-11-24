@@ -165,31 +165,3 @@ where
         self.drivetrain_mut().cancel_distance_reset();
     }
 }
-
-/// Register a surveyed starting pose and align the IMU with the field.
-pub trait ResetStartPose {
-    fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault>;
-}
-
-impl<S: TrackingSources> ResetStartPose for TrackedDrive<S> {
-    fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault> {
-        let heading = self
-            .tracking_mut()
-            .refresh_heading()
-            .and_then(|sample| sample.heading);
-        self.localization_mut()
-            .register_start(starting_pose, heading)
-            .then_some(())
-            .ok_or(DriveMotionFault::InvalidCommand)
-    }
-}
-
-impl<S: TrackingSources, A> ResetStartPose for AssistedTrackedDrive<'_, S, A>
-where
-    A: DriveAssist<Differential, Tracking<S>, DifferentialLocalization>,
-{
-    fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault> {
-        self.stop_now().map_err(DriveMotionFault::Brake)?;
-        self.drivetrain_mut().reset(starting_pose)
-    }
-}

@@ -12,19 +12,18 @@ use ozton_math::{
 
 use crate::{
     basic::differential::{DriveOptions, DriveTuning},
-    defaults::{AUTON_SPEED, AUTON_STAGE_TIMEOUT, AUTON_TOTAL_TIMEOUT},
+    defaults::{AUTON_SPEED, AUTON_STAGE_TIMEOUT},
 };
 
 mod approach;
 mod drive;
 mod error;
 mod session;
-pub use drive::{DriveMotionFault, PoseDrive, ResetStartPose};
+pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
-use session::{MAX_CONTROL_GAP, PoseSession};
+use session::PoseSession;
 
 pub const DEFAULT_STAGE_TIMEOUT: Duration = AUTON_STAGE_TIMEOUT;
-pub const DEFAULT_ROUTE_BUDGET: Duration = AUTON_TOTAL_TIMEOUT;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TravelDirection {
@@ -44,7 +43,6 @@ pub struct PoseSeeking {
     pub(super) heading_tolerance: Option<Angle>,
     pub(super) travel: Option<TravelDirection>,
     pub(super) stage_timeout: Duration,
-    pub(super) budget: Duration,
 }
 
 impl Default for PoseSeeking {
@@ -59,7 +57,6 @@ impl Default for PoseSeeking {
             heading_tolerance: None,
             travel: None,
             stage_timeout: AUTON_STAGE_TIMEOUT,
-            budget: AUTON_TOTAL_TIMEOUT,
         }
     }
 }
@@ -112,15 +109,9 @@ impl PoseSeeking {
         self
     }
 
-    /// Use only the overall budget and the competition enable state.
+    /// Run without a stage timeout while autonomous is active.
     pub const fn without_timeout(self) -> Self {
         self.with_timeout(Duration::MAX)
-    }
-
-    /// Bound the entire motion, including departure, turns, and corrections.
-    pub const fn with_budget(mut self, budget: Duration) -> Self {
-        self.budget = budget;
-        self
     }
 
     pub(super) fn options(
@@ -160,13 +151,7 @@ impl PoseSeeking {
     ) -> Result<bool, PoseMotionError<D::Error>> {
         let options = DriveOptions::for_differential(drive, Velocity::new::<meter_per_second>(1.0))
             .ok_or(PoseMotionError::Configuration)?;
-        let timeout = timeout.min(self.budget);
-        let mut session = PoseSession::new(
-            drive,
-            options,
-            self.tuning,
-            timeout.saturating_add(MAX_CONTROL_GAP),
-        )?;
+        let mut session = PoseSession::new(drive, options, self.tuning)?;
         let result = session.try_distance_reset(timeout).await;
         session.finish(result)
     }

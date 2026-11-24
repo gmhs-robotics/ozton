@@ -5,7 +5,6 @@ use core::{error::Error, fmt};
 pub enum PoseMotionError<E> {
     Configuration,
     Cancelled,
-    RouteTimeout,
     StageTimeout,
     ControlGap,
     InvalidFeedback,
@@ -23,7 +22,6 @@ impl<E> PoseMotionError<E> {
         match self {
             Self::Configuration => "configuration",
             Self::Cancelled => "cancelled",
-            Self::RouteTimeout => "route_timeout",
             Self::StageTimeout => "command_timeout",
             Self::ControlGap => "control_gap",
             Self::InvalidFeedback => "invalid_feedback",
@@ -42,7 +40,6 @@ impl<E: fmt::Display> fmt::Display for PoseMotionError<E> {
         let description = match self {
             Self::Configuration => "Invalid pose-seeking configuration",
             Self::Cancelled => "Pose seeking cancelled",
-            Self::RouteTimeout => "Pose-seeking budget expired",
             Self::StageTimeout => "Pose-seeking stage timed out",
             Self::ControlGap => "Pose-seeking control tick delayed",
             Self::InvalidFeedback => "Invalid pose-seeking feedback",

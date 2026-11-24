@@ -27,8 +27,7 @@ impl<R: CompetitionRobot> Drop for ActiveStage<'_, R> {
     }
 }
 
-/// Timed commands and mechanism waits on the installed program. These stages
-/// share the current route's deadline, including across separate handles.
+/// Timed commands and mechanism waits on the installed program.
 pub struct TimedMotion<'a, P: RobotLayout> {
     robot: &'a mut CompetitionBot<P>,
 }
@@ -62,7 +61,7 @@ where
         self.stage(None, timeout, ready, false).await
     }
 
-    /// Run a drivetrain-specific command under the programmed route clock.
+    /// Run a drivetrain-specific command while autonomous is active.
     pub async fn drive_for(
         &mut self,
         command: <P::Drivetrain as ProgramDrive>::AutonCommand,
@@ -121,9 +120,10 @@ where
         ready: &mut impl FnMut(&P::Mechanisms) -> bool,
         duration_is_success: bool,
     ) -> Result<(), CommandError<Error<P>>> {
-        let Some(route_start) = robot.autonomous.started_at() else {
-            return Err(CommandError::Cancelled);
-        };
+        robot
+            .autonomous
+            .started_at()
+            .ok_or(CommandError::Cancelled)?;
         let period = P::CONTROL_PERIOD;
         let mut clock = CommandClock::new(period).ok_or(CommandError::Configuration)?;
         let started = Instant::now();
@@ -137,9 +137,6 @@ where
         loop {
             if competition::mode() != CompetitionMode::Autonomous {
                 return Err(CommandError::Cancelled);
-            }
-            if route_start.elapsed() >= P::AUTON_TIMEOUT {
-                return Err(CommandError::RouteTimeout);
             }
             if dt > P::MAX_CONTROL_GAP {
                 return Err(CommandError::ControlGap);

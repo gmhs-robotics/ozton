@@ -60,8 +60,8 @@ seeking.reverse().move_to_point(&mut drivetrain, position_xy!(45 cm, 60 cm)).awa
 
 Use `with_tuning(DriveTuning { linear, angular })` to supply both PIDs for a
 chassis. The outer loops command metres per second and radians per second.
-`with_wheel_speed` limits the wheels. `with_timeout` sets a per-stage timeout,
-and `with_budget` limits the full departure, approach and final turn.
+`with_wheel_speed` limits the wheels. `with_timeout` sets a per-stage timeout.
+Use `without_timeout` to let field control end an unfinished motion.
 
 `Seeking`, `Basic`, and `PurePursuit` work with a bare or assisted drive
 that provides the feedback each motion needs. `ozton::tracking::WheeledTracking`

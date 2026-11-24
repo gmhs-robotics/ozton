@@ -6,7 +6,6 @@ use core::{error::Error, fmt};
 pub enum CommandError<E> {
     Configuration,
     Cancelled,
-    RouteTimeout,
     CommandTimeout,
     ControlGap,
     InvalidFeedback,
@@ -32,7 +31,6 @@ impl<E> CommandError<E> {
         match self {
             Self::Configuration => "configuration",
             Self::Cancelled => "cancelled",
-            Self::RouteTimeout => "route_timeout",
             Self::CommandTimeout => "command_timeout",
             Self::ControlGap => "control_gap",
             Self::InvalidFeedback => "invalid_feedback",
@@ -55,7 +53,6 @@ impl<E: fmt::Display> fmt::Display for CommandError<E> {
         let description = match self {
             Self::Configuration => "Invalid motion configuration",
             Self::Cancelled => "Motion cancelled",
-            Self::RouteTimeout => "Route timed out",
             Self::CommandTimeout => "Motion command timed out",
             Self::ControlGap => "Motion control tick delayed",
             Self::InvalidFeedback => "Invalid motion feedback",

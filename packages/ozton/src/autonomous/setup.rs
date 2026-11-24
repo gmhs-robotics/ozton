@@ -44,7 +44,6 @@ pub struct DifferentialConfig {
     pub deceleration: Acceleration,
     pub lateral_acceleration: Acceleration,
     pub max_control_gap: Duration,
-    pub route_timeout: Duration,
     pub journal_capacity: usize,
     pub wheel_control: WheelControl,
 }
@@ -74,7 +73,6 @@ impl DifferentialConfig {
                 ..Acceleration::ZERO
             },
             max_control_gap: Duration::from_millis(100),
-            route_timeout: Duration::from_secs(15),
             journal_capacity: 0,
             wheel_control: WheelControl::Native,
         }
@@ -101,7 +99,6 @@ impl DifferentialConfig {
             || !self.wheel_diameter.value.is_finite()
             || self.wheel_diameter.value <= 0.0
             || self.max_control_gap < ozton_runtime::clock::CONTROL_PERIOD
-            || self.route_timeout < ozton_runtime::clock::CONTROL_PERIOD
         {
             return Err(SetupError::DriveGeometry);
         }

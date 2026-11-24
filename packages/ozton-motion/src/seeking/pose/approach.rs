@@ -56,7 +56,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         );
         return Err(PoseMotionError::InsufficientClearance);
     }
-    let mut session = PoseSession::new(drive, options, settings.tuning, settings.budget)?;
+    let mut session = PoseSession::new(drive, options, settings.tuning)?;
     let result = approach(&mut session, clearance, target, final_heading, settings).await;
     session.finish(result)
 }

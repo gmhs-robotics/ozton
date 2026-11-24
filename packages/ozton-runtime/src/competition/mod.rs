@@ -1,4 +1,4 @@
-//! Programmed route selection and a budgeted competition loop for custom robots.
+//! Programmed route selection and competition lifecycle for custom robots.
 
 use std::time::{Duration, Instant};
 

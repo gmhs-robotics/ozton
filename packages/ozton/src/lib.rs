@@ -27,8 +27,7 @@ pub mod prelude {
         drivetrain::{Drive, Drivetrain, HasLocalization, LateralDrive, model::DriveConfigError},
         motion::{
             Arcade, Basic, DriveTuning, Holonomic, PoseSeeking, PurePursuit, Seeking, Tank,
-            arcade::ArcadeInput,
-            seeking::pose::{ResetStartPose, TravelDirection},
+            arcade::ArcadeInput, seeking::pose::TravelDirection,
         },
         runtime::{
             CompetitionBot, Robot, RobotBuilder, RobotLayout,

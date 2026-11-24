@@ -20,7 +20,6 @@ impl<E> Mechanism<E> for () {}
 pub trait Program<R, D: ProgramDrive> {
     type Error: std::fmt::Display;
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
-    const AUTON_TIMEOUT: Duration = Duration::from_secs(15);
     const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
     /// Translate a drive failure into the program's error type.

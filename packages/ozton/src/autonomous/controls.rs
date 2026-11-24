@@ -25,10 +25,6 @@ pub trait MotionControls<R> {
         None
     }
 
-    fn session_limits(_robot: &R) -> super::routine_settings::SessionLimits {
-        super::routine_settings::SessionLimits::MATCH
-    }
-
     fn motion_period(_robot: &R) -> Duration {
         ozton_runtime::clock::CONTROL_PERIOD
     }
@@ -184,16 +180,6 @@ where
         robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
     ) -> Option<super::DriveOptions> {
         Some(robot.drivetrain.drive_options())
-    }
-
-    fn session_limits(
-        robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
-    ) -> super::routine_settings::SessionLimits {
-        let total = robot.drivetrain.settings.route_timeout;
-        super::routine_settings::SessionLimits {
-            total,
-            stage: total.min(Duration::from_secs(5)),
-        }
     }
 
     fn motion_period(_: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Duration {

@@ -16,8 +16,8 @@ pub trait MechanismRobot: MotionPlatform {
 
 impl<R: MechanismRobot> Runner<'_, R> {
     /// Apply an application goal, wait for its settled predicate, then run a timed action.
-    /// No chassis motion or field coordinates are assumed. All phases share the
-    /// route deadline and cancellation guards. `timeout` bounds each phase.
+    /// No chassis motion or field coordinates are assumed. All phases use the same
+    /// cancellation guard. `timeout` bounds each phase.
     pub async fn perform(
         &mut self,
         target: R::Target,

@@ -240,7 +240,6 @@ fn forward_arc_reaches_the_expected_pose() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(3),
         )
         .unwrap();
         runner
@@ -282,7 +281,6 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                     OPTIONS,
                     Duration::from_millis(5),
                     Duration::from_millis(100),
-                    Duration::from_secs(6),
                 )
                 .unwrap();
                 runner
@@ -349,7 +347,6 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(4),
         )
         .unwrap();
         let markers = [
@@ -417,7 +414,6 @@ fn full_pose_point_motion_corrects_lateral_error_and_optional_dsr_can_fall_back(
                 OPTIONS,
                 Duration::from_millis(5),
                 Duration::from_millis(100),
-                Duration::from_secs(5),
             )
             .unwrap();
             runner.robot().intake = true;
@@ -484,7 +480,6 @@ fn untrusted_absolute_motion_never_drives_and_explicit_start_allows_it() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(4),
         )
         .unwrap();
         let moved = runner
@@ -528,7 +523,6 @@ fn jam_returns_optional_failure_then_fallback_runs_under_same_deadline() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(4),
         )
         .unwrap();
         let completed = runner
@@ -577,7 +571,6 @@ fn transient_tracking_retries_and_scoring_waits_for_measured_arrival() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(2),
         )
         .unwrap();
         runner
@@ -596,7 +589,7 @@ fn transient_tracking_retries_and_scoring_waits_for_measured_arrival() {
 }
 
 #[test]
-fn captured_loading_wait_services_mechanisms_and_obeys_original_route_deadline() {
+fn captured_loading_wait_services_mechanisms_and_honors_command_timeout() {
     block_on(async {
         let mut robot = Sim::new(false);
         robot.intake = true;
@@ -606,10 +599,8 @@ fn captured_loading_wait_services_mechanisms_and_obeys_original_route_deadline()
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_millis(120),
         )
         .unwrap();
-        let before = runner.remaining();
         let required_ticks = 4;
         runner
             .wait_until_while(
@@ -626,18 +617,16 @@ fn captured_loading_wait_services_mechanisms_and_obeys_original_route_deadline()
             "successful wait retains the intake goal"
         );
         assert_eq!(runner.robot().wheels, [0.0; 2]);
-        assert!(runner.remaining() < before);
         let error = runner
             .wait_until_while(
                 |_| false,
                 Duration::from_millis(15),
-                Duration::from_secs(1),
+                Duration::from_millis(120),
                 || true,
             )
             .await
             .unwrap_err();
-        assert!(matches!(error, CommandError::RouteTimeout));
-        assert_eq!(runner.remaining(), Duration::ZERO);
+        assert!(matches!(error, CommandError::CommandTimeout));
         assert!(!runner.robot().intake);
         assert!(runner.robot().stopped);
     });
@@ -654,7 +643,6 @@ fn contact_approach_brakes_without_changing_the_field_reference() {
             OPTIONS,
             Duration::from_millis(5),
             Duration::from_millis(100),
-            Duration::from_secs(2),
         )
         .unwrap();
         let mut touched = |robot: &Sim, sample: Feedback, _elapsed: Duration| {
