@@ -30,8 +30,8 @@ mod builder;
 mod observations;
 #[cfg(feature = "logging")]
 mod telemetry;
-use builder::RangeUses;
-pub use builder::{DsrUse, LocalizationBuilder};
+use builder::RangeUsage;
+pub use builder::{LocalizationBuilder, OdometrySettings, RangeUsage, RangeUse};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
 pub struct DifferentialLocalization {
@@ -43,7 +43,7 @@ pub struct DifferentialLocalization {
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
-    range_uses: RangeUses,
+    range_uses: RangeUsage,
     occluded: u8,
     last_reset: DistanceReset,
     feedback: Result<Option<Feedback>, Fault>,
@@ -54,6 +54,10 @@ pub struct DifferentialLocalization {
 }
 
 impl DifferentialLocalization {
+    pub fn builder() -> LocalizationBuilder {
+        LocalizationBuilder::new()
+    }
+
     /// Half extents of the configured field if it has only a rectangular perimeter.
     pub fn rectangular_half_extents(&self) -> Option<DVec2> {
         self.rectangular_half_extents

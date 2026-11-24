@@ -22,6 +22,18 @@ pub enum Estimator {
     Mcl(ParticleConfig),
 }
 
+impl From<ParticleConfig> for Estimator {
+    fn from(config: ParticleConfig) -> Self {
+        Self::Mcl(config)
+    }
+}
+
+impl From<EkfConfig> for Estimator {
+    fn from(config: EkfConfig) -> Self {
+        Self::Ekf(config)
+    }
+}
+
 /// Inputs shared by estimators after timestamp and range association checks.
 pub struct Observations<'a> {
     pub predicted: Pose,

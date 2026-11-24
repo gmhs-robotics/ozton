@@ -7,7 +7,7 @@ Start with the ozton facade crate. It re-exports the workspace modules, macros a
 - [drivetrain](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-drivetrain/src/lib.rs): Drive, Drivetrain, differential and other drive models, wheel output and footprint.
 - [tracking](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-tracking/src/lib.rs): Tracking, TrackingSource, encoders, IMU and distance devices.
 - [localization](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-localization/src/lib.rs): estimator types, feedback, field maps and LocalizationBuilder.
-- [control](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-control/src/lib.rs): PID, feedforward and mechanism control helpers.
+- [control](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-math/src/control/mod.rs): PID, feedforward and mechanism control helpers.
 
 ## Motion and competition
 

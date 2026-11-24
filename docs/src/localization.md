@@ -13,15 +13,17 @@ Register a flat tuple of sources with Tracking::new. This fragment assumes you h
 ```rust
 use ozton::{
     drivetrain::Drivetrain,
-    localization::{Estimator, differential::{LocalizationBuilder, DriveEncoderUse}},
+    localization::{Estimator, differential::{LocalizationBuilder, DriveEncoderUse, OdometrySettings}},
     tracking::Tracking,
 };
 
 let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range)).await?;
-let localization = LocalizationBuilder::new(field)
+let localization = LocalizationBuilder::new()
+    .with_field(field)
     .with_estimator(Estimator::Odometry)
-    .with_imu_heading(true)
-    .with_drive_encoders(DriveEncoderUse::ForwardAndHeading)
+    .with_odometry(OdometrySettings::new()
+        .with_imu_heading(true)
+        .with_drive_encoders(DriveEncoderUse::ForwardAndHeading))
     .build(tracking.observation_layout())
     .expect("check tracking geometry");
 let drivetrain = Drivetrain::new(model, tracking, localization);
@@ -66,7 +68,7 @@ priority. Gyro yaw rate is preferred to differentiated heading. All angles
 and angular rates are CCW radians. A rotating chassis frame includes the
 transport term -omega cross v in its acceleration prediction.
 
-Use LocalizationBuilder::with_velocity_config to specify measured noise
+Use LocalizationBuilder::with_velocity_estimator to specify measured noise
 parameters. Default process/measurement noise is a conservative initial
 model, not a measured specification. Estimate encoder position and direct
 rate noise at rest and at steady speed, and gyro noise at rest, from logs.

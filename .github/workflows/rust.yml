@@ -17,6 +17,16 @@ jobs:
           profile: minimal
           toolchain: nightly-2026-11-07
           components: rust-src, rustfmt
+      - name: Verify platform-independent dependency boundaries
+        run: |
+          for package in ozton-math ozton-localization ozton-motion ozton-diagnostics ozton-tools; do
+            if cargo tree --locked -p "$package" --all-features -e normal | grep -E 'vexide v|vex-sdk v'; then
+              echo "$package must not depend on the VEX SDK"
+              exit 1
+            fi
+          done
+          cargo check --locked -p ozton-motion --all-features
+          cargo check --locked -p ozton-localization --all-features
       - run: cargo fmt --all --check
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test --workspace --all-targets --locked
