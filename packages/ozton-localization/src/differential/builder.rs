@@ -156,6 +156,7 @@ impl LocalizationBuilder {
         Some(DifferentialLocalization {
             localizer,
             rectangular_half_extents: self.field.rectangular_half_extents(),
+            motion_obstacles: [None; 4],
             wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),
             observations: super::observations::Observations::new(layout),
             drive: self.drive,

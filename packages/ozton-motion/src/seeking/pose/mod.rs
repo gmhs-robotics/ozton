@@ -400,7 +400,7 @@ impl Seeking {
             start.position + ozton_math::geometry::direction(heading) * distance.value,
             heading,
         );
-        if field.is_some_and(|f| !f.contains_pose(start) || !f.contains_pose(end)) {
+        if field.is_some_and(|f| !f.contains_translation(start, end.position)) {
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.effective_config())?;

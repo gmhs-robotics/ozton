@@ -55,6 +55,9 @@ pub trait PoseDrive: DriveEncoders {
     fn pose(&self) -> Pose;
     fn footprint(&self) -> Option<Footprint>;
     fn rectangular_half_extents(&self) -> Option<DVec2>;
+    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        [None; 4]
+    }
     fn pose_trusted(&self) -> bool;
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error>;
@@ -78,6 +81,10 @@ impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
 
     fn rectangular_half_extents(&self) -> Option<DVec2> {
         self.localization().rectangular_half_extents()
+    }
+
+    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        self.localization().motion_obstacles()
     }
 
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
@@ -134,6 +141,10 @@ where
 
     fn rectangular_half_extents(&self) -> Option<DVec2> {
         self.drivetrain().rectangular_half_extents()
+    }
+
+    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        self.drivetrain().motion_obstacles()
     }
 
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {

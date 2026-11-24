@@ -148,7 +148,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::UntrustedPose);
             }
             if super::approach::clearance(self.drive, self.config.clearance)?
-                .is_some_and(|field| !field.contains_pose(feedback.pose))
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config))
             {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -261,7 +261,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !self.drive.pose_trusted() {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            if clearance.is_some_and(|field| !field.contains_pose(feedback.pose)) {
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config)) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(
@@ -410,6 +410,25 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
             let _ = self.drive.brake();
         }
     }
+}
+
+fn safe_feedback(
+    field: ozton_math::path::clearance::RectangularClearance,
+    feedback: Feedback,
+    config: crate::MotionConfig,
+) -> bool {
+    let v = feedback.forward_velocity.value;
+    let w = feedback.angular_velocity.value;
+    let travel = v.signum() * (v * v / (2.0 * config.deceleration.value) + v.abs() * 0.15);
+    let yaw = w * 0.15 + w.signum() * w * w / (2.0 * config.angular_deceleration.value);
+    field.contains_pose(feedback.pose)
+        && field.obstacle_stop_clear(
+            feedback.pose,
+            ozton_math::geometry::direction(feedback.pose.heading) * travel
+                + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
+                    * feedback.lateral_velocity.value * 0.15,
+            ozton_math::qty!((yaw) rad),
+        )
 }
 
 fn valid_feedback(feedback: Feedback) -> bool {

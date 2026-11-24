@@ -36,6 +36,7 @@ pub use builder::{DsrUse, LocalizationBuilder};
 pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
     rectangular_half_extents: Option<DVec2>,
+    motion_obstacles: [Option<(DVec2, DVec2)>; 4],
     wheels: WheelOdometry,
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
@@ -64,6 +65,21 @@ impl DifferentialLocalization {
         }
         self.rectangular_half_extents = bounds;
         true
+    }
+
+    /// Set fixed obstacle bounds separately from the reflecting surface map.
+    pub fn set_motion_obstacles(&mut self, obstacles: [Option<(DVec2, DVec2)>; 4]) -> bool {
+        if obstacles.iter().flatten().any(|(min, max)| {
+            !min.is_finite() || !max.is_finite() || !min.cmplt(*max).all()
+        }) {
+            return false;
+        }
+        self.motion_obstacles = obstacles;
+        true
+    }
+
+    pub fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        self.motion_obstacles
     }
 
     /// Keep raw tracking and logging active while suspending all external corrections.

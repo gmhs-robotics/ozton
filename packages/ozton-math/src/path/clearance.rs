@@ -139,6 +139,7 @@ mod tests {
         let wall = Surface::new(
             crate::geometry::point(m(0.2), m(-1.0)),
             crate::geometry::point(m(0.2), m(0.25)),
+            m(1.0),
         );
         let start = Pose::default();
         assert!(!chassis.can_turn(start, &[wall], m(0.0)));
@@ -204,6 +205,7 @@ mod tests {
         let wall = Surface::new(
             crate::geometry::point(inches(10.7), inches(-15.0)),
             crate::geometry::point(inches(10.7), inches(15.0)),
+            inches(10.0),
         );
         assert!(!chassis.can_turn(Pose::default(), &[wall], inches(0.0)));
     }
