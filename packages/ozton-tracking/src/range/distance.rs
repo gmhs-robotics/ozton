@@ -315,9 +315,9 @@ impl DistanceDevice {
         }
         // A new packet arrived somewhere between the previous poll and
         // this one. Use the midpoint, then remove characterized transport lag.
-        let arrival = self.last_poll.map_or(now, |last| {
-            last + now.saturating_sub(last) / 2
-        });
+        let arrival = self
+            .last_poll
+            .map_or(now, |last| last + now.saturating_sub(last) / 2);
         let timestamp = self
             .clock
             .observe(after, arrival.saturating_sub(self.latency));

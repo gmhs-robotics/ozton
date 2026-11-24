@@ -1,6 +1,8 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
 use ozton_localization::Feedback;
-use ozton_math::{geometry::DVec2, path::clearance::RectangularClearance, qty, uom::si::f64::Velocity};
+use ozton_math::{
+    geometry::DVec2, path::clearance::RectangularClearance, qty, uom::si::f64::Velocity,
+};
 use ozton_runtime::{log_event, log_row};
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
@@ -18,7 +20,11 @@ impl StoppingGovernor {
         options: DriveOptions,
         config: MotionConfig,
     ) -> Self {
-        Self { field, options, config }
+        Self {
+            field,
+            options,
+            config,
+        }
     }
 
     /// Returns the admissible command, or None if the current measured
@@ -34,9 +40,9 @@ impl StoppingGovernor {
             || !feedback.forward_velocity.value.is_finite()
             || !feedback.lateral_velocity.value.is_finite()
             || !feedback.angular_velocity.value.is_finite()
-            || self.field.is_some_and(|field| {
-                !safe_feedback(field, feedback, self.config, uncertainty)
-            })
+            || self
+                .field
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
         {
             return None;
         }
