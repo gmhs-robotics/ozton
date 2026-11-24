@@ -1,4 +1,4 @@
-//! Host-only Ozton route conversion and calibration commands.
+//! Host-only Ozton telemetry and calibration commands.
 
 mod calibration;
 mod csv;
@@ -13,9 +13,7 @@ use std::{
     process::ExitCode,
 };
 
-use ozton_path_io::jerryio;
-
-const USAGE: &str = "ozton-tools import-path <lemlib-v0.5.txt>\n                    ozton-tools calibrate <telemetry.csv> [experiment-name]\n                    ozton-tools view-log <OZTON.LOG> [--kind KIND]\n                    Use --help for input column definitions.";
+const USAGE: &str = "ozton-tools calibrate <telemetry.csv> [experiment-name]\n                    ozton-tools view-log <OZTON.LOG> [--kind KIND]\n                    Use --help for input column definitions.";
 
 fn main() -> ExitCode {
     match run() {
@@ -39,7 +37,6 @@ fn run() -> Result<(), Box<dyn Error>> {
             )?;
             Ok(())
         }
-        [command, input] if command == "import-path" => import(Path::new(input), stdout),
         [command, input] if command == "view-log" => {
             log::view(BufReader::new(fs::File::open(input)?), stdout, None)?;
             Ok(())
@@ -56,22 +53,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         _ => Err(USAGE.into()),
     }
-}
-
-fn import(path: &Path, mut writer: impl Write) -> Result<(), Box<dyn Error>> {
-    let input = fs::read(path)?;
-    let waypoints =
-        jerryio::parse(&input).map_err(|error| format!("invalid LemLib v0.5 export: {error:?}"))?;
-    writeln!(writer, "const POINTS: &[ozton::math::path::Waypoint] = &[")?;
-    for point in waypoints {
-        writeln!(
-            writer,
-            "    ozton::math::path::Waypoint::new(ozton::math::geometry::DVec2::new({:?}, {:?}), {:?}),",
-            point.position.x, point.position.y, point.speed_fraction
-        )?;
-    }
-    writeln!(writer, "];")?;
-    Ok(())
 }
 
 fn calibrate(path: &Path, name: Option<&str>, writer: impl Write) -> Result<(), Box<dyn Error>> {

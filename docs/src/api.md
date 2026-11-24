@@ -19,7 +19,6 @@ Start with the ozton facade crate. It re-exports the workspace modules, macros a
 ## Math and tools
 
 - [math](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-math/src/lib.rs): geometry, units, PID, path profiles, particle filters and observation types.
-- [path_io](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-path-io/src/lib.rs): path import.
 - [diagnostics](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-diagnostics/src/lib.rs): log and profiler types.
 - [examples](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples): complete firmware programs.
 

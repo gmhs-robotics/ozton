@@ -7,7 +7,6 @@ members = [
   "packages/ozton-localization",
   "packages/ozton-math",
   "packages/ozton-motion",
-  "packages/ozton-path-io",
   "packages/ozton-runtime",
   "packages/ozton-tools",
   "packages/ozton-ui",
@@ -28,7 +27,6 @@ ozton-drivetrain = { version = "0.4.0", path = "packages/ozton-drivetrain", defa
 ozton-localization = { version = "0.4.0", path = "packages/ozton-localization", default-features = false }
 ozton-math = { version = "0.4.0", path = "packages/ozton-math", default-features = false }
 ozton-motion = { version = "0.4.0", path = "packages/ozton-motion", default-features = false }
-ozton-path-io = { version = "0.4.0", path = "packages/ozton-path-io", default-features = false }
 ozton-runtime = { version = "0.4.0", path = "packages/ozton-runtime", default-features = false }
 ozton-ui = { version = "0.4.0", path = "packages/ozton-ui", default-features = false }
 ozton-tracking = { version = "0.4.0", path = "packages/ozton-tracking", default-features = false }

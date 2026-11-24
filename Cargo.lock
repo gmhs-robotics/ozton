@@ -205,7 +205,6 @@ dependencies = [
  "ozton-localization",
  "ozton-math",
  "ozton-motion",
- "ozton-path-io",
  "ozton-runtime",
  "ozton-tracking",
  "ozton-ui",
@@ -265,18 +264,10 @@ dependencies = [
  "ozton-drivetrain",
  "ozton-localization",
  "ozton-math",
- "ozton-path-io",
  "ozton-runtime",
  "ozton-tracking",
  "vex-sdk-mock",
  "vexide",
-]
-
-[[package]]
-name = "ozton-path-io"
-version = "0.4.0"
-dependencies = [
- "ozton-math",
 ]
 
 [[package]]
@@ -300,7 +291,6 @@ version = "0.4.0"
 dependencies = [
  "ozton-diagnostics",
  "ozton-math",
- "ozton-path-io",
 ]
 
 [[package]]

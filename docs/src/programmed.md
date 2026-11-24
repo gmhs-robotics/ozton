@@ -14,7 +14,11 @@ The following function comes directly from the programmed example. It starts at 
 
 ## Prepared paths
 
-Export waypoints from JerryIO and parse them using ozton::path_io::jerryio. Build a Path with physical limits before enabling autonomous, where practical. A prepared path is reusable. Keep the robot's position frame and the exported path frame consistent.
+Define native `Waypoint` values and build a `Path` with physical limits before enabling autonomous, where practical. A prepared path is reusable. Keep the robot's position frame and the waypoint coordinate frame consistent.
+
+```rust,ignore
+{{#include ../../packages/ozton/examples/programmed.rs:prepare_path}}
+```
 
 ## Errors and timeouts
 

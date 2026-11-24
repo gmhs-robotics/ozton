@@ -13,7 +13,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-ozton-path-io = { workspace = true }
 ozton-localization = { workspace = true }
 glam = { workspace = true }
 ozton-control = { workspace = true }

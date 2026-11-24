@@ -1,6 +1,6 @@
 [package]
 name = "ozton-tools"
-description = "Host tools for importing Ozton paths and calibrating a robot."
+description = "Host tools for analyzing telemetry and calibrating a robot."
 repository.workspace = true
 license.workspace = true
 version = "0.4.0"
@@ -10,6 +10,5 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-ozton-path-io = { workspace = true }
 ozton-diagnostics = { workspace = true }
 ozton-math = { workspace = true }

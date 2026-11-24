@@ -1,4 +1,4 @@
-//! One mixed-gear chassis, one intake, and one embedded PATH.JERRYIO route.
+//! One mixed-gear chassis, one intake, and one native waypoint route.
 
 #[cfg(feature = "logging")]
 use std::fs::File;
@@ -9,9 +9,13 @@ use ozton::{
         Alignment, ConfiguredChassis, DifferentialConfig, RobotMotion, RoutineError, TrackingSetup,
         TravelDirection, chassis::ChassisError,
     },
-    math::{geometry::Pose, localization::range::Surface, path::Path},
+    math::{
+        geometry::Pose,
+        localization::range::Surface,
+        path::{Path, Waypoint},
+    },
     motion::arcade::ArcadeInput,
-    position_xyz, route,
+    position_xy, position_xyz, route,
     runtime::{
         CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
         competition::{Program, RegisteredRoute},
@@ -199,8 +203,14 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
 async fn main(p: Peripherals) -> std::process::ExitCode {
     ozton::run(async move {
         // ANCHOR: prepare_path
-        let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
-            .map_err(|error| format!("Invalid path export: {error:?}"))?;
+        let points = [
+            Waypoint::new(position_xy!(0 in, 0 in), 48.0 / 127.0),
+            Waypoint::new(position_xy!(4 in, 0 in), 64.0 / 127.0),
+            Waypoint::new(position_xy!(8 in, 0 in), 64.0 / 127.0),
+            Waypoint::new(position_xy!(12 in, 0 in), 48.0 / 127.0),
+            Waypoint::new(position_xy!(16 in, 0 in), 32.0 / 127.0),
+            Waypoint::new(position_xy!(18 in, 0 in), 0.0),
+        ];
         let straight_path = Rc::new(
             Path::new(&points, CONFIG.path_limits())
                 .map_err(|error| format!("Invalid profiled path: {error:?}"))?,
