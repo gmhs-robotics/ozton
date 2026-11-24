@@ -22,6 +22,10 @@ pub struct State {
     start_time: Instant,
     sleep: Sleep,
     terminal: bool,
+    previous_position: Vec2,
+    previous_time: Instant,
+    settled_since: Option<Instant>,
+    terminal_reverse: Option<bool>,
 }
 
 /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
@@ -148,6 +152,10 @@ where
                 current,
                 next,
                 terminal,
+                previous_position: position,
+                previous_time: now,
+                settled_since: None,
+                terminal_reverse: None,
             })
         };
 
@@ -170,6 +178,11 @@ where
         // Tracking data (robot position and heading)
         let position = this.drivetrain.localization().position();
         let heading = this.drivetrain.localization().heading();
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(state.previous_time).as_secs_f64();
+        let speed = position.distance(state.previous_position) / dt.max(1e-6);
+        state.previous_position = position;
+        state.previous_time = now;
 
         // If the lookahead circle envelops the end of the current waypoint segment,
         // then switch to the next two waypoints.
@@ -194,20 +207,29 @@ where
                 return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
                     .and(Err(crate::MotionError::InvalidFeedback)));
             }
-            if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value {
-                this.state = None;
-                return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), crate::MotionOutcome::Settled));
+            if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value && speed <= 0.04 {
+                let since = *state.settled_since.get_or_insert(now);
+                if now.saturating_duration_since(since) >= Duration::from_millis(120) {
+                    this.state = None;
+                    return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), crate::MotionOutcome::Settled));
+                }
+            } else {
+                state.settled_since = None;
             }
             let error = ozton_math::geometry::wrap_heading(
                 ozton_math::geometry::bearing(delta) - heading
             ).value;
-            let reverse = error.abs() > core::f64::consts::FRAC_PI_2;
+            let reverse = *state.terminal_reverse.get_or_insert(error.abs() > core::f64::consts::FRAC_PI_2);
+            if error.abs() > 2.3 && speed < 0.04 {
+                state.terminal_reverse = Some(!reverse);
+            }
+            let reverse = state.terminal_reverse.unwrap_or(reverse);
             let error = if reverse {
                 ozton_math::geometry::wrap_heading(ozton_math::angle!(error + core::f64::consts::PI, rad)).value
             } else { error };
-            let linear = (2.0 * distance).min(0.35) * error.cos().max(0.0)
+            let linear = (2.0 * (distance - crate::defaults::AUTON_POSITION_TOLERANCE.value * 0.5).max(0.0)).min(0.35) * error.cos().max(0.0)
                 * if reverse { -1.0 } else { 1.0 };
-            let turn = (1.5 * error).clamp(-0.4, 0.4);
+            let (linear, turn) = if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value { (0.0, 0.0) } else { (linear, (1.5 * error).clamp(-0.4, 0.4)) };
             if let Err(output) = Tank::drive(this.drivetrain, linear - turn, linear + turn) {
                 this.state = None;
                 return Poll::Ready(Err(crate::motion_output_error(output, this.drivetrain.stop_now())));
@@ -225,7 +247,7 @@ where
             state.next.position,
         ) {
             // No intersections; the lookahead circle isn't intersecting the path.
-            (None, None) => {}
+            (None, None) => { state.lookahead_point = state.next.position; }
 
             // One intersection; use that.
             (Some(solution), None) | (None, Some(solution)) => state.lookahead_point = solution,

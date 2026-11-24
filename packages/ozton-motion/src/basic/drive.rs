@@ -85,7 +85,7 @@ where
         let state = this.state.get_or_insert_with(|| {
             let now = Instant::now();
             DriveState {
-                sleep: sleep(Duration::from_millis(5)),
+                sleep: sleep(Duration::from_millis(10)),
                 initial_forward_travel: this.drivetrain.localization().forward_travel(),
                 start_time: now,
                 prev_time: now,
@@ -155,8 +155,8 @@ where
             )));
         }
 
-        state.sleep = sleep(Duration::from_millis(5));
-        state.prev_time = Instant::now();
+        state.sleep = sleep(Duration::from_millis(10));
+        state.prev_time = now;
 
         cx.waker().wake_by_ref();
         Poll::Pending

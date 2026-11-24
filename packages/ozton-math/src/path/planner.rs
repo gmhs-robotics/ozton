@@ -31,7 +31,7 @@ pub fn plan(start: Pose, end: Pose, limits: Limits, field: Option<RectangularCle
             for last in [0.35, 0.65, 1.0, 1.5, 2.0] {
                 let a = direction(start.heading) * (sign * distance * first);
                 let b = direction(end.heading) * (sign * distance * last);
-                let n = ((distance * (1.0 + first + last) / 0.008).ceil() as usize).clamp(24, 240);
+                let n = (libm::ceil(distance * (1.0 + first + last) / 0.008) as usize).clamp(24, 240);
                 let mut points = Vec::with_capacity(n + 1);
                 let mut valid = true;
                 for i in 0..=n {

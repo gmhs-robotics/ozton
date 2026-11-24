@@ -370,7 +370,7 @@ impl DifferentialFeedback {
         let desired_v = (desired[0] + desired[1]) * 0.5;
         let desired_w = (desired[1] - desired[0]) / width;
         let slew = |current: f64, target: f64, acceleration: f64, deceleration: f64| {
-            let rate = if current.signum() == target.signum() && target.abs() > current.abs() {
+            let rate = if (current == 0.0 || current.signum() == target.signum()) && target.abs() > current.abs() {
                 acceleration
             } else { deceleration };
             let step = rate * dt.as_secs_f64();

@@ -84,7 +84,7 @@ where
             let now = Instant::now();
 
             State {
-                sleep: sleep(Duration::from_millis(5)),
+                sleep: sleep(Duration::from_millis(10)),
                 start_time: now,
                 prev_time: now,
                 settling: Default::default(),
@@ -176,8 +176,8 @@ where
             )));
         }
 
-        state.sleep = sleep(Duration::from_millis(5));
-        state.prev_time = Instant::now();
+        state.sleep = sleep(Duration::from_millis(10));
+        state.prev_time = now;
 
         cx.waker().wake_by_ref();
         Poll::Pending
