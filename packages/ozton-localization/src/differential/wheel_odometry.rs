@@ -96,11 +96,10 @@ impl WheelOdometry {
             .map(|(row, travel)| (row * 0.5, travel * 0.5));
         let observations = pods.chain(drive);
         // The partial-enabled solver already attempts the full-rank solution.
-        fit_wheel_motion(observations, yaw, true)
-            .unwrap_or(BodyDelta {
-                translation: DVec2::ZERO,
-                heading: yaw.unwrap_or_default(),
-            })
+        fit_wheel_motion(observations, yaw, true).unwrap_or(BodyDelta {
+            translation: DVec2::ZERO,
+            heading: yaw.unwrap_or_default(),
+        })
     }
 }
 

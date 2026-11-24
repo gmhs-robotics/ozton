@@ -35,10 +35,13 @@ impl<'path> Progress<'path> {
         let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
         let start = path.samples[self.segment];
-        let current = path.samples.get(self.segment + 1).map_or(start.pose.position, |end| {
-            let fraction = (self.distance - start.distance) / (end.distance - start.distance);
-            start.pose.position.lerp(end.pose.position, fraction)
-        });
+        let current = path
+            .samples
+            .get(self.segment + 1)
+            .map_or(start.pose.position, |end| {
+                let fraction = (self.distance - start.distance) / (end.distance - start.distance);
+                start.pose.position.lerp(end.pose.position, fraction)
+            });
         let mut best_error = position.distance_squared(current);
         let mut best_distance = self.distance;
         for pair in path.samples[self.segment..].windows(2).take(64) {
@@ -59,7 +62,11 @@ impl<'path> Progress<'path> {
             }
         }
         self.distance = best_distance;
-        while path.samples.get(self.segment + 1).is_some_and(|point| point.distance <= self.distance) {
+        while path
+            .samples
+            .get(self.segment + 1)
+            .is_some_and(|point| point.distance <= self.distance)
+        {
             self.segment += 1;
         }
     }

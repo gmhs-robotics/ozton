@@ -40,8 +40,10 @@ pub fn fit_wheel_motion(
     let planar_determinant = translation.determinant();
     let full_planar_rank = planar_determinant > RANK_TOLERANCE * xx * yy;
     let solve_planar = |rhs: DVec2| {
-        DVec2::new(yy * rhs.x - translation.y_axis.x * rhs.y,
-                   xx * rhs.y - translation.x_axis.y * rhs.x) / planar_determinant
+        DVec2::new(
+            yy * rhs.x - translation.y_axis.x * rhs.y,
+            xx * rhs.y - translation.x_axis.y * rhs.x,
+        ) / planar_determinant
     };
     if let Some(heading) = yaw {
         if full_planar_rank {

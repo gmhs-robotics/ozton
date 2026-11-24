@@ -81,7 +81,10 @@ pub fn plan(
                     continue;
                 };
                 // A slower candidate cannot displace an already valid best path.
-                if best.as_ref().is_some_and(|old| path.end().time >= old.path.end().time) {
+                if best
+                    .as_ref()
+                    .is_some_and(|old| path.end().time >= old.path.end().time)
+                {
                     continue;
                 }
                 if wrap_heading(path.start().pose.heading + facing - start.heading)

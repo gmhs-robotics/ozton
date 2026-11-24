@@ -111,7 +111,8 @@ impl Path {
         for (index, point) in points.iter().enumerate() {
             if !point.position.is_finite()
                 || !(0.0..=1.0).contains(&point.speed_fraction)
-                || (index > 0 && point.position.distance_squared(points[index - 1].position) < 1e-12)
+                || (index > 0
+                    && point.position.distance_squared(points[index - 1].position) < 1e-12)
             {
                 return Err(PathError::InvalidPoint(index));
             }
@@ -148,11 +149,7 @@ impl Path {
             } else {
                 0.0
             };
-            if index > 0
-                && index < last
-                && incoming.dot(outgoing) < 0.0
-                && cross.abs() < 1e-9
-            {
+            if index > 0 && index < last && incoming.dot(outgoing) < 0.0 && cross.abs() < 1e-9 {
                 return Err(PathError::InvalidPoint(index));
             }
             let curvature = if denominator > 0.0 {
