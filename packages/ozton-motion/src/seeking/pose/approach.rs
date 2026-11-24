@@ -32,11 +32,11 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         target.position.y,
         target.heading.value
     );
-    if !target.is_finite() || settings.config.stage_timeout < CONTROL_PERIOD {
+    if !target.is_finite() || settings.config.timing.stage_timeout < CONTROL_PERIOD {
         return Err(PoseMotionError::Configuration);
     }
 
-    let clearance = clearance(drive, settings.config.clearance)?;
+    let clearance = clearance(drive, settings.config.safety.clearance)?;
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
@@ -89,7 +89,7 @@ async fn approach<D: PoseDrive>(
                     plan.reverse,
                     target,
                     clearance,
-                    settings.config.stage_timeout,
+                    settings.config.timing.stage_timeout,
                 )
                 .await;
         }
@@ -103,7 +103,7 @@ async fn approach<D: PoseDrive>(
             session,
             field,
             target,
-            settings.config.stage_timeout,
+            settings.config.timing.stage_timeout,
             settings.effective_config(),
         )
         .await?;
@@ -133,7 +133,7 @@ async fn approach<D: PoseDrive>(
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;
+            turn_checked(session, clearance, heading, settings.config.timing.stage_timeout).await?;
         }
         session
             .run(
@@ -142,11 +142,11 @@ async fn approach<D: PoseDrive>(
                     maximum_speed: options.maximum_wheel_speed,
                     reverse,
                 },
-                settings.config.stage_timeout,
+                settings.config.timing.stage_timeout,
             )
             .await?;
         if let Some(heading) = final_heading {
-            turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;
+            turn_checked(session, clearance, heading, settings.config.timing.stage_timeout).await?;
         }
         let error = session.drive.pose().position.distance(target.position);
         if error <= tolerance {
@@ -175,8 +175,8 @@ async fn depart_wall<D: PoseDrive>(
     }
 
     let options = session.options;
-    let reserve = options.position_tolerance + config.departure_reserve;
-    let speed = config.departure_speed.min(options.maximum_wheel_speed);
+    let reserve = options.position_tolerance + config.safety.departure_reserve;
+    let speed = config.safety.departure_speed.min(options.maximum_wheel_speed);
     let plan = field
         .point_departure(start, target, options.track_width / 2.0, reserve)
         .ok_or(PoseMotionError::InsufficientClearance)?;

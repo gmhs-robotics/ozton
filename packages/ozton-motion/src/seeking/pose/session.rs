@@ -37,7 +37,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             drive,
             options,
             config,
-            clock: CommandClock::new(config.period).ok_or(PoseMotionError::Configuration)?,
+            clock: CommandClock::new(config.timing.period).ok_or(PoseMotionError::Configuration)?,
             started: Instant::now(),
             finished: false,
         })
@@ -48,7 +48,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         if !autonomous_active() {
             return Err(PoseMotionError::Cancelled);
         }
-        if dt.is_zero() || dt > self.config.maximum_gap {
+        if dt.is_zero() || dt > self.config.timing.maximum_gap {
             return Err(PoseMotionError::ControlGap);
         }
         Ok(dt)
@@ -121,14 +121,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
-                if feedback_at.elapsed() > self.config.maximum_gap {
+                if feedback_at.elapsed() > self.config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
                 continue;
             };
             let dt = match last_feedback {
                 Some(previous) if feedback.time <= previous => {
-                    if feedback_at.elapsed() > self.config.maximum_gap {
+                    if feedback_at.elapsed() > self.config.timing.maximum_gap {
                         return Err(PoseMotionError::ControlGap);
                     }
                     continue;
@@ -136,7 +136,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 Some(previous) => feedback.time.saturating_sub(previous),
                 None => dt,
             };
-            if dt > self.config.maximum_gap {
+            if dt > self.config.timing.maximum_gap {
                 return Err(PoseMotionError::ControlGap);
             }
             last_feedback = Some(feedback.time);
@@ -155,7 +155,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            let clearance = super::approach::clearance(self.drive, self.config.clearance)?;
+            let clearance = super::approach::clearance(self.drive, self.config.safety.clearance)?;
             let uncertainty = self.drive.velocity_uncertainty();
             if clearance
                 .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
@@ -203,7 +203,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if complete {
                 return Ok(());
             }
-            if progress.stalled(target, feedback, ready, dt, self.config.progress_timeout) {
+            if progress.stalled(target, feedback, ready, dt, self.config.timing.progress_timeout) {
                 governor.report_stall(status, requested, wheels);
                 return Err(PoseMotionError::NoProgress);
             }
@@ -258,14 +258,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
-                if fresh_at.elapsed() > self.config.maximum_gap {
+                if fresh_at.elapsed() > self.config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
                 continue;
             };
             let dt = match last {
                 Some(previous) if feedback.time <= previous => {
-                    if fresh_at.elapsed() > self.config.maximum_gap {
+                    if fresh_at.elapsed() > self.config.timing.maximum_gap {
                         return Err(PoseMotionError::ControlGap);
                     }
                     continue;
@@ -273,7 +273,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 Some(previous) => feedback.time.saturating_sub(previous),
                 None => tick,
             };
-            if dt > self.config.maximum_gap {
+            if dt > self.config.timing.maximum_gap {
                 return Err(PoseMotionError::ControlGap);
             }
             if !valid_feedback(feedback) {
@@ -306,7 +306,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 geometric,
                 end,
                 self.config
-                    .lookahead
+                    .path.lookahead
                     .value
                     .max(self.options.position_tolerance.value * 2.0),
             );
@@ -365,7 +365,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             } else {
                 no_progress += dt;
             }
-            if no_progress >= self.config.progress_timeout {
+            if no_progress >= self.config.timing.progress_timeout {
                 governor.report_stall("Trajectory", requested, wheels);
                 return Err(PoseMotionError::NoProgress);
             }

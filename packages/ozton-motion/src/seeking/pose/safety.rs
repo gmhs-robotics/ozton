@@ -29,24 +29,24 @@ fn bounds(
     if !uncertainty.into_iter().all(|s| s.is_finite() && s >= 0.0) {
         return None;
     }
-    let [lateral, forward, yaw] = uncertainty.map(|s| s * config.braking_sigma);
+    let [lateral, forward, yaw] = uncertainty.map(|s| s * config.safety.braking_sigma);
     let forward = interval(
         v,
         forward,
-        config.forward_braking.unwrap_or(config.deceleration).value,
+        config.safety.forward_braking.unwrap_or(config.limits.deceleration).value,
         reaction,
     );
     let lateral = interval(
         feedback.lateral_velocity.value,
         lateral,
-        config.lateral_braking.value,
+        config.safety.lateral_braking.value,
         reaction,
     );
     let yaw = stop(
         w.abs() + yaw,
         config
-            .yaw_braking
-            .unwrap_or(config.angular_deceleration)
+            .safety.yaw_braking
+            .unwrap_or(config.limits.angular_deceleration)
             .value,
         reaction,
     );
@@ -54,7 +54,7 @@ fn bounds(
 }
 
 fn reaction(config: MotionConfig) -> f64 {
-    config.maximum_gap.as_secs_f64() + config.brake_latency.as_secs_f64()
+    config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64()
 }
 
 /// Maximize wheel scaling subject to the predicted swept-footprint constraints.
@@ -73,7 +73,7 @@ pub(super) fn limit_wall_command(
     };
     let v = (wheels[0] + wheels[1]) * 0.5;
     let w = (wheels[1] - wheels[0]) / options.track_width.value;
-    let delay = reaction(config) + config.wall_preview.as_secs_f64();
+    let delay = reaction(config) + config.safety.wall_preview.as_secs_f64();
     let clear = |scale| {
         bounds(
             field,
@@ -175,10 +175,7 @@ mod tests {
     #[test]
     fn shared_velocity_and_uncertainty_govern_wall_approach() {
         let field = field();
-        let config = MotionConfig {
-            deceleration: qty!(0.55 m/s^2),
-            ..MotionConfig::DEFAULT
-        };
+        let config = MotionConfig::DEFAULT.with_deceleration(qty!(0.55 m/s^2));
         assert!(!safe_feedback(field, sample(0.88620), config, [0.0; 3]));
         assert!(safe_feedback(field, sample(0.549), config, [0.0; 3]));
         assert!(!safe_feedback(
@@ -196,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn logged_diagonal_stall_allows_a_governed_pivot() {
+    fn diagonal_pivot_respects_available_clearance() {
         let field = RectangularClearance::new(
             Footprint::from_extents(
                 qty!(7.55 in),

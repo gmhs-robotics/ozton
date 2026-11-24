@@ -34,8 +34,8 @@ fn constant_templates_preserve_configuration() {
     assert_eq!(BASIC.timeout, Some(Duration::from_secs(6)));
     assert_eq!(PURSUIT.track_width, ozton_math::qty!(13 in));
     assert_eq!(PURSUIT.terminal_config.linear, PID);
-    assert_eq!(MOTION.acceleration.value, 2.5);
-    assert_eq!(MOTION.angular_acceleration.value, 12.0);
+    assert_eq!(MOTION.limits.acceleration.value, 2.5);
+    assert_eq!(MOTION.limits.angular_acceleration.value, 12.0);
     assert_eq!(RAMSETE.zeta, 0.8);
 }
 
@@ -55,5 +55,5 @@ fn seeking_templates_are_const() {
     const SETTINGS: MotionConfig = SEEKING.config();
     assert_eq!(NORMALIZED.config().linear_controller, PID);
     assert_eq!(SETTINGS.tuning.linear.gains(), (4.25, 0.0, 0.5));
-    assert_eq!(SETTINGS.wheel_speed.value, 1.2);
+    assert_eq!(SETTINGS.limits.wheel_speed.value, 1.2);
 }

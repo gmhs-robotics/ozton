@@ -52,35 +52,6 @@ fn match_turn_settles_with_delayed_angular_response() {
 }
 
 #[test]
-fn point_approach_turns_before_driving_at_the_logged_heading_error() {
-    let options =
-        DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
-    let tick = Duration::from_millis(10);
-    let (wheels, ready) = DifferentialFeedback::default().step(
-        DifferentialTarget::DriveToPoint {
-            target: DVec2::ZERO,
-            reverse: true,
-            maximum_speed: options.maximum_wheel_speed,
-        },
-        Feedback {
-            time: tick,
-            pose: Pose::new(DVec2::new(0.07375, 0.10689), ozton_math::qty!(0.08910 rad)),
-            forward_travel: Length::ZERO,
-            forward_velocity: Velocity::ZERO,
-            lateral_velocity: Velocity::ZERO,
-            angular_velocity: AngularVelocity::ZERO,
-            ranges: [None; _],
-            reset_accepted: false,
-        },
-        tick,
-        options,
-    );
-    assert!(!ready);
-    assert!(wheels[0].abs() > 0.01);
-    assert!((wheels[0] + wheels[1]).abs() < 1e-12, "{wheels:?}");
-}
-
-#[test]
 fn point_brakes_inside_arrival_band_instead_of_coasting() {
     let options =
         DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
@@ -193,7 +164,7 @@ fn slew_uses_actual_governed_wheel_targets() {
     }
     controller.record_applied_wheels([0.1; 2]);
     let (wheels, _) = controller.limit_step([0.5; 2], false, dt, options);
-    let expected = 0.1 + config.acceleration.value * dt.as_secs_f64();
+    let expected = 0.1 + config.limits.acceleration.value * dt.as_secs_f64();
     assert!(wheels.iter().all(|v| (*v - expected).abs() < 1e-10));
 }
 

@@ -278,7 +278,7 @@ impl ConfiguredChassis {
         &mut self,
         config: ozton_motion::MotionConfig,
     ) -> Result<(), SetupError> {
-        if !config.valid() || config.wheel_speed > self.settings.maximum_wheel_speed {
+        if !config.valid() || config.limits.wheel_speed > self.settings.maximum_wheel_speed {
             return Err(SetupError::DriveGeometry);
         }
         self.drive_options = config.options(self.settings.track_width);
@@ -294,12 +294,12 @@ impl ConfiguredChassis {
         }
         self.drive_options = options;
         if let Some(config) = &mut self.motion_config {
-            config.wheel_speed = options.maximum_wheel_speed;
-            config.position_tolerance = options.position_tolerance;
-            config.heading_tolerance = options.heading_tolerance;
-            config.velocity_tolerance = options.speed_tolerance;
-            config.angular_velocity_tolerance = options.angular_speed_tolerance;
-            config.settle = options.settle;
+            config.limits.wheel_speed = options.maximum_wheel_speed;
+            config.settling.position_tolerance = options.position_tolerance;
+            config.settling.heading_tolerance = options.heading_tolerance;
+            config.settling.velocity_tolerance = options.speed_tolerance;
+            config.settling.angular_velocity_tolerance = options.angular_speed_tolerance;
+            config.settling.settle = options.settle;
         }
         Ok(())
     }

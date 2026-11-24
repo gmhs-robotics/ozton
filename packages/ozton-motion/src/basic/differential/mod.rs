@@ -151,7 +151,7 @@ impl DifferentialFeedback {
 
     pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
         self.pid = MotionPid::new(config.tuning)
-            .with_rate_filters(config.linear_rate_filter, config.angular_rate_filter);
+            .with_rate_filters(config.rates.linear_rate_filter, config.rates.angular_rate_filter);
         self.config = config;
         self
     }
@@ -191,16 +191,16 @@ impl DifferentialFeedback {
         let yaw_rate = feedback.angular_velocity.value;
         let config = self.config;
         let yaw_limit = (2.0 * options.maximum_wheel_speed.value / options.track_width.value)
-            .min(config.angular_speed.value);
+            .min(config.limits.angular_speed.value);
         // Leave braking authority even inside the arrival band.
         // Conservative default deceleration in SI units; characterize per robot.
         let stopping_limit = |distance: f64, maximum: f64| {
-            (2.0 * config.deceleration.value * distance.abs())
+            (2.0 * config.limits.deceleration.value * distance.abs())
                 .sqrt()
                 .max(options.speed_tolerance.value * 3.0)
                 .min(maximum)
         };
-        let reaction = config.maximum_gap.as_secs_f64() + config.brake_latency.as_secs_f64();
+        let reaction = config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
         let forward = |pid: &mut MotionPid, error: f64, limit: f64| {
             let output = pid.forward(error, forward_rate, limit, dt);
             compensate_breakaway(
@@ -209,18 +209,18 @@ impl DifferentialFeedback {
                 forward_rate,
                 options.position_tolerance.value,
                 options.speed_tolerance.value,
-                config.minimum_linear_speed.value,
+                config.limits.minimum_linear_speed.value,
                 limit.min(config.tuning.linear.output_limit().unwrap_or(f64::INFINITY)),
                 config
-                    .forward_braking
-                    .unwrap_or(config.deceleration)
+                    .safety.forward_braking
+                    .unwrap_or(config.limits.deceleration)
                     .value
-                    .min(config.deceleration.value),
+                    .min(config.limits.deceleration.value),
                 reaction,
             )
         };
         let angular = |pid: &mut MotionPid, error: f64| {
-            let limit = (2.0 * config.angular_deceleration.value * error.abs())
+            let limit = (2.0 * config.limits.angular_deceleration.value * error.abs())
                 .sqrt()
                 .max(options.angular_speed_tolerance.value * 4.0)
                 .min(yaw_limit);
@@ -231,7 +231,7 @@ impl DifferentialFeedback {
                 yaw_rate,
                 options.heading_tolerance.value,
                 options.angular_speed_tolerance.value,
-                config.minimum_angular_speed.value,
+                config.limits.minimum_angular_speed.value,
                 limit.min(
                     config
                         .tuning
@@ -240,10 +240,10 @@ impl DifferentialFeedback {
                         .unwrap_or(f64::INFINITY),
                 ),
                 config
-                    .yaw_braking
-                    .unwrap_or(config.angular_deceleration)
+                    .safety.yaw_braking
+                    .unwrap_or(config.limits.angular_deceleration)
                     .value
-                    .min(config.angular_deceleration.value),
+                    .min(config.limits.angular_deceleration.value),
                 reaction,
             )
         };
@@ -312,10 +312,10 @@ impl DifferentialFeedback {
                 });
                 // Latch travel direction. Near the goal, allow a deliberate reversal
                 // only after nearly stopping, with a wide hysteresis band.
-                if distance <= config.reversal_distance_factor * options.position_tolerance.value
-                    && heading.abs() > config.reversal_heading.value
+                if distance <= config.approach.reversal_distance_factor * options.position_tolerance.value
+                    && heading.abs() > config.approach.reversal_heading.value
                     && forward_rate.abs() <= 2.0 * options.speed_tolerance.value
-                    && yaw_rate.abs() <= config.reversal_yaw_rate.value
+                    && yaw_rate.abs() <= config.approach.reversal_yaw_rate.value
                 {
                     *backing = !*backing;
                     heading = error_at(if *backing {
@@ -327,9 +327,9 @@ impl DifferentialFeedback {
                     self.point_aligning = false;
                 }
                 if self.point_aligning {
-                    self.point_aligning = heading.abs() > config.realign_exit.value;
+                    self.point_aligning = heading.abs() > config.approach.realign_exit.value;
                 } else {
-                    self.point_aligning = heading.abs() > config.realign_enter.value;
+                    self.point_aligning = heading.abs() > config.approach.realign_enter.value;
                 }
                 let sign = if *backing { -1.0 } else { 1.0 };
                 let linear = if self.point_aligning {
@@ -362,7 +362,7 @@ impl DifferentialFeedback {
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let limit = stopping_limit(error, maximum_speed.value);
-                let translation_error = if reached || heading.abs() > config.realign_enter.value {
+                let translation_error = if reached || heading.abs() > config.approach.realign_enter.value {
                     0.0
                 } else {
                     error
@@ -404,7 +404,7 @@ impl DifferentialFeedback {
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let wheel_limit = (options.maximum_wheel_speed.value
                     / (1.0 + options.track_width.value * curvature.abs() * 0.5))
-                    .min((config.lateral_acceleration.value / curvature.abs()).sqrt());
+                    .min((config.limits.lateral_acceleration.value / curvature.abs()).sqrt());
                 let limit = stopping_limit(remaining, maximum_speed.value.min(wheel_limit));
                 let speed = if reached && facing && slow {
                     0.0
@@ -416,9 +416,9 @@ impl DifferentialFeedback {
                     0.0
                 } else {
                     let correction_limit = if reached {
-                        config.terminal_arc_correction_limit.value
+                        config.approach.terminal_arc_correction_limit.value
                     } else {
-                        config.arc_correction_limit.value
+                        config.approach.arc_correction_limit.value
                     };
                     if reached && speed == 0.0 {
                         let output = self.pid.yaw(heading, yaw_rate, 0.0, correction_limit, dt);
@@ -428,7 +428,7 @@ impl DifferentialFeedback {
                             yaw_rate,
                             options.heading_tolerance.value,
                             options.angular_speed_tolerance.value,
-                            config.minimum_angular_speed.value,
+                            config.limits.minimum_angular_speed.value,
                             correction_limit.min(
                                 config
                                     .tuning
@@ -437,10 +437,10 @@ impl DifferentialFeedback {
                                     .unwrap_or(f64::INFINITY),
                             ),
                             config
-                                .yaw_braking
-                                .unwrap_or(config.angular_deceleration)
+                                .safety.yaw_braking
+                                .unwrap_or(config.limits.angular_deceleration)
                                 .value
-                                .min(config.angular_deceleration.value),
+                                .min(config.limits.angular_deceleration.value),
                             reaction,
                         )
                     } else {
@@ -492,14 +492,14 @@ impl DifferentialFeedback {
         let v = slew(
             current_v,
             desired_v,
-            self.config.acceleration.value,
-            self.config.deceleration.value,
+            self.config.limits.acceleration.value,
+            self.config.limits.deceleration.value,
         );
         let w = slew(
             current_w,
             desired_w,
-            self.config.angular_acceleration.value,
-            self.config.angular_deceleration.value,
+            self.config.limits.angular_acceleration.value,
+            self.config.limits.angular_deceleration.value,
         );
         self.last_wheels = desaturate(
             [v - w * width * 0.5, v + w * width * 0.5],
