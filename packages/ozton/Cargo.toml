@@ -16,7 +16,11 @@ workspace = true
 [dev-dependencies]
 vexide = { workspace = true, features = ["full", "default-sdk"] }
 
+[target.'cfg(not(target_os = "vexos"))'.dev-dependencies]
+vex-sdk-mock = "0.2.0"
+
 [dependencies]
+vexide = { workspace = true }
 ozton-ui = { workspace = true }
 ozton-path-io = { workspace = true }
 ozton-localization = { workspace = true }

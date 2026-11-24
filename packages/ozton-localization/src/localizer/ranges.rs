@@ -10,7 +10,7 @@ use ozton_math::{
         time::second,
     },
 };
-use ozton_tracking::sources::distance::{RangeObservation, RangeSensorConfig};
+use ozton_tracking::range::{RangeObservation, RangeSensorConfig};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeReport {

@@ -1,7 +1,6 @@
 //! Driver ticks and fault handling on an assembled robot.
-use ozton_drivetrain::assist::ResetDriveAssists;
-
 use super::*;
+use crate::drive_assist::ResetDriveAssists;
 
 impl<D, X, P, R, S, B> CompetitionRobot for Robot<D, Controller, X, P, Autonomous<R, S>, B>
 where

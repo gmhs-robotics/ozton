@@ -8,7 +8,7 @@ use uom::si::f64::{Acceleration, Length, Time, Velocity};
 use crate::geometry::Pose;
 
 pub mod clearance;
-pub mod follower;
+pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -11,11 +11,7 @@ use ozton_control::{
     axis::Linear,
     loops::{AngularPid, Pid},
 };
-use ozton_drivetrain::{
-    Drivetrain,
-    assist::{AssistedDrivetrain, DriveAssists},
-    model::Drive,
-};
+use ozton_drivetrain::{Drivetrain, model::Drive};
 use ozton_math::uom::si::{
     angle::radian,
     angular_velocity::radian_per_second,
@@ -24,8 +20,9 @@ use ozton_math::uom::si::{
     velocity::meter_per_second,
 };
 use ozton_motion::{Basic, Seeking};
+use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssists};
 use ozton_tracking::{
-    Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+    TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 use vex_sdk_mock as _;
 use vexide::{math::Angle, runtime::block_on};
@@ -117,11 +114,11 @@ impl Drive for MockArcadeModel {
 impl ozton_drivetrain::MotorGroups for MockArcadeModel {
     type WheelSpeeds = [Velocity; 0];
 
-    fn motor_groups(&self) -> &[Box<[vexide::smart::motor::Motor]>] {
+    fn motor_groups(&self) -> &[ozton_tracking::odometric::SharedMotors] {
         &[]
     }
 
-    fn motor_groups_mut(&mut self) -> &mut [Box<[vexide::smart::motor::Motor]>] {
+    fn motor_groups_mut(&mut self) -> &mut [ozton_tracking::odometric::SharedMotors] {
         &mut []
     }
 }
@@ -160,7 +157,7 @@ struct SimSnapshot {
     angular_velocity: f64,
 }
 
-impl Tracking for MockTracking {}
+impl TrackingSystem for MockTracking {}
 
 impl TracksPosition for MockTracking {
     fn position(&self) -> Vec2 {

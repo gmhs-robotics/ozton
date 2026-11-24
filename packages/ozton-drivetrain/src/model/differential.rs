@@ -1,5 +1,6 @@
 //! Two sides of motors driven by normalized voltage.
 use glam::DVec2;
+use ozton_tracking::odometric::SharedMotors;
 use vexide::{
     prelude::Motor,
     smart::{PortError, SmartDevice, motor::MotorType},
@@ -10,7 +11,7 @@ use crate::{Footprint, MotorGroups};
 
 /// Motors on a side receive the same fraction of their rated voltage.
 pub struct Differential {
-    sides: [Box<[Motor]>; 2],
+    sides: [SharedMotors; 2],
     footprint: Option<Footprint>,
 }
 
@@ -19,10 +20,21 @@ impl Differential {
         left: impl IntoIterator<Item = Motor>,
         right: impl IntoIterator<Item = Motor>,
     ) -> Self {
+        Self::from_shared(
+            left.into_iter().collect::<SharedMotors>(),
+            right.into_iter().collect::<SharedMotors>(),
+        )
+    }
+
+    pub fn from_shared(left: impl Into<SharedMotors>, right: impl Into<SharedMotors>) -> Self {
         Self {
-            sides: [left.into_iter().collect(), right.into_iter().collect()],
+            sides: [left.into(), right.into()],
             footprint: None,
         }
+    }
+
+    pub fn shared_motors(&self) -> &[SharedMotors; 2] {
+        &self.sides
     }
 
     pub fn with_footprint(mut self, footprint: Footprint) -> Self {
@@ -38,11 +50,11 @@ impl Differential {
 impl MotorGroups for Differential {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 2];
 
-    fn motor_groups(&self) -> &[Box<[Motor]>] {
+    fn motor_groups(&self) -> &[SharedMotors] {
         &self.sides
     }
 
-    fn motor_groups_mut(&mut self) -> &mut [Box<[Motor]>] {
+    fn motor_groups_mut(&mut self) -> &mut [SharedMotors] {
         &mut self.sides
     }
 }
@@ -64,7 +76,7 @@ impl Balancing for Differential {
         let availability = self.sides.each_ref().map(|side| {
             let mut available = 0;
             let mut total = 0;
-            for motor in side {
+            for motor in side.borrow().iter() {
                 // Units of 5.5 W, matching the rated EXP and V5 motor outputs.
                 let capacity = match motor.motor_type() {
                     MotorType::Exp => 1,

@@ -1,13 +1,9 @@
 //! Calibrated wheel velocity actuation.
-
 use core::{error::Error, fmt};
 
 use ozton_math::uom::si::f64::Velocity;
-use ozton_tracking::encoders::Wheels;
-use vexide::{
-    prelude::Motor,
-    smart::{PortError, motor::BrakeMode},
-};
+use ozton_tracking::odometric::{SharedMotors, Wheels};
+use vexide::smart::{PortError, motor::BrakeMode};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelSpeedError {
@@ -37,7 +33,7 @@ impl Error for WheelSpeedError {
 
 pub(crate) fn drive_speed(
     wheels: &Wheels,
-    motors: &mut [Box<[Motor]>],
+    motors: &mut [SharedMotors],
     speeds: &[Velocity],
 ) -> Result<(), WheelSpeedError> {
     if speeds.len() != motors.len()
@@ -48,7 +44,7 @@ pub(crate) fn drive_speed(
     }
     let mut result = Ok(());
     for (group, (motors, speed)) in motors.iter_mut().zip(speeds).enumerate() {
-        for (index, motor) in motors.iter_mut().enumerate() {
+        for (index, motor) in motors.borrow_mut().iter_mut().enumerate() {
             let written = if speed.value == 0.0 {
                 motor.brake(BrakeMode::Coast)
             } else {

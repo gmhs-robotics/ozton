@@ -4,6 +4,7 @@ pub mod clock;
 pub mod competition;
 pub mod device;
 pub mod diagnostics;
+pub mod drive_assist;
 pub mod motor;
 mod robot;
 pub mod task;

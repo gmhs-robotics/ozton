@@ -5,19 +5,19 @@ use std::fs::File;
 use std::{convert::Infallible, rc::Rc, time::Duration};
 
 use ozton::{
-    drivetrain::model::ArcadeInput,
-    math::{geometry::Pose, localization::range::Surface, path::Path},
-    motion::commands::{
+    autonomous::{
         Alignment, ConfiguredChassis, DifferentialConfig, RobotMotion, RoutineError, TrackingSetup,
         TravelDirection, chassis::ChassisError,
     },
+    math::{geometry::Pose, localization::range::Surface, path::Path},
+    motion::arcade::ArcadeInput,
     position, route,
     runtime::{
         CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
         competition::{Program, RegisteredRoute},
         diagnostics::{Frame, MotorSample},
     },
-    tracking::{mount::Vec3, sources::vex::DistanceTracker},
+    tracking::{mount::Vec3, range::DistanceTracker},
     uom::{
         ConstZero,
         si::{
@@ -185,7 +185,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
                 distance: Length::new::<meter>(1.10),
                 heading: START_HEADING,
                 maximum_speed: Velocity::new::<meter_per_second>(0.20),
-                facing: ozton::motion::commands::RangeFacing::Front,
+                facing: ozton::autonomous::RangeFacing::Front,
             },
             Duration::from_secs(2),
         )

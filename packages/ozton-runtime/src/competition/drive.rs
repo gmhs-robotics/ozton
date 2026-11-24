@@ -2,11 +2,8 @@
 
 use std::time::Duration;
 
-use ozton_drivetrain::{
-    Drivetrain, HasLocalization, MotorGroups, WheelSpeedError,
-    model::{Arcade, ArcadeInput, Drive},
-};
-use ozton_tracking::{Tracking, sampling::LocalizationLifecycle};
+use ozton_drivetrain::{Drivetrain, HasLocalization, MotorGroups, WheelSpeedError, model::Drive};
+use ozton_tracking::{TrackingSystem, sampling::LocalizationLifecycle};
 use vexide::{competition::CompetitionMode, smart::PortError};
 
 /// Commands consumed by a drivetrain during an Ozton competition.
@@ -40,16 +37,20 @@ pub trait ProgramDrive {
 impl<M, T, L> ProgramDrive for Drivetrain<M, T, L>
 where
     M: Drive<Error = PortError> + MotorGroups,
-    T: Tracking,
+    T: TrackingSystem,
     L: LocalizationLifecycle<T>,
 {
     type Error = WheelSpeedError;
-    type DriverCommand = ArcadeInput;
+    type DriverCommand = (ozton_math::geometry::DVec2, f64);
     type AutonCommand = M::WheelSpeeds;
 
-    fn apply_driver(&mut self, command: ArcadeInput, _: Duration) -> Result<(), Self::Error> {
-        let (throttle, turn) = command.scaled_axes();
-        Arcade::drive(self, throttle, turn).map_err(WheelSpeedError::Port)
+    fn apply_driver(
+        &mut self,
+        (translation, turn): Self::DriverCommand,
+        _: Duration,
+    ) -> Result<(), Self::Error> {
+        self.drive_vector(translation, turn)
+            .map_err(WheelSpeedError::Port)
     }
 
     fn apply_auton(&mut self, speeds: Self::AutonCommand, _: Duration) -> Result<(), Self::Error> {

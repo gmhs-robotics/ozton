@@ -1,12 +1,13 @@
 use glam::DVec2;
+use ozton_tracking::odometric::SharedMotors;
 use vexide::{prelude::Motor, smart::PortError};
 
-use super::{Drive, Holonomic};
+use super::{Drive, LateralDrive};
 use crate::MotorGroups;
 
 /// Motor groups in front-left, front-right, back-left, back-right order.
 pub struct Mecanum {
-    motors: [Box<[Motor]>; 4],
+    motors: [SharedMotors; 4],
 }
 
 impl Mecanum {
@@ -30,11 +31,11 @@ impl Mecanum {
 impl MotorGroups for Mecanum {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 4];
 
-    fn motor_groups(&self) -> &[Box<[Motor]>] {
+    fn motor_groups(&self) -> &[SharedMotors] {
         &self.motors
     }
 
-    fn motor_groups_mut(&mut self) -> &mut [Box<[Motor]>] {
+    fn motor_groups_mut(&mut self) -> &mut [SharedMotors] {
         &mut self.motors
     }
 }
@@ -47,7 +48,7 @@ impl Drive for Mecanum {
     }
 }
 
-impl Holonomic for Mecanum {}
+impl LateralDrive for Mecanum {}
 
 fn mix(strafe: f64, forward: f64, turn: f64) -> [f64; 4] {
     [

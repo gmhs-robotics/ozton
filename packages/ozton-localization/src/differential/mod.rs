@@ -13,20 +13,19 @@ use ozton_math::{
         velocity::meter_per_second,
     },
 };
-pub use ozton_tracking::sources::wheels::DriveWheels as DriveEncoderUse;
+pub use ozton_tracking::odometric::wheel::DriveWheels as DriveEncoderUse;
 use ozton_tracking::{
-    TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
-    sampling::{SensorSample, SensorTracking},
+    Tracking, TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+    sampling::SensorSample,
 };
 
 use crate::{
     Feedback, RangeFeedback,
-    localizer::{
-        DistanceReset, Estimator, Fault, Localizer, MAX_RANGES, PoseTrust, wheels::WheelOdometry,
-    },
+    localizer::{DistanceReset, Estimator, Fault, Localizer, MAX_RANGES, PoseTrust},
 };
 
 mod builder;
+mod observations;
 #[cfg(feature = "logging")]
 mod telemetry;
 use builder::RangeUses;
@@ -37,6 +36,7 @@ pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
     rectangular_half_extents: Option<DVec2>,
     wheels: WheelOdometry,
+    observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
     range_uses: RangeUses,
@@ -154,11 +154,7 @@ impl DifferentialLocalization {
         sample: SensorSample<'_>,
         track_width: Option<Length>,
     ) -> Result<Option<Feedback>, Fault> {
-        let SensorSample {
-            snapshot,
-            wheels,
-            ranges,
-        } = sample;
+        let (snapshot, wheels, ranges) = self.observations.read(sample);
         self.wheels.observe(wheels);
         let update =
             match self
@@ -244,7 +240,7 @@ impl DifferentialLocalization {
     }
 }
 
-impl ozton_tracking::Tracking for DifferentialLocalization {}
+impl TrackingSystem for DifferentialLocalization {}
 impl TracksPosition for DifferentialLocalization {
     fn position(&self) -> glam::DVec2 {
         self.localizer.position()
@@ -269,10 +265,10 @@ impl TracksVelocity for DifferentialLocalization {
     }
 }
 
-use ozton_tracking::sampling::LocalizationLifecycle;
+use ozton_tracking::{odometric::wheel::WheelOdometry, sampling::LocalizationLifecycle};
 use vexide::competition::CompetitionMode;
 
-impl LocalizationLifecycle<SensorTracking> for DifferentialLocalization {
+impl LocalizationLifecycle<Tracking> for DifferentialLocalization {
     fn mode_changed(&mut self, mode: CompetitionMode) {
         self.set_competition_mode(mode);
     }
@@ -281,26 +277,16 @@ impl LocalizationLifecycle<SensorTracking> for DifferentialLocalization {
         self.cancel_distance_reset();
     }
 
-    fn uses_drive_encoders(&self, tracking: &SensorTracking) -> bool {
-        tracking.uses_drive_encoders() && self.uses_drive_encoders()
-    }
-
-    fn poll(
-        &mut self,
-        tracking: &mut SensorTracking,
-        positions: [Option<Length>; 2],
-        width: Option<Length>,
-    ) {
-        let _ = update_localization(self, tracking, positions, width);
+    fn poll(&mut self, tracking: &mut Tracking) {
+        let _ = update_localization(self, tracking);
     }
 }
 
 pub fn update_localization(
     localization: &mut DifferentialLocalization,
-    tracking: &mut SensorTracking,
-    positions: [Option<Length>; 2],
-    width: Option<Length>,
+    tracking: &mut Tracking,
 ) -> Result<Option<Feedback>, Fault> {
-    let sample = tracking.capture(positions, localization.occluded());
+    let width = tracking.drive_wheels().map(|source| source.track_width());
+    let sample = tracking.sample(localization.occluded());
     localization.update(sample, width)
 }

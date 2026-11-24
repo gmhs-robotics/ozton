@@ -2,7 +2,7 @@
 
 use ozton_diagnostics::serial::{Frame, Level};
 use ozton_math::{geometry::Pose, uom::si::f64::Length};
-use ozton_tracking::sources::distance::RangeObservation;
+use ozton_tracking::range::RangeObservation;
 
 use crate::localizer::{DistanceReset, Localizer, MAX_RANGES, Update};
 

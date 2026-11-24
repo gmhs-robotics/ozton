@@ -1,5 +1,4 @@
 //! Opt-in SD sampling for competition and autonomous runner ticks.
-
 #[cfg(feature = "logging")]
 use std::time::Instant;
 use std::{marker::PhantomData, time::Duration};
@@ -7,6 +6,8 @@ use std::{marker::PhantomData, time::Duration};
 use ozton_diagnostics::serial;
 pub use ozton_diagnostics::serial::FaultLog;
 use ozton_math::uom::si::f64::{Length, Velocity};
+#[cfg(feature = "logging")]
+use ozton_tracking::odometric::SharedMotors;
 use vexide::smart::SmartDevice;
 
 mod sd;
@@ -80,7 +81,7 @@ impl<R> Report<R> for () {
 impl<M, T, L> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L>
 where
     M: ozton_drivetrain::model::Drive + ozton_drivetrain::MotorGroups,
-    T: ozton_tracking::Tracking + ComponentReport,
+    T: ozton_tracking::TrackingSystem + ComponentReport,
     L: ComponentReport,
 {
     fn report(&self, frame: Frame) {
@@ -101,7 +102,7 @@ impl ComponentReport for ozton_tracking::NoTracking {
     fn report(&self, _: Frame) {}
 }
 
-impl ComponentReport for ozton_tracking::sampling::SensorTracking {
+impl ComponentReport for ozton_tracking::Tracking {
     fn report(&self, frame: Frame) {
         if let Some(sample) = self.diagnostic_orientation() {
             let (rate, acceleration) = self.imu_telemetry();
@@ -280,7 +281,7 @@ impl SampleClock {
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_tracking::Tracking, L>(
+pub fn report_differential<T: ozton_tracking::TrackingSystem, L>(
     frame: Frame,
     drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
@@ -295,7 +296,7 @@ pub fn report_differential<T: ozton_tracking::Tracking, L>(
 pub fn report_motion_drive<L>(
     drive: &ozton_drivetrain::Drivetrain<
         ozton_drivetrain::model::Differential,
-        ozton_tracking::sampling::SensorTracking,
+        ozton_tracking::Tracking,
         L,
     >,
 ) {
@@ -329,14 +330,14 @@ fn report_drive_feedback(
 }
 
 #[cfg(feature = "logging")]
-fn report_drive_motors(frame: Frame, groups: &[Box<[Motor]>]) {
+fn report_drive_motors(frame: Frame, groups: &[SharedMotors]) {
     let names: &[&str] = match groups.len() {
         2 => &["l", "r"],
         4 => &["fl", "fr", "bl", "br"],
         _ => &[],
     };
     for (group, motors) in groups.iter().enumerate() {
-        for (index, motor) in motors.iter().enumerate() {
+        for (index, motor) in motors.borrow().iter().enumerate() {
             let sample = MotorSample::read(motor);
             if let Some(name) = names.get(group) {
                 sample.write(frame, format_args!("drive_{name}{}", index + 1));

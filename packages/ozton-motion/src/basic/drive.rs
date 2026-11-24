@@ -10,7 +10,7 @@ use ozton_control::{
     axis::Linear,
     loops::{AngularPid, Feedback, Pid},
 };
-use ozton_drivetrain::{Drive, HasLocalization, model::Arcade};
+use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::uom::si::{
     angle::radian,
     angular_velocity::radian_per_second,
@@ -23,6 +23,8 @@ use vexide::{
     math::Angle,
     time::{Sleep, sleep},
 };
+
+use crate::Arcade;
 
 pub(crate) struct DriveState {
     pub sleep: Sleep,

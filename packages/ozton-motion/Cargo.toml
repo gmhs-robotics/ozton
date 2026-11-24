@@ -18,7 +18,6 @@ ozton-localization = { workspace = true }
 glam = { workspace = true }
 vexide = { workspace = true }
 ozton-control = { workspace = true }
-ozton-diagnostics = { workspace = true }
 ozton-runtime = { workspace = true }
 ozton-drivetrain = { workspace = true }
 ozton-math = { workspace = true }

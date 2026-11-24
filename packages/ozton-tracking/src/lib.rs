@@ -18,38 +18,44 @@
 //! drivetrains with tracking systems that measure a robot's forward wheel travel:
 //!
 //! ```ignore
-//! async fn motion(drivetrain: &mut Drivetrain<Differential, impl Tracking, impl TracksForwardTravel>) {
+//! async fn motion(drivetrain: &mut Drivetrain<Differential, impl TrackingSystem, impl TracksForwardTravel>) {
 //!     // Motion goes here...
 //! }
 //! ```
 //!
 //! Additionally, a reference implementation of a tracking system that performs wheeled odometry is
-//! provided by the [`wheeled`] module.
+//! provided by the [`odometric`] module.
 //!
 //! # Units
 //!
 //! Use metres, radians, seconds and SI derivatives for new code. Historical wheeled
 //! APIs retain the caller's wheel-diameter unit; use metres there for interoperability.
 
-pub mod encoders;
+pub mod absolute;
+pub mod inertial;
+mod measurement;
+pub use measurement::{
+    DisplacementObservation, HeadingObservation, Measurement, MeasurementSink, Observation,
+};
+pub use sampling::{Tracking, TrackingSources};
+pub mod odometric;
+pub mod range;
 pub mod sampling;
 mod sensor;
 pub mod snapshot;
-pub mod sources;
-pub mod wheeled;
 
 use glam::DVec2 as Vec2;
+pub use odometric::holonomic::WheeledTracking;
 pub use sensor::{Gyro, RotarySensor};
 use vexide::math::Angle;
-pub use wheeled::WheeledTracking;
 
 /// A tracking system and its optional calibrated drive-wheel source.
-pub trait Tracking {
-    fn drive_wheels(&self) -> Option<&encoders::DifferentialTracking> {
+pub trait TrackingSystem {
+    fn drive_wheels(&self) -> Option<&odometric::DifferentialTracking> {
         None
     }
 
-    fn drive_wheels_mut(&mut self) -> Option<&mut encoders::DifferentialTracking> {
+    fn drive_wheels_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
         None
     }
 }
@@ -65,8 +71,8 @@ pub struct NoTracking;
 /// Backwards-friendly alias for [`NoTracking`].
 pub type DummyTracking = NoTracking;
 
-impl Tracking for NoTracking {}
-impl Tracking for () {}
+impl TrackingSystem for NoTracking {}
+impl TrackingSystem for () {}
 
 /// A tracking system that localizes a robot's 2D position.
 ///
@@ -79,7 +85,7 @@ impl Tracking for () {}
 /// Report The Origin's position in a fixed surveyed field frame with +X right and +Y forward.
 /// Body-mounted points use the same axes with The Origin at (0, 0, 0) and +Z up.
 /// Use metres for interoperability with localization, paths and autonomous commands.
-pub trait TracksPosition: Tracking {
+pub trait TracksPosition: TrackingSystem {
     /// Returns The Origin's field position: X right, Y forward, in metres.
     fn position(&self) -> Vec2;
 }
@@ -94,7 +100,7 @@ pub trait TracksPosition: Tracking {
 ///
 /// Heading zero faces +Y forward. Positive yaw turns left (CCW about +Z).
 /// A +90-degree heading faces -X; -90 degrees faces +X.
-pub trait TracksHeading: Tracking {
+pub trait TracksHeading: TrackingSystem {
     /// Returns the robot's orientation bounded from [0, 2π] radians.
     fn heading(&self) -> Angle;
 }
@@ -107,7 +113,7 @@ pub trait TracksHeading: Tracking {
 ///   refer to whatever units the user measured their wheel diameter with.
 ///
 /// - Angular velocity is measured in *radians per second*.
-pub trait TracksVelocity: Tracking {
+pub trait TracksVelocity: TrackingSystem {
     /// Returns the robot's estimated linear velocity in wheel units per second.
     fn linear_velocity(&self) -> f64;
 
@@ -121,7 +127,7 @@ pub trait TracksVelocity: Tracking {
 ///
 /// Units are expected to be returned in *wheel units* — the same units that were used to measure the
 /// robot's wheel diameter.
-pub trait TracksForwardTravel: Tracking {
+pub trait TracksForwardTravel: TrackingSystem {
     /// Returns the signed forward wheel travel of the robot in wheel units.
     ///
     /// Positive values indicate forward movement from the origin of tracking, while negative
@@ -156,4 +162,50 @@ macro_rules! sensor_layout {
             }
         }
     };
+}
+
+/// Optional one-time startup for a source that needs calibration or device readiness.
+pub type SourceInitialization<'a> = Option<
+    std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), sampling::TrackingBuildError>> + 'a>,
+    >,
+>;
+
+/// A source can emit any measurement, regardless of how its hardware works.
+pub trait TrackingSource {
+    fn initialize(&mut self) -> SourceInitialization<'_> {
+        None
+    }
+
+    fn sample(&mut self, sink: &mut MeasurementSink<'_>);
+
+    /// Projection of cumulative wheel travel onto chassis right, forward and yaw.
+    fn wheel_projection(&self) -> Option<glam::DVec3> {
+        None
+    }
+
+    /// Field-ranging geometry when this source emits range measurements.
+    fn range_mount(&self) -> Option<range::RangeSensorConfig> {
+        None
+    }
+
+    #[doc(hidden)]
+    fn differential(&self) -> Option<&odometric::DifferentialTracking> {
+        None
+    }
+
+    #[doc(hidden)]
+    fn differential_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
+        None
+    }
+
+    #[doc(hidden)]
+    fn inertial(&self) -> Option<&inertial::InertialSensorTracking> {
+        None
+    }
+
+    #[doc(hidden)]
+    fn inertial_mut(&mut self) -> Option<&mut inertial::InertialSensorTracking> {
+        None
+    }
 }

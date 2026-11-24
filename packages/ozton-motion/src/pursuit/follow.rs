@@ -5,7 +5,7 @@ use std::{
 };
 
 use glam::DVec2 as Vec2;
-use ozton_drivetrain::{Drive, HasLocalization, model::Tank};
+use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::uom::si::{f64::Length, length::meter};
 use ozton_tracking::{TracksHeading, TracksPosition};
 use vexide::{
@@ -14,6 +14,7 @@ use vexide::{
 };
 
 use super::Waypoint;
+use crate::Tank;
 
 pub struct State {
     current: Waypoint,

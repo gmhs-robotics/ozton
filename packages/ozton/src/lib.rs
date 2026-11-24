@@ -12,31 +12,30 @@ pub use ozton_motion as motion;
 pub use ozton_path_io as path_io;
 pub use ozton_runtime as runtime;
 pub use ozton_runtime::route;
-pub use ozton_tracking::{self as tracking, position, sensor_layout};
+pub use ozton_tracking::{self as tracking, position, sensor_layout, shared_motors};
 pub use ozton_ui as ui;
+
+pub mod autonomous;
 
 pub mod prelude {
     pub use crate::{
+        autonomous::{Follower, MotionControls, RobotMotion, ScoringControls, TimedMotion},
         control::Tolerances,
-        drivetrain::{
-            Arcade, Drive, Drivetrain, HasLocalization, Holonomic, Tank,
-            assist::{AssistedDrivetrain, DriveAssists},
-            model::{ArcadeInput, DriveConfigError},
-        },
+        drivetrain::{Drive, Drivetrain, HasLocalization, LateralDrive, model::DriveConfigError},
         motion::{
-            Basic, DriveTuning, PoseSeeking, PurePursuit, Seeking,
-            commands::{
-                Follower, MotionControls, ResetStartPose, RobotMotion, ScoringControls,
-                TimedMotion, TravelDirection,
-            },
+            Arcade, Basic, DriveTuning, Holonomic, PoseSeeking, PurePursuit, Seeking, Tank,
+            arcade::ArcadeInput,
+            seeking::pose::{ResetStartPose, TravelDirection},
         },
         runtime::{
             CompetitionBot, Robot, RobotBuilder, RobotLayout,
             competition::{CompetitionLayout, ProgramDrive, Ui},
+            drive_assist::{AssistedDrivetrain, DriveAssists},
         },
         tracking::{
-            DummyTracking, NoTracking, TracksForwardTravel, TracksHeading, TracksPosition,
-            TracksVelocity, WheeledTracking, sources::vex::DistanceTracker,
+            DummyTracking, Measurement, MeasurementSink, NoTracking, Tracking, TrackingSource,
+            TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity, WheeledTracking,
+            range::DistanceTracker,
         },
     };
 }

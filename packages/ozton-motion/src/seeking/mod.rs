@@ -55,7 +55,7 @@ impl Default for Seeking<Pid, Pid> {
             linear_controller,
             lateral_controller,
             tolerances: crate::LINEAR_SETTLING,
-            timeout: Some(crate::commands::routine_settings::AUTON_STAGE_TIMEOUT),
+            timeout: Some(crate::defaults::AUTON_STAGE_TIMEOUT),
         }
     }
 }
@@ -88,3 +88,5 @@ where
         }
     }
 }
+
+pub mod pose;

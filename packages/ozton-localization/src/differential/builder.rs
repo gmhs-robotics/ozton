@@ -107,7 +107,7 @@ impl LocalizationBuilder {
     }
 
     /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
-    pub fn build(self, tracking: &SensorTracking) -> Option<DifferentialLocalization> {
+    pub fn build(self, tracking: &Tracking) -> Option<DifferentialLocalization> {
         let map = self.field.surfaces().collect();
         let mounts = tracking
             .range_mounts()
@@ -129,7 +129,13 @@ impl LocalizationBuilder {
         Some(DifferentialLocalization {
             localizer,
             rectangular_half_extents: self.field.rectangular_half_extents(),
-            wheels: WheelOdometry::new(tracking.wheel_projections()),
+            wheels: WheelOdometry::new(
+                tracking
+                    .wheel_mounts()
+                    .iter()
+                    .map(|&(_, projection)| projection),
+            ),
+            observations: super::observations::Observations::new(tracking),
             drive: self.drive,
             use_imu: self.use_imu,
             range_uses: self.ranges,

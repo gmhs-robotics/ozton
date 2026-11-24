@@ -6,7 +6,7 @@ use ozton_math::{
     geometry::{Pose, wrap_heading},
     localization::range::{Constraint, Rejection, Surface, fit_translation},
 };
-use ozton_tracking::sources::distance::{MAX_RANGES, RangeObservation, RangeSensorConfig};
+use ozton_tracking::range::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 
 use super::ranges::{RangeReport, constrain_sample};
 

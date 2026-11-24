@@ -209,6 +209,7 @@ dependencies = [
  "ozton-runtime",
  "ozton-tracking",
  "ozton-ui",
+ "vex-sdk-mock",
  "vexide",
 ]
 
@@ -264,7 +265,6 @@ version = "0.4.0"
 dependencies = [
  "glam",
  "ozton-control",
- "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-localization",
  "ozton-math",

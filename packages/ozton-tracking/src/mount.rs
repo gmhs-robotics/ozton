@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn range_mount_preserves_coordinates_and_bearing() {
-        use crate::sources::distance::RangeSensorConfig;
+        use crate::range::RangeSensorConfig;
 
         const MOUNT: RangeSensorConfig = RangeSensorConfig::at_mount(
             position!(-2 in, 0.2 m, 30 cm),

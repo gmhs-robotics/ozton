@@ -5,11 +5,29 @@ Rust drivetrain, tracking, and competition control for VEX V5, built with vexide
 See [AGENTS.md](AGENTS.md) for development, deployment, and route documentation.
 The [programmed example](packages/ozton/examples/programmed.rs) shows a complete robot.
 
+## Tracking
+
+Use a flat tuple to register sensors in sampling order.
+
+```rust
+let tracking = Tracking::new((drive_encoders, tracking_wheel, imu, front_range)).await?;
+let localization = LocalizationBuilder::default().build(&tracking);
+```
+
+Use `shared_motors!` to create the motor groups, pass them to
+`Differential::from_shared`, and give `model.shared_motors()` to
+`DifferentialTracking::new`. The drive and encoders share the same motors.
+
+Custom devices implement `TrackingSource::sample` and can emit any combination
+of timestamped `Measurement` values. The differential estimator uses wheel
+travel, heading, and range observations. Absolute pose measurements are
+available to custom estimators.
+
 ## Autonomous motion
 
 Driver control and motion share the `Drive` interface. `Arcade::drive` accepts
 forward and turn commands, `Tank::drive` accepts left and right commands, and
-`Holonomic` marks drives that support lateral motion.
+`LateralDrive` marks drives that support lateral motion.
 
 Install an ordered tuple of assists with
 `RobotBuilder::with_drive_assists(DriveAssists::new((assist_a, assist_b)))`.

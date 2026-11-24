@@ -17,7 +17,7 @@ use ozton_math::uom::si::{
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
 use vexide::math::Angle;
 
-use crate::commands::routine_settings::{
+use crate::defaults::{
     AUTON_ANGULAR_SPEED_TOLERANCE, AUTON_HEADING_TOLERANCE, AUTON_SETTLE_TIME, AUTON_STAGE_TIMEOUT,
 };
 
@@ -154,3 +154,5 @@ where
         }
     }
 }
+
+pub mod differential;

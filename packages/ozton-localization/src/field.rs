@@ -4,7 +4,7 @@ use ozton_math::{
     localization::range::Surface,
     uom::si::f64::Length,
 };
-use ozton_tracking::{mount::Vec3, position, sources::distance::RangeSensorConfig};
+use ozton_tracking::{mount::Vec3, position, range::RangeSensorConfig};
 
 /// A rectangular perimeter with vertical walls.
 #[derive(Clone, Copy, Debug)]

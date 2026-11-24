@@ -1,186 +1,227 @@
-//! Sampling hardware independently of pose estimation.
+//! Sample a tuple or list of tracking sources without estimating pose.
+
+use std::time::Duration;
+
+use futures_util::future::join_all;
 use glam::DVec3;
-use ozton_math::uom::si::f64::Length;
+use vexide::time::LowResolutionTime;
 
 use crate::{
-    Tracking,
-    encoders::DifferentialTracking,
-    sources::{
-        Snapshot,
-        distance::{MAX_RANGES, RangeObservation, RangeSensorConfig},
-        vex::{
-            DistanceTracker, Distances, InertialSensorTracking, Orientation, Sensors, SharedSensors,
-        },
-        wheels::MountedWheel,
-    },
+    MeasurementSink, Observation, TrackingSource, TrackingSystem,
+    inertial::{InertialSensorTracking, Orientation},
+    odometric::DifferentialTracking,
+    range::{MAX_RANGES, RangeSensorConfig},
 };
+
+mod vex;
+pub use vex::{Sensors, SharedSensors, WheelSource};
+
+pub(crate) fn stamp(time: LowResolutionTime) -> Duration {
+    time.duration_since(LowResolutionTime::EPOCH)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrackingBuildError {
     WheelGeometry,
     RangeLayout,
     ImuStartup,
+    DuplicateDriveEncoders,
 }
 
 impl std::fmt::Display for TrackingBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::WheelGeometry => f.write_str("invalid tracking-wheel geometry"),
-            Self::RangeLayout => write!(f, "too many distance sensors (maximum {MAX_RANGES})"),
+            Self::RangeLayout => write!(f, "too many range sources (maximum {MAX_RANGES})"),
             Self::ImuStartup => f.write_str("IMU startup calibration failed"),
+            Self::DuplicateDriveEncoders => {
+                f.write_str("multiple differential motor groups supplied")
+            }
         }
     }
 }
 
 impl std::error::Error for TrackingBuildError {}
 
-/// Install sensors and their physical mounts. Building initializes the devices once.
-#[derive(Default)]
-pub struct TrackingBuilder {
-    imu: Option<InertialSensorTracking>,
-    drive_encoders: Option<DifferentialTracking>,
-    wheels: Vec<MountedWheel>,
-    ranges: Vec<DistanceTracker>,
+/// A heterogeneous tuple or a list of boxed sources, in registration order.
+pub trait TrackingSources {
+    fn into_sources(self) -> Vec<Box<dyn TrackingSource>>;
 }
 
-impl TrackingBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_imu(mut self, imu: impl Into<InertialSensorTracking>) -> Self {
-        self.imu = Some(imu.into());
+impl TrackingSources for Vec<Box<dyn TrackingSource>> {
+    fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
         self
     }
+}
 
-    /// Sample the calibrated encoders on the model that this tracker is attached to.
-    pub fn with_drive_encoders(mut self, source: DifferentialTracking) -> Self {
-        self.drive_encoders = Some(source);
-        self
+impl TrackingSources for () {
+    fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
+        Vec::new()
     }
+}
 
-    pub fn with_wheels(mut self, wheels: impl IntoIterator<Item = MountedWheel>) -> Self {
-        self.wheels.extend(wheels);
-        self
-    }
-
-    /// Register mounted distance sensors in observation order.
-    pub fn with_dsr(mut self, sensors: impl IntoIterator<Item = DistanceTracker>) -> Self {
-        self.ranges.extend(sensors);
-        self
-    }
-
-    pub async fn build(self) -> Result<SensorTracking, TrackingBuildError> {
-        if self.wheels.iter().any(|wheel| !wheel.is_valid()) {
-            return Err(TrackingBuildError::WheelGeometry);
+macro_rules! tracking_tuples {
+    () => {};
+    ($first:ident $(, $rest:ident)*) => {
+        impl<$first: TrackingSource + 'static, $($rest: TrackingSource + 'static),*> TrackingSources
+            for ($first, $($rest,)*)
+        {
+            #[allow(non_snake_case)]
+            fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
+                let ($first, $($rest,)*) = self;
+                vec![Box::new($first), $(Box::new($rest)),*]
+            }
         }
-        let distances = Distances::new(self.ranges).ok_or(TrackingBuildError::RangeLayout)?;
-        let (sensors, distances) = Sensors::from_sources((), ())
-            .into_shared_reader()
-            .initialize_mounted(self.imu, distances)
-            .await
-            .ok_or(TrackingBuildError::ImuStartup)?;
-        Ok(SensorTracking {
-            sensors,
-            distances,
-            drive_encoders: self.drive_encoders,
-            positions: vec![None; self.wheels.len()],
-            wheels: self.wheels,
-            orientation_sampled: false,
-        })
-    }
+
+        tracking_tuples!($($rest),*);
+    };
 }
 
-/// Live hardware sources. This type never stores or updates a pose.
-pub struct SensorTracking {
-    sensors: SharedSensors<(), ()>,
-    distances: Distances,
-    wheels: Vec<MountedWheel>,
-    positions: Vec<Option<Length>>,
-    drive_encoders: Option<DifferentialTracking>,
-    orientation_sampled: bool,
+tracking_tuples!(A, B, C, D, E, F, G, H, I, J, K, L);
+
+/// Live sources and their observations. Pose and estimator state belong to localization.
+pub struct Tracking {
+    sources: Vec<Box<dyn TrackingSource>>,
+    differential: Option<usize>,
+    imu: Option<usize>,
+    range_mounts: Vec<RangeSensorConfig>,
+    range_sources: Vec<usize>,
+    wheel_mounts: Vec<(usize, DVec3)>,
+    observations: Vec<Observation>,
 }
 
-impl Tracking for SensorTracking {
+/// Observations captured on the same sampling tick, in source order.
+pub struct SensorSample<'a> {
+    pub time: Duration,
+    pub observations: &'a [Observation],
+}
+
+impl TrackingSystem for Tracking {
     fn drive_wheels(&self) -> Option<&DifferentialTracking> {
-        self.drive_encoders.as_ref()
+        self.sources.get(self.differential?)?.differential()
     }
 
     fn drive_wheels_mut(&mut self) -> Option<&mut DifferentialTracking> {
-        self.drive_encoders.as_mut()
+        self.sources.get_mut(self.differential?)?.differential_mut()
     }
 }
 
-pub struct SensorSample<'a> {
-    pub snapshot: Snapshot,
-    pub wheels: &'a [Option<Length>],
-    pub ranges: [Option<RangeObservation>; MAX_RANGES],
-}
-
-impl SensorTracking {
-    pub fn uses_drive_encoders(&self) -> bool {
-        self.drive_encoders.is_some()
+impl Tracking {
+    /// Initialize the tuple or list of sources concurrently before the first sample.
+    pub async fn new(sources: impl TrackingSources) -> Result<Self, TrackingBuildError> {
+        let mut sources = sources.into_sources();
+        let mut differential = None;
+        let mut imu = None;
+        let mut range_mounts = Vec::new();
+        let mut range_sources = Vec::new();
+        let mut wheel_mounts = Vec::new();
+        for (index, source) in sources.iter().enumerate() {
+            if source.differential().is_some() && differential.replace(index).is_some() {
+                return Err(TrackingBuildError::DuplicateDriveEncoders);
+            }
+            if imu.is_none() && source.inertial().is_some() {
+                imu = Some(index);
+            }
+            if let Some(mount) = source.range_mount() {
+                range_mounts.push(mount);
+                range_sources.push(index);
+            }
+            if let Some(projection) = source.wheel_projection() {
+                if !projection.is_finite() {
+                    return Err(TrackingBuildError::WheelGeometry);
+                }
+                wheel_mounts.push((index, projection));
+            }
+        }
+        if range_mounts.len() > MAX_RANGES {
+            return Err(TrackingBuildError::RangeLayout);
+        }
+        for result in join_all(sources.iter_mut().filter_map(|source| source.initialize())).await {
+            result?;
+        }
+        Ok(Self {
+            observations: Vec::with_capacity(sources.len()),
+            sources,
+            differential,
+            imu,
+            range_mounts,
+            range_sources,
+            wheel_mounts,
+        })
     }
 
-    pub fn wheel_projections(&self) -> impl Iterator<Item = DVec3> + '_ {
-        self.wheels.iter().map(MountedWheel::projection)
+    pub fn wheel_mounts(&self) -> &[(usize, DVec3)] {
+        &self.wheel_mounts
+    }
+
+    pub fn range_sources(&self) -> &[usize] {
+        &self.range_sources
     }
 
     pub fn range_mounts(&self) -> &[RangeSensorConfig] {
-        self.distances.configs()
+        &self.range_mounts
     }
 
-    /// Refresh orientation for driver assists, and reuse it for the next sample.
+    /// Read orientation for driver assists and reuse it on the next sampling tick.
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {
-        self.orientation_sampled = true;
-        self.sensors.refresh_orientation()
+        self.sources
+            .get_mut(self.imu?)?
+            .inertial_mut()?
+            .refresh(true)
     }
 
     pub fn refresh_heading(&mut self) -> Option<Orientation> {
-        self.orientation_sampled = true;
-        self.sensors.refresh_heading()
+        self.sources
+            .get_mut(self.imu?)?
+            .inertial_mut()?
+            .refresh(false)
+    }
+
+    fn imu(&self) -> Option<&InertialSensorTracking> {
+        self.sources.get(self.imu?)?.inertial()
     }
 
     pub fn diagnostic_orientation(&self) -> Option<Orientation> {
-        self.sensors.diagnostic_orientation()
+        self.imu()?.diagnostic_orientation()
     }
 
     pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
-        self.sensors.imu_telemetry()
+        self.imu().map_or(
+            ([f64::NAN; 3], [f64::NAN; 3]),
+            InertialSensorTracking::telemetry,
+        )
     }
 
-    pub fn capture(&mut self, drive: [Option<Length>; 2], occluded: u8) -> SensorSample<'_> {
-        if !std::mem::take(&mut self.orientation_sampled) {
-            self.sensors.refresh_heading();
+    pub fn sample(&mut self, occluded_ranges: u8) -> SensorSample<'_> {
+        let time = stamp(LowResolutionTime::now());
+        self.observations.clear();
+        let mut range_sources = self.range_sources.iter().copied().enumerate().peekable();
+        for (index, source) in self.sources.iter_mut().enumerate() {
+            let range_index = range_sources
+                .next_if(|&(_, source)| source == index)
+                .map(|(range, _)| range);
+            let range_occluded =
+                range_index.is_some_and(|range| occluded_ranges & (1 << range) != 0);
+            source.sample(&mut MeasurementSink {
+                time,
+                source: index,
+                range_occluded,
+                range_index,
+                observations: &mut self.observations,
+            });
         }
-        for (reading, wheel) in self.positions.iter_mut().zip(&self.wheels) {
-            *reading = wheel.sample();
-        }
-        let drive = if self.uses_drive_encoders() {
-            drive
-        } else {
-            [None; 2]
-        };
-        let (snapshot, ranges) =
-            self.sensors
-                .capture_with_distances(&mut self.distances, drive, occluded);
         SensorSample {
-            snapshot,
-            wheels: &self.positions,
-            ranges,
+            time,
+            observations: &self.observations,
         }
     }
 }
 
-/// Localization lifecycle for a differential drivetrain in a programmed competition.
+/// Localization lifecycle for a drivetrain in a programmed competition.
 pub trait LocalizationLifecycle<T> {
     fn mode_changed(&mut self, _mode: vexide::competition::CompetitionMode) {}
     fn cancel_pending(&mut self) {}
-    fn uses_drive_encoders(&self, _tracking: &T) -> bool {
-        false
-    }
-    fn poll(&mut self, _tracking: &mut T, _positions: [Option<Length>; 2], _width: Option<Length>) {
-    }
+    fn poll(&mut self, _tracking: &mut T) {}
 }
 
 impl<T> LocalizationLifecycle<T> for () {}

@@ -1,18 +1,22 @@
 //! Motion control algorithms.
 
-mod curvature;
+pub mod arcade;
+pub mod curvature;
+pub mod holonomic;
+pub mod tank;
 
 pub mod assists;
 pub mod basic;
-pub mod commands;
 pub mod pursuit;
 pub mod seeking;
 
-pub use basic::Basic;
-use commands::routine_settings::{
-    AUTON_POSITION_TOLERANCE, AUTON_SETTLE_TIME, AUTON_SPEED_TOLERANCE,
-};
-pub use commands::{DriveTuning, PoseSeeking};
+pub use arcade::Arcade;
+pub use basic::{Basic, differential::DriveTuning};
+use defaults::{AUTON_POSITION_TOLERANCE, AUTON_SETTLE_TIME, AUTON_SPEED_TOLERANCE};
+pub use holonomic::Holonomic;
+pub use seeking::pose::PoseSeeking;
+pub use tank::Tank;
+mod defaults;
 pub use curvature::CurvatureDrive;
 use ozton_control::{Tolerances, axis::Linear};
 pub use pursuit::PurePursuit;
@@ -54,3 +58,5 @@ fn motion_output_error<E>(output: E, stopped: Result<(), E>) -> MotionError<E> {
         Err(stop) => MotionError::OutputAndStop { output, stop },
     }
 }
+
+pub mod ramsete;

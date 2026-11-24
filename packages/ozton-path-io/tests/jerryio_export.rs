@@ -1,5 +1,5 @@
 use ozton_math::{
-    path::{Limits, Path, follower::Progress},
+    path::{Limits, Path, progress::Progress},
     uom::si::{
         acceleration::meter_per_second_squared,
         f64::{Acceleration, Length, Time, Velocity},

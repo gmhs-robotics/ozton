@@ -5,7 +5,7 @@ use ozton_math::{
     geometry::Pose,
     uom::si::f64::{AngularVelocity, Length, Velocity},
 };
-use ozton_tracking::sources::distance::MAX_RANGES;
+use ozton_tracking::range::MAX_RANGES;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeFeedback {

@@ -11,7 +11,7 @@ use ozton_control::{
     axis::Linear,
     loops::{Feedback, Pid},
 };
-use ozton_drivetrain::{Drive, HasLocalization, model::Arcade};
+use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::uom::si::{
     f64::{Length, Velocity},
     length::meter,
@@ -23,6 +23,8 @@ use vexide::{
     smart::motor::Motor,
     time::{Sleep, sleep},
 };
+
+use crate::Arcade;
 
 pub(crate) struct State {
     sleep: Sleep,
