@@ -178,7 +178,7 @@ pub fn constrain(
 ) -> Result<Constraint, Rejection> {
     reading.validate(gate)?;
     let hit = cast(pose, mount, surfaces).ok_or(Rejection::NoSurface)?;
-    constrain_hit(hit, reading, gate, expected_surface)
+    constrain_hit(hit, reading, gate, surfaces[hit.surface], expected_surface)
 }
 
 /// Validates a range against the nearest eligible surface with one ray cast.
@@ -193,13 +193,14 @@ pub fn constrain_masked(
 ) -> Result<Constraint, Rejection> {
     reading.validate(gate)?;
     let hit = cast_masked(pose, mount, surfaces, mask).ok_or(Rejection::NoSurface)?;
-    constrain_hit(hit, reading, gate, expected_surface)
+    constrain_hit(hit, reading, gate, surfaces[hit.surface], expected_surface)
 }
 
 fn constrain_hit(
     hit: Hit,
     reading: RangeReading,
     gate: RangeGate,
+    surface: Surface,
     expected_surface: Option<usize>,
 ) -> Result<Constraint, Rejection> {
     if !(gate.min_range.value..=gate.max_range.value).contains(&hit.distance) {
@@ -208,14 +209,20 @@ fn constrain_hit(
     if expected_surface.is_some_and(|expected| expected != hit.surface) {
         return Err(Rejection::WrongSurface);
     }
-    if hit.edge_distance < gate.edge_margin.value {
+    // Keep the full configured margin on long walls, but do not make
+    // short landmark faces geometrically impossible to observe.
+    let edge_margin = gate
+        .edge_margin
+        .value
+        .min((surface.end - surface.start).length() * 0.125);
+    if hit.edge_distance < edge_margin {
         return Err(Rejection::NearEdge);
     }
     if hit.incidence.abs() < gate.min_incidence {
         return Err(Rejection::Grazing);
     }
     let residual = reading.distance.value - hit.distance;
-    let edge_reserve = hit.edge_distance - gate.edge_margin.value;
+    let edge_reserve = hit.edge_distance - edge_margin;
     let transverse_variance = (1.0 - hit.incidence * hit.incidence).max(0.0);
     if edge_reserve * edge_reserve < residual * residual * transverse_variance {
         return Err(Rejection::NearEdge);
@@ -474,6 +481,41 @@ mod tests {
             Err(Rejection::NoSurface)
         );
         assert!(constraint(&[wall(2.0)]).is_ok());
+    }
+
+    #[test]
+    fn short_landmark_face_accepts_center_but_rejects_edges() {
+        let half = crate::qty!(2 in).value;
+        let face = Surface::new(
+            DVec2::new(-half, 0.3),
+            DVec2::new(half, 0.3),
+            crate::qty!(10.5 in),
+        );
+        let wall = Surface::new(
+            DVec2::new(-1.0, 0.3),
+            DVec2::new(1.0, 0.3),
+            crate::qty!(5.125 in),
+        );
+        let reading = RangeReading {
+            distance: crate::qty!(0.3 m),
+            confidence: 1.0,
+            age: Time::ZERO,
+            occluded: false,
+        };
+        let check = |x, face| {
+            constrain_masked(
+                Pose::new(DVec2::new(x, 0.0), Default::default()),
+                Pose::default(),
+                reading,
+                RangeGate::DEFAULT,
+                &[face],
+                None,
+                1,
+            )
+        };
+        assert!(check(0.0, face).is_ok());
+        assert_eq!(check(half * 0.9, face), Err(Rejection::NearEdge));
+        assert_eq!(check(0.95, wall), Err(Rejection::NearEdge));
     }
 
     #[test]
