@@ -401,6 +401,15 @@ impl Seeking {
             heading,
         );
         if field.is_some_and(|f| !f.contains_translation(start, end.position)) {
+            ozton_runtime::log_row!(
+                Warn,
+                "CLEARANCE_FAULT",
+                "reason=planned_translation,x_m={:.5},y_m={:.5},end_x_m={:.5},end_y_m={:.5}",
+                start.position.x,
+                start.position.y,
+                end.position.x,
+                end.position.y
+            );
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
@@ -438,6 +447,17 @@ impl Seeking {
                 .forward_arc_bounds(drive.pose(), radius, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
+                ozton_runtime::log_row!(
+                    Warn,
+                    "CLEARANCE_FAULT",
+                    "reason=planned_arc,min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5},radius_m={:.5},sweep_rad={:.5}",
+                    min.x,
+                    min.y,
+                    max.x,
+                    max.y,
+                    radius.value,
+                    sweep.value
+                );
                 return Err(PoseMotionError::InsufficientClearance);
             }
         }

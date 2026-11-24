@@ -421,15 +421,31 @@ fn safe_feedback(
     let w = feedback.angular_velocity.value;
     let travel = v.signum() * (v * v / (2.0 * config.deceleration.value) + v.abs() * 0.15);
     let yaw = w * 0.15 + w.signum() * w * w / (2.0 * config.angular_deceleration.value);
-    field.contains_pose(feedback.pose)
-        && field.obstacle_stop_clear(
-            feedback.pose,
-            ozton_math::geometry::direction(feedback.pose.heading) * travel
-                + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
-                    * feedback.lateral_velocity.value
-                    * 0.15,
-            ozton_math::qty!((yaw) rad),
-        )
+    let translation = ozton_math::geometry::direction(feedback.pose.heading) * travel
+        + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
+            * feedback.lateral_velocity.value
+            * 0.15;
+    let rotation = ozton_math::qty!((yaw) rad);
+    let reason = if !field.contains_pose(feedback.pose) {
+        "current_footprint"
+    } else if !field.wall_stop_clear(feedback.pose, translation, rotation) {
+        "wall_stopping_envelope"
+    } else if !field.obstacle_stop_clear(feedback.pose, translation, rotation) {
+        "obstacle_stopping_envelope"
+    } else {
+        return true;
+    };
+    log_row!(
+        Warn,
+        "CLEARANCE_FAULT",
+        "reason={reason},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={v:.5},yaw_radps={w:.5},stop_x_m={:.5},stop_y_m={:.5},stop_yaw_rad={yaw:.5}",
+        feedback.pose.position.x,
+        feedback.pose.position.y,
+        feedback.pose.heading.value,
+        translation.x,
+        translation.y
+    );
+    false
 }
 
 fn valid_feedback(feedback: Feedback) -> bool {

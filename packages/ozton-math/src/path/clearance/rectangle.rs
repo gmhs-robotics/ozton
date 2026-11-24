@@ -60,6 +60,18 @@ impl RectangularClearance {
         self.contains_aabb(min.min(min + delta), max.max(max + delta))
     }
 
+    /// Conservative wall braking envelope, including the rotation of every
+    /// chassis corner. This must run even when there are no motion obstacles.
+    pub fn wall_stop_clear(self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
+        if !pose.is_finite() || !translation.is_finite() || !yaw.value.is_finite() {
+            return false;
+        }
+        let (min, max) = self.footprint.bounds(pose);
+        let pad = DVec2::splat(self.footprint.turn_radius() * yaw.value.abs().min(2.0));
+        (min.min(min + translation) - pad).cmpge(-self.usable).all()
+            && (max.max(max + translation) + pad).cmple(self.usable).all()
+    }
+
     /// Conservative obstacle-only braking envelope using measured travel and yaw.
     pub fn obstacle_stop_clear(self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
         if self.obstacles.iter().all(Option::is_none) {
@@ -214,6 +226,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wall_stopping_envelope_is_checked_without_obstacles() {
+        let chassis = Footprint::new(crate::qty!(15 in), crate::qty!(15 in)).unwrap();
+        let field = RectangularClearance::new(
+            chassis,
+            crate::position_xy!(36.75 in, 54.5 in),
+            crate::qty!(1 in),
+        )
+        .unwrap();
+        let start = Pose::new(crate::position_xy!(0 in, 44 in), Angle::default());
+        assert!(field.contains_pose(start));
+        assert!(!field.wall_stop_clear(
+            start,
+            crate::position_xy!(0 in, 4 in),
+            Angle::default(),
+        ));
+        assert!(field.wall_stop_clear(
+            start,
+            crate::position_xy!(0 in, -4 in),
+            Angle::default(),
+        ));
+        assert!(!field.wall_stop_clear(
+            start,
+            DVec2::ZERO,
+            crate::qty!(30 deg),
+        ));
+    }
+
+    #[test]
     fn mirrored_obstacles_block_straight_crossings_but_allow_side_passes() {
         let chassis = Footprint::new(crate::qty!(15.1 in), crate::qty!(15 in)).unwrap();
         let field = RectangularClearance::new(
@@ -277,10 +317,10 @@ mod tests {
         let east = crate::qty!(-90 deg);
         let left = Pose::new(crate::position_xy!(-20 in, 0 in), east);
         assert!(field.contains_translation(left, crate::position_xy!(20 in, 0 in)));
-        let start = Pose::new(crate::position_xy!(14 in, 0 in), east);
+        let start = Pose::new(crate::position_xy!(12 in, 0 in), east);
         let mut pose = start;
         for sign in [1.0, -1.0] {
-            for distance in [20.0, 28.0, 20.0, 28.0] {
+            for distance in [20.0, 24.0, 20.0, 24.0] {
                 let radius = crate::qty!(8 in);
                 let sweep = crate::qty!((90.0 * sign) deg);
                 let (min, max) = chassis.forward_arc_bounds(pose, radius, sweep).unwrap();

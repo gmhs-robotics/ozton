@@ -24,11 +24,16 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
         Some(vexide::task::spawn(async {
             let mut failed = false;
             let mut last_sync = Instant::now();
+            let mut last_summary = Instant::now();
+            let mut was_autonomous = false;
             let mut delay = Duration::from_millis(40);
             loop {
                 vexide::time::sleep(delay).await;
-                let sync = last_sync.elapsed() >= Duration::from_secs(1);
-                if sync {
+                let autonomous = crate::competition::autonomous_active();
+                let sync_period = Duration::from_secs(if autonomous { 5 } else { 1 });
+                let sync = last_sync.elapsed() >= sync_period || (was_autonomous && !autonomous);
+                was_autonomous = autonomous;
+                if last_summary.elapsed() >= Duration::from_secs(1) {
                     ozton_diagnostics::profile::flush_summary();
                     ozton_diagnostics::log_row!(
                         Trace,
@@ -36,6 +41,9 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                         "queued_bytes={}",
                         sd::queued_bytes()
                     );
+                    last_summary = Instant::now();
+                }
+                if sync {
                     last_sync = Instant::now();
                 }
                 let started = Instant::now();
