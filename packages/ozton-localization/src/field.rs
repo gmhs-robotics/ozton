@@ -146,13 +146,7 @@ impl FieldMap {
         self.add_box(min, max, height, ObjectPolicy::Movable)
     }
 
-    fn add_box(
-        &mut self,
-        min: DVec2,
-        max: DVec2,
-        height: Length,
-        policy: ObjectPolicy,
-    ) -> bool {
+    fn add_box(&mut self, min: DVec2, max: DVec2, height: Length, policy: ObjectPolicy) -> bool {
         if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all() {
             return false;
         }
@@ -170,8 +164,7 @@ impl FieldMap {
         };
         (0..2).any(|axis| {
             [-bounds[axis], bounds[axis]].into_iter().any(|edge| {
-                (face.start[axis] - edge).abs() < 1e-9
-                    && (face.end[axis] - edge).abs() < 1e-9
+                (face.start[axis] - edge).abs() < 1e-9 && (face.end[axis] - edge).abs() < 1e-9
             })
         })
     }
@@ -193,7 +186,10 @@ impl FieldMap {
             let (mut min, mut max) = faces.iter().fold(
                 (DVec2::splat(f64::INFINITY), DVec2::splat(f64::NEG_INFINITY)),
                 |(min, max), face| {
-                    (min.min(face.start).min(face.end), max.max(face.start).max(face.end))
+                    (
+                        min.min(face.start).min(face.end),
+                        max.max(face.start).max(face.end),
+                    )
                 },
             );
             // Preserve zero-thickness interior walls as conservative boxes.

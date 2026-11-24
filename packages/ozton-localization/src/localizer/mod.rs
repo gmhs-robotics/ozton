@@ -13,6 +13,7 @@ use ozton_math::{
 };
 
 mod estimate;
+mod history;
 mod ranges;
 mod reset;
 mod snapshot;
@@ -20,6 +21,7 @@ mod velocity;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 pub use ranges::RangeReport;
+use history::PoseHistory;
 use ranges::{RangeTick, inspect};
 pub use reset::DsrConfig;
 use reset::{ResetResult, ResetTick, ResetWindow};
@@ -98,6 +100,7 @@ pub struct Localizer<'a, E = Filter> {
     odometry: Pose,
     filter_pose: Pose,
     previous: Option<Snapshot>,
+    history: PoseHistory,
     range_times: [Option<Duration>; MAX_RANGES],
     forward_travel: f64,
     velocity: VelocityEstimator,
@@ -170,6 +173,7 @@ impl<'a> Localizer<'a> {
             odometry: pose,
             filter_pose: pose,
             previous: None,
+            history: PoseHistory::default(),
             range_times: [None; MAX_RANGES],
             forward_travel: 0.0,
             velocity: VelocityEstimator::default(),
@@ -196,6 +200,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             pose,
             odometry,
             previous,
+            history,
             range_times,
             forward_travel,
             velocity,
@@ -218,6 +223,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             odometry,
             filter_pose: pose,
             previous,
+            history,
             range_times,
             forward_travel,
             velocity,
@@ -302,6 +308,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     pub fn invalidate_pose(&mut self) {
         self.trust = PoseTrust::NeedsRelocalization;
         self.previous = None;
+        self.history.clear();
         self.reset = None;
         self.velocity.reset();
         self.forward_velocity = 0.0;
@@ -348,6 +355,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.filter_pose = pose;
         self.filter.reset(pose);
         self.previous = None;
+        self.history.clear();
         self.velocity.reset();
         self.forward_velocity = 0.0;
         self.angular_velocity = 0.0;
@@ -447,7 +455,10 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         if self.previous.is_some_and(|last| raw.time <= last.time) {
             return Err(Fault::Time);
         }
-        let previous = self.previous.replace(raw).ok_or(Fault::Initializing)?;
+        let Some(previous) = self.previous.replace(raw) else {
+            self.history.record(raw.time, self.odometry);
+            return Err(Fault::Initializing);
+        };
         let (movement, dt) = match motion(previous, raw, self.config.odometry) {
             Ok(sample) => sample,
             Err(fault) => {
@@ -478,12 +489,15 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             return Err(Fault::InvalidEstimate);
         }
         self.odometry = odometry;
+        self.history.record(raw.time, odometry);
         let [lateral_velocity, forward_velocity, angular_velocity] =
             self.velocity.update(movement, seconds, rates);
         self.forward_velocity = forward_velocity;
         self.angular_velocity = angular_velocity;
         self.forward_travel += movement.translation.y;
         let mut reports = [None; MAX_RANGES];
+        let mut aligned = [RangeSensorConfig::new(Pose::default()); MAX_RANGES];
+        aligned[..self.sensors.len()].copy_from_slice(&self.sensors);
         let (checking_pose, active_ranges) = if self.reset.is_some() {
             (predicted, self.reset_ranges)
         } else {
@@ -492,20 +506,27 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         if self.corrections_enabled && active_ranges != 0 {
             let range_tick = RangeTick {
                 pose: checking_pose,
-                linear_rate: movement.translation.length() / seconds,
-                yaw_rate: movement.heading.value.abs() / seconds,
                 now: raw.time,
             };
             for (index, sensor) in self.sensors.iter().copied().enumerate() {
                 if active_ranges & (1 << index) == 0 {
                     continue;
                 }
+                let observation = observations.get(index).copied().flatten();
+                let mount = observation.and_then(|sample| {
+                    self.history
+                        .sensor_mount(sample.timestamp, odometry, sensor.mount)
+                });
+                if let Some(mount) = mount {
+                    aligned[index].mount = mount;
+                }
                 reports[index] = Some(inspect(
                     range_tick,
                     &self.map,
-                    sensor,
-                    observations.get(index).copied().flatten(),
+                    aligned[index],
+                    observation,
                     &mut self.range_times[index],
+                    mount.is_some(),
                 ));
             }
         }
@@ -558,7 +579,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         } else if self.corrections_enabled {
             candidate = self.filter.observe(Observations {
                 predicted: filter_prediction,
-                sensors: &self.sensors,
+                sensors: &aligned[..self.sensors.len()],
                 reports: &reports,
                 map: &self.map,
             });

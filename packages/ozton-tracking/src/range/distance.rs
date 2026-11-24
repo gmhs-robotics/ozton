@@ -40,10 +40,18 @@ impl DistanceTracker {
                 readiness: Cell::default(),
                 clock: PacketClock::default(),
                 last_poll: None,
+                latency: Duration::ZERO,
                 cached: None,
             },
             config: RangeSensorConfig::at_mount((position, bearing)),
         }
+    }
+
+    /// Correct a characterized sensor transport/acquisition delay.
+    #[must_use]
+    pub fn with_latency(mut self, latency: Duration) -> Self {
+        self.device.latency = latency;
+        self
     }
 
     /// Correct a measured systematic range offset (subtracted from readings).
@@ -120,6 +128,7 @@ struct DistanceDevice {
     readiness: Cell<RangeReadiness>,
     clock: PacketClock,
     last_poll: Option<Duration>,
+    latency: Duration,
     cached: Option<(u32, RangeObservation)>,
 }
 
@@ -304,7 +313,14 @@ impl DistanceDevice {
         if before != after {
             return Ok(None);
         }
-        let timestamp = self.clock.observe(after, now);
+        // A new packet arrived somewhere between the previous poll and
+        // this one. Use the midpoint, then remove characterized transport lag.
+        let arrival = self.last_poll.map_or(now, |last| {
+            last + now.saturating_sub(last) / 2
+        });
+        let timestamp = self
+            .clock
+            .observe(after, arrival.saturating_sub(self.latency));
         Ok(timestamp
             .zip(object)
             .map(|(timestamp, (millimeters, confidence))| RangeObservation {

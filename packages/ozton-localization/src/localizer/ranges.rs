@@ -24,8 +24,6 @@ pub struct RangeReport {
 #[derive(Clone, Copy)]
 pub(super) struct RangeTick {
     pub pose: Pose,
-    pub linear_rate: f64,
-    pub yaw_rate: f64,
     pub now: Duration,
 }
 
@@ -35,13 +33,9 @@ pub(super) fn inspect(
     sensor: RangeSensorConfig,
     observation: Option<RangeObservation>,
     previous: &mut Option<Duration>,
+    aligned: bool,
 ) -> RangeReport {
-    let RangeTick {
-        pose,
-        linear_rate,
-        yaw_rate,
-        now,
-    } = tick;
+    let RangeTick { pose, now } = tick;
     let constraint = (|| {
         let sample = observation.ok_or(Rejection::Missing)?;
         if previous.is_some_and(|last| sample.timestamp <= last) {
@@ -56,10 +50,7 @@ pub(super) fn inspect(
             .ok_or(Rejection::Stale)?
             .as_secs_f64();
         *previous = Some(sample.timestamp);
-        let motion_during_age = (linear_rate
-            + yaw_rate * (sample.distance.value.abs() + sensor.mount.position.length()))
-            * age;
-        if motion_during_age > sensor.sigma.value * 2.0 {
+        if !aligned {
             return Err(Rejection::Stale);
         }
         constrain_sample(pose, map, sensor, sample, age)
