@@ -201,6 +201,24 @@ impl PoseSeeking {
         session.finish(result)
     }
 
+    /// Execute a constant-radius forward arc with a checked swept footprint.
+    pub async fn drive_arc<D: PoseDrive>(&self, drive: &mut D, radius: Length, sweep: Angle) -> Result<(), PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        if !radius.value.is_finite() || radius.value <= 0.0 || !sweep.value.is_finite()
+            || sweep.value.abs() > core::f64::consts::TAU { return Err(PoseMotionError::Configuration); }
+        if let Some(field) = approach::clearance(drive, self.config.clearance)? {
+            let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
+            let (min, max) = footprint.forward_arc_bounds(drive.pose(), radius, sweep)
+                .ok_or(PoseMotionError::Configuration)?;
+            if !field.contains_aabb(min, max) { return Err(PoseMotionError::InsufficientClearance); }
+        }
+        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let result = session.run(crate::basic::differential::DifferentialTarget::DriveArc {
+            radius, sweep, maximum_speed: options.maximum_wheel_speed
+        }, self.stage_timeout).await;
+        session.finish(result)
+    }
+
     pub async fn turn_to_heading<D: PoseDrive>(&self, drive: &mut D, heading: Angle) -> Result<(), PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if !heading.value.is_finite() { return Err(PoseMotionError::Configuration); }

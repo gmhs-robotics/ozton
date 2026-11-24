@@ -56,6 +56,20 @@ impl DifferentialLocalization {
         self.rectangular_half_extents
     }
 
+    /// Override the motion boundary without changing the surveyed range map.
+    /// Use with odometry and suspended range corrections in a wall-free test area.
+    pub fn set_motion_bounds(&mut self, bounds: Option<DVec2>) -> bool {
+        if bounds.is_some_and(|b| !b.is_finite() || b.min_element() <= 0.0) { return false; }
+        self.rectangular_half_extents = bounds;
+        true
+    }
+
+    /// Keep raw tracking and logging active while suspending all external corrections.
+    pub fn set_corrections_enabled(&mut self, enabled: bool) {
+        self.localizer.set_corrections_enabled(enabled);
+        self.last_reset = DistanceReset::Idle;
+    }
+
     pub fn pause(&mut self) {
         self.feedback = Ok(None);
         self.localizer.invalidate_pose();

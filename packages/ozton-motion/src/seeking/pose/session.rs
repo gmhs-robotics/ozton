@@ -145,6 +145,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             {
                 return Err(PoseMotionError::UntrustedPose);
             }
+            if super::approach::clearance(self.drive, self.config.clearance)?
+                .is_some_and(|field| !field.contains_pose(feedback.pose)) {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
@@ -158,12 +162,17 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             log_row!(
                 Trace,
                 "MOTION_STEP",
-                "command={status},elapsed_ms={},dt_us={},x_m={:.5},y_m={:.5},heading_rad={:.5},progress_m=0.00000,left_target_mps={:.5},right_target_mps={:.5},complete={complete},lost=false",
+                "command={status},sample_us={},elapsed_ms={},dt_us={},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5},travel_m={:.5},left_target_mps={:.5},right_target_mps={:.5},complete={complete}",
+                feedback.time.as_micros(),
                 started.elapsed().as_millis(),
                 dt.as_micros(),
                 feedback.pose.position.x,
                 feedback.pose.position.y,
                 feedback.pose.heading.value,
+                feedback.forward_velocity.value,
+                feedback.lateral_velocity.value,
+                feedback.angular_velocity.value,
+                feedback.forward_travel.value,
                 wheels[0],
                 wheels[1]
             );
@@ -218,7 +227,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 Some(previous) => feedback.time.saturating_sub(previous),
                 None => tick,
             };
-            if dt > self.config.maximum_gap || !valid_feedback(feedback) { return Err(PoseMotionError::InvalidFeedback); }
+            if dt > self.config.maximum_gap { return Err(PoseMotionError::ControlGap); }
+            if !valid_feedback(feedback) { return Err(PoseMotionError::InvalidFeedback); }
             last = Some(feedback.time);
             fresh_at = Instant::now();
             if !self.drive.pose_trusted() { return Err(PoseMotionError::UntrustedPose); }

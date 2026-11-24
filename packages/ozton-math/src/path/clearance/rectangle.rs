@@ -55,6 +55,10 @@ impl RectangularClearance {
         self.usable - DVec2::splat(self.footprint.turn_radius() + reserve)
     }
 
+    pub fn contains_aabb(self, min: DVec2, max: DVec2) -> bool {
+        min.is_finite() && max.is_finite() && min.cmple(max).all() && self.contains_bounds(min, max)
+    }
+
     fn contains_bounds(self, min: DVec2, max: DVec2) -> bool {
         min.cmpge(-self.usable).all() && max.cmple(self.usable).all()
     }

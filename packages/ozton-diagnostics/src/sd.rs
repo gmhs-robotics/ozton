@@ -7,9 +7,9 @@ use std::{
     sync::Mutex,
 };
 
-pub const PATH: &str = "OZTON.LOG";
+pub const PATH: &str = "OZTON3.LOG";
 const BUFFER_BYTES: usize = 512 * 1024;
-const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=2,level=INFO\n";
+const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=3,level=INFO\n";
 
 #[derive(Default)]
 struct Pending {
@@ -17,6 +17,7 @@ struct Pending {
     dropped_rows: u64,
     uncertain_bytes: usize,
     session_started: bool,
+    schemas: Vec<String>,
     #[cfg(target_os = "vexos")]
     probed: bool,
 }
@@ -26,6 +27,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     dropped_rows: 0,
     uncertain_bytes: 0,
     session_started: false,
+    schemas: Vec::new(),
     #[cfg(target_os = "vexos")]
     probed: false,
 });
@@ -96,8 +98,34 @@ pub fn flush() -> io::Result<()> {
 
 impl Pending {
     fn push(&mut self, row: fmt::Arguments<'_>) {
+        // Schema dictionary is scoped to a flush batch. A decoder can recover
+        // after partial writes without relying on earlier dictionary records.
+        let text = row.to_string();
+        let mut parts = text.split(',');
+        let prefix = parts.next();
+        let kind = parts.next();
+        let fields: Option<Vec<_>> = parts.map(|part| part.split_once('=')).collect();
         let start = self.bytes.len();
-        if writeln!(BatchWriter(&mut self.bytes), "{row}").is_err() {
+        let result = if let (Some("DBG"), Some(kind), Some(fields)) = (prefix, kind, fields) {
+            if kind == "EVENT" || kind == "SD_GAP" || kind == "SESSION" {
+                writeln!(BatchWriter(&mut self.bytes), "{text}")
+            } else {
+                let mut schema = kind.to_owned();
+                for (key, _) in &fields { schema.push(','); schema.push_str(key); }
+                let id = self.schemas.iter().position(|old| *old == schema);
+                let index = id.unwrap_or(self.schemas.len());
+                let mut output = BatchWriter(&mut self.bytes);
+                let encoded = (|| -> fmt::Result {
+                    if id.is_none() { writeln!(output, "S,{index},{schema}")?; }
+                    write!(output, "R,{index}")?;
+                    for (_, value) in &fields { write!(output, ",{value}")?; }
+                    writeln!(output)
+                })();
+                if encoded.is_ok() && id.is_none() { self.schemas.push(schema); }
+                encoded
+            }
+        } else { writeln!(BatchWriter(&mut self.bytes), "{text}") };
+        if result.is_err() {
             self.bytes.truncate(start);
             self.dropped_rows = self.dropped_rows.saturating_add(1);
         }
@@ -128,6 +156,7 @@ impl Pending {
             self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.bytes.len());
         }
         self.bytes.clear();
+        self.schemas.clear();
         result
     }
 }
@@ -162,7 +191,7 @@ mod tests {
         pending.append(&mut output).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "partial previous row\nDBG,SESSION,t_ms=0,schema=2,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
+            "partial previous row\nDBG,SESSION,t_ms=0,schema=3,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
         );
     }
 
@@ -180,6 +209,7 @@ mod tests {
         let output = String::from_utf8(output).unwrap();
         assert_eq!(output.matches("DBG,SESSION").count(), 1);
         assert!(output.contains("DBG,SD_GAP"));
-        assert!(output.contains("DBG,TEST,t_ms=2"));
+        assert!(output.contains("S,0,TEST,t_ms,level"));
+        assert!(output.contains("R,0,2,TRACE"));
     }
 }

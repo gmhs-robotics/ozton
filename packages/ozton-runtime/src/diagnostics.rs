@@ -18,7 +18,7 @@ pub use background::{drivetrain_reporter, start_diagnostics};
 mod sd;
 pub use sd::{flush_sd_logging, start_sd_logging};
 
-pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(20);
+pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
 /// Legacy interval for callers configured before periodic rows became SD-only.
 pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 
