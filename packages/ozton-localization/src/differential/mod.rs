@@ -130,10 +130,6 @@ impl DifferentialLocalization {
         true
     }
 
-    pub fn set_mcl_correction_gain(&mut self, gain: f64) -> bool {
-        self.localizer.set_mcl_correction_gain(gain)
-    }
-
     pub fn request_distance_reset(&mut self) {
         self.last_reset = DistanceReset::Idle;
         if let Ok(Some(feedback)) = &mut self.feedback {

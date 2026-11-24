@@ -1,6 +1,9 @@
 //! Bounded Monte Carlo localization with a robust range beam model.
 
 mod random;
+mod sensor;
+
+pub use sensor::BeamModel;
 use alloc::vec::Vec;
 
 use glam::{DVec2, DVec3};
@@ -22,6 +25,7 @@ pub struct ParticleConfig {
     pub motion_noise: DVec3,
     pub range_sigma: Length,
     pub outlier_weight: f64,
+    pub beam_model: BeamModel,
     /// Maximum difference between a range reading and the predicted wall distance.
     pub max_range_residual: Option<Length>,
     /// Defer live range corrections above this yaw speed while still predicting pose.
@@ -42,12 +46,25 @@ impl ParticleConfig {
         motion_noise: DVec3::new(0.04, 0.04, 0.03),
         range_sigma: crate::qty!(0.025 m),
         outlier_weight: 0.08,
+        beam_model: BeamModel::DEFAULT,
         max_range_residual: None,
         max_correction_yaw_rate: None,
     };
 
     pub const fn new() -> Self {
         Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_particles(mut self, count: usize) -> Self {
+        self.count = count;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_beam_model(mut self, model: BeamModel) -> Self {
+        self.beam_model = model;
+        self
     }
 
     #[must_use]
@@ -132,6 +149,7 @@ impl ParticleFilter {
             || !config.range_sigma.value.is_finite()
             || config.range_sigma.value <= 0.0
             || !(0.001..=0.9).contains(&config.outlier_weight)
+            || !config.beam_model.is_valid()
             || [
                 config.max_range_residual.map(|limit| limit.value),
                 config.max_correction_yaw_rate.map(|limit| limit.value),
@@ -250,11 +268,6 @@ impl ParticleFilter {
         {
             return None;
         }
-        let mixture = self.config.outlier_weight;
-        // Thrun et al., Probabilistic Robotics, beam range finder model:
-        // Gaussian hit, truncated exponential short return, uniform random.
-        // Finite range readings only; no-return packets are excluded upstream.
-        let outlier_scale = mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
         prepare_faces(map, &mut self.ray_faces);
         let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
         if fixed_rotation.is_none() {
@@ -285,19 +298,12 @@ impl ParticleFilter {
             {
                 continue;
             }
-            let inverse_sigma = 1.0 / sigma;
-            let span = beam.max_range.value - minimum;
-            // Split the existing outlier prior equally between random and
-            // short returns; use one exponential decay length per sensor span.
-            let random_likelihood = (0.5 * outlier_scale * sigma / span).max(1e-12);
-            let short_numerator =
-                random_likelihood * libm::exp(-(beam.distance.value - minimum) / span);
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
             let mut modeled_weight = 0.0;
             let mut evidence = 0.0;
-            let mut compatible = false;
+            let mut hit_evidence = 0.0;
             for (index, particle) in self.particles.iter().enumerate() {
                 let (offset, direction) = fixed_ray.unwrap_or_else(|| {
                     let r = orientations[index];
@@ -312,26 +318,26 @@ impl ParticleFilter {
                     beam.max_range.value,
                 );
                 likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
-                    let residual = (beam.distance.value - distance) * inverse_sigma;
-                    // 99.73% one-dimensional Gaussian innovation region.
-                    // If no prior particle supports a hit, an outlier cannot
-                    // provide a meaningful local pose correction.
-                    compatible |= residual.abs() <= 3.0;
-                    let short = if beam.distance.value < distance {
-                        short_numerator / (-libm::expm1(-(distance - minimum) / span))
-                    } else {
-                        0.0
-                    };
-                    let likelihood =
-                        libm::exp(-0.5 * residual * residual) + random_likelihood + short;
+                    let (hit, likelihood) = self.config.beam_model.likelihood(
+                        beam.distance.value,
+                        distance,
+                        minimum,
+                        beam.max_range.value,
+                        sigma,
+                        self.config.outlier_weight,
+                    );
                     modeled_weight += particle.weight;
+                    hit_evidence += particle.weight * hit;
                     evidence += particle.weight * likelihood;
                     likelihood
                 } else {
                     f64::NAN
                 };
             }
-            if !compatible || modeled_weight <= 0.0 || evidence <= 0.0 {
+            if modeled_weight <= 0.0
+                || evidence <= 0.0
+                || hit_evidence < evidence * self.config.beam_model.minimum_hit_probability
+            {
                 continue;
             }
             // Marginalize unknown geometry: a missing prediction receives

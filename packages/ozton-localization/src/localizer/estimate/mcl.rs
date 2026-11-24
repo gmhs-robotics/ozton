@@ -19,7 +19,6 @@ pub struct Mcl {
     candidate: ParticleFilter,
     config: ParticleConfig,
     yaw_rate: f64,
-    correction_gain: f64,
 }
 
 impl Mcl {
@@ -31,18 +30,7 @@ impl Mcl {
             candidate,
             config,
             yaw_rate: 0.0,
-            correction_gain: 1.0,
         })
-    }
-}
-
-impl Mcl {
-    pub fn set_correction_gain(&mut self, gain: f64) -> bool {
-        if !(0.0..=1.0).contains(&gain) {
-            return false;
-        }
-        self.correction_gain = gain;
-        true
     }
 }
 
@@ -104,42 +92,39 @@ impl PoseEstimator for Mcl {
             let Some(distance) = report.calibrated_distance else {
                 continue;
             };
-            let hit = match report.constraint {
-                Ok(constraint) => constraint.hit,
-                // Edge and incidence gates protect the linearized wall fit, not
-                // the nonlinear particle likelihood.
-                Err(Rejection::NearEdge | Rejection::Grazing) => {
-                    let Some(hit) = cast_masked(predicted, sensor.mount, map, sensor.surface_mask)
-                    else {
-                        continue;
-                    };
-                    hit
-                }
+            // A particle determines its own association. The central pose's
+            // missed ray or edge rejection does not invalidate a fresh sample.
+            match report.constraint {
+                Ok(_) | Err(Rejection::NearEdge | Rejection::Grazing) => {}
+                Err(Rejection::NoSurface) if sensor.surface.is_none() => {}
                 Err(_) => continue,
-            };
-            if self
-                .config
-                .max_range_residual
-                .is_some_and(|limit| (distance.value - hit.distance).abs() > limit.value)
-            {
-                continue;
             }
-            let range = ozton_math::qty!((distance.value.max(hit.distance)) m);
-            let range_sigma = sensor.range_sigma(range).max(self.config.range_sigma.value);
+            if let Some(limit) = self.config.max_range_residual {
+                let Some(hit) = cast_masked(predicted, sensor.mount, map, sensor.surface_mask)
+                else {
+                    continue;
+                };
+                if (distance.value - hit.distance).abs() > limit.value {
+                    continue;
+                }
+            }
+            let range_sigma = sensor.range_sigma(distance).max(self.config.range_sigma.value);
             let gate = sensor.effective_gate();
             qualities[count] = BeamQuality {
                 min_range: gate.min_range,
                 sigma: ozton_math::qty!((range_sigma) m),
             };
             if let Ok(constraint) = report.constraint {
-                constraints[constraint_count] = (constraint, range_sigma * hit.incidence.abs());
+                constraints[constraint_count] = (constraint, range_sigma * constraint.hit.incidence.abs());
                 constraint_count += 1;
             }
             beams[count] = Beam {
                 mount: sensor.mount,
                 distance,
                 max_range: gate.max_range,
-                surface_mask: sensor.surface_mask,
+                surface_mask: sensor.surface.map_or(sensor.surface_mask, |surface| {
+                    sensor.surface_mask & 1u128.checked_shl(surface as u32).unwrap_or(0)
+                }),
             };
             count += 1;
         }
@@ -189,11 +174,7 @@ impl PoseEstimator for Mcl {
         let change = estimate.pose.position - predicted.position;
         let deviation = estimate.standard_deviation;
         let correction = change;
-        let gain = self.correction_gain;
-        let pose = Pose {
-            position: predicted.position + correction * gain,
-            ..predicted
-        };
+        let pose = estimate.pose;
         if !pose.is_finite() {
             log_row!(
                 Trace,
@@ -205,7 +186,7 @@ impl PoseEstimator for Mcl {
         log_row!(
             Trace,
             "MCL",
-            "status=estimated,beams={count},rank={rank},particle_x_m={:.5},particle_y_m={:.5},particle_heading_rad={:.5},sigma_x_m={:.5},sigma_y_m={:.5},gain={gain:.5},dx_m={:.5},dy_m={:.5},candidate_x_m={:.5},candidate_y_m={:.5}",
+            "status=estimated,beams={count},rank={rank},particle_x_m={:.5},particle_y_m={:.5},particle_heading_rad={:.5},sigma_x_m={:.5},sigma_y_m={:.5},gain=1.00000,dx_m={:.5},dy_m={:.5},candidate_x_m={:.5},candidate_y_m={:.5}",
             estimate.pose.position.x,
             estimate.pose.position.y,
             estimate.pose.heading.value,
