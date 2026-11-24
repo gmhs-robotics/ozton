@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use ozton_localization::Feedback;
 use ozton_math::{
-    geometry::{Pose, wrap_heading},
+    geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 use ozton_runtime::{
@@ -17,7 +17,7 @@ use crate::basic::differential::{
 };
 
 pub(super) const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
-const STALL_TIME: Duration = Duration::from_millis(800);
+const STALL_TIME: Duration = Duration::from_millis(2500);
 
 pub(super) struct PoseSession<'a, D: PoseDrive> {
     pub(super) drive: &'a mut D,
@@ -150,7 +150,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
-            if complete || wheels == [0.0; 2] {
+            if complete {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
                 self.drive
@@ -173,7 +173,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if complete {
                 return Ok(());
             }
-            if progress.stalled(feedback.pose, wheels, dt) {
+            if progress.stalled(target, feedback, ready, dt) {
                 return Err(PoseMotionError::NoProgress);
             }
         }
@@ -245,21 +245,39 @@ fn valid_feedback(feedback: Feedback) -> bool {
 
 #[derive(Default)]
 struct Progress {
-    anchor: Option<Pose>,
+    start: Option<Feedback>,
+    best: Option<f64>,
     elapsed: Duration,
 }
 
 impl Progress {
-    fn stalled(&mut self, pose: Pose, speeds: [f64; 2], dt: Duration) -> bool {
-        if speeds.iter().all(|speed| speed.abs() <= 0.08) {
-            *self = Self::default();
-            return false;
-        }
-        let anchor = *self.anchor.get_or_insert(pose);
-        if pose.position.distance(anchor.position) > 0.008
-            || wrap_heading(pose.heading - anchor.heading).value.abs() > 0.025
-        {
-            self.anchor = Some(pose);
+    fn stalled(&mut self, target: DifferentialTarget, feedback: Feedback, ready: bool, dt: Duration) -> bool {
+        let start = *self.start.get_or_insert(feedback);
+        let pose = feedback.pose;
+        let error = match target {
+            DifferentialTarget::DriveToPoint { target, .. } => pose.position.distance(target),
+            DifferentialTarget::Turn { heading } => wrap_heading(heading - pose.heading).value.abs(),
+            DifferentialTarget::TurnToPoint { target } => {
+                let delta = target - pose.position;
+                if delta.length() <= 1e-9 { 0.0 } else {
+                    wrap_heading(ozton_math::geometry::bearing(delta) - pose.heading).value.abs()
+                }
+            }
+            DifferentialTarget::DriveDistance { meters, .. } =>
+                (meters.value - (feedback.forward_travel.value - start.forward_travel.value)).abs(),
+            DifferentialTarget::DriveArc { radius, sweep, .. } => {
+                let remaining = (radius.value * sweep.value.abs()
+                    - (feedback.forward_travel.value - start.forward_travel.value)).abs();
+                remaining + radius.value * wrap_heading(start.pose.heading + sweep - pose.heading).value.abs()
+            }
+        };
+        let improvement = match target {
+            DifferentialTarget::Turn { .. } | DifferentialTarget::TurnToPoint { .. } => 0.01,
+            _ => 0.002,
+        };
+        let best = self.best.get_or_insert(error);
+        if ready || error < *best - improvement {
+            *best = error;
             self.elapsed = Duration::ZERO;
         } else {
             self.elapsed += dt;

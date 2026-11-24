@@ -41,12 +41,8 @@ impl MotionPid {
     }
 
     pub fn forward(&mut self, error: f64, measured_rate: f64, limit: f64, dt: Duration) -> f64 {
-        if limit <= 0.0 {
-            self.forward.reset();
-            return 0.0;
-        }
         self.forward
-            .set_output_limit(Some(limit.min(self.forward_limit)));
+            .set_output_limit(Some(limit.max(0.0).min(self.forward_limit)));
         let output = self
             .forward
             .update_with_rate(error, -measured_rate, dt, RATE_FILTER, 0.0);

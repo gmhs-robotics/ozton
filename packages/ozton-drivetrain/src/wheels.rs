@@ -3,7 +3,7 @@ use core::{error::Error, fmt};
 
 use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::odometric::{SharedMotors, Wheels};
-use vexide::smart::{PortError, motor::BrakeMode};
+use vexide::smart::PortError;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelSpeedError {
@@ -45,15 +45,13 @@ pub(crate) fn drive_speed(
     let mut result = Ok(());
     for (group, (motors, speed)) in motors.iter_mut().zip(speeds).enumerate() {
         for (index, motor) in motors.borrow_mut().iter_mut().enumerate() {
-            let written = if speed.value == 0.0 {
-                motor.brake(BrakeMode::Coast)
-            } else {
-                wheels
-                    .meters_per_turn(group, index, motor)
-                    .and_then(|travel| {
-                        motor.set_velocity((speed.value * 60.0 / travel).round() as i32)
-                    })
-            };
+            // A velocity setpoint (including zero) is not a request to coast.
+            // Explicit stop_now() remains responsible for the resting brake mode.
+            let written = wheels
+                .meters_per_turn(group, index, motor)
+                .and_then(|travel| {
+                    motor.set_velocity((speed.value * 60.0 / travel).round() as i32)
+                });
             result = result.and(written);
         }
     }

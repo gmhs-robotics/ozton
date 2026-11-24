@@ -128,6 +128,8 @@ pub struct DifferentialFeedback {
     pub pid: MotionPid,
     start_travel: Option<f64>,
     start_heading: Option<Angle>,
+    point_backing: Option<bool>,
+    point_aligning: bool,
 }
 
 impl DifferentialFeedback {
@@ -168,7 +170,15 @@ impl DifferentialFeedback {
         let forward_rate = feedback.forward_velocity.value;
         let yaw_rate = feedback.angular_velocity.value;
         let yaw_limit = 2.0 * options.maximum_wheel_speed.value / options.track_width.value;
-        let angular = |pid: &mut MotionPid, error| pid.yaw(error, yaw_rate, 0.0, yaw_limit, dt);
+        // Leave braking authority even inside the arrival band.
+        // Conservative default deceleration in SI units; characterize per robot.
+        let stopping_limit = |distance: f64, maximum: f64| {
+            (2.0 * 2.0 * distance.abs()).sqrt().max(0.12).min(maximum)
+        };
+        let angular = |pid: &mut MotionPid, error: f64| {
+            let limit = (2.0 * 8.0 * error.abs()).sqrt().max(0.5).min(yaw_limit);
+            pid.yaw(error, yaw_rate, 0.0, limit, dt)
+        };
         match &mut target {
             DifferentialTarget::Turn { heading } => {
                 let error = error_at(*heading);
@@ -213,33 +223,53 @@ impl DifferentialFeedback {
                 let delta = *target - feedback.pose.position;
                 let distance = delta.length();
                 let reached = distance <= options.position_tolerance.value;
+                if reached {
+                    if slow {
+                        return ([0.0; 2], true);
+                    }
+                    return (
+                        drive(
+                            self.pid.forward(0.0, forward_rate, maximum_speed.value, dt),
+                            angular(&mut self.pid, 0.0),
+                        ),
+                        false,
+                    );
+                }
                 let bearing = ozton_math::geometry::bearing(delta);
                 let opposite = ozton_math::angle!(180 deg);
-                let mut backing = *reverse;
-                let mut heading = error_at(if backing { bearing + opposite } else { bearing });
-                // A small overshoot can be corrected by backing up along the approach.
-                if distance <= 3.0 * options.position_tolerance.value
-                    && heading.abs() > ozton_math::angle!(135 deg).value
+                let backing = self.point_backing.get_or_insert(*reverse);
+                let mut heading = error_at(if *backing { bearing + opposite } else { bearing });
+                // Latch travel direction. Near the goal, allow a deliberate reversal
+                // only after nearly stopping, with a wide hysteresis band.
+                if distance <= 4.0 * options.position_tolerance.value
+                    && heading.abs() > ozton_math::angle!(125 deg).value
+                    && forward_rate.abs() <= 2.0 * options.speed_tolerance.value
+                    && yaw_rate.abs() <= 0.5
                 {
-                    backing = !backing;
-                    heading = error_at(if backing { bearing + opposite } else { bearing });
+                    *backing = !*backing;
+                    heading = error_at(if *backing { bearing + opposite } else { bearing });
+                    self.pid.reset();
+                    self.point_aligning = false;
                 }
-                let sign = if backing { -1.0 } else { 1.0 };
-                let limit = if reached {
-                    0.0
+                if self.point_aligning {
+                    self.point_aligning = heading.abs() > ozton_math::angle!(12 deg).value;
                 } else {
-                    // Give steering priority so the chassis cannot drive a sustained
-                    // arc around the goal while it is still lining up.
-                    let alignment =
-                        (1.0 - heading.abs() / ozton_math::angle!(25 deg).value).clamp(0.0, 1.0);
-                    maximum_speed.value * alignment
-                };
-                let linear = self.pid.forward(distance * sign, forward_rate, limit, dt);
-                let turn = if reached {
-                    0.0
+                    self.point_aligning = heading.abs() > ozton_math::angle!(35 deg).value;
+                }
+                let sign = if *backing { -1.0 } else { 1.0 };
+                let linear = if self.point_aligning {
+                    // Damp residual translation instead of releasing the motors.
+                    self.pid.forward(0.0, forward_rate, maximum_speed.value, dt)
                 } else {
-                    angular(&mut self.pid, heading)
+                    let alignment = heading.cos().max(0.0);
+                    self.pid.forward(
+                        sign * distance * alignment,
+                        forward_rate,
+                        stopping_limit(distance, maximum_speed.value),
+                        dt,
+                    )
                 };
+                let turn = angular(&mut self.pid, heading);
                 (drive(linear, turn), reached && slow)
             }
             DifferentialTarget::DriveDistance {
@@ -257,12 +287,13 @@ impl DifferentialFeedback {
                     }));
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
-                let limit = if reached || heading.abs() > 0.35 {
+                let limit = stopping_limit(error, maximum_speed.value);
+                let translation_error = if reached || heading.abs() > 0.35 { 0.0 } else { error };
+                let speed = if reached && facing && slow {
                     0.0
                 } else {
-                    maximum_speed.value
+                    self.pid.forward(translation_error, forward_rate, limit, dt)
                 };
-                let speed = self.pid.forward(error, forward_rate, limit, dt);
                 let turning = if facing && reached && slow {
                     0.0
                 } else {
@@ -295,12 +326,12 @@ impl DifferentialFeedback {
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let wheel_limit = options.maximum_wheel_speed.value
                     / (1.0 + options.track_width.value * curvature.abs() * 0.5);
-                let limit = if reached {
+                let limit = stopping_limit(remaining, maximum_speed.value.min(wheel_limit));
+                let speed = if reached && facing && slow {
                     0.0
                 } else {
-                    maximum_speed.value.min(wheel_limit)
+                    self.pid.forward(if reached { 0.0 } else { remaining }, forward_rate, limit, dt)
                 };
-                let speed = self.pid.forward(remaining, forward_rate, limit, dt);
                 let feedforward = speed * curvature;
                 let turning = if reached && facing && slow {
                     0.0
