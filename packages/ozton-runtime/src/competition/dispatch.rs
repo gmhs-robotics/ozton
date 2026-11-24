@@ -36,9 +36,7 @@ where
         )
         .await;
         match result {
-            None => {
-                let _ = self.stop();
-            }
+            None => {}
             Some(Err(error)) => {
                 if let Err(_stop) = self.stop() {
                     crate::log_event!(
@@ -70,6 +68,10 @@ where
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
         self.autonomous.last_driver_fault = None;
+        self.assists.reset_drive_assists();
+        self.driver_elapsed = Duration::ZERO;
+        self.driver_wrote = false;
+        self.drivetrain.take_driver_output();
         P::mode_changed(self, mode);
     }
 

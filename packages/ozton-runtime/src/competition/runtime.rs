@@ -15,7 +15,8 @@ pub trait OztonCompete: Sized + 'static {
 
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
-    /// Cancel application work and stop outputs at a mode boundary or on failure.
+    /// Stop outputs after disable, connection changes, completion or failure.
+    /// A direct enabled-mode handoff does not call this hook.
     fn stop(&mut self) -> Result<(), Self::Error>;
 
     const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[];
@@ -27,6 +28,9 @@ pub trait OztonCompete: Sized + 'static {
 
     /// Run for one driver activation. The application owns its loop and yields between commands.
     async fn driver(&mut self) -> Result<(), Self::Error>;
+
+    /// Reset application-owned transient state without writing motor outputs.
+    fn mode_changed(&mut self, _mode: CompetitionMode) {}
 }
 
 /// Runs competition lifecycle and owns its selector.
@@ -124,15 +128,18 @@ impl<R: OztonCompete> CompetitionRobot for Runtime<R> {
         if let Some(localization) = &self.localization {
             localization.mode_changed(mode);
         }
+        self.robot.mode_changed(mode);
     }
 }
 
 impl<R: OztonCompete> Compete for Runtime<R> {
     async fn connected(&mut self) {
+        super::activation::advance();
         session::CompetitionSession(self).stop();
     }
 
     async fn disconnected(&mut self) {
+        super::activation::advance();
         session::CompetitionSession(self).stop();
     }
 

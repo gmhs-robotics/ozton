@@ -42,8 +42,8 @@ fn application_driver_runs_once_per_activation_with_fault_cleanup() {
             let robot = &runtime.robot;
             assert_eq!(robot.driver_entries, activation);
             assert_eq!(
-                &robot.drive.writes[(activation - 1) * 3..],
-                ["stop drive", "drive", "stop drive"]
+                &robot.drive.writes[(activation - 1) * 2..],
+                ["drive", "stop drive"]
             );
         }
     });

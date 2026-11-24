@@ -44,7 +44,13 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     }
 
     fn enter(&mut self, mode: CompetitionMode) {
-        self.stop();
+        super::activation::advance();
+        self.0.set_autonomous_start(None);
+        // Enabled-mode handoff cancels execution, not latched device commands.
+        // An actual disabled activation still explicitly clears outputs.
+        if mode == CompetitionMode::Disabled {
+            self.stop();
+        }
         crate::log_event!(Info, "competition", "Entered {mode:?} mode");
         self.0.menu().poll(mode == CompetitionMode::Disabled);
         self.0.mode_changed(mode);
@@ -90,7 +96,6 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
         self.enter(CompetitionMode::Disabled);
         let _localization = self.0.start_localization(CompetitionMode::Disabled);
         self.0.idle_mode(CompetitionMode::Disabled).await;
-        self.stop();
     }
 
     pub(super) async fn driver(&mut self) {
@@ -98,8 +103,11 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
         self.0.menu().status(DRIVER_STATUS);
         let _localization = self.0.start_localization(CompetitionMode::Driver);
         let result = self.0.driver_mode().await;
-        self.stop();
+        if competition::mode() != CompetitionMode::Driver {
+            return;
+        }
         if let Err(error) = result {
+            self.stop();
             self.0.driver_failed(error);
         }
     }
@@ -114,47 +122,37 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
                 .menu()
                 .status(&format!("Autonomous: {}", route.label()));
             crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label());
-            let result = match robot.stop() {
-                Ok(()) => {
-                    robot.set_autonomous_start(Some(Instant::now()));
-                    while_in_mode(
-                        route.run(robot),
-                        CompetitionMode::Autonomous,
-                        R::CONTROL_PERIOD,
-                    )
-                    .await
-                }
-                Err(error) => Some(Err(error)),
-            };
+            robot.set_autonomous_start(Some(Instant::now()));
+            let result = while_in_mode(route.run(robot), mode, R::CONTROL_PERIOD).await;
             robot.set_autonomous_start(None);
-            let stopped = robot.stop();
-            match (result, stopped) {
-                (Some(Ok(())), Ok(())) => {
-                    robot.menu().status("Autonomous complete");
-                    crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label());
+            if competition::mode() != mode || result.is_none() {
+                // Vexide drops the old callback on a transition. Do not issue
+                // motor commands or update the next mode's status on exit.
+                return;
+            }
+            match result {
+                Some(Ok(())) => {
+                    match robot.stop() {
+                        Ok(()) => {
+                            robot.menu().status("Autonomous complete");
+                            crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label());
+                        }
+                        Err(error) => robot.route_failed(route, error),
+                    }
                 }
-                (None, Ok(())) => {
-                    robot.menu().status("Autonomous cancelled");
-                    crate::log_event!(
-                        Warn,
-                        "autonomous",
-                        "Route {:?} cancelled after mode change",
-                        route.label()
-                    );
-                }
-                (Some(Err(error)), Err(stop)) => {
+                Some(Err(error)) => {
+                    let stopped = robot.stop();
                     robot.route_failed(route, error);
-                    robot.route_failed(route, stop);
+                    if let Err(error) = stopped {
+                        robot.route_failed(route, error);
+                    }
                 }
-                (Some(Err(error)), Ok(())) | (_, Err(error)) => {
-                    robot.route_failed(route, error);
-                }
+                None => return,
             }
         } else {
             robot.menu().status("Autonomous disabled");
         }
         self.0.idle_mode(mode).await;
-        self.stop();
     }
 }
 
@@ -163,10 +161,12 @@ where
     Self: CompetitionRobot,
 {
     async fn connected(&mut self) {
+        super::activation::advance();
         CompetitionSession(self).stop();
     }
 
     async fn disconnected(&mut self) {
+        super::activation::advance();
         CompetitionSession(self).stop();
     }
 
@@ -188,15 +188,16 @@ pub(super) async fn while_in_mode<T>(
     mode: CompetitionMode,
     period: Duration,
 ) -> Option<T> {
+    let activation = super::activation::current();
     let mut route = pin!(route);
     let interval = period.clamp(Duration::from_millis(1), CONTROL_PERIOD);
     let mut mode_check = sleep(interval);
     poll_fn(|cx| {
-        if competition::mode() != mode {
+        if !super::activation::is_current(activation, mode) {
             return Poll::Ready(None);
         }
         if let Poll::Ready(result) = route.as_mut().poll(cx) {
-            return Poll::Ready(Some(result));
+            return Poll::Ready(super::activation::is_current(activation, mode).then_some(result));
         }
         if Pin::new(&mut mode_check).poll(cx).is_ready() {
             mode_check = sleep(interval);

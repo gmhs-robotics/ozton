@@ -2,8 +2,8 @@
 
 use std::{
     cell::RefCell,
-    future::Future,
-    pin::Pin,
+    future::{Future, poll_fn},
+    pin::{Pin, pin},
     rc::Weak,
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
@@ -15,11 +15,23 @@ use vexide::{
     time::sleep,
 };
 
-use crate::competition::Mechanism;
+use crate::competition::{Mechanism, activation};
 
 /// Owns one fallible background task. Check it from the owning component's tick
 /// so errors reach the competition runtime through the component's result.
-pub struct TaskSlot<E>(Option<Task<Result<(), E>>>);
+pub struct TaskSlot<E>(Option<ScopedTask<E>>);
+
+struct ScopedTask<E> {
+    task: Task<Result<(), E>>,
+    activation: u32,
+    mode: CompetitionMode,
+}
+
+impl<E> ScopedTask<E> {
+    fn active(&self) -> bool {
+        activation::is_current(self.activation, self.mode)
+    }
+}
 
 impl<E> Default for TaskSlot<E> {
     fn default() -> Self {
@@ -30,7 +42,7 @@ impl<E> Default for TaskSlot<E> {
 impl<E> TaskSlot<E> {
     /// Includes a finished task whose result has yet to be collected.
     pub fn is_occupied(&self) -> bool {
-        self.0.is_some()
+        self.0.as_ref().is_some_and(ScopedTask::active)
     }
 
     /// Spawn fallible work when the slot is empty.
@@ -38,7 +50,24 @@ impl<E> TaskSlot<E> {
     where
         E: 'static,
     {
-        self.0.get_or_insert_with(|| spawn(work));
+        if self.0.as_ref().is_some_and(|task| !task.active()) {
+            self.0 = None;
+        }
+        self.0.get_or_insert_with(|| {
+            let activation = activation::current();
+            let mode = competition::mode();
+            let task = spawn(async move {
+                let mut work = pin!(work);
+                poll_fn(|cx| {
+                    if !activation::is_current(activation, mode) {
+                        return Poll::Ready(Ok(()));
+                    }
+                    work.as_mut().poll(cx)
+                })
+                .await
+            });
+            ScopedTask { task, activation, mode }
+        });
     }
 
     /// Keep a shared mechanism ticking while a route borrows other hardware.
@@ -55,13 +84,15 @@ impl<E> TaskSlot<E> {
             let mut previous = Instant::now();
             loop {
                 sleep(period).await;
+                if competition::mode() != mode {
+                    return Ok(());
+                }
                 let Some(mechanism) = mechanism.upgrade() else {
                     return Ok(());
                 };
-                let mut mechanism = mechanism.borrow_mut();
-                if competition::mode() != mode {
-                    return mechanism.stop();
-                }
+                let Ok(mut mechanism) = mechanism.try_borrow_mut() else {
+                    continue;
+                };
                 let now = Instant::now();
                 let elapsed = now.saturating_duration_since(std::mem::replace(&mut previous, now));
                 if let Err(error) = mechanism.update(mode, elapsed) {
@@ -80,7 +111,11 @@ impl<E> TaskSlot<E> {
 
     /// Check without waiting. A completed result is delivered only once.
     pub fn check(&mut self) -> Result<(), E> {
-        let Some(task) = self.0.as_mut().filter(|task| task.is_finished()) else {
+        if self.0.as_ref().is_some_and(|task| !task.active()) {
+            self.0 = None;
+            return Ok(());
+        }
+        let Some(task) = self.0.as_mut().map(|task| &mut task.task).filter(|task| task.is_finished()) else {
             return Ok(());
         };
         let mut context = Context::from_waker(Waker::noop());

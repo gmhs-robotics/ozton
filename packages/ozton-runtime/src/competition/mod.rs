@@ -13,6 +13,7 @@ use crate::{
     diagnostics::{ComponentReport, Report, Sample, Sampler, Telemetry},
 };
 
+pub(crate) mod activation;
 mod dispatch;
 mod drive;
 pub use drive::ProgramDrive;
