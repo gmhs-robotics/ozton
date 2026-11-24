@@ -1,5 +1,7 @@
 //! Follower and settling state for a running command.
-use ozton_motion::basic::differential::{DifferentialFeedback, DifferentialTarget, MotionPid};
+use ozton_motion::basic::differential::{
+    DifferentialFeedback, DifferentialTarget, MotionPid, TerminalPose,
+};
 use ozton_runtime::log_row;
 
 use super::*;
@@ -17,7 +19,7 @@ pub(in crate::autonomous) struct State<'path> {
     reference_time: f64,
     terminal_distance: f64,
     terminal: bool,
-    terminal_turn: bool,
+    terminal_pose: TerminalPose,
 }
 
 pub(in crate::autonomous) struct Step {
@@ -28,6 +30,7 @@ pub(in crate::autonomous) struct Step {
     pub ready: bool,
     pub objective: Option<f64>,
     pub terminal: bool,
+    pub phase_changed: bool,
 }
 
 trait WithSettle {
@@ -110,6 +113,7 @@ impl<'path> State<'path> {
         let mut fresh_alignment_range = false;
         let mut lost = false;
         let mut objective = None;
+        let mut phase_changed = false;
         let (wheels, ready, settle) = match command {
             Command::Follow {
                 path,
@@ -161,23 +165,17 @@ impl<'path> State<'path> {
                 path_options.maximum_wheel_speed =
                     options.maximum_wheel_speed.min(path.limits().wheel_speed);
                 let (wheels, terminal_ready) = if self.terminal {
-                    let turn = distance <= options.position_tolerance.value;
-                    if turn != self.terminal_turn {
-                        differential.pid.reset();
-                        self.terminal_turn = turn;
-                    }
-                    let target = if turn {
-                        DifferentialTarget::Turn { heading }
-                    } else {
-                        DifferentialTarget::DriveToPoint {
-                            target: end.pose.position,
-                            reverse: *reverse,
-                            maximum_speed: path_options.maximum_wheel_speed,
-                        }
-                    };
-                    let (wheels, settled) = differential.step(target, feedback, dt, path_options);
-                    objective = Some(distance + options.track_width.value * heading_error * 0.5);
-                    (wheels, settled && turn && ready)
+                    let (wheels, settled, error, changed) = self.terminal_pose.step(
+                        differential,
+                        Pose::new(end.pose.position, heading),
+                        *reverse,
+                        feedback,
+                        dt,
+                        path_options,
+                    );
+                    objective = Some(error);
+                    phase_changed = changed;
+                    (wheels, settled && ready)
                 } else {
                     let desired = profiled::command(
                         *follower,
@@ -413,6 +411,7 @@ impl<'path> State<'path> {
             ready,
             objective,
             terminal: self.terminal,
+            phase_changed,
         }
     }
 

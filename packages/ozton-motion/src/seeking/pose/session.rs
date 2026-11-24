@@ -8,7 +8,9 @@ use ozton_math::{
 use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_row};
 
 use super::{PoseDrive, PoseMotionError};
-use crate::basic::differential::{DifferentialFeedback, DifferentialTarget, DriveOptions};
+use crate::basic::differential::{
+    DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
+};
 
 pub(super) struct PoseSession<'a, D: PoseDrive> {
     pub(super) drive: &'a mut D,
@@ -209,7 +211,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut settled = Duration::ZERO;
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
-        let mut terminal_turn = false;
+        let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
         let end = path.end();
         let mut options = self.options;
@@ -304,28 +306,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 no_progress = Duration::ZERO;
                 controller.pid.reset();
             }
-            let (wheels, ready) = if terminal {
-                let turn = distance <= self.options.position_tolerance.value;
-                if turn != terminal_turn {
-                    controller.pid.reset();
-                    terminal_turn = turn;
-                }
-                let command = if turn {
-                    DifferentialTarget::Turn {
-                        heading: target.heading,
-                    }
-                } else {
-                    DifferentialTarget::DriveToPoint {
-                        target: target.position,
-                        reverse,
-                        maximum_speed: options.maximum_wheel_speed,
-                    }
-                };
-                let (wheels, ready) = controller.step(command, feedback, dt, options);
-                (
-                    wheels,
-                    ready && turn && heading_error <= self.options.heading_tolerance.value,
-                )
+            let (wheels, ready, objective, phase_changed) = if terminal {
+                terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
                 let desired = profiled::command(
                     follower,
@@ -334,13 +316,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     reverse,
                     self.options.position_tolerance,
                 );
-                controller.limit_step(desired, false, dt, options)
+                let (wheels, ready) = controller.limit_step(desired, false, dt, options);
+                (wheels, ready, end.distance - progress.distance(), false)
             };
-            let objective = if terminal {
-                distance + self.options.track_width.value * heading_error * 0.5
-            } else {
-                end.distance - progress.distance()
-            };
+            if phase_changed {
+                best = f64::INFINITY;
+                no_progress = Duration::ZERO;
+            }
             if ready || objective < best - 0.002 {
                 best = objective;
                 no_progress = Duration::ZERO;

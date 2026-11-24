@@ -557,7 +557,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         Err(error) => return Err(CommandError::Robot(error)),
                     }
                 }
-                if terminal_phase != step.terminal {
+                if terminal_phase != step.terminal || step.phase_changed {
                     terminal_phase = step.terminal;
                     best_objective = None;
                     progress_elapsed = Duration::ZERO;

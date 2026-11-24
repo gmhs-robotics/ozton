@@ -17,10 +17,12 @@ use ozton_math::{
 };
 
 mod pid;
+mod terminal;
 #[cfg(test)]
 mod tests;
 mod tuning;
 pub use pid::MotionPid;
+pub use terminal::TerminalPose;
 pub use tuning::DriveTuning;
 
 #[derive(Debug, Clone, Copy)]
