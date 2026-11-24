@@ -32,13 +32,14 @@ pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -
     // when it first polls it. An unpolled callback may already be obsolete.
     match CompetitionRuntime::<R, Infallible, _, _, _, _, _>::builder(robot)
         .on_connect(|robot| Box::pin(async { ControlFlow::Continue(robot.connected().await) }))
-        .on_disconnect(|robot| Box::pin(async { ControlFlow::Continue(robot.disconnected().await) }))
+        .on_disconnect(|robot| {
+            Box::pin(async { ControlFlow::Continue(robot.disconnected().await) })
+        })
         .while_disabled(|robot| mode_future(robot, CompetitionMode::Disabled))
         .while_autonomous(|robot| mode_future(robot, CompetitionMode::Autonomous))
         .while_driving(|robot| mode_future(robot, CompetitionMode::Driver))
         .finish()
-        .await
-    {}
+        .await {}
 }
 
 /// Vexide 0.9 polls the old callback once after observing a phase change.
@@ -251,7 +252,12 @@ where
     }
 
     async fn autonomous(&mut self) {
-        run_mode(self, CompetitionMode::Autonomous, competition::is_connected()).await;
+        run_mode(
+            self,
+            CompetitionMode::Autonomous,
+            competition::is_connected(),
+        )
+        .await;
     }
 }
 
@@ -286,7 +292,10 @@ pub(super) fn control_sleep(period: Duration, work: Duration) -> Duration {
 
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
-    use std::{cell::Cell, task::{Context, Waker}};
+    use std::{
+        cell::Cell,
+        task::{Context, Waker},
+    };
 
     use super::*;
 
@@ -325,7 +334,12 @@ mod tests {
     #[test]
     fn completed_mode_remains_quiescent_until_vexide_drops_it() {
         let entries = Cell::new(0);
-        let mut callback = pin!(hold_mode(async { entries.set(entries.get() + 1); }, || true));
+        let mut callback = pin!(hold_mode(
+            async {
+                entries.set(entries.get() + 1);
+            },
+            || true
+        ));
         let mut cx = Context::from_waker(Waker::noop());
         assert!(callback.as_mut().poll(&mut cx).is_pending());
         assert!(callback.as_mut().poll(&mut cx).is_pending());

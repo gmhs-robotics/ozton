@@ -1,6 +1,9 @@
 //! Run a drivetrain's localization at the robot's control period.
 
-use std::{cell::Cell, time::{Duration, Instant}};
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
 
 use ozton_drivetrain::{Drive, Drivetrain};
 use ozton_localization::differential::DifferentialLocalization;

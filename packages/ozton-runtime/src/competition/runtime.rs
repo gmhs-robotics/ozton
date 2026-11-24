@@ -144,15 +144,30 @@ impl<R: OztonCompete> Compete for Runtime<R> {
     }
 
     async fn disabled(&mut self) {
-        session::run_mode(self, CompetitionMode::Disabled, vexide::competition::is_connected()).await;
+        session::run_mode(
+            self,
+            CompetitionMode::Disabled,
+            vexide::competition::is_connected(),
+        )
+        .await;
     }
 
     async fn driver(&mut self) {
-        session::run_mode(self, CompetitionMode::Driver, vexide::competition::is_connected()).await;
+        session::run_mode(
+            self,
+            CompetitionMode::Driver,
+            vexide::competition::is_connected(),
+        )
+        .await;
     }
 
     async fn autonomous(&mut self) {
-        session::run_mode(self, CompetitionMode::Autonomous, vexide::competition::is_connected()).await;
+        session::run_mode(
+            self,
+            CompetitionMode::Autonomous,
+            vexide::competition::is_connected(),
+        )
+        .await;
     }
 }
 

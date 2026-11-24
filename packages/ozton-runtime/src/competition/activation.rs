@@ -76,8 +76,9 @@ impl Token {
 
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
-    use super::*;
     use vex_sdk_mock as _;
+
+    use super::*;
 
     #[test]
     fn dropping_activation_invalidates_its_tokens_before_reentry() {
