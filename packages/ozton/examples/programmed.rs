@@ -198,53 +198,55 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
 #[vexide::main]
 async fn main(p: Peripherals) -> std::process::ExitCode {
     ozton::run(async move {
-    // ANCHOR: prepare_path
-    let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
-        .map_err(|error| format!("Invalid path export: {error:?}"))?;
-    let straight_path = Rc::new(
-        Path::new(&points, CONFIG.path_limits())
-            .map_err(|error| format!("Invalid profiled path: {error:?}"))?,
-    );
-    // ANCHOR_END: prepare_path
-    let side = |first, second, direction| {
-        [
-            Motor::new(first, Gearset::Green, direction),
-            Motor::new(second, Gearset::Green, direction),
-        ]
-    };
-    let left = side(p.port_1, p.port_2, Direction::Reverse);
-    let right = side(p.port_3, p.port_4, Direction::Forward);
-    let tracking = TrackingSetup {
-        imu: Some(InertialSensor::new(p.port_7)),
-        map: vec![Surface::new(
-            ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
-            ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
-        )],
-        ranges: vec![DistanceTracker::at_mount(
-            DistanceSensor::new(p.port_8),
-            (FRONT_MOUNT, Angle::new::<radian>(0.0)),
-        )],
-        ..TrackingSetup::default()
-    };
-    let drive = CONFIG
-        .build(left, right, tracking)
-        .await
-        .map_err(|error| format!("Invalid chassis: {error:?}"))?;
-    let intake = Intake {
-        motor: Motor::new(p.port_5, Gearset::Green, Direction::Forward),
-        on: false,
-    };
-    // ANCHOR: assemble
-    Ok::<_, Box<dyn std::error::Error>>(RobotBuilder::new()
-        .with_controller(p.primary_controller)
-        .with_drivetrain(drive)
-        .with_mechanisms(Mechanisms { intake })
-        .with_program(Controls { straight_path })
-        .with_auton([route!("Straight", straight)])
-        .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
-        .with_diagnostics::<()>(Duration::from_millis(250))
-        .build())
-    // ANCHOR_END: assemble
+        // ANCHOR: prepare_path
+        let points = ozton_path_io::jerryio::parse(include_bytes!("paths/straight.txt"))
+            .map_err(|error| format!("Invalid path export: {error:?}"))?;
+        let straight_path = Rc::new(
+            Path::new(&points, CONFIG.path_limits())
+                .map_err(|error| format!("Invalid profiled path: {error:?}"))?,
+        );
+        // ANCHOR_END: prepare_path
+        let side = |first, second, direction| {
+            [
+                Motor::new(first, Gearset::Green, direction),
+                Motor::new(second, Gearset::Green, direction),
+            ]
+        };
+        let left = side(p.port_1, p.port_2, Direction::Reverse);
+        let right = side(p.port_3, p.port_4, Direction::Forward);
+        let tracking = TrackingSetup {
+            imu: Some(InertialSensor::new(p.port_7)),
+            map: vec![Surface::new(
+                ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
+                ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
+            )],
+            ranges: vec![DistanceTracker::at_mount(
+                DistanceSensor::new(p.port_8),
+                (FRONT_MOUNT, Angle::new::<radian>(0.0)),
+            )],
+            ..TrackingSetup::default()
+        };
+        let drive = CONFIG
+            .build(left, right, tracking)
+            .await
+            .map_err(|error| format!("Invalid chassis: {error:?}"))?;
+        let intake = Intake {
+            motor: Motor::new(p.port_5, Gearset::Green, Direction::Forward),
+            on: false,
+        };
+        // ANCHOR: assemble
+        Ok::<_, Box<dyn std::error::Error>>(
+            RobotBuilder::new()
+                .with_controller(p.primary_controller)
+                .with_drivetrain(drive)
+                .with_mechanisms(Mechanisms { intake })
+                .with_program(Controls { straight_path })
+                .with_auton([route!("Straight", straight)])
+                .with_ui(ozton::runtime::competition::Ui::Brain(p.display))
+                .with_diagnostics::<()>(Duration::from_millis(250))
+                .build(),
+        )
+        // ANCHOR_END: assemble
     })
     .await
 }

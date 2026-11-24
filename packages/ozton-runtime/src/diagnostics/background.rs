@@ -1,6 +1,10 @@
 //! One periodic hardware sampling task, independent of competition mode.
 
-use std::{cell::RefCell, rc::{Rc, Weak}, time::Instant};
+use std::{
+    cell::RefCell,
+    rc::{Rc, Weak},
+    time::Instant,
+};
 
 use vexide::{
     competition,
@@ -26,7 +30,9 @@ pub(crate) fn register(source: impl Fn(Frame) + 'static) -> Rc<Source> {
 fn sample_sources(frame: Frame) {
     SOURCES.with(|sources| {
         sources.borrow_mut().retain(|source| {
-            let Some(source) = source.upgrade() else { return false };
+            let Some(source) = source.upgrade() else {
+                return false;
+            };
             source(frame);
             true
         });

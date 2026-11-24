@@ -50,12 +50,12 @@ impl OztonCompete for Robot {
 async fn main(p: Peripherals) -> std::process::ExitCode {
     ozton::run(async move {
         let robot = Robot {
-        drive: Differential::new(
-            [Motor::new(p.port_1, Gearset::Green, Direction::Reverse)],
-            [Motor::new(p.port_2, Gearset::Green, Direction::Forward)],
-        ),
-        controller: p.primary_controller,
-    };
+            drive: Differential::new(
+                [Motor::new(p.port_1, Gearset::Green, Direction::Reverse)],
+                [Motor::new(p.port_2, Gearset::Green, Direction::Forward)],
+            ),
+            controller: p.primary_controller,
+        };
         Ok::<_, PortError>(Runtime::new(robot).with_ui(Ui::Brain(p.display)))
     })
     .await

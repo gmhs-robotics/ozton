@@ -315,7 +315,6 @@ pub fn report_differential<T: ozton_tracking::TrackingSystem, L>(
     drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
     report_drive_feedback(frame, drive.feedback(), drive.wheel_diameter());
-
 }
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.

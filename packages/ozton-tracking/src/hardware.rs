@@ -1,7 +1,6 @@
 //! Read-only telemetry for every connected V5 smart motor.
 //! No SmartPort or Motor is constructed, and no device state is changed.
 use ozton_diagnostics::serial::Frame;
-use vexide::smart::motor::MotorControl;
 use vex_sdk::{
     V5_DeviceType, V5_MAX_DEVICE_PORTS, V5MotorControlMode, V5MotorEncoderUnits,
     vexDeviceGetByIndex, vexDeviceGetStatus, vexDeviceMotorActualVelocityGet,
@@ -10,13 +9,16 @@ use vex_sdk::{
     vexDeviceMotorTemperatureGet, vexDeviceMotorTorqueGet, vexDeviceMotorVelocityGet,
     vexDeviceMotorVoltageGet,
 };
+use vexide::smart::motor::MotorControl;
 
 /// Discover connected motors from one device table snapshot and report measured
 /// values. Firmware target registers are reported separately from software commands.
 pub fn sample(frame: Frame) {
     let mut devices = [V5_DeviceType::kDeviceTypeNoSensor; V5_MAX_DEVICE_PORTS];
     // SAFETY: the buffer is the SDK's documented maximum device table length.
-    unsafe { vexDeviceGetStatus(devices.as_mut_ptr()); }
+    unsafe {
+        vexDeviceGetStatus(devices.as_mut_ptr());
+    }
     let targets = crate::odometric::command_targets();
     for (index, kind) in devices.iter().take(21).enumerate() {
         if *kind != V5_DeviceType::kDeviceTypeMotorSensor {
@@ -39,12 +41,16 @@ pub fn sample(frame: Frame) {
             };
             let target_rpm = match mode {
                 V5MotorControlMode::kMotorControlModeVELOCITY
-                | V5MotorControlMode::kMotorControlModePROFILE => f64::from(vexDeviceMotorVelocityGet(device)),
+                | V5MotorControlMode::kMotorControlModePROFILE => {
+                    f64::from(vexDeviceMotorVelocityGet(device))
+                }
                 _ => f64::NAN,
             };
             let target_deg = match mode {
                 V5MotorControlMode::kMotorControlModeSERVO
-                | V5MotorControlMode::kMotorControlModePROFILE => degrees(vexDeviceMotorTargetGet(device)),
+                | V5MotorControlMode::kMotorControlModePROFILE => {
+                    degrees(vexDeviceMotorTargetGet(device))
+                }
                 _ => f64::NAN,
             };
             (
@@ -60,12 +66,25 @@ pub fn sample(frame: Frame) {
                 target_deg,
             )
         };
-        let (volts, current, temperature, rpm, torque, position, mode, brake, target_rpm, target_deg) = sample;
+        let (
+            volts,
+            current,
+            temperature,
+            rpm,
+            torque,
+            position,
+            mode,
+            brake,
+            target_rpm,
+            target_deg,
+        ) = sample;
         let (command_mode, request_v, request_rpm, request_deg) = match targets[index] {
             Some(MotorControl::Brake(_)) => ("brake", 0.0, 0.0, f64::NAN),
             Some(MotorControl::Voltage(v)) => ("voltage", v, f64::NAN, f64::NAN),
             Some(MotorControl::Velocity(v)) => ("velocity", f64::NAN, f64::from(v), f64::NAN),
-            Some(MotorControl::Position(angle, v)) => ("position", f64::NAN, f64::from(v), angle.as_degrees()),
+            Some(MotorControl::Position(angle, v)) => {
+                ("position", f64::NAN, f64::from(v), angle.as_degrees())
+            }
             None => ("sdk", f64::NAN, target_rpm, target_deg),
         };
         frame.row("MOTOR", format_args!(

@@ -66,7 +66,11 @@ impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocaliza
     fn report(&self, tracking: &Tracking<S>, frame: crate::diagnostics::Frame) {
         use crate::diagnostics::ComponentReport;
         if let Some(source) = tracking.drive_wheels() {
-            crate::diagnostics::report_drive_feedback(frame, source.feedback(), Some(source.wheels().diameter()));
+            crate::diagnostics::report_drive_feedback(
+                frame,
+                source.feedback(),
+                Some(source.wheels().diameter()),
+            );
         }
         ComponentReport::report(self, frame);
         tracking.report(frame);

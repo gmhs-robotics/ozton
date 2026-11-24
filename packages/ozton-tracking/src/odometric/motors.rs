@@ -109,10 +109,14 @@ pub(crate) fn command_targets() -> [Option<vexide::smart::motor::MotorControl>; 
     GROUPS.with(|groups| {
         let mut groups = groups.borrow_mut();
         groups.retain(|entry| {
-            let Some(storage) = entry.upgrade() else { return false };
+            let Some(storage) = entry.upgrade() else {
+                return false;
+            };
             if let Ok(motors) = storage.try_borrow() {
                 for motor in motors.iter() {
-                    if let Some(target) = targets.get_mut(usize::from(motor.port_number().saturating_sub(1))) {
+                    if let Some(target) =
+                        targets.get_mut(usize::from(motor.port_number().saturating_sub(1)))
+                    {
                         *target = Some(motor.target());
                     }
                 }

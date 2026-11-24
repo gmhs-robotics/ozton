@@ -48,7 +48,9 @@ impl LocalizationWorker {
             let stamp = drive.diagnostic_stamp();
             crate::diagnostics::register(move |frame| {
                 let Some(state) = state.upgrade() else { return };
-                let Ok(state) = state.try_borrow() else { return };
+                let Ok(state) = state.try_borrow() else {
+                    return;
+                };
                 if crate::diagnostics::claim_drive_sample(&stamp, frame.time) {
                     state.1.report(&state.0, frame);
                 }

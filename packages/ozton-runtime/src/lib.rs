@@ -8,11 +8,11 @@ pub mod drive_assist;
 pub mod mechanism;
 pub mod motor;
 mod robot;
-pub mod task;
 mod startup;
-pub use startup::{Application, run};
+pub mod task;
 pub use ozton_diagnostics::{log_event, log_row, profile};
 pub use ozton_ui::{menu, selector};
+pub use startup::{Application, run};
 
 /// Retries an initial reference until established. Reconnection preserves the zero.
 #[derive(Debug, Default)]

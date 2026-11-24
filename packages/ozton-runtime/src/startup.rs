@@ -7,8 +7,7 @@ use std::{fmt::Display, future::Future, process::ExitCode};
 /// No application-level panic hook, SD writer, or diagnostic task is needed.
 pub async fn run<A: Application, E: Display>(
     initialize: impl Future<Output = Result<A, E>>,
-) -> ExitCode
-{
+) -> ExitCode {
     let _startup = Startup::begin();
     #[cfg(feature = "logging")]
     let started = std::time::Instant::now();
@@ -17,7 +16,10 @@ pub async fn run<A: Application, E: Display>(
         Ok(runtime) => {
             #[cfg(feature = "logging")]
             crate::log_event!(
-                Info, "startup", "Robot ready in {:.2}s", started.elapsed().as_secs_f64()
+                Info,
+                "startup",
+                "Robot ready in {:.2}s",
+                started.elapsed().as_secs_f64()
             );
             runtime.compete().await
         }
@@ -73,7 +75,9 @@ impl Startup {
                     previous(panic);
                 }));
             });
-            Self { _writer: crate::diagnostics::start_sd_logging() }
+            Self {
+                _writer: crate::diagnostics::start_sd_logging(),
+            }
         }
         #[cfg(not(feature = "logging"))]
         Self {}

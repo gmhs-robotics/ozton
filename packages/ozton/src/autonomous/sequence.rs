@@ -57,7 +57,7 @@ impl<R: MechanismRobot> Runner<'_, R> {
         }
         let stable = self.options().settle;
         self.wait_until_while(|robot: &R| robot.at_target(), stable, timeout, &mut enabled)
-        .await?;
+            .await?;
         if let Err(error) = self.robot().set_action(true) {
             let _ = self.robot().stop();
             return Err(CommandError::Robot(error));
