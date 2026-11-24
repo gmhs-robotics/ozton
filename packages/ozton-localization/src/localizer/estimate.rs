@@ -64,9 +64,11 @@ impl<'a> Observations<'a> {
         }
         let mask = ozton_math::localization::range::fit_consensus(&buffer[..count])
             .map_or(0, |fit| fit.mask);
-        measurements.enumerate().filter_map(move |(index, measurement)| {
-            (index < MAX_RANGES && mask & (1 << index) != 0).then_some(measurement)
-        })
+        measurements
+            .enumerate()
+            .filter_map(move |(index, measurement)| {
+                (index < MAX_RANGES && mask & (1 << index) != 0).then_some(measurement)
+            })
     }
 }
 

@@ -94,8 +94,8 @@ impl PoseEstimator for Mcl {
         let mut beams = [empty; MAX_RANGES];
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
-        let measurements =
-            observations.associated_measurements(self.config.max_range_residual.map(|limit| limit.value));
+        let measurements = observations
+            .associated_measurements(self.config.max_range_residual.map(|limit| limit.value));
         for (sensor, constraint, distance) in measurements {
             let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
             constraints[count] = (constraint, sigma);
@@ -108,11 +108,23 @@ impl PoseEstimator for Mcl {
             count += 1;
         }
         if count == 0 {
-            let no_surface = observations.reports.iter().flatten()
-                .filter(|report| report.constraint == Err(Rejection::NoSurface)).count();
-            let residual = observations.reports.iter().flatten()
-                .filter(|report| report.constraint.is_ok()).count();
-            log_row!(Trace, "MCL", "status=no_consistent_beams,beams=0,no_surface={no_surface},residual_rejected={residual}");
+            let no_surface = observations
+                .reports
+                .iter()
+                .flatten()
+                .filter(|report| report.constraint == Err(Rejection::NoSurface))
+                .count();
+            let residual = observations
+                .reports
+                .iter()
+                .flatten()
+                .filter(|report| report.constraint.is_ok())
+                .count();
+            log_row!(
+                Trace,
+                "MCL",
+                "status=no_consistent_beams,beams=0,no_surface={no_surface},residual_rejected={residual}"
+            );
             return None;
         }
         let Some(fit) = fit_consensus(&constraints[..count]) else {

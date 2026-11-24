@@ -244,8 +244,7 @@ impl ParticleFilter {
         }
         let sigma = self.config.range_sigma.value;
         let mixture = self.config.outlier_weight;
-        let random_scale = sigma * mixture * libm::sqrt(core::f64::consts::TAU)
-            / (1.0 - mixture);
+        let random_scale = sigma * mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
         let inverse_sigma = 1.0 / sigma;
         prepare_faces(map, &mut self.ray_faces);
         let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
@@ -259,9 +258,8 @@ impl ParticleFilter {
         for beam in beams {
             let random_likelihood = (random_scale / beam.max_range.value).clamp(1e-12, 1e12);
             let body_direction = direction(beam.mount.heading);
-            let fixed_ray = fixed_rotation.map(|r| {
-                (r.rotate(beam.mount.position), r.rotate(body_direction))
-            });
+            let fixed_ray =
+                fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
             let mut modeled_weight = 0.0;
             let mut evidence = 0.0;
             for (index, particle) in self.particles.iter().enumerate() {
@@ -314,7 +312,11 @@ impl ParticleFilter {
         } else {
             self.estimate()
         };
-        let squared_weight = self.particles.iter().map(|p| p.weight * p.weight).sum::<f64>();
+        let squared_weight = self
+            .particles
+            .iter()
+            .map(|p| p.weight * p.weight)
+            .sum::<f64>();
         if squared_weight * self.config.count as f64 > 2.0 {
             self.resample();
         }
@@ -329,7 +331,10 @@ impl ParticleFilter {
             let error = particle.pose.position - position;
             sum + error * error * particle.weight
         });
-        (position, DVec2::new(libm::sqrt(variance.x), libm::sqrt(variance.y)))
+        (
+            position,
+            DVec2::new(libm::sqrt(variance.x), libm::sqrt(variance.y)),
+        )
     }
 
     fn estimate(&self) -> Estimate {

@@ -230,7 +230,9 @@ fn minimum_speed_does_not_prevent_terminal_settling() {
         reset_accepted: false,
     };
     let (wheels, ready) = controller.step(
-        DifferentialTarget::Turn { heading: Angle::default() },
+        DifferentialTarget::Turn {
+            heading: Angle::default(),
+        },
         feedback,
         Duration::from_millis(10),
         options,

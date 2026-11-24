@@ -54,13 +54,32 @@ fn no_surface_is_neutral_and_all_missing_returns_no_estimate() {
             Angle::default(),
         );
     }
-    let estimate = filter.observe_position(&[beam], &map, Angle::default()).unwrap();
+    let estimate = filter
+        .observe_position(&[beam], &map, Angle::default())
+        .unwrap();
     assert!(estimate.pose.position.x < 0.05);
-    let missing_mass: f64 = filter.particles.iter()
-        .filter(|p| p.pose.position.y == 0.0).map(|p| p.weight).sum();
+    let missing_mass: f64 = filter
+        .particles
+        .iter()
+        .filter(|p| p.pose.position.y == 0.0)
+        .map(|p| p.weight)
+        .sum();
     assert!((missing_mass - 0.5).abs() < 1e-10);
     let prior: Vec<_> = filter.particles.iter().map(|p| p.weight).collect();
-    let missing = Beam { surface_mask: 0, ..beam };
-    assert!(filter.observe_position(&[missing], &map, Angle::default()).is_none());
-    assert!(filter.particles.iter().zip(prior).all(|(p, weight)| p.weight == weight));
+    let missing = Beam {
+        surface_mask: 0,
+        ..beam
+    };
+    assert!(
+        filter
+            .observe_position(&[missing], &map, Angle::default())
+            .is_none()
+    );
+    assert!(
+        filter
+            .particles
+            .iter()
+            .zip(prior)
+            .all(|(p, weight)| p.weight == weight)
+    );
 }

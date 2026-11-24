@@ -226,7 +226,9 @@ fn intersection(origin: DVec2, beam: DVec2, start: DVec2, segment: DVec2) -> Opt
     }
     let inverse = 1.0 / scale;
     let distance = distance * inverse;
-    distance.is_finite().then_some((distance, fraction * inverse))
+    distance
+        .is_finite()
+        .then_some((distance, fraction * inverse))
 }
 
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
@@ -499,7 +501,12 @@ fn fit_details(constraints: &[(Constraint, f64)]) -> Option<TranslationFit> {
     {
         return None;
     }
-    Some(TranslationFit { change, axes, normal, mask: 0 })
+    Some(TranslationFit {
+        change,
+        axes,
+        normal,
+        mask: 0,
+    })
 }
 
 #[cfg(test)]
@@ -511,10 +518,22 @@ mod tests {
     #[test]
     fn prepared_rays_match_full_cast_across_wall_openings_and_masks() {
         let map = [
-            Surface::new(DVec2::new(1.0, -1.0), DVec2::new(1.0, -0.3), crate::qty!(1 m)),
+            Surface::new(
+                DVec2::new(1.0, -1.0),
+                DVec2::new(1.0, -0.3),
+                crate::qty!(1 m),
+            ),
             Surface::new(DVec2::new(1.0, 0.3), DVec2::new(1.0, 1.0), crate::qty!(1 m)),
-            Surface::new(DVec2::new(-1.0, 1.0), DVec2::new(1.0, 1.0), crate::qty!(1 m)),
-            Surface::new(DVec2::new(-0.8, -0.5), DVec2::new(-0.2, 0.4), crate::qty!(1 m)),
+            Surface::new(
+                DVec2::new(-1.0, 1.0),
+                DVec2::new(1.0, 1.0),
+                crate::qty!(1 m),
+            ),
+            Surface::new(
+                DVec2::new(-0.8, -0.5),
+                DVec2::new(-0.2, 0.4),
+                crate::qty!(1 m),
+            ),
         ];
         let mut faces = alloc::vec::Vec::new();
         prepare_faces(&map, &mut faces);
@@ -524,13 +543,9 @@ mod tests {
                 for degree in (-180..180).step_by(3) {
                     let heading = crate::qty!((f64::from(degree)) deg);
                     for mask in 1..16 {
-                        let expected = cast_masked(
-                            Pose::new(origin, heading),
-                            Pose::default(),
-                            &map,
-                            mask,
-                        )
-                        .map(|hit| hit.distance);
+                        let expected =
+                            cast_masked(Pose::new(origin, heading), Pose::default(), &map, mask)
+                                .map(|hit| hit.distance);
                         let actual = prepared_ray_distance(
                             origin,
                             direction(heading),
@@ -547,8 +562,14 @@ mod tests {
                 }
             }
         }
-        assert_eq!(prepared_ray_distance(DVec2::ZERO, DVec2::X, &faces, 3, 2.0), None);
-        assert_eq!(prepared_ray_distance(DVec2::new(0.0, 0.5), DVec2::X, &faces, 3, 0.5), None);
+        assert_eq!(
+            prepared_ray_distance(DVec2::ZERO, DVec2::X, &faces, 3, 2.0),
+            None
+        );
+        assert_eq!(
+            prepared_ray_distance(DVec2::new(0.0, 0.5), DVec2::X, &faces, 3, 0.5),
+            None
+        );
     }
 
     #[test]
@@ -556,7 +577,10 @@ mod tests {
         let constraint = |displacement| {
             (
                 Constraint {
-                    hit: Hit { normal: DVec2::X, ..Hit::default() },
+                    hit: Hit {
+                        normal: DVec2::X,
+                        ..Hit::default()
+                    },
                     displacement,
                     ..Constraint::default()
                 },

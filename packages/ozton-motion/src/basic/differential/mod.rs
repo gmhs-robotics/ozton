@@ -211,7 +211,11 @@ impl DifferentialFeedback {
                 options.speed_tolerance.value,
                 config.minimum_linear_speed.value,
                 limit.min(config.tuning.linear.output_limit().unwrap_or(f64::INFINITY)),
-                config.forward_braking.unwrap_or(config.deceleration).value.min(config.deceleration.value),
+                config
+                    .forward_braking
+                    .unwrap_or(config.deceleration)
+                    .value
+                    .min(config.deceleration.value),
                 reaction,
             )
         };
@@ -228,8 +232,18 @@ impl DifferentialFeedback {
                 options.heading_tolerance.value,
                 options.angular_speed_tolerance.value,
                 config.minimum_angular_speed.value,
-                limit.min(config.tuning.angular.output_limit().unwrap_or(f64::INFINITY)),
-                config.yaw_braking.unwrap_or(config.angular_deceleration).value.min(config.angular_deceleration.value),
+                limit.min(
+                    config
+                        .tuning
+                        .angular
+                        .output_limit()
+                        .unwrap_or(f64::INFINITY),
+                ),
+                config
+                    .yaw_braking
+                    .unwrap_or(config.angular_deceleration)
+                    .value
+                    .min(config.angular_deceleration.value),
                 reaction,
             )
         };
@@ -415,12 +429,23 @@ impl DifferentialFeedback {
                             options.heading_tolerance.value,
                             options.angular_speed_tolerance.value,
                             config.minimum_angular_speed.value,
-                            correction_limit.min(config.tuning.angular.output_limit().unwrap_or(f64::INFINITY)),
-                            config.yaw_braking.unwrap_or(config.angular_deceleration).value.min(config.angular_deceleration.value),
+                            correction_limit.min(
+                                config
+                                    .tuning
+                                    .angular
+                                    .output_limit()
+                                    .unwrap_or(f64::INFINITY),
+                            ),
+                            config
+                                .yaw_braking
+                                .unwrap_or(config.angular_deceleration)
+                                .value
+                                .min(config.angular_deceleration.value),
                             reaction,
                         )
                     } else {
-                        self.pid.yaw(heading, yaw_rate, feedforward, correction_limit, dt)
+                        self.pid
+                            .yaw(heading, yaw_rate, feedforward, correction_limit, dt)
                     }
                 };
                 (drive(speed, turning), reached && facing && slow)
@@ -510,7 +535,7 @@ fn compensate_breakaway(
     }
     // Invert d = v*T + v^2/(2*a) without subtracting nearly equal values.
     let distance = error.abs() - tolerance;
-    let stoppable = 2.0 * distance
-        / (reaction + (reaction * reaction + 2.0 * distance / deceleration).sqrt());
+    let stoppable =
+        2.0 * distance / (reaction + (reaction * reaction + 2.0 * distance / deceleration).sqrt());
     output.signum() * output.abs().max(minimum.min(limit).min(stoppable))
 }
