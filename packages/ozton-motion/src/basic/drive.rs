@@ -148,9 +148,12 @@ where
             .update(heading, this.target_heading, dt);
 
         ozton_runtime::log_row!(
-            Trace, "LEGACY_MOTION_TICK",
+            Trace,
+            "LEGACY_MOTION_TICK",
             "command=drive,dt_us={},error_m={linear_error:.5},heading_error_rad={:.5},forward_travel_m={forward_travel:.5},heading_rad={:.5},throttle={linear_output:.5},turn={angular_output:.5}",
-            dt.as_micros(), angular_error.value, heading.value
+            dt.as_micros(),
+            angular_error.value,
+            heading.value
         );
         if let Err(output) = Arcade::drive(this.drivetrain, linear_output, angular_output) {
             this.state = None;
