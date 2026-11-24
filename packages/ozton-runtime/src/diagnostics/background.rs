@@ -3,16 +3,17 @@
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
+use ozton_diagnostics::serial;
 use vexide::{
     competition,
     task::{Task, spawn},
     time::sleep,
 };
 
-use super::{Frame, Sample, Sampler};
+use super::Frame;
 
 // Hardware packets update less often than the 10 ms motion loop. Sampling
 // them separately reduces SD write volume without decimating control traces.
@@ -46,27 +47,37 @@ fn sample_sources(frame: Frame) {
 /// Sample connected hardware once per frame. No application reporters required.
 pub(crate) fn start_diagnostics() -> Task<()> {
     spawn(async move {
-        let mut sampler = Sampler::<()>::new(HARDWARE_SAMPLE_INTERVAL);
-        sampler.report_control_ticks = false;
-        let mut previous = Instant::now();
+        let mut sequence = 0u64;
         loop {
             sleep(HARDWARE_SAMPLE_INTERVAL).await;
             #[cfg(target_os = "vexos")]
             if ozton_diagnostics::sd::under_pressure() {
                 continue;
             }
-            let now = Instant::now();
-            let dt = now.saturating_duration_since(previous);
-            previous = now;
-            if let Some(frame) = sampler.frame(Sample {
-                mode: competition::mode(),
-                dt,
-                motion: None,
-            }) {
-                let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
-                ozton_tracking::hardware::sample(frame.stamp);
-                sample_sources(frame);
+            if !serial::sd_enabled() {
+                continue;
             }
+            sequence += 1;
+            let frame = Frame {
+                stamp: serial::Frame {
+                    sequence,
+                    time: vexide::time::user_uptime(),
+                },
+            };
+            frame.row("MODE", format_args!("mode={:?}", competition::mode()));
+            frame.row(
+                "BATTERY",
+                format_args!(
+                    "volts={:.3},current_a={:.3},capacity={:.3},temp_c={}",
+                    vexide::battery::voltage(),
+                    vexide::battery::current(),
+                    vexide::battery::capacity(),
+                    vexide::battery::temperature(),
+                ),
+            );
+            let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
+            ozton_tracking::hardware::sample(frame.stamp);
+            sample_sources(frame);
         }
     })
 }

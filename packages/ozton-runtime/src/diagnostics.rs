@@ -1,11 +1,10 @@
-//! Opt-in SD sampling for competition and autonomous runner ticks.
-#[cfg(feature = "logging")]
-use std::time::Instant;
-use std::{marker::PhantomData, time::Duration};
+//! Component and hardware diagnostic rows.
+use std::time::Duration;
 
 use ozton_diagnostics::serial;
 pub use ozton_diagnostics::serial::FaultLog;
-use ozton_math::uom::si::f64::{Length, Velocity};
+#[cfg(feature = "logging")]
+use ozton_math::uom::si::f64::Length;
 use vexide::smart::SmartDevice;
 
 #[cfg(feature = "logging")]
@@ -31,8 +30,6 @@ pub(crate) fn claim_drive_sample(stamp: &std::cell::Cell<Option<Duration>>, now:
     stamp.set(Some(now));
     true
 }
-/// Legacy interval for callers configured before periodic rows became SD-only.
-pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 
 /// A sampled timestamp for SD telemetry.
 #[derive(Clone, Copy)]
@@ -54,27 +51,7 @@ impl Frame {
     }
 }
 
-use vexide::{competition::CompetitionMode, prelude::Motor, smart::motor::MotorControl};
-
-/// Motion state from the autonomous runner, in metres and metres per second.
-#[derive(Clone, Copy)]
-pub struct MotionSample {
-    pub elapsed: Duration,
-    pub progress: Length,
-    pub wheel_targets: [Velocity; 2],
-}
-
-/// Shared context for all rows of a robot sample.
-#[derive(Clone, Copy)]
-pub struct Sample {
-    pub mode: CompetitionMode,
-    pub dt: Duration,
-    pub motion: Option<MotionSample>,
-}
-
-pub trait Report<R> {
-    fn collect(robot: &R, frame: Frame, sample: Sample);
-}
+use vexide::{prelude::Motor, smart::motor::MotorControl};
 
 /// Emit the standard diagnostic rows supported by a component.
 pub trait ComponentReport {
@@ -89,10 +66,6 @@ impl ComponentReport for ozton_localization::differential::DifferentialLocalizat
 
 impl ComponentReport for () {
     fn report(&self, _: Frame) {}
-}
-
-impl<R> Report<R> for () {
-    fn collect(_: &R, _: Frame, _: Sample) {}
 }
 
 impl<M, T, L> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L>
@@ -157,155 +130,6 @@ pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool
             u8::from(trusted)
         ),
     );
-}
-
-/// UI hooks for a builder's runtime slot. Omitted diagnostics add no tick work.
-pub trait Telemetry<R> {
-    fn record(robot: &mut R, sample: Sample);
-    fn driver_output(_robot: &mut R, _elapsed: Duration) {}
-    fn status(_robot: &mut R, _status: &str) {}
-}
-
-impl<R> Telemetry<R> for () {
-    fn record(_: &mut R, _: Sample) {}
-}
-
-pub struct Sampler<S> {
-    #[cfg(feature = "logging")]
-    clock: SampleClock,
-    source: PhantomData<S>,
-    #[cfg(feature = "logging")]
-    report_control_ticks: bool,
-}
-
-impl<S> Sampler<S> {
-    pub(crate) fn new(interval: Duration) -> Self {
-        #[cfg(not(feature = "logging"))]
-        let _ = interval;
-        Self {
-            #[cfg(feature = "logging")]
-            clock: SampleClock::new(Instant::now(), interval.min(SD_SAMPLE_INTERVAL)),
-            source: PhantomData,
-            #[cfg(feature = "logging")]
-            report_control_ticks: true,
-        }
-    }
-
-    pub(crate) fn driver_output(&mut self, elapsed: Duration) {
-        #[cfg(feature = "logging")]
-        {
-            self.clock.max_driver_output = self.clock.max_driver_output.max(elapsed);
-        }
-        #[cfg(not(feature = "logging"))]
-        let _ = elapsed;
-    }
-
-    pub(crate) fn frame(&mut self, sample: Sample) -> Option<Frame> {
-        #[cfg(feature = "logging")]
-        {
-            if !serial::sd_enabled() {
-                return None;
-            }
-            let snapshot = self.clock.tick(Instant::now(), sample.dt)?;
-            let frame = Frame {
-                stamp: serial::Frame {
-                    sequence: snapshot.sequence,
-                    time: vexide::time::user_uptime(),
-                },
-            };
-            if self.report_control_ticks {
-                frame.row(
-                    "LOOP",
-                    format_args!(
-                        "ticks={},dt_ms={:.3},max_dt_ms={:.3},max_driver_output_us={}",
-                        snapshot.ticks,
-                        sample.dt.as_secs_f64() * 1000.0,
-                        snapshot.max_tick.as_secs_f64() * 1000.0,
-                        snapshot.max_driver_output.as_micros(),
-                    ),
-                );
-            }
-            if !self.report_control_ticks {
-                frame.row("MODE", format_args!("mode={:?}", sample.mode));
-                frame.row(
-                    "BATTERY",
-                    format_args!(
-                        "volts={:.3},current_a={:.3},capacity={:.3},temp_c={}",
-                        vexide::battery::voltage(),
-                        vexide::battery::current(),
-                        vexide::battery::capacity(),
-                        vexide::battery::temperature(),
-                    ),
-                );
-            }
-            if let Some(motion) = sample.motion {
-                frame.row(
-                    "AUTON",
-                    format_args!(
-                        "route_ms={},progress_m={:.5},left_target_mps={:.5},right_target_mps={:.5}",
-                        motion.elapsed.as_millis(),
-                        motion.progress.value,
-                        motion.wheel_targets[0].value,
-                        motion.wheel_targets[1].value,
-                    ),
-                );
-            }
-            Some(frame)
-        }
-        #[cfg(not(feature = "logging"))]
-        {
-            let _ = sample;
-            None
-        }
-    }
-}
-
-#[cfg(feature = "logging")]
-struct SampleClock {
-    interval: Duration,
-    last: Instant,
-    sequence: u64,
-    ticks: u64,
-    max_tick: Duration,
-    max_driver_output: Duration,
-}
-
-#[cfg(feature = "logging")]
-struct LoopSample {
-    sequence: u64,
-    ticks: u64,
-    max_tick: Duration,
-    max_driver_output: Duration,
-}
-
-#[cfg(feature = "logging")]
-impl SampleClock {
-    fn new(now: Instant, interval: Duration) -> Self {
-        Self {
-            interval,
-            last: now,
-            sequence: 0,
-            ticks: 0,
-            max_tick: Duration::ZERO,
-            max_driver_output: Duration::ZERO,
-        }
-    }
-
-    fn tick(&mut self, now: Instant, dt: Duration) -> Option<LoopSample> {
-        self.ticks += 1;
-        self.max_tick = self.max_tick.max(dt);
-        if now.saturating_duration_since(self.last) < self.interval {
-            return None;
-        }
-        self.last = now;
-        self.sequence += 1;
-        Some(LoopSample {
-            sequence: self.sequence,
-            ticks: self.ticks,
-            max_tick: std::mem::take(&mut self.max_tick),
-            max_driver_output: std::mem::take(&mut self.max_driver_output),
-        })
-    }
 }
 
 /// Report the calibrated drive and its actual motor samples.
@@ -441,40 +265,4 @@ macro_rules! diagnostic_event {
     ($($arg:tt)*) => {
         $crate::log_event!(Info, "diagnostics", $($arg)*)
     };
-}
-
-#[cfg(all(test, feature = "logging"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sampler_reports_total_ticks_and_resets_window_peaks() {
-        let start = Instant::now();
-        let interval = Duration::from_millis(250);
-        let mut clock = SampleClock::new(start, interval);
-        clock.max_driver_output = Duration::from_micros(750);
-        assert!(
-            clock
-                .tick(
-                    start + Duration::from_millis(100),
-                    Duration::from_millis(30)
-                )
-                .is_none()
-        );
-        let first = clock
-            .tick(start + interval, Duration::from_millis(10))
-            .unwrap();
-        assert_eq!(first.sequence, 1);
-        assert_eq!(first.ticks, 2);
-        assert_eq!(first.max_tick, Duration::from_millis(30));
-        assert_eq!(first.max_driver_output, Duration::from_micros(750));
-
-        let second = clock
-            .tick(start + interval * 2, Duration::from_millis(12))
-            .unwrap();
-        assert_eq!(second.sequence, 2);
-        assert_eq!(second.ticks, 3);
-        assert_eq!(second.max_tick, Duration::from_millis(12));
-        assert_eq!(second.max_driver_output, Duration::ZERO);
-    }
 }
