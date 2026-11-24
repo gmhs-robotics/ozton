@@ -126,3 +126,33 @@ once (full-rank or partial as appropriate), and avoids yaw normalization when
 heading is independently known. MCL logs distinguish lack of a new range packet
 from missing modeled surfaces, residual and other measurement rejections. The
 fraction of ticks with no new packet is not an estimator failure rate.
+
+
+## V5 sensor range and distance-dependent accuracy
+
+The V5 Distance Sensor (276-4852) specifies a 20–2000 mm measurement
+interval, approximate ±15 mm accuracy below 200 mm and approximately 5%
+above 200 mm:
+https://kb.vex.com/hc/en-us/articles/360050696511-Using-the-Distance-Sensor-with-VEX-V5
+
+The hardware interval is enforced on raw packets before bias correction;
+corrected observations and predicted nearest hits must also lie inside the
+application gate intersected with the hardware interval. The default gate
+retains its conservative 50 mm lower limit. Configure a tighter upper range
+directly or use RangeSensorConfig::limit_accuracy / DistanceTracker::
+with_maximum_range_error (e.g. 50 mm implies at most 1 m).
+The short-range 10/63 unavailable-confidence sentinel documented by PROS
+(https://pros.cs.purdue.edu/v5/api/cpp/distance.html) is accepted only
+at or below 200 mm; genuine long-range low confidence remains rejected.
+
+The noise model uses max(calibrated sigma, 15 mm, 0.05 * range).
+This continuous conservative engineering envelope is treated as a standard
+deviation, not a statistical guarantee by VEX. For associated constraints use
+the farther of the measured and predicted distances, projecting the resulting
+sigma along the wall normal. MCL additionally respects its configured noise
+floor, evaluates a constant per-beam likelihood width (avoiding particle-
+dependent normalization bias), and ignores predicted hits outside either
+range limit. EKF, consensus and stationary DSR use the same sensor noise
+model. DSR remains a geometric reset, not a probabilistic bound on accuracy;
+tighten the gate for precision-sensitive resets. The maximum MCL residual
+remains an independent association ceiling, not the hardware range.

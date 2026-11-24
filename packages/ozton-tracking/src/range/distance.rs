@@ -53,11 +53,19 @@ impl DistanceTracker {
         self
     }
 
-    /// Set measurement standard deviation for this sensor.
+    /// Set the calibrated minimum measurement standard deviation for this sensor.
+    /// Published distance-dependent accuracy remains a lower bound.
     #[must_use]
     pub fn with_sigma(mut self, sigma: Length) -> Self {
         self.config.sigma = sigma;
         self
+    }
+
+    /// Limit accepted ranges to a caller-selected maximum approximate error.
+    /// Invalid or impossible budgets return None rather than silently broadening the gate.
+    #[must_use]
+    pub fn with_maximum_range_error(mut self, error: Length) -> Option<Self> {
+        self.config.limit_accuracy(error).then_some(self)
     }
 
     /// Override the measurement acceptance gate for this sensor.

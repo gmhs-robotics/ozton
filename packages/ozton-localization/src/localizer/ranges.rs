@@ -83,7 +83,7 @@ pub(super) fn constrain_sample(
         pose,
         sensor.mount,
         reading,
-        sensor.gate,
+        sensor.sample_gate(sample)?,
         map,
         sensor.surface,
         sensor.surface_mask,

@@ -80,7 +80,7 @@ impl PoseEstimator for Ekf {
             // translation beams as an observation of all three pose states.
             let h = DVec3::new(normal.x, normal.y, 0.0);
             let error = normal.dot(surface.start - endpoint);
-            let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
+            let sigma = sensor.constraint_sigma(constraint, distance);
             changed |= candidate.correct_position(error, h, sigma * sigma, config.gate_squared);
         }
         if changed && candidate.pose().is_finite() {

@@ -5,7 +5,7 @@ use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
-        mcl::{Beam, ParticleConfig, ParticleFilter},
+        mcl::{Beam, BeamQuality, ParticleConfig, ParticleFilter},
         range::{Constraint, Rejection, fit_consensus},
     },
     uom::si::f64::Angle,
@@ -92,17 +92,22 @@ impl PoseEstimator for Mcl {
             surface_mask: u128::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
+        let mut qualities = [BeamQuality { min_range: ozton_math::qty!(0 m), sigma: self.config.range_sigma }; MAX_RANGES];
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
         let measurements = observations
             .associated_measurements(self.config.max_range_residual.map(|limit| limit.value));
         for (sensor, constraint, distance) in measurements {
-            let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
+            let range = ozton_math::qty!((distance.max(constraint.hit.distance)) m);
+            let range_sigma = sensor.range_sigma(range).max(self.config.range_sigma.value);
+            let sigma = range_sigma * constraint.hit.incidence.abs();
+            let gate = sensor.effective_gate();
+            qualities[count] = BeamQuality { min_range: gate.min_range, sigma: ozton_math::qty!((range_sigma) m) };
             constraints[count] = (constraint, sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
                 distance: ozton_math::qty!((distance) m),
-                max_range: sensor.gate.max_range,
+                max_range: gate.max_range,
                 surface_mask: sensor.surface_mask,
             };
             count += 1;
@@ -142,6 +147,7 @@ impl PoseEstimator for Mcl {
         for index in 0..count {
             if fit.mask & (1 << index) != 0 {
                 beams[accepted] = beams[index];
+                qualities[accepted] = qualities[index];
                 noise = noise.min(constraints[index].1);
                 accepted += 1;
             }
@@ -152,7 +158,7 @@ impl PoseEstimator for Mcl {
             .propose_position(predicted.position + change, normal, noise);
         let Some(estimate) =
             self.candidate
-                .observe_position(&beams[..count], map, predicted.heading)
+                .observe_position_with_quality(&beams[..count], &qualities[..count], map, predicted.heading)
         else {
             log_row!(
                 Trace,
@@ -181,7 +187,8 @@ impl PoseEstimator for Mcl {
             );
             return None;
         }
-        let signal = correction.length().hypot(noise);
+        // Do not increase correction authority merely because the range is noisier.
+        let signal = correction.length().hypot(self.config.range_sigma.value);
         let gain = self.correction_gain * signal / (signal + spread);
         let pose = Pose {
             position: predicted.position + correction * gain,

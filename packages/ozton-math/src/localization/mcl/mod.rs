@@ -62,6 +62,14 @@ pub struct Beam {
     pub surface_mask: u128,
 }
 
+/// Per-beam physical lower bound and range-dependent noise. The upper
+/// bound remains in Beam. Legacy callers can use the filter-wide noise.
+#[derive(Debug, Clone, Copy)]
+pub struct BeamQuality {
+    pub min_range: Length,
+    pub sigma: Length,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Estimate {
     pub pose: Pose,
@@ -216,12 +224,30 @@ impl ParticleFilter {
         for particle in &mut self.particles {
             particle.pose.heading = heading;
         }
-        self.observe_beams(beams, map, Some(rotation(heading)))
+        self.observe_beams(beams, map, Some(rotation(heading)), None)
     }
 
     /// Updates each beam once, returning the estimate before any resampling.
     pub fn observe(&mut self, beams: &[Beam], map: &[Surface]) -> Option<Estimate> {
-        self.observe_beams(beams, map, None)
+        self.observe_beams(beams, map, None, None)
+    }
+
+    /// Position update using independently calibrated quality for each beam.
+    pub fn observe_position_with_quality(
+        &mut self,
+        beams: &[Beam],
+        quality: &[BeamQuality],
+        map: &[Surface],
+        heading: Angle,
+    ) -> Option<Estimate> {
+        if !heading.value.is_finite() || beams.len() != quality.len() {
+            return None;
+        }
+        let heading = wrap_heading(heading);
+        for particle in &mut self.particles {
+            particle.pose.heading = heading;
+        }
+        self.observe_beams(beams, map, Some(rotation(heading)), Some(quality))
     }
 
     fn observe_beams(
@@ -229,6 +255,7 @@ impl ParticleFilter {
         beams: &[Beam],
         map: &[Surface],
         fixed_rotation: Option<DVec2>,
+        quality: Option<&[BeamQuality]>,
     ) -> Option<Estimate> {
         if beams.is_empty()
             || map.is_empty()
@@ -242,10 +269,8 @@ impl ParticleFilter {
         {
             return None;
         }
-        let sigma = self.config.range_sigma.value;
         let mixture = self.config.outlier_weight;
-        let random_scale = sigma * mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
-        let inverse_sigma = 1.0 / sigma;
+        let random_scale = mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
         prepare_faces(map, &mut self.ray_faces);
         let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
         if fixed_rotation.is_none() {
@@ -255,8 +280,20 @@ impl ParticleFilter {
         }
         let mut likelihoods = [f64::NAN; MAX_PARTICLES];
         let mut used = false;
-        for beam in beams {
-            let random_likelihood = (random_scale / beam.max_range.value).clamp(1e-12, 1e12);
+        for (index, beam) in beams.iter().enumerate() {
+            let (minimum, sigma) = quality.map_or((0.0, self.config.range_sigma.value), |quality| {
+                let q = quality[index];
+                (q.min_range.value, q.sigma.value.max(self.config.range_sigma.value))
+            });
+            if !minimum.is_finite() || minimum < 0.0 || minimum >= beam.max_range.value
+                || !sigma.is_finite() || sigma <= 0.0 || beam.distance.value < minimum
+                || quality.is_some_and(|q| !q[index].sigma.value.is_finite() || q[index].sigma.value <= 0.0)
+            {
+                continue;
+            }
+            let inverse_sigma = 1.0 / sigma;
+            let random_likelihood = (random_scale * sigma / (beam.max_range.value - minimum))
+                .clamp(1e-12, 1e12);
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
@@ -275,7 +312,7 @@ impl ParticleFilter {
                     beam.surface_mask,
                     beam.max_range.value,
                 );
-                likelihoods[index] = if let Some(distance) = distance {
+                likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
                     let residual = (beam.distance.value - distance) * inverse_sigma;
                     let likelihood = libm::exp(-0.5 * residual * residual) + random_likelihood;
                     modeled_weight += particle.weight;
