@@ -236,21 +236,9 @@ mod tests {
         .unwrap();
         let start = Pose::new(crate::position_xy!(0 in, 44 in), Angle::default());
         assert!(field.contains_pose(start));
-        assert!(!field.wall_stop_clear(
-            start,
-            crate::position_xy!(0 in, 4 in),
-            Angle::default(),
-        ));
-        assert!(field.wall_stop_clear(
-            start,
-            crate::position_xy!(0 in, -4 in),
-            Angle::default(),
-        ));
-        assert!(!field.wall_stop_clear(
-            start,
-            DVec2::ZERO,
-            crate::qty!(30 deg),
-        ));
+        assert!(!field.wall_stop_clear(start, crate::position_xy!(0 in, 4 in), Angle::default(),));
+        assert!(field.wall_stop_clear(start, crate::position_xy!(0 in, -4 in), Angle::default(),));
+        assert!(!field.wall_stop_clear(start, DVec2::ZERO, crate::qty!(30 deg),));
     }
 
     #[test]
