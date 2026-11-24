@@ -2,11 +2,12 @@
 use std::time::Duration;
 
 use ozton_control::loops::{AngularPid, Pid};
-use ozton_math::{angle, length, units::{acceleration, angular_velocity, velocity}};
+use ozton_math::{
+    angle, length,
+    units::{acceleration, angular_velocity, velocity},
+};
 use ozton_motion::{
-    Basic, MotionConfig, PurePursuit,
-    ramsete::Ramsete,
-    pursuit::PursuitTerminalConfig,
+    Basic, MotionConfig, PurePursuit, pursuit::PursuitTerminalConfig, ramsete::Ramsete,
 };
 
 const PID: Pid = Pid::new(1.0, 0.0, 0.0, None)

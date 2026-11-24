@@ -9,7 +9,10 @@ use ozton_control::{
     loops::{Feedback, Pid},
 };
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::{localization::observation::{TracksHeading, TracksPosition, TracksVelocity}, uom::si::f64::{Length, Velocity}};
+use ozton_math::{
+    localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
+    uom::si::f64::{Length, Velocity},
+};
 
 mod move_to_point;
 
@@ -98,7 +101,8 @@ impl Seeking<Pid, Pid> {
 
     #[must_use]
     pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.linear_controller.set_integration_range(Some(range.value));
+        self.linear_controller
+            .set_integration_range(Some(range.value));
         self
     }
 
@@ -146,7 +150,8 @@ impl Seeking<Pid, Pid> {
 
     #[must_use]
     pub const fn with_lateral_integration_range(mut self, range: Length) -> Self {
-        self.lateral_controller.set_integration_range(Some(range.value));
+        self.lateral_controller
+            .set_integration_range(Some(range.value));
         self
     }
 
@@ -266,7 +271,6 @@ where
             timeout: self.timeout,
         }
     }
-
 }
 
 impl<L, A> Seeking<L, A>

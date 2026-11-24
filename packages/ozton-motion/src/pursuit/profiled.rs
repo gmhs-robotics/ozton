@@ -29,7 +29,6 @@ impl Follower {
         Self::Ramsete { b, zeta }
     }
 
-
     pub fn is_valid(self) -> bool {
         match self {
             Self::PurePursuit { lookahead } => lookahead.value.is_finite() && lookahead.value > 0.0,

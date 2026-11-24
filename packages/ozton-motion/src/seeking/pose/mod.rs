@@ -115,8 +115,14 @@ impl PoseSeeking {
         let mut config = self.config;
         config.tuning = self.tuning;
         config.wheel_speed = self.wheel_speed;
-        config.position_tolerance = match self.position_tolerance { Some(value) => value, None => config.position_tolerance };
-        config.heading_tolerance = match self.heading_tolerance { Some(value) => value, None => config.heading_tolerance };
+        config.position_tolerance = match self.position_tolerance {
+            Some(value) => value,
+            None => config.position_tolerance,
+        };
+        config.heading_tolerance = match self.heading_tolerance {
+            Some(value) => value,
+            None => config.heading_tolerance,
+        };
         config.stage_timeout = self.stage_timeout;
         config
     }

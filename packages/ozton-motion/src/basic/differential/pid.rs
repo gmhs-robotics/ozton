@@ -30,8 +30,14 @@ impl MotionPid {
         let mut pid = Self {
             forward: tuning.linear,
             angular: tuning.angular,
-            forward_limit: match tuning.linear.output_limit() { Some(limit) => limit, None => f64::INFINITY },
-            angular_limit: match tuning.angular.output_limit() { Some(limit) => limit, None => f64::INFINITY },
+            forward_limit: match tuning.linear.output_limit() {
+                Some(limit) => limit,
+                None => f64::INFINITY,
+            },
+            angular_limit: match tuning.angular.output_limit() {
+                Some(limit) => limit,
+                None => f64::INFINITY,
+            },
             linear_filter: RATE_FILTER,
             angular_filter: RATE_FILTER,
         };

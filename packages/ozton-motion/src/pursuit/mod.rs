@@ -265,7 +265,6 @@ impl PurePursuit {
         self.terminal_config.period = value;
         self
     }
-
 }
 
 #[cfg(feature = "vex")]

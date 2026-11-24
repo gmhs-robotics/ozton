@@ -15,8 +15,7 @@ use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::localization::observation::{
     TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
-use ozton_math::uom::si::f64::Angle;
-use ozton_math::uom::si::f64::{AngularVelocity, Length, Velocity};
+use ozton_math::uom::si::f64::{Angle, AngularVelocity, Length, Velocity};
 
 use crate::defaults::{
     AUTON_ANGULAR_SPEED_TOLERANCE, AUTON_HEADING_TOLERANCE, AUTON_SETTLE_TIME, AUTON_STAGE_TIMEOUT,
@@ -112,7 +111,8 @@ impl Basic<Pid, AngularPid> {
 
     #[must_use]
     pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.linear_controller.set_integration_range(Some(range.value));
+        self.linear_controller
+            .set_integration_range(Some(range.value));
         self
     }
 
@@ -188,7 +188,10 @@ where
             linear_controller,
             angular_controller,
             linear_tolerances: crate::LINEAR_SETTLING,
-            angular_tolerances: Tolerances::new().error(AUTON_HEADING_TOLERANCE).velocity(AUTON_ANGULAR_SPEED_TOLERANCE).duration(AUTON_SETTLE_TIME),
+            angular_tolerances: Tolerances::new()
+                .error(AUTON_HEADING_TOLERANCE)
+                .velocity(AUTON_ANGULAR_SPEED_TOLERANCE)
+                .duration(AUTON_SETTLE_TIME),
             timeout: Some(crate::defaults::AUTON_STAGE_TIMEOUT),
         }
     }
@@ -320,7 +323,6 @@ where
             timeout: self.timeout,
         }
     }
-
 }
 
 #[cfg(feature = "vex")]
