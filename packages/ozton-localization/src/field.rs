@@ -247,16 +247,28 @@ mod tests {
         assert_eq!(field.range_config(mount).surface_mask, 0b1111);
         assert_eq!(field.range_config(low).surface_mask, 0xff);
         let map: Vec<_> = field.surfaces().collect();
-        let hit = cast_masked(Pose::default(), mount.mount, &map, field.range_config(mount).surface_mask).unwrap();
+        let hit = cast_masked(
+            Pose::default(),
+            mount.mount,
+            &map,
+            field.range_config(mount).surface_mask,
+        )
+        .unwrap();
         assert!(hit.distance > 1.0);
         let ranges = [(0, mount)];
         let localization = crate::differential::LocalizationBuilder::new(field)
-            .build(ObservationLayout { wheels: &[], ranges: &ranges })
+            .build(ObservationLayout {
+                wheels: &[],
+                ranges: &ranges,
+            })
             .unwrap();
         let bounds = localization.rectangular_half_extents().unwrap();
         let mut clearance = RectangularClearance::new(
-            Footprint::new(qty!(6 in), qty!(6 in)).unwrap(), bounds, qty!(0 in)
-        ).unwrap();
+            Footprint::new(qty!(6 in), qty!(6 in)).unwrap(),
+            bounds,
+            qty!(0 in),
+        )
+        .unwrap();
         for (min, max) in localization.motion_obstacles().into_iter().flatten() {
             clearance = clearance.with_obstacle(min, max).unwrap();
         }

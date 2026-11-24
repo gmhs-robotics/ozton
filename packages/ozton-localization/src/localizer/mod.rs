@@ -151,9 +151,12 @@ impl<'a> Localizer<'a> {
         for sensor in sensors.to_mut() {
             *sensor = sensor.with_visible_surfaces(&map);
         }
-        let eligible = sensors.iter().enumerate().fold(0u8, |mask, (index, sensor)| {
-            mask | (u8::from(sensor.surface_mask != 0) << index)
-        });
+        let eligible = sensors
+            .iter()
+            .enumerate()
+            .fold(0u8, |mask, (index, sensor)| {
+                mask | (u8::from(sensor.surface_mask != 0) << index)
+            });
         let pose = Pose {
             heading: wrap_heading(pose.heading),
             ..pose
@@ -246,9 +249,13 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
     /// Select range indices for geometric resets and for the active filter.
     pub fn set_range_usage(&mut self, reset: u8, filter: u8) {
-        let eligible = self.sensors.iter().enumerate().fold(0u8, |mask, (index, sensor)| {
-            mask | (u8::from(sensor.surface_mask != 0) << index)
-        });
+        let eligible = self
+            .sensors
+            .iter()
+            .enumerate()
+            .fold(0u8, |mask, (index, sensor)| {
+                mask | (u8::from(sensor.surface_mask != 0) << index)
+            });
         self.reset_ranges = reset & eligible;
         self.filter_ranges = filter & eligible;
     }

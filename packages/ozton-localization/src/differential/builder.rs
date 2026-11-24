@@ -139,11 +139,7 @@ impl LocalizationBuilder {
     /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
     pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization> {
         let map = self.field.surfaces().collect();
-        let mounts = layout
-            .ranges
-            .iter()
-            .map(|&(_, mount)| mount)
-            .collect();
+        let mounts = layout.ranges.iter().map(|&(_, mount)| mount).collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
                 OdometryConfig::for_mounted_wheels(self.maximum_odometry_gap),
