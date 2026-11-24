@@ -1,27 +1,19 @@
 # Programmed autonomous
 
-A route is an async function that sequences actions. Start with two or three small commands and add complexity after they work on the robot.
+An autonomous route is an async method on the application robot. Register it using `route!("Match", Self::route_match)` in `OztonCompete::ROUTES`.
 
-The programmed API combines drivetrain motion and mechanism goals in a single runner. RobotMotion exposes common commands, and MotionControls describes the hardware feedback and outputs for a custom platform. The stock ConfiguredChassis can be assembled with DifferentialConfig and TrackingSetup. The [complete programmed example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/programmed.rs) shows a path loaded at startup, a registered start pose, path following and distance alignment.
-
-## A complete route
-
-The following function comes directly from the programmed example. It starts at a surveyed pose, follows a prepared path and aligns using a distance sensor.
+Use one configured physical `Seeking` template for distance, heading, point, pose and prepared-path commands. Register the surveyed starting pose through the drivetrain localization before executing motion.
 
 ```rust,ignore
-{{#include ../../packages/ozton/examples/programmed.rs:route}}
+async fn route_match(&mut self) -> ControlResult {
+    self.drivetrain.localization_mut().set_pose(start_pose);
+    MOTION.drive_distance(&mut self.drivetrain, qty!(24 in)).await?;
+    MOTION.turn_to_heading(&mut self.drivetrain, qty!(90 deg)).await?;
+    MOTION.move_to_pose(&mut self.drivetrain, target_pose).await?;
+    Ok(())
+}
 ```
 
-## Prepared paths
+Use a native `Waypoint` slice and physical limits from `MotionConfig::path_limits` to build a prepared path. Pass it to `Seeking::follow_path` with a profiled Pure Pursuit or RAMSETE follower.
 
-Define native `Waypoint` values and build a `Path` with physical limits before enabling autonomous, where practical. A prepared path is reusable. Keep the robot's position frame and the waypoint coordinate frame consistent.
-
-```rust,ignore
-{{#include ../../packages/ozton/examples/programmed.rs:prepare_path}}
-```
-
-## Errors and timeouts
-
-Give each stage a time budget. Propagate failures with ? unless you have a deliberate recovery strategy. A timed-out movement is not success. A driver or autonomous callback should never block indefinitely without yielding. Test cancellation between stages and during a movement before using a route in competition.
-
-A programmed path command takes one ordered marker slice: `Command::Follow { path, follower, reverse, markers }`. Use an empty slice for no mechanism actions, or a one-element slice for one action. `Command::WaitFor { ready, stable }` accepts a captured predicate and the required stable duration. The `RobotMotion::follow_path` method takes the direction and follower explicitly; `drive_to` takes the target and travel direction.
+Coordinate mechanisms through their own handles and scoped `TaskSlot` work. Do not hold mutable device borrows across unrelated awaits. Propagate motion faults and timeouts rather than assuming that an unsuccessful move reached its target.

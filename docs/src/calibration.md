@@ -6,7 +6,7 @@ A controller cannot correct measurements that are consistently wrong. First veri
 
 Start with odometry and IMU in an unobstructed area. Register a measured starting pose, command short forward and reverse moves, and measure the actual endpoint. Repeat turns in both directions. Then try longer commands and record the stop distance. Keep the mechanism stowed and have someone at the disable control.
 
-Do not tune PID gains from an estimator that is simultaneously changing its position because of unverified range corrections. Run raw wheel-speed step tests to measure acceleration, motor response and braking. Tune physical velocity controllers separately from normalized voltage controllers.
+Do not tune PID gains from an estimator that is simultaneously changing its position because of unverified range corrections. Run raw wheel-speed step tests to measure acceleration, motor response and braking. Tune physical velocity controllers using measured drivetrain response.
 
 ## Verify localization separately
 

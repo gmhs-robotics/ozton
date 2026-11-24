@@ -3,11 +3,7 @@ use std::{cell::RefCell, rc::Rc, vec::Vec};
 use vexide::{
     adi::encoder::AdiEncoder,
     math::Angle,
-    smart::{
-        PortError,
-        motor::Motor,
-        rotation::RotationSensor,
-    },
+    smart::{PortError, motor::Motor, rotation::RotationSensor},
 };
 
 /// A sensor that can measure continuous angular rotation, such as an encoder.

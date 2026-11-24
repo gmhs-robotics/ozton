@@ -27,7 +27,7 @@ let localization = LocalizationBuilder::new(field)
 let drivetrain = Drivetrain::new(model, tracking, localization);
 ```
 
-The fragment is not a complete robot; field, model and sensor objects are your measured hardware. See the [programmed example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/programmed.rs) for full setup.
+The fragment is not a complete robot; field, model and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
 ## Choose an estimator
 

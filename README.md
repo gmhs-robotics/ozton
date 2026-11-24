@@ -2,7 +2,7 @@
 
 Ozton is a Rust library for VEX V5 robots built on vexide. Start with ordinary driver control, then add sensors and autonomous movement as your robot grows. You can use the motion algorithms without adopting a particular robot layout.
 
-[Read the documentation](https://ozton.eli.best) · [First robot example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/first_robot.rs) · [Full example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/programmed.rs)
+[Read the documentation](https://ozton.eli.best) · [First robot example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/first_robot.rs)
 
 ## Get started
 
@@ -17,15 +17,17 @@ This is the development API. Pin a tested commit for competition firmware. The r
 Driver control needs only a drive model. Add calibrated wheel travel and an IMU when you want reliable autonomous movement. For position-based movement, register a known starting pose before issuing commands:
 
 ```rust
-use ozton::{qty, position_xyh, motion::Seeking};
+use ozton::{qty, position_xyh, motion::{Seeking, MotionLimits, SettlingConfig}};
 
 // drivetrain is an assembled, localized differential drive.
 // Run inside an enabled autonomous route.
 let motion = Seeking::new()
-    .with_wheel_speed(qty!(1.2 m/s))
-    .with_angular_acceleration(qty!(12 rad/s^2))
-    .with_position_tolerance(qty!(0.75 in))
-    .with_heading_tolerance(qty!(2 deg));
+    .with_limits(MotionLimits::new()
+        .with_wheel_speed(qty!(1.2 m/s))
+        .with_angular_acceleration(qty!(12 rad/s^2)))
+    .with_settling(SettlingConfig::new()
+        .with_position_tolerance(qty!(0.75 in))
+        .with_heading_tolerance(qty!(2 deg)));
 
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 ```
@@ -35,7 +37,7 @@ motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 - [Your first robot](docs/src/getting-started.md): motor setup, controller and competition modes.
 - [Coordinates and units](docs/src/coordinates.md): how Ozton describes positions, headings and mounts.
 - [Tracking and localization](docs/src/localization.md): wheel encoders, IMU, odometry, MCL and DSR.
-- [Motion commands](docs/src/motion.md): choose between Basic, Seeking and Pure Pursuit.
+- [Motion commands](docs/src/motion.md): physical closed-loop motion and profiled path following.
 - [Competition routes](docs/src/routes.md): register autonomous and driver callbacks.
 - [Calibration and logs](docs/src/calibration.md): tune the robot from measured results.
 - [API map](docs/src/api.md): find types, modules and examples.

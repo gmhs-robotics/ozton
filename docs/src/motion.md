@@ -11,10 +11,12 @@ Seeking executes distances, turns, point and pose goals, arcs and prepared paths
 Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
-use ozton::{qty, position_xyh, motion::Seeking};
-let motion = Seeking::new()
-    .with_position_tolerance(qty!(0.75 in))
-    .with_heading_tolerance(qty!(2 deg));
+use ozton::{qty, position_xyh, motion::{Seeking, SettlingConfig}};
+let motion = Seeking::new().with_settling(
+    SettlingConfig::new()
+        .with_position_tolerance(qty!(0.75 in))
+        .with_heading_tolerance(qty!(2 deg)),
+);
 
 motion.drive_distance(&mut drivetrain, qty!(12 in)).await?;
 motion.turn_to_heading(&mut drivetrain, qty!(90 deg)).await?;
@@ -79,7 +81,7 @@ and localization margin must cover the actual robot. Covariance is a model
 uncertainty, not a deterministic guarantee against slip or bad sensors.
 The default latency and lateral braking values are initial estimates.
 Characterize them with measured stopping distances before increasing speed.
-Configure with MotionConfig::with_braking_model or Seeking::with_braking_model.
+Configure the latency, preview, lateral braking and uncertainty in ClearanceConfig.
 
 
 ## Movable-obstacle routing
@@ -95,7 +97,7 @@ can pivot at each waypoint. If a start is too close to a wall to pivot, the
 regular clearance-aware departure planner is required.
 
 The minimum braking deceleration can be configured independently of nominal
-trajectory acceleration/deceleration using with_braking_deceleration. Never
+trajectory acceleration/deceleration using ClearanceConfig::with_forward_braking and with_yaw_braking. Never
 infer guaranteed physical stopping performance from a commanded profile limit.
 
 The command slew limiter records the wheel targets actually sent after wall
@@ -105,7 +107,7 @@ speed rather than the unconstrained internal target.
 
 ## Optional breakaway compensation
 
-Seeking::with_minimum_linear_speed and with_minimum_angular_speed configure
+MotionLimits::with_minimum_linear_speed and with_minimum_angular_speed configure
 measured breakaway rates; zero (default) disables them. The controller only
 raises a nonzero error-reducing command when its measured axis is nearly at
 rest and outside the arrival tolerance. Compensation is capped by the PID and
@@ -130,7 +132,5 @@ DriveTuning, MotionLimits, RateFilters, SettlingConfig, MotionTiming,
 ClearanceConfig, PathConfig and ApproachConfig. Each supports defaults and
 const builder methods; configure only the differences from defaults. Pass a
 complete configuration with Seeking::with_config, or change one group with
-with_limits, with_safety, with_settling and the other group setters. Existing
-individual Seeking and MotionConfig builder methods remain available for
-small per-route overrides. The public fields are now grouped (for example,
+with_limits, with_safety, with_settling and the other group setters. Copy a configuration group and adjust only the settings needed for a per-route override. The public fields are now grouped (for example,
 config.limits.wheel_speed and config.safety.forward_braking).
