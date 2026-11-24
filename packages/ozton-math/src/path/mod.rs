@@ -9,6 +9,7 @@ use crate::geometry::Pose;
 
 pub mod clearance;
 pub mod progress;
+pub mod planner;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -207,6 +208,9 @@ impl Path {
         }
         Ok(Self { samples, limits })
     }
+
+    /// Samples of the prepared path in increasing arc length.
+    pub fn samples(&self) -> &[PathSample] { &self.samples }
 
     pub fn limits(&self) -> Limits {
         self.limits

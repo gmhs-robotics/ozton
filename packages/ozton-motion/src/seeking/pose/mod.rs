@@ -185,6 +185,49 @@ impl PoseSeeking {
     ) -> Result<(), PoseMotionError<D::Error>> {
         approach::drive_to_target(drive, target.position, Some(target.heading), *self).await
     }
+    /// Drive a signed distance while preserving the starting heading.
+    pub async fn drive_distance<D: PoseDrive>(&self, drive: &mut D, distance: Length) -> Result<(), PoseMotionError<D::Error>> {
+        let heading = drive.pose().heading;
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        if !distance.value.is_finite() { return Err(PoseMotionError::Configuration); }
+        let field = approach::clearance(drive, self.config.clearance)?;
+        let start = drive.pose();
+        let end = Pose::new(start.position + ozton_math::geometry::direction(heading) * distance.value, heading);
+        if field.is_some_and(|f| !f.contains_pose(start) || !f.contains_pose(end)) { return Err(PoseMotionError::InsufficientClearance); }
+        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let result = session.run(crate::basic::differential::DifferentialTarget::DriveDistance {
+            meters: distance, heading: Some(heading), maximum_speed: options.maximum_wheel_speed
+        }, self.stage_timeout).await;
+        session.finish(result)
+    }
+
+    pub async fn turn_to_heading<D: PoseDrive>(&self, drive: &mut D, heading: Angle) -> Result<(), PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        if !heading.value.is_finite() { return Err(PoseMotionError::Configuration); }
+        if approach::clearance(drive, self.config.clearance)?.is_some_and(|f| !f.can_turn(drive.pose())) { return Err(PoseMotionError::InsufficientClearance); }
+        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let result = session.run(crate::basic::differential::DifferentialTarget::Turn { heading }, self.stage_timeout).await;
+        session.finish(result)
+    }
+
+    pub async fn follow_path<D: PoseDrive>(&self, drive: &mut D, path: &ozton_math::path::Path, follower: crate::pursuit::profiled::Follower, reverse: bool) -> Result<(), PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let field = approach::clearance(drive, self.config.clearance)?;
+        let facing = ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
+        let start = path.start().pose;
+        let actual = drive.pose();
+        if !follower.is_valid() || actual.position.distance(start.position) > 0.08
+            || ozton_math::geometry::wrap_heading(start.heading + facing - actual.heading).value.abs() > 0.35 {
+            return Err(PoseMotionError::Configuration);
+        }
+        if field.is_some_and(|f| !ozton_math::path::planner::clear(path, reverse, f)) { return Err(PoseMotionError::InsufficientClearance); }
+        let end = path.end().pose;
+        let target = Pose::new(end.position, end.heading + facing);
+        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let result = session.follow(path, follower, reverse, target, field, self.stage_timeout).await;
+        session.finish(result)
+    }
+
     /// Hold the chassis still and try to correct the pose from fresh wall ranges.
     pub async fn try_distance_reset<D: PoseDrive>(
         &self,

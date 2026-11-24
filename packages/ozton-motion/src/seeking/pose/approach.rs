@@ -42,7 +42,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
-    if clearance.is_some_and(|field| !field.can_turn(target)) {
+    if clearance.is_some_and(|field| !field.contains_pose(target)) {
         ozton_runtime::log_event!(
             Error,
             "path",
@@ -65,7 +65,20 @@ async fn approach<D: PoseDrive>(
     settings: PoseSeeking,
 ) -> MotionResult<D> {
     let options = session.options;
+    let config = settings.effective_config();
+    let start = session.drive.pose();
+    // Prefer a single continuous maneuver, including a clearance-aware wall departure.
+    // A planned trajectory failure is not silently retried as a different command.
+    if let Some(heading) = final_heading {
+        let target = Pose::new(target.position, heading);
+        let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
+        if let Some(plan) = ozton_math::path::planner::plan(start, target, config.path_limits(options.track_width), clearance, direction) {
+            return session.follow(&plan.path, config.follower(), plan.reverse, target, clearance, settings.stage_timeout).await;
+        }
+    }
+    // Fall back only when no feasible continuous candidate was generated.
     if let Some(field) = clearance {
+        if !field.can_turn(target) { return Err(PoseMotionError::InsufficientClearance); }
         depart_wall(session, field, target, settings.stage_timeout, settings.effective_config()).await?;
     }
     let tolerance = options.position_tolerance.value;

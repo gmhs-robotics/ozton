@@ -177,6 +177,94 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         }
     }
 
+    /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
+    pub(super) async fn follow(
+        &mut self,
+        path: &ozton_math::path::Path,
+        follower: crate::pursuit::profiled::Follower,
+        reverse: bool,
+        target: ozton_math::geometry::Pose,
+        clearance: Option<ozton_math::path::clearance::RectangularClearance>,
+        timeout: Duration,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        use crate::pursuit::profiled::{self, FollowerSample, Progress as PathProgress};
+        use ozton_math::uom::si::{f64::Time, time::second};
+        let start = Instant::now();
+        let mut progress = PathProgress::new(path);
+        let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
+        let mut last = None;
+        let mut fresh_at = Instant::now();
+        let mut reference_time = 0.0_f64;
+        let mut settled = Duration::ZERO;
+        let mut best = f64::INFINITY;
+        let mut no_progress = Duration::ZERO;
+        let mut terminal_turn = false;
+        let mut terminal = false;
+        let end = path.end();
+        log_row!(Debug, "PATH_PLAN", "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5}", end.time, end.distance, target.position.x, target.position.y, target.heading.value);
+        loop {
+            let tick = self.tick().await?;
+            if start.elapsed() >= timeout { return Err(PoseMotionError::StageTimeout); }
+            let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
+                self.drive.brake().map_err(PoseMotionError::StopFailed)?;
+                if fresh_at.elapsed() > self.config.maximum_gap { return Err(PoseMotionError::ControlGap); }
+                continue;
+            };
+            let dt = match last {
+                Some(previous) if feedback.time <= previous => {
+                    if fresh_at.elapsed() > self.config.maximum_gap { return Err(PoseMotionError::ControlGap); }
+                    continue;
+                }
+                Some(previous) => feedback.time.saturating_sub(previous),
+                None => tick,
+            };
+            if dt > self.config.maximum_gap || !valid_feedback(feedback) { return Err(PoseMotionError::InvalidFeedback); }
+            last = Some(feedback.time);
+            fresh_at = Instant::now();
+            if !self.drive.pose_trusted() { return Err(PoseMotionError::UntrustedPose); }
+            if clearance.is_some_and(|field| !field.contains_pose(feedback.pose)) { return Err(PoseMotionError::InsufficientClearance); }
+            progress.update(feedback.pose.position, ozton_math::length!(self.options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0, m));
+            let geometric = path.at_distance(ozton_math::length!(progress.distance(), m));
+            let cross = geometric.pose.position.distance(feedback.pose.position);
+            if cross > 0.20 { return Err(PoseMotionError::PositionUnsettled); }
+            // Bound time-reference lead to avoid chasing a distant reference after lag.
+            reference_time = (reference_time + dt.as_secs_f64()).min(geometric.time + 0.25).min(end.time);
+            let sample = FollowerSample { pose: feedback.pose, elapsed: Time::new::<second>(reference_time), period: Time::new::<second>(dt.as_secs_f64()) };
+            let distance = feedback.pose.position.distance(target.position);
+            let heading_error = wrap_heading(target.heading - feedback.pose.heading).value.abs();
+            if !terminal && profiled::is_terminal(&progress, follower, sample, self.options.position_tolerance.value) {
+                terminal = true;
+                best = f64::INFINITY;
+                no_progress = Duration::ZERO;
+                controller.pid.reset();
+            }
+            let (wheels, ready) = if terminal {
+                let turn = distance <= self.options.position_tolerance.value;
+                if turn != terminal_turn { controller.pid.reset(); terminal_turn = turn; }
+                let command = if turn {
+                    DifferentialTarget::Turn { heading: target.heading }
+                } else {
+                    DifferentialTarget::DriveToPoint { target: target.position, reverse, maximum_speed: self.options.maximum_wheel_speed }
+                };
+                let (wheels, ready) = controller.step(command, feedback, dt, self.options);
+                (wheels, ready && turn && heading_error <= self.options.heading_tolerance.value)
+            } else {
+                let desired = profiled::command(follower, &progress, sample, reverse, self.options.position_tolerance);
+                controller.limit_step(desired, false, dt, self.options)
+            };
+            let objective = if terminal { distance + self.options.track_width.value * heading_error * 0.5 } else { end.distance - progress.distance() };
+            if ready || objective < best - 0.002 { best = objective; no_progress = Duration::ZERO; } else { no_progress += dt; }
+            if no_progress >= self.config.progress_timeout { return Err(PoseMotionError::NoProgress); }
+            settled = if ready { settled + dt } else { Duration::ZERO };
+            let complete = ready && settled >= self.options.settle;
+            if complete { self.drive.brake().map_err(PoseMotionError::StopFailed)?; }
+            else { self.drive.drive_wheels(wheels.map(Velocity::new::<meter_per_second>)).map_err(PoseMotionError::Drive)?; }
+            log_row!(Trace, "PATH_TICK", "sample_ms={},reference_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete}", feedback.time.as_millis(), progress.distance(), feedback.pose.position.x, feedback.pose.position.y, feedback.pose.heading.value, wheels[0], wheels[1]);
+            self.drive.log_step(self.started.elapsed(), dt);
+            if complete { return Ok(()); }
+        }
+    }
+
     pub(super) async fn try_distance_reset(
         &mut self,
         timeout: Duration,
