@@ -11,12 +11,11 @@ use crate::basic::differential::{DriveOptions, DriveTuning};
 
 mod actions;
 mod approach;
-mod drive;
 mod error;
 mod safety;
 mod session;
 pub use actions::PathActions;
-pub use drive::{DriveMotionFault, PoseDrive};
+pub use ozton_drivetrain::PoseDrive;
 pub use error::PoseMotionError;
 pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
@@ -157,7 +156,7 @@ impl Seeking {
             heading,
         );
         if field.is_some_and(|f| !f.contains_translation(start, end.position)) {
-            ozton_runtime::log_row!(
+            ozton_diagnostics::log_row!(
                 Warn,
                 "CLEARANCE_FAULT",
                 "reason=planned_translation,x_m={:.5},y_m={:.5},end_x_m={:.5},end_y_m={:.5}",
@@ -166,7 +165,7 @@ impl Seeking {
                 end.position.x,
                 end.position.y
             );
-            ozton_runtime::log_event!(
+            ozton_diagnostics::log_event!(
                 Warn,
                 "clearance",
                 "Planned straight translation violates clearance"
@@ -208,7 +207,7 @@ impl Seeking {
                 .forward_arc_bounds(drive.pose(), radius, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
-                ozton_runtime::log_row!(
+                ozton_diagnostics::log_row!(
                     Warn,
                     "CLEARANCE_FAULT",
                     "reason=planned_arc,min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5},radius_m={:.5},sweep_rad={:.5}",
@@ -219,7 +218,7 @@ impl Seeking {
                     radius.value,
                     sweep.value
                 );
-                ozton_runtime::log_event!(Warn, "clearance", "Planned arc violates clearance");
+                ozton_diagnostics::log_event!(Warn, "clearance", "Planned arc violates clearance");
                 return Err(PoseMotionError::InsufficientClearance);
             }
         }
@@ -278,7 +277,7 @@ impl Seeking {
         if approach::clearance(drive, self.config.safety.clearance)?
             .is_some_and(|f| !f.can_turn(drive.pose()))
         {
-            ozton_runtime::log_event!(Warn, "clearance", "Not enough room for an in-place turn");
+            ozton_diagnostics::log_event!(Warn, "clearance", "Not enough room for an in-place turn");
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
@@ -324,7 +323,7 @@ impl Seeking {
             return Err(PoseMotionError::Configuration);
         }
         if field.is_some_and(|f| !ozton_math::path::planner::clear(path, reverse, f)) {
-            ozton_runtime::log_event!(Warn, "clearance", "Planned trajectory violates clearance");
+            ozton_diagnostics::log_event!(Warn, "clearance", "Planned trajectory violates clearance");
             return Err(PoseMotionError::InsufficientClearance);
         }
         let end = path.end().pose;

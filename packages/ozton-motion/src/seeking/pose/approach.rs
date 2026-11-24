@@ -7,7 +7,6 @@ use ozton_math::{
     path::clearance::{AStar, RectangularClearance, approach_heading},
     uom::si::f64::Angle,
 };
-use ozton_runtime::clock::CONTROL_PERIOD;
 
 use super::{
     PathActions, PoseDrive, Seeking, TravelDirection,
@@ -28,7 +27,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         position,
         final_heading.unwrap_or_else(|| drive.pose().heading),
     );
-    ozton_runtime::log_row!(
+    ozton_diagnostics::log_row!(
         Debug,
         "POINT_REQUEST",
         "x_m={:.5},y_m={:.5},heading_rad={:.5}",
@@ -36,7 +35,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         target.position.y,
         target.heading.value
     );
-    if !target.is_finite() || settings.config.timing.stage_timeout < CONTROL_PERIOD {
+    if !target.is_finite() || settings.config.timing.stage_timeout < settings.config.timing.period {
         return Err(PoseMotionError::Configuration);
     }
 
@@ -45,7 +44,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
     if final_heading.is_some() && clearance.is_some_and(|field| !field.contains_pose(target)) {
-        ozton_runtime::log_event!(
+        ozton_diagnostics::log_event!(
             Error,
             "path",
             "Target ({:.3}, {:.3}) m lacks clearance to turn",
@@ -83,7 +82,7 @@ async fn approach<D: PoseDrive>(
         let direction = settings
             .travel
             .map(|d| matches!(d, TravelDirection::Backward));
-        let span = ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::Planner);
+        let span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::Planner);
         let plan = if clearance.is_none() || preferred.is_some() {
             ozton_math::path::planner::plan(
                 start,
@@ -189,7 +188,7 @@ async fn approach<D: PoseDrive>(
         if error <= tolerance {
             return Ok(());
         }
-        ozton_runtime::log_event!(
+        ozton_diagnostics::log_event!(
             Warn,
             "path",
             "Position error after approach: {:.3} m",
@@ -220,7 +219,7 @@ async fn depart_wall<D: PoseDrive>(
     let plan = field
         .point_departure(start, target, options.track_width / 2.0, reserve)
         .ok_or(PoseMotionError::InsufficientClearance)?;
-    ozton_runtime::log_row!(
+    ozton_diagnostics::log_row!(
         Debug,
         "CORNER_DEPARTURE",
         "radius_m={:.5},sweep_rad={:.5},advance_m={:.5}",

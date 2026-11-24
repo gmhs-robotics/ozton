@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
     Drivetrain, HasLocalization, MotorGroups, WheelSpeedError,
-    model::{Balancing, Drive, LateralDrive, tank_axes},
+    model::{Drive, LateralDrive, tank_axes},
 };
 use ozton_math::{
     desaturate,
@@ -21,56 +21,11 @@ use ozton_tracking::{
 use vexide::smart::PortError;
 
 mod collection;
+mod pose;
+pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssist};
 pub use collection::{DriveAssists, ResetDriveAssists};
 
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
-
-/// Observations and estimates borrowed from the drive for a single command.
-pub struct AssistContext<'a, M, T, L> {
-    pub model: &'a M,
-    pub tracking: &'a T,
-    pub localization: &'a L,
-    pub orientation: Option<Orientation>,
-    pub elapsed: Duration,
-    /// Whether the caller supplies physical wheel velocity targets.
-    pub wheel_velocity: bool,
-}
-
-/// Transform forward/turn axes or adjust the resulting side commands.
-pub trait DriveAssist<M: Drive, T, L> {
-    fn needs_orientation(&self) -> bool {
-        false
-    }
-
-    fn apply(&mut self, _axes: &mut [f64; 2], _context: &AssistContext<'_, M, T, L>) {}
-
-    fn wheels(
-        &mut self,
-        _context: &AssistContext<'_, M, T, L>,
-        _wheels: &mut [f64; 2],
-    ) -> Result<(), M::Error> {
-        Ok(())
-    }
-
-    fn reset(&mut self) {}
-}
-
-impl<M: Drive, T, L> DriveAssist<M, T, L> for () {}
-
-/// Use the drivetrain model's motor-loss policy before writing outputs.
-#[derive(Clone, Copy, Default)]
-pub struct MotorBalanceAssist;
-
-impl<M: Balancing, T, L> DriveAssist<M, T, L> for MotorBalanceAssist {
-    fn wheels(
-        &mut self,
-        context: &AssistContext<'_, M, T, L>,
-        wheels: &mut [f64; 2],
-    ) -> Result<(), M::Error> {
-        *wheels = desaturate(*wheels, 1.0);
-        context.model.balance(wheels)
-    }
-}
 
 /// Hardware observation used by assists that need orientation.
 pub trait AssistTracking: TrackingSystem {

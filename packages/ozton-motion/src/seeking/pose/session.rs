@@ -5,7 +5,7 @@ use ozton_math::{
     geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
-use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_event, log_row};
+use ozton_diagnostics::{log_event, log_row};
 
 use super::{
     PathActions, PoseDrive, PoseMotionError,
@@ -28,7 +28,7 @@ pub(super) struct PoseSession<'a, D: PoseDrive> {
     pub(super) drive: &'a mut D,
     pub(super) options: DriveOptions,
     config: crate::MotionConfig,
-    clock: CommandClock,
+    previous_tick: Instant,
     started: Instant,
     finished: bool,
 }
@@ -46,15 +46,25 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             drive,
             options,
             config,
-            clock: CommandClock::new(config.timing.period).ok_or(PoseMotionError::Configuration)?,
+            previous_tick: Instant::now(),
             started: Instant::now(),
             finished: false,
         })
     }
 
     async fn tick(&mut self) -> Result<Duration, PoseMotionError<D::Error>> {
-        let dt = self.clock.tick().await;
-        if !autonomous_active() {
+        let period = self.config.timing.period;
+        let deadline = self.previous_tick.checked_add(period).ok_or(PoseMotionError::Configuration)?;
+        self.drive.wait_until(deadline).await;
+        let now = Instant::now();
+        let dt = now.saturating_duration_since(self.previous_tick);
+        self.previous_tick = now;
+        ozton_diagnostics::profile::record(
+            ozton_diagnostics::profile::Stage::ControlInterval,
+            dt,
+            period + Duration::from_millis(1),
+        );
+        if !self.drive.motion_active() {
             return Err(PoseMotionError::Cancelled);
         }
         if dt.is_zero() || dt > self.config.timing.maximum_gap {
@@ -115,7 +125,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         loop {
             let dt = self.tick().await?;
             let _span =
-                ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
+                ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MotionTick);
             if started.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }
@@ -272,7 +282,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         loop {
             let tick = self.tick().await?;
             let _span =
-                ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
+                ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MotionTick);
             if start.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }

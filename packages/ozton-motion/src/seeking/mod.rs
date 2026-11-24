@@ -2,7 +2,7 @@
 
 mod pose;
 pub use pose::{
-    DriveMotionFault, PathActions, PoseDrive, PoseMotionError, StoppingGovernor, TravelDirection,
+    PathActions, PoseDrive, PoseMotionError, StoppingGovernor, TravelDirection,
 };
 
 /// Reusable physical motion template for a calibrated drivetrain.

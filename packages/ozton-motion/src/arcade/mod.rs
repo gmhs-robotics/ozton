@@ -59,7 +59,7 @@ pub(crate) fn drive_command<D: Drive + ?Sized>(
     let started = std::time::Instant::now();
     let result = drive.drive_vector(translation, turn);
     #[cfg(feature = "logging")]
-    ozton_runtime::log_row!(
+    ozton_diagnostics::log_row!(
         Trace,
         "DRIVER_OUTPUT",
         "style={style},right={:.4},forward={:.4},turn={turn:.4},output_us={},ok={}",
