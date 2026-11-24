@@ -8,7 +8,7 @@ pub use ozton_drivetrain as drivetrain;
 pub use ozton_localization as localization;
 pub use ozton_math as math;
 pub use ozton_math::{
-    angle, length, position_xy, position_xyh, position_xyz, position_xyzh, quantity, units, uom,
+    angle, length, position_xy, position_xyh, position_xyz, position_xyzh, qty, quantity, units, uom,
 };
 pub use ozton_motion as motion;
 pub use ozton_path_io as path_io;
