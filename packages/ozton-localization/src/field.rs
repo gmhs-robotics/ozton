@@ -65,7 +65,7 @@ impl Field {
 #[derive(Default)]
 pub struct FieldMap {
     faces: Vec<Surface>,
-    perimeter: Option<Field>,
+    motion_bounds: Option<DVec2>,
     motion_obstacles: [Option<(DVec2, DVec2)>; 4],
 }
 
@@ -73,7 +73,7 @@ impl From<Field> for FieldMap {
     fn from(field: Field) -> Self {
         Self {
             faces: field.surfaces().into(),
-            perimeter: Some(field),
+            motion_bounds: Some(point(field.max.right, field.max.forward)),
             motion_obstacles: [None; 4],
         }
     }
@@ -82,8 +82,17 @@ impl From<Field> for FieldMap {
 impl FieldMap {
     /// Half extents of the rectangular perimeter, independent of interior faces.
     pub(crate) fn rectangular_half_extents(&self) -> Option<DVec2> {
-        let field = self.perimeter?;
-        Some(point(field.max.right, field.max.forward))
+        self.motion_bounds
+    }
+
+    /// Configure the closed motion perimeter without creating reflecting walls.
+    /// Useful when physical walls have openings or are too low for the sensors.
+    pub fn with_motion_bounds(mut self, half_extents: DVec2) -> Option<Self> {
+        if !half_extents.is_finite() || half_extents.min_element() <= 0.0 {
+            return None;
+        }
+        self.motion_bounds = Some(half_extents);
+        Some(self)
     }
 
     /// Add a reflecting surface only. Use add_fixed_box for a solid fixed

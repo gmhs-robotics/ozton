@@ -45,6 +45,22 @@ impl ParticleConfig {
         max_range_residual: None,
         max_correction_yaw_rate: None,
     };
+
+    pub const fn new() -> Self {
+        Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_max_range_residual(mut self, value: Length) -> Self {
+        self.max_range_residual = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_max_correction_yaw_rate(mut self, value: AngularVelocity) -> Self {
+        self.max_correction_yaw_rate = Some(value);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

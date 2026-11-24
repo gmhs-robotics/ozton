@@ -48,7 +48,7 @@ impl<'path> State<'path> {
     pub(in crate::autonomous) fn new(config: ozton_motion::MotionConfig) -> Self {
         Self {
             differential: DifferentialFeedback::new(config.tuning).with_config(config),
-            terminal_distance: config.lookahead.value,
+            terminal_distance: config.path.lookahead.value,
             ..Self::default()
         }
     }

@@ -106,7 +106,7 @@ where
             meters,
             heading: None,
             maximum_speed: P::motion_config(self)
-                .map_or(AUTON_SPEED, |config| config.wheel_speed)
+                .map_or(AUTON_SPEED, |config| config.limits.wheel_speed)
                 .min(options.maximum_wheel_speed),
         })
         .await
@@ -242,7 +242,7 @@ where
     let config = P::motion_config(robot);
     let runner = Runner::new(robot, options, period, gap)?;
     if let Some(config) = config {
-        Ok((runner.with_config(config)?, config.stage_timeout))
+        Ok((runner.with_config(config)?, config.timing.stage_timeout))
     } else {
         Ok((runner, super::routine_settings::AUTON_STAGE_TIMEOUT))
     }

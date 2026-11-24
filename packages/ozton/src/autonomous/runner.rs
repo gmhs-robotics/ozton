@@ -88,17 +88,15 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             robot,
             clock: CommandClock::new(period).ok_or(CommandError::Configuration)?,
             options,
-            config: MotionConfig {
-                wheel_speed: options.maximum_wheel_speed,
-                position_tolerance: options.position_tolerance,
-                heading_tolerance: options.heading_tolerance,
-                velocity_tolerance: options.speed_tolerance,
-                angular_velocity_tolerance: options.angular_speed_tolerance,
-                settle: options.settle,
-                period,
-                maximum_gap: max_gap,
-                ..MotionConfig::default()
-            },
+            config: MotionConfig::new()
+                .with_wheel_speed(options.maximum_wheel_speed)
+                .with_position_tolerance(options.position_tolerance)
+                .with_heading_tolerance(options.heading_tolerance)
+                .with_linear_velocity_tolerance(options.speed_tolerance)
+                .with_angular_velocity_tolerance(options.angular_speed_tolerance)
+                .with_tolerance_duration(options.settle)
+                .with_period(period)
+                .with_maximum_gap(max_gap),
             explicit_config: false,
             #[cfg(feature = "logging")]
             started: Instant::now(),
@@ -120,12 +118,12 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
     /// Apply the same physical configuration used by drivetrain-only PoseSeeking.
     pub fn with_config(mut self, config: MotionConfig) -> Result<Self, CommandError<R::Error>> {
         let options = config.options(self.options.track_width);
-        if !config.valid() || !Self::valid_configuration(options, config.period, config.maximum_gap)
+        if !config.valid() || !Self::valid_configuration(options, config.timing.period, config.timing.maximum_gap)
         {
             return Err(CommandError::Configuration);
         }
-        self.clock = CommandClock::new(config.period).ok_or(CommandError::Configuration)?;
-        self.max_gap = config.maximum_gap;
+        self.clock = CommandClock::new(config.timing.period).ok_or(CommandError::Configuration)?;
+        self.max_gap = config.timing.maximum_gap;
         self.options = options;
         self.config = config;
         self.explicit_config = true;
@@ -389,9 +387,9 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             // Respect that profile unless the application installed a robot-wide policy.
             if !self.explicit_config && let Some((path, _)) = command.path_start() {
                 let limits = path.limits();
-                config.acceleration = limits.acceleration;
-                config.deceleration = limits.deceleration;
-                config.lateral_acceleration = limits.lateral_acceleration;
+                config.limits.acceleration = limits.acceleration;
+                config.limits.deceleration = limits.deceleration;
+                config.limits.lateral_acceleration = limits.lateral_acceleration;
             }
             let mut state = State::new(config);
             let mut initialized = false;
@@ -570,7 +568,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     } else {
                         progress_elapsed += dt;
                     }
-                    if progress_elapsed >= self.config.progress_timeout {
+                    if progress_elapsed >= self.config.timing.progress_timeout {
                         log_event!(Error, "motion", "{status}: target error not improving ({objective:.4})");
                         return Err(CommandError::NoProgress);
                     }
@@ -586,7 +584,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         progress_elapsed = Duration::ZERO;
                     } else {
                         progress_elapsed += dt;
-                        if progress_elapsed >= self.config.progress_timeout {
+                        if progress_elapsed >= self.config.timing.progress_timeout {
                             log_event!(Error, "motion", "{status}: no progress for {} ms. Pose ({:.3}, {:.3}) m, wheel targets {:.3}/{:.3} m/s",
                                 progress_elapsed.as_millis(), feedback.pose.position.x, feedback.pose.position.y,
                                 step.wheels[0], step.wheels[1]
