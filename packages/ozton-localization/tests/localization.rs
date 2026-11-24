@@ -305,7 +305,7 @@ fn both_estimators_improve_a_known_bias_and_shadow_never_moves_the_output() {
 }
 
 #[test]
-fn mcl_uses_ranges_to_recover_unmeasured_lateral_motion() {
+fn mcl_corrects_lateral_error_within_the_motion_prior() {
     let mut localization = localizer(Estimator::Mcl(ParticleConfig::default()), false);
     assert!(localization.set_pose(Pose::default()));
     localization
@@ -323,7 +323,7 @@ fn mcl_uses_ranges_to_recover_unmeasured_lateral_motion() {
             ..Snapshot::default()
         };
         let left = Some(RangeObservation {
-            distance: Length::new::<meter>(0.55),
+            distance: Length::new::<meter>(0.92),
             ..reading(time - 1, false).unwrap()
         });
         localization
@@ -331,7 +331,7 @@ fn mcl_uses_ranges_to_recover_unmeasured_lateral_motion() {
             .unwrap();
     }
     assert!(
-        (localization.pose().position.x + 0.45).abs() < 0.12,
+        (localization.pose().position.x + 0.08).abs() < 0.06,
         "{:?}",
         localization.pose()
     );

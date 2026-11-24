@@ -189,41 +189,6 @@ impl ParticleFilter {
         }
     }
 
-    /// Seed some particles from coherent external translation observations.
-    /// A single wall normal leaves each particle's tangent coordinate intact.
-    pub fn propose_position(&mut self, target: DVec2, normal: Option<DVec2>, noise: f64) {
-        let (position, deviation) = self.position_moments();
-        let displacement = target - position;
-        let (displacement, spread) = if let Some(normal) = normal {
-            (
-                normal * displacement.dot(normal),
-                deviation.dot(normal.abs()),
-            )
-        } else {
-            (displacement, deviation.length())
-        };
-        if !noise.is_finite()
-            || noise <= 0.0
-            || !displacement.is_finite()
-            || displacement.length_squared() <= spread * spread + noise * noise
-        {
-            return;
-        }
-        let weight = 1.0 / self.particles.len() as f64;
-        for particle in self.particles.iter_mut().step_by(4) {
-            particle.pose.position += displacement;
-            particle.weight = weight;
-        }
-        let total = self
-            .particles
-            .iter()
-            .map(|particle| particle.weight)
-            .sum::<f64>();
-        for particle in &mut self.particles {
-            particle.weight /= total;
-        }
-    }
-
     /// Conditions particle yaw on an independently tracked heading before a
     /// translation-only range update. Position-only output must not use particles
     /// whose yaw differs from the heading actually published to motion control.
@@ -286,7 +251,10 @@ impl ParticleFilter {
             return None;
         }
         let mixture = self.config.outlier_weight;
-        let random_scale = mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
+        // Thrun et al., Probabilistic Robotics, beam range finder model:
+        // Gaussian hit, truncated exponential short return, uniform random.
+        // Finite range readings only; no-return packets are excluded upstream.
+        let outlier_scale = mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture);
         prepare_faces(map, &mut self.ray_faces);
         let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
         if fixed_rotation.is_none() {
@@ -318,13 +286,18 @@ impl ParticleFilter {
                 continue;
             }
             let inverse_sigma = 1.0 / sigma;
-            let random_likelihood =
-                (random_scale * sigma / (beam.max_range.value - minimum)).clamp(1e-12, 1e12);
+            let span = beam.max_range.value - minimum;
+            // Split the existing outlier prior equally between random and
+            // short returns; use one exponential decay length per sensor span.
+            let random_likelihood = (0.5 * outlier_scale * sigma / span).max(1e-12);
+            let short_numerator = random_likelihood
+                * libm::exp(-(beam.distance.value - minimum) / span);
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
             let mut modeled_weight = 0.0;
             let mut evidence = 0.0;
+            let mut compatible = false;
             for (index, particle) in self.particles.iter().enumerate() {
                 let (offset, direction) = fixed_ray.unwrap_or_else(|| {
                     let r = orientations[index];
@@ -340,7 +313,17 @@ impl ParticleFilter {
                 );
                 likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
                     let residual = (beam.distance.value - distance) * inverse_sigma;
-                    let likelihood = libm::exp(-0.5 * residual * residual) + random_likelihood;
+                    // 99.73% one-dimensional Gaussian innovation region.
+                    // If no prior particle supports a hit, an outlier cannot
+                    // provide a meaningful local pose correction.
+                    compatible |= residual.abs() <= 3.0;
+                    let short = if beam.distance.value < distance {
+                        short_numerator / (-libm::expm1(-(distance - minimum) / span))
+                    } else {
+                        0.0
+                    };
+                    let likelihood =
+                        libm::exp(-0.5 * residual * residual) + random_likelihood + short;
                     modeled_weight += particle.weight;
                     evidence += particle.weight * likelihood;
                     likelihood
@@ -348,7 +331,7 @@ impl ParticleFilter {
                     f64::NAN
                 };
             }
-            if modeled_weight <= 0.0 || evidence <= 0.0 {
+            if !compatible || modeled_weight <= 0.0 || evidence <= 0.0 {
                 continue;
             }
             // Marginalize unknown geometry: a missing prediction receives

@@ -147,3 +147,43 @@ fn quality_rejects_out_of_range_predictions_and_downweights_distant_returns() {
             .is_none()
     );
 }
+
+#[test]
+fn unexpected_short_return_cannot_relocate_local_tracking() {
+    // Run 4: measured 439 mm, predicted 1414 mm. A plausible nearby
+    // return is not evidence that the robot teleported toward the wall.
+    let map = [Surface::new(
+        DVec2::new(-1.0, 1.414),
+        DVec2::new(1.0, 1.414),
+        crate::qty!(1 m),
+    )];
+    let beam = Beam {
+        mount: Pose::default(),
+        distance: crate::qty!(439 mm),
+        max_range: crate::qty!(2 m),
+        surface_mask: 1,
+    };
+    let quality = BeamQuality {
+        min_range: crate::qty!(20 mm),
+        sigma: crate::qty!(70.7 mm),
+    };
+    let mut filter = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
+    let before = filter.position_moments();
+    for _ in 0..20 {
+        assert!(
+            filter
+                .observe_position_with_quality(&[beam], &[quality], &map, Angle::default())
+                .is_none()
+        );
+    }
+    assert_eq!(filter.position_moments(), before);
+    let good = Beam {
+        distance: crate::qty!(1.35 m),
+        ..beam
+    };
+    let estimate = filter
+        .observe_position_with_quality(&[good], &[quality], &map, Angle::default())
+        .unwrap();
+    assert!(estimate.pose.position.y > before.0.y);
+    assert!(estimate.pose.position.y.abs() < 0.2);
+}

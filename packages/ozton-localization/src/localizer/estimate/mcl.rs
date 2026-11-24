@@ -168,21 +168,11 @@ impl PoseEstimator for Mcl {
             );
             return None;
         }
-        // A coherent linear fit may seed recovery particles, but cannot
-        // veto independent nonlinear likelihood measurements.
-        let fit = fit_consensus(&constraints[..constraint_count]);
-        let rank = fit.map_or(0, |fit| fit.axes);
+        // Local Bayesian tracking must not create particles from the same
+        // measurement used to weight them. Explicit DSR/set_pose is the
+        // separate recovery path for a pose outside the motion prior.
+        let rank = fit_consensus(&constraints[..constraint_count]).map_or(0, |fit| fit.axes);
         self.candidate.clone_from(&self.filter);
-        if let Some(fit) = fit {
-            let noise = constraints[..constraint_count]
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| fit.mask & (1 << index) != 0)
-                .map(|(_, (_, sigma))| *sigma)
-                .fold(f64::INFINITY, f64::min);
-            self.candidate
-                .propose_position(predicted.position + fit.change, fit.normal, noise);
-        }
         let Some(estimate) = self.candidate.observe_position_with_quality(
             &beams[..count],
             &qualities[..count],
