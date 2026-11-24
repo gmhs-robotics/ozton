@@ -20,9 +20,3 @@ pub const AUTON_ANGULAR_SPEED_TOLERANCE: AngularVelocity = AngularVelocity {
     ..AngularVelocity::ZERO
 };
 pub const AUTON_SETTLE_TIME: Duration = Duration::from_millis(150);
-
-#[cfg(feature = "vex")]
-pub const AUTON_SPEED: Velocity = Velocity {
-    value: 0.40,
-    ..Velocity::ZERO
-};
