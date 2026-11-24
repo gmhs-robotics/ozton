@@ -73,11 +73,11 @@ impl RectangularClearance {
             && (max.max(max + translation) + pad).cmple(self.usable).all()
     }
 
-    /// Bound a complete braking sweep with independent signed travel intervals
-    /// in the initial chassis axes. Intervals contain zero to include every
-    /// intermediate position. Any heading excursion up to yaw rotates each
-    /// traveled increment and each chassis corner by at most
-    /// min(2, |yaw|) times its length (chord-length inequality).
+    /// Bound a braking sweep with independent signed travel intervals and a
+    /// symmetric heading excursion. Each projected corner is bounded by the
+    /// exact support of its circular arc. Each traveled increment is bounded
+    /// by the extreme projection of its direction over the same heading range.
+    /// This avoids charging corner rotation twice when already near a diagonal.
     pub fn braking_bounds(
         self,
         pose: Pose,
@@ -93,28 +93,29 @@ impl RectangularClearance {
         {
             return None;
         }
+        let angle = yaw.value.abs().min(core::f64::consts::PI);
         let f = direction(pose.heading);
         let l = direction(pose.heading - crate::qty!(90 deg));
-        let mut low = DVec2::ZERO;
-        let mut high = DVec2::ZERO;
-        for d in forward.map(|d| f * d) {
-            low = low.min(d);
-            high = high.max(d);
-        }
-        let mut lateral_low = DVec2::ZERO;
-        let mut lateral_high = DVec2::ZERO;
-        for d in lateral.map(|d| l * d) {
-            lateral_low = lateral_low.min(d);
-            lateral_high = lateral_high.max(d);
-        }
-        let travel =
-            forward[0].abs().max(forward[1].abs()) + lateral[0].abs().max(lateral[1].abs());
-        let pad = DVec2::splat((self.footprint.turn_radius() + travel) * yaw.value.abs().min(2.0));
-        let (min, max) = self.footprint.bounds(pose);
-        Some((
-            min + low + lateral_low - pad,
-            max + high + lateral_high + pad,
-        ))
+        let support = |axis: DVec2| {
+            let mut corner_max = f64::NEG_INFINITY;
+            for x in [-self.footprint.half_extents.x, self.footprint.half_extents.x] {
+                for y in [-self.footprint.half_extents.y, self.footprint.half_extents.y] {
+                    let corner = pose.transform_point(
+                        self.footprint.center_offset + DVec2::new(x, y),
+                    ) - pose.position;
+                    corner_max = corner_max.max(rotated_support(corner, axis, angle));
+                }
+            }
+            let travel_support = |d: DVec2, interval: [f64; 2]| {
+                rotated_support(d * interval[0], axis, angle)
+                    .max(rotated_support(d * interval[1], axis, angle))
+                    .max(0.0)
+            };
+            corner_max + travel_support(f, forward) + travel_support(l, lateral)
+        };
+        let min = pose.position - DVec2::new(support(DVec2::NEG_X), support(DVec2::NEG_Y));
+        let max = pose.position + DVec2::new(support(DVec2::X), support(DVec2::Y));
+        Some((min, max))
     }
 
     /// Check the perimeter independently of fixed obstacles.
@@ -286,10 +287,76 @@ impl RectangularClearance {
     }
 }
 
+/// Maximum projection of a vector rotated through any angle in [-yaw, yaw].
+/// The maximum lies at the aligned direction or at one of the arc endpoints.
+fn rotated_support(vector: DVec2, axis: DVec2, yaw: f64) -> f64 {
+    let dot = vector.dot(axis);
+    let cross = vector.perp_dot(axis).abs();
+    if libm::atan2(cross, dot) <= yaw {
+        vector.length()
+    } else {
+        dot * libm::cos(yaw) + cross * libm::sin(yaw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn braking_rotation_never_exceeds_the_turning_disk() {
+        let chassis = Footprint::from_extents(
+            crate::qty!(7.55 in),
+            crate::qty!(7.55 in),
+            crate::qty!(7.761804 in),
+            crate::qty!(7.238196 in),
+        )
+        .unwrap();
+        let field = RectangularClearance::new(
+            chassis,
+            crate::position_xy!(36.75 in, 54.5 in),
+            crate::qty!(0.5 in),
+        )
+        .unwrap();
+        let start = Pose::new(DVec2::new(0.48862, 0.01052), crate::qty!(-0.89179 rad));
+        let (min, max) = field
+            .braking_bounds(start, [0.0; 2], [0.0; 2], crate::qty!(180 deg))
+            .unwrap();
+        let radius = DVec2::splat(chassis.turn_radius());
+        assert!((min - (start.position - radius)).length() < 1e-12);
+        assert!((max - (start.position + radius)).length() < 1e-12);
+        assert!(field.wall_contains_aabb(min, max));
+    }
+
+    #[test]
+    fn braking_support_contains_sampled_combined_sweeps() {
+        let chassis = Footprint::new(crate::qty!(15.1 in), crate::qty!(15 in)).unwrap();
+        let field = RectangularClearance::new(
+            chassis,
+            crate::position_xy!(36.75 in, 54.5 in),
+            crate::qty!(0.5 in),
+        )
+        .unwrap();
+        let pose = Pose::new(DVec2::new(0.1, -0.2), crate::qty!(-51 deg));
+        let yaw = crate::qty!(35 deg);
+        let (min, max) = field
+            .braking_bounds(pose, [-0.03, 0.2], [-0.08, 0.06], yaw)
+            .unwrap();
+        for i in -10..=10 {
+            let heading = pose.heading + yaw * (f64::from(i) / 10.0);
+            for f in [-0.03, 0.0, 0.2] {
+                for l in [-0.08, 0.0, 0.06] {
+                    let position = pose.position
+                        + direction(heading) * f
+                        + direction(heading - crate::qty!(90 deg)) * l;
+                    let (a, b) = chassis.bounds(Pose::new(position, heading));
+                    assert!((a + DVec2::splat(1e-12)).cmpge(min).all());
+                    assert!((b - DVec2::splat(1e-12)).cmple(max).all());
+                }
+            }
+        }
+    }
 
     #[test]
     fn wall_stopping_envelope_is_checked_without_obstacles() {
