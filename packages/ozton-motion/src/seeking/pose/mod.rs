@@ -558,15 +558,44 @@ impl Seeking {
         session.finish(result)
     }
 
+    /// Turn to face a field point using the physical feedback controller.
+    pub async fn turn_to_point<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        target: impl Into<DVec2>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let target = target.into();
+        if !target.is_finite() {
+            return Err(PoseMotionError::Configuration);
+        }
+        self.turn_target(
+            drive,
+            crate::basic::differential::DifferentialTarget::TurnToPoint { target },
+        )
+        .await
+    }
+
     pub async fn turn_to_heading<D: PoseDrive>(
         &self,
         drive: &mut D,
         heading: Angle,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if !heading.value.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
+        self.turn_target(
+            drive,
+            crate::basic::differential::DifferentialTarget::Turn { heading },
+        )
+        .await
+    }
+
+    async fn turn_target<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        target: crate::basic::differential::DifferentialTarget,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if approach::clearance(drive, self.config.safety.clearance)?
             .is_some_and(|f| !f.can_turn(drive.pose()))
         {
@@ -576,7 +605,7 @@ impl Seeking {
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
         let result = session
             .run(
-                crate::basic::differential::DifferentialTarget::Turn { heading },
+                target,
                 self.config.timing.stage_timeout,
             )
             .await;

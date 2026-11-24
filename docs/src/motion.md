@@ -2,13 +2,9 @@
 
 Choose the simplest motion that solves the task. Drive straight when you need a distance. Turn when you need a heading. Use a pose command when the final location and orientation both matter.
 
-## Which controller should I use?
+## Motion controller
 
-- Basic: distance driving and heading or point turns, using normalized motor output and the tracking required by the command.
-- Seeking: move to a point, optionally specify the final heading, or execute a distance, turn, arc or prepared path. The default backend uses calibrated wheel velocities, feedback and field clearance.
-- PurePursuit: follow waypoints with normalized motor output and an endpoint controller.
-
-Basic and PurePursuit use normalized motor fractions. Seeking's default outer loops produce physical linear and angular velocities. For simple drivetrains without calibrated wheel-speed output, `Seeking::normalized()` opts into the normalized voltage controller for point and pose targets. Its gains use motor fractions instead; do not reuse physical velocity gains in that backend. It turns in place at the endpoint when a final heading is requested and does not perform physical trajectory planning or footprint checks.
+Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Profiled paths support both RAMSETE and Pure Pursuit.
 
 ## A first closed-loop move
 
@@ -33,22 +29,20 @@ Both point and pose targets use the same controller configuration. `move_to_poin
 Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
 
 ```rust,ignore
-use ozton::{qty, motion::Basic};
-use std::time::Duration;
+use ozton::{qty, motion::{Seeking, MotionConfig, MotionLimits, DriveTuning}};
+use ozton::math::control::Pid;
 
-const BASIC: Basic = Basic::new()
-    .with_linear_gains(1.2, 0.0, 0.06)
-    .with_angular_gains(1.6, 0.0, 0.08)
-    .with_linear_error_tolerance(qty!(0.75 in))
-    .with_angular_error_tolerance(qty!(2 deg))
-    .with_linear_velocity_tolerance(qty!(0.04 m/s))
-    .with_angular_velocity_tolerance(qty!(0.12 rad/s))
-    .with_timeout(Duration::from_secs(6));
+const MOTION: MotionConfig = MotionConfig::new()
+    .with_tuning(
+        DriveTuning::new()
+            .with_linear_controller(Pid::new(4.25, 0.0, 0.50, None))
+            .with_angular_controller(Pid::new(3.0, 0.0, 0.22, None)),
+    )
+    .with_limits(MotionLimits::new().with_wheel_speed(qty!(1.2 m/s)));
+const SEEKING: Seeking = Seeking::new().with_config(MOTION);
 ```
 
-Seeking and PurePursuit have the same construction style. Physical settings require typed quantities, for example `Seeking::new().with_angular_acceleration(qty!(12 rad/s^2))`. Passing `12.0` alone will not compile. Supply the actual track width to PurePursuit with `with_track_width`. Seeking offers physical speed, acceleration, PID, settling and clearance modifiers directly; MotionConfig remains available for the generic Runner. PID controllers also support const gain, integration range and output-limit modifiers. Library defaults are starting points, not calibration results.
-
-A command finishes when its applicable error and velocity tolerances remain satisfied for the required settle duration. Seeking returns an error on timeout, loss of feedback or insufficient clearance. Basic, PurePursuit and normalized Seeking return MotionOutcome::Settled or MotionOutcome::TimedOut; check the outcome rather than assuming an Ok means the target was reached.
+A command finishes when the applicable error and velocity tolerances remain satisfied for the required settle duration. Seeking returns an error on timeout, invalid feedback or insufficient clearance. Tune physical velocity gains and braking rates on the actual robot.
 
 ## Following a prepared path
 

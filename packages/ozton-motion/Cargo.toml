@@ -31,10 +31,6 @@ vex = ["dep:ozton-runtime", "dep:ozton-tracking", "ozton-drivetrain/vex", "ozton
 logging = ["vex", "ozton-runtime/logging"]
 
 [[test]]
-name = "mock_robot_e2e"
-required-features = ["vex"]
-
-[[test]]
 name = "tracking_startup"
 required-features = ["vex"]
 
