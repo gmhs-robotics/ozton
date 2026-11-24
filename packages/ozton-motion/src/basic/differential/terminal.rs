@@ -1,7 +1,8 @@
 //! Terminal pose settling shared by prepared-path followers.
 
-use super::*;
 use ozton_math::geometry::Pose;
+
+use super::*;
 
 /// Latch the final heading until it settles, even if residual translation
 /// briefly takes the robot outside the position tolerance.
@@ -71,8 +72,10 @@ mod tests {
 
     #[test]
     fn final_heading_does_not_chase_bearing_when_position_drifts() {
-        let options =
-            DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.45 m/s));
+        let options = DriveOptions::differential(
+            ozton_math::qty!(0.3292677692 m),
+            ozton_math::qty!(0.45 m/s),
+        );
         let options = options.with_settling(
             ozton_math::qty!(0.75 in),
             ozton_math::qty!(2 deg),
