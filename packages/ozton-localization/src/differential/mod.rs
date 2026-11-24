@@ -69,9 +69,11 @@ impl DifferentialLocalization {
 
     /// Set fixed obstacle bounds separately from the reflecting surface map.
     pub fn set_motion_obstacles(&mut self, obstacles: [Option<(DVec2, DVec2)>; 4]) -> bool {
-        if obstacles.iter().flatten().any(|(min, max)| {
-            !min.is_finite() || !max.is_finite() || !min.cmplt(*max).all()
-        }) {
+        if obstacles
+            .iter()
+            .flatten()
+            .any(|(min, max)| !min.is_finite() || !max.is_finite() || !min.cmplt(*max).all())
+        {
             return false;
         }
         self.motion_obstacles = obstacles;

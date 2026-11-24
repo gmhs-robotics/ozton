@@ -426,7 +426,8 @@ fn safe_feedback(
             feedback.pose,
             ozton_math::geometry::direction(feedback.pose.heading) * travel
                 + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
-                    * feedback.lateral_velocity.value * 0.15,
+                    * feedback.lateral_velocity.value
+                    * 0.15,
             ozton_math::qty!((yaw) rad),
         )
 }

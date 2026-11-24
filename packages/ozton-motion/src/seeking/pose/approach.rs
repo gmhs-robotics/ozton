@@ -128,9 +128,9 @@ async fn approach<D: PoseDrive>(
                 bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
             // A point-only target does not require enough space to rotate at
             // the destination; only the actual approach orientation must fit.
-            if clearance
-                .is_some_and(|field| !field.contains_translation(Pose::new(start.position, heading), target.position))
-            {
+            if clearance.is_some_and(|field| {
+                !field.contains_translation(Pose::new(start.position, heading), target.position)
+            }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;
@@ -250,7 +250,9 @@ pub(super) fn clearance<D: PoseDrive>(
     let mut field = RectangularClearance::new(footprint, bounds, margin)
         .ok_or(PoseMotionError::Configuration)?;
     for (min, max) in drive.motion_obstacles().into_iter().flatten() {
-        field = field.with_obstacle(min, max).ok_or(PoseMotionError::Configuration)?;
+        field = field
+            .with_obstacle(min, max)
+            .ok_or(PoseMotionError::Configuration)?;
     }
     Ok(Some(field))
 }

@@ -26,13 +26,12 @@ pub struct DepartureArc {
 impl RectangularClearance {
     pub fn new(footprint: Footprint, half_extents: DVec2, margin: Length) -> Option<Self> {
         let usable = half_extents - DVec2::splat(margin.value);
-        (usable.is_finite() && usable.min_element() > 0.0 && margin.value >= 0.0)
-            .then_some(Self {
-                footprint,
-                usable,
-                margin: margin.value,
-                obstacles: [None; 4],
-            })
+        (usable.is_finite() && usable.min_element() > 0.0 && margin.value >= 0.0).then_some(Self {
+            footprint,
+            usable,
+            margin: margin.value,
+            obstacles: [None; 4],
+        })
     }
 
     /// Add a solid rectangle to the clearance map, independently of range surfaces.
@@ -48,9 +47,10 @@ impl RectangularClearance {
     }
 
     fn obstacles_clear(self, min: DVec2, max: DVec2) -> bool {
-        self.obstacles.iter().flatten().all(|&(a, b)| {
-            max.cmplt(a).any() || min.cmpgt(b).any()
-        })
+        self.obstacles
+            .iter()
+            .flatten()
+            .all(|&(a, b)| max.cmplt(a).any() || min.cmpgt(b).any())
     }
 
     /// Conservative swept AABB for constant-heading translation.
@@ -162,7 +162,7 @@ impl RectangularClearance {
         (enter <= leave
             && self.contains_bounds(min.min(min + displacement), max.max(max + displacement))
             && self.can_turn(Pose::new(start.position + displacement, start.heading)))
-            .then_some(crate::qty!((enter) m))
+        .then_some(crate::qty!((enter) m))
     }
 
     /// Try successively wider arcs in both directions, including a straight continuation.
@@ -242,10 +242,9 @@ mod tests {
                 crate::position_xy!((sign * 20.0) in, -32 in),
                 Angle::default(),
             );
-            assert!(field.contains_translation(
-                start,
-                crate::position_xy!((sign * 20.0) in, 32 in),
-            ));
+            assert!(
+                field.contains_translation(start, crate::position_xy!((sign * 20.0) in, 32 in),)
+            );
         }
     }
 
