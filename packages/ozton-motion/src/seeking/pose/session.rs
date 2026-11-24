@@ -155,7 +155,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
-            if complete || (terminal && (terminal_pose.is_braking() || ready)) {
+            if complete {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
                 self.drive
@@ -334,7 +334,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
-            if complete {
+            if complete || (terminal && (terminal_pose.is_braking() || ready)) {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
                 self.drive
