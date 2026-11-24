@@ -1,9 +1,17 @@
 use vex_sdk_mock as _;
 
-use super::{
-    super::{ProgramDrive, tests::FakeDrive},
-    *,
-};
+use super::*;
+
+struct FakeDrive {
+    writes: Vec<&'static str>,
+}
+
+impl FakeDrive {
+    fn stop(&mut self) -> Result<(), &'static str> {
+        self.writes.push("stop drive");
+        Ok(())
+    }
+}
 
 struct Application {
     drive: FakeDrive,
@@ -20,7 +28,7 @@ impl OztonCompete for Application {
 
     async fn driver(&mut self) -> Result<(), Self::Error> {
         self.driver_entries += 1;
-        self.drive.apply_driver(true, Duration::ZERO)?;
+        self.drive.writes.push("drive");
         Err("driver fault")
     }
 }
@@ -31,8 +39,6 @@ fn application_driver_runs_once_per_activation_with_fault_cleanup() {
         let mut runtime = Runtime::new(Application {
             drive: FakeDrive {
                 writes: Vec::new(),
-                fail_stop: false,
-                direct_output: false,
             },
             driver_entries: 0,
         });
@@ -73,8 +79,6 @@ fn route_choice_is_read_once_at_autonomous_entry() {
         let mut runtime = Runtime::new(Application {
             drive: FakeDrive {
                 writes: Vec::new(),
-                fail_stop: false,
-                direct_output: false,
             },
             driver_entries: 0,
         })
@@ -103,8 +107,6 @@ fn direct_enabled_handoff_does_not_stop_latched_outputs() {
         let mut runtime = Runtime::new(Application {
             drive: FakeDrive {
                 writes: vec!["auton"],
-                fail_stop: false,
-                direct_output: false,
             },
             driver_entries: 0,
         });

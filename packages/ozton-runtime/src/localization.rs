@@ -1,19 +1,8 @@
 //! Run a drivetrain's localization at the robot's control period.
 
-use std::{
-    cell::Cell,
-    time::{Duration, Instant},
-};
-
-use ozton_drivetrain::{Drive, Drivetrain};
+use vexide::competition::CompetitionMode;
 use ozton_localization::differential::DifferentialLocalization;
 use ozton_tracking::{Tracking, TrackingSources, TrackingSystem};
-use vexide::{
-    competition::{self, CompetitionMode},
-    task::{Task, spawn},
-};
-
-use crate::clock::sleep;
 mod worker;
 pub use worker::LocalizationWorker;
 
@@ -30,16 +19,6 @@ impl LocalizationSchedule {
     const fn runs_in(self, mode: CompetitionMode) -> bool {
         matches!(self, Self::Always) || matches!(mode, CompetitionMode::Autonomous)
     }
-}
-
-/// Connect a drivetrain's sources and estimator to the runtime.
-pub trait ScheduledLocalization {
-    fn start_localization(
-        &self,
-        schedule: LocalizationSchedule,
-        mode: CompetitionMode,
-        period: Duration,
-    ) -> Option<Task<()>>;
 }
 
 /// An estimator that can consume samples from the given tracking configuration.
@@ -82,84 +61,11 @@ impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocaliza
     }
 }
 
-impl<M: Drive, T: 'static, L: LocalizationInput<T> + 'static> ScheduledLocalization
-    for Drivetrain<M, T, L>
-{
-    fn start_localization(
-        &self,
-        schedule: LocalizationSchedule,
-        mode: CompetitionMode,
-        period: Duration,
-    ) -> Option<Task<()>> {
-        let state = self.localization_state();
-        if !schedule.runs_in(mode) {
-            state.upgrade()?.try_borrow_mut().ok()?.1.pause();
-            return None;
-        }
-        Some(spawn(async move {
-            while competition::mode() == mode {
-                let started = Instant::now();
-                {
-                    let Some(state) = state.upgrade() else { break };
-                    if let Ok(mut state) = state.try_borrow_mut() {
-                        let (tracking, localization) = &mut *state;
-                        localization.sample(tracking);
-                    }
-                }
-                sleep(
-                    period
-                        .saturating_sub(started.elapsed())
-                        .max(Duration::from_millis(1)),
-                )
-                .await;
-            }
-        }))
-    }
-}
-
-type Start<D> = fn(&D, LocalizationSchedule, CompetitionMode, Duration) -> Option<Task<()>>;
-
-pub(crate) struct Schedule<D> {
-    modes: LocalizationSchedule,
-    start: Start<D>,
-    previous_mode: Cell<Option<CompetitionMode>>,
-}
-
-impl<D> Schedule<D> {
-    pub(crate) fn new(modes: LocalizationSchedule) -> Self
-    where
-        D: ScheduledLocalization,
-    {
-        Self {
-            modes,
-            start: D::start_localization,
-            previous_mode: Cell::new(None),
-        }
-    }
-
-    pub(crate) fn start(
-        &self,
-        drive: &D,
-        mode: CompetitionMode,
-        period: Duration,
-    ) -> Option<Task<()>> {
-        let previous = self.previous_mode.replace(Some(mode));
-        if self.modes == LocalizationSchedule::Autonomous
-            && mode == CompetitionMode::Autonomous
-            && previous == Some(CompetitionMode::Autonomous)
-        {
-            // Reset baselines if an intervening mode was too short to run
-            // its callback. Always-on localization retains its continuity.
-            let _ = (self.start)(drive, self.modes, CompetitionMode::Disabled, period);
-        }
-        (self.start)(drive, self.modes, mode, period)
-    }
-}
-
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
     use std::convert::Infallible;
 
+    use ozton_drivetrain::Drive;
     use ozton_math::geometry::DVec2;
     use vex_sdk_mock as _;
 
@@ -192,36 +98,9 @@ mod tests {
     }
 
     #[test]
-    fn autonomous_only_skips_driver_updates_and_always_samples_until_cancelled() {
+    fn autonomous_only_gates_sampling_by_mode() {
         assert!(LocalizationSchedule::Autonomous.runs_in(CompetitionMode::Autonomous));
         assert!(!LocalizationSchedule::Autonomous.runs_in(CompetitionMode::Disabled));
         assert!(LocalizationSchedule::Always.runs_in(CompetitionMode::Disabled));
-
-        vexide::runtime::block_on(async {
-            let drive = Drivetrain::new(TestDrive, (), Counts::default());
-            let mode = CompetitionMode::Driver; // Mock competition status is zero.
-            let period = Duration::from_millis(1);
-            assert_eq!(competition::mode(), mode);
-            assert!(
-                drive
-                    .start_localization(LocalizationSchedule::Autonomous, mode, period)
-                    .is_none()
-            );
-            assert_eq!(drive.localization().pauses, 1);
-            assert_eq!(drive.localization().samples, 0);
-
-            let task = drive
-                .start_localization(LocalizationSchedule::Always, mode, period)
-                .unwrap();
-            let started = Instant::now();
-            while drive.localization().samples < 2 {
-                assert!(started.elapsed() < Duration::from_secs(1));
-                sleep(period).await;
-            }
-            let samples = drive.localization().samples;
-            drop(task);
-            sleep(period).await;
-            assert_eq!(drive.localization().samples, samples);
-        });
     }
 }

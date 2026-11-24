@@ -2,11 +2,11 @@
 
 use std::{
     convert::Infallible,
-    future::{Future, poll_fn},
+    future::{Future, pending, poll_fn},
     ops::ControlFlow,
     pin::{Pin, pin},
     task::Poll,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use vexide::{
@@ -14,12 +14,14 @@ use vexide::{
     time::sleep,
 };
 
-use super::{CompetitionRobot, DRIVER_STATUS, RouteSet, Routes, Tick};
+use ozton_ui::RouteSelector;
+
+use super::{OztonCompete, Runtime};
 use crate::clock::CONTROL_PERIOD;
 
 /// Vexide dispatches modes and cancels their futures. Ozton supplies the tick,
 /// output cleanup, route selection and telemetry within each mode.
-pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -> ! {
+pub(crate) async fn compete<R: OztonCompete>(robot: Runtime<R>) -> ! {
     let _startup = crate::startup::Startup::begin();
     #[cfg(feature = "logging")]
     let _diagnostics = crate::diagnostics::start_diagnostics();
@@ -31,7 +33,7 @@ pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -
     );
     // Capture the connection identity when vexide creates the callback, not
     // when it first polls it. An unpolled callback may already be obsolete.
-    match CompetitionRuntime::<R, Infallible, _, _, _, _, _>::builder(robot)
+    match CompetitionRuntime::<Runtime<R>, Infallible, _, _, _, _, _>::builder(robot)
         .on_connect(|robot| Box::pin(async { ControlFlow::Continue(robot.connected().await) }))
         .on_disconnect(|robot| {
             Box::pin(async { ControlFlow::Continue(robot.disconnected().await) })
@@ -63,8 +65,8 @@ async fn hold_mode(work: impl Future<Output = ()>, mut active: impl FnMut() -> b
     .await
 }
 
-pub(super) async fn run_mode<R: CompetitionRobot>(
-    robot: &mut R,
+pub(super) async fn run_mode<R: OztonCompete>(
+    robot: &mut Runtime<R>,
     mode: CompetitionMode,
     connected: bool,
 ) {
@@ -83,8 +85,8 @@ pub(super) async fn run_mode<R: CompetitionRobot>(
     .await;
 }
 
-fn mode_future<R: CompetitionRobot>(
-    robot: &mut R,
+fn mode_future<R: OztonCompete>(
+    robot: &mut Runtime<R>,
     mode: CompetitionMode,
 ) -> Pin<Box<dyn Future<Output = ControlFlow<Infallible>> + '_>> {
     let connected = competition::is_connected();
@@ -94,90 +96,50 @@ fn mode_future<R: CompetitionRobot>(
     })
 }
 
-pub(super) struct CompetitionSession<'a, R>(pub(super) &'a mut R);
+pub(super) struct CompetitionSession<'a, R: OztonCompete>(pub(super) &'a mut Runtime<R>);
 
-impl<R: CompetitionRobot> CompetitionSession<'_, R> {
+impl<R: OztonCompete> CompetitionSession<'_, R> {
     pub(super) fn stop(&mut self) {
-        self.0.set_autonomous_start(None);
-        if let Err(error) = self.0.stop() {
+        if let Err(_error) = self.0.robot.stop() {
             crate::log_event!(
                 Error,
                 "competition",
-                "Could not stop robot outputs ({error})"
+                "Could not stop robot outputs ({_error})"
             );
         }
     }
 
     fn enter(&mut self, mode: CompetitionMode) {
-        self.0.set_autonomous_start(None);
         // Enabled-mode handoff cancels execution, not latched device commands.
-        // An actual disabled activation still explicitly clears outputs.
         if mode == CompetitionMode::Disabled {
             self.stop();
         }
         crate::log_event!(Info, "competition", "Entered {mode:?} mode");
-        self.0.menu().poll(mode == CompetitionMode::Disabled);
+        self.0.selector.poll(mode == CompetitionMode::Disabled);
         self.0.mode_changed(mode);
     }
 
-    pub(super) async fn ticks(&mut self, mode: CompetitionMode) {
-        let disabled = mode == CompetitionMode::Disabled;
-        let token = super::activation::Token::capture(mode);
-        let mut previous = None;
-        while token.active() {
-            let now = Instant::now();
-            let tick = Tick {
-                started: now,
-                elapsed: previous.map_or(Duration::ZERO, |previous| {
-                    now.saturating_duration_since(previous)
-                }),
-            };
-            previous = Some(now);
-            if disabled {
-                let status = if self.0.selected_autonomous().is_some() {
-                    "Ready for autonomous"
-                } else {
-                    "Autonomous disabled"
-                };
-                self.0.menu().status(status);
-            }
-            if mode == CompetitionMode::Driver {
-                self.0.driver_tick(tick).await;
-            } else if disabled {
-                let _ = self.0.stop();
-            }
-            if !token.active() {
-                break;
-            }
-            self.0.menu().poll(disabled);
-            self.0.after_tick(mode, tick);
-            sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
-        }
-    }
-}
-
-impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     pub(super) async fn disabled(&mut self) {
         let _activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Disabled);
-        let _localization = self.0.start_localization(CompetitionMode::Disabled);
-        self.0.idle_mode(CompetitionMode::Disabled).await;
+        while_in_mode(pending::<()>(), CompetitionMode::Disabled, R::CONTROL_PERIOD).await;
     }
 
     pub(super) async fn driver(&mut self) {
         let mut activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Driver);
-        self.0.menu().status(DRIVER_STATUS);
-        let _localization = self.0.start_localization(CompetitionMode::Driver);
-        let token = super::activation::Token::capture(CompetitionMode::Driver);
-        let result = self.0.driver_mode().await;
-        if !token.active() {
-            return;
-        }
-        if let Err(error) = result {
+        self.0.selector.status("Driver control");
+        let result = while_in_mode(
+            self.0.robot.driver(),
+            CompetitionMode::Driver,
+            R::CONTROL_PERIOD,
+        )
+        .await;
+        if let Some(Err(error)) = result {
             activation.renew();
             self.stop();
-            self.0.driver_failed(error);
+            crate::log_event!(Error, "driver", "Control fault ({error})");
+            self.0.selector.status(&error.to_string());
         }
     }
 
@@ -185,26 +147,22 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
         let mut activation = super::activation::Activation::enter();
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
-        let _localization = self.0.start_localization(mode);
-        let robot = &mut *self.0;
-        if let Some(route) = robot.selected_autonomous() {
-            robot
-                .menu()
+        let runtime = &mut *self.0;
+        if let Some(route) = runtime.selected_autonomous() {
+            runtime
+                .selector
                 .status(&format!("Autonomous: {}", route.label()));
             crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label());
-            robot.set_autonomous_start(Some(Instant::now()));
-            let result = while_in_mode(route.run(robot), mode, R::CONTROL_PERIOD).await;
-            robot.set_autonomous_start(None);
+            let result = while_in_mode(route.run(&mut runtime.robot), mode, R::CONTROL_PERIOD).await;
             if competition::mode() != mode || result.is_none() {
-                // Vexide drops the old callback on a transition. Do not issue
-                // motor commands or update the next mode's status on exit.
+                // Do not write motor outputs or status for an obsolete activation.
                 return;
             }
             activation.renew();
             match result {
-                Some(Ok(())) => match robot.stop() {
+                Some(Ok(())) => match runtime.robot.stop() {
                     Ok(()) => {
-                        robot.menu().status("Autonomous complete");
+                        runtime.selector.status("Autonomous complete");
                         crate::log_event!(
                             Info,
                             "autonomous",
@@ -212,53 +170,21 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
                             route.label()
                         );
                     }
-                    Err(error) => robot.route_failed(route, error),
+                    Err(error) => runtime.route_failed(route, error),
                 },
                 Some(Err(error)) => {
-                    let stopped = robot.stop();
-                    robot.route_failed(route, error);
+                    let stopped = runtime.robot.stop();
+                    runtime.route_failed(route, error);
                     if let Err(error) = stopped {
-                        robot.route_failed(route, error);
+                        runtime.route_failed(route, error);
                     }
                 }
                 None => return,
             }
         } else {
-            robot.menu().status("Autonomous disabled");
+            runtime.selector.status("Autonomous disabled");
         }
-        self.0.idle_mode(mode).await;
-    }
-}
-
-impl<D, C, X, P, A, B> Compete for crate::Robot<D, C, X, P, A, B>
-where
-    Self: CompetitionRobot,
-{
-    async fn connected(&mut self) {
-        super::activation::advance();
-        CompetitionSession(self).stop();
-    }
-
-    async fn disconnected(&mut self) {
-        super::activation::advance();
-        CompetitionSession(self).stop();
-    }
-
-    async fn disabled(&mut self) {
-        run_mode(self, CompetitionMode::Disabled, competition::is_connected()).await;
-    }
-
-    async fn driver(&mut self) {
-        run_mode(self, CompetitionMode::Driver, competition::is_connected()).await;
-    }
-
-    async fn autonomous(&mut self) {
-        run_mode(
-            self,
-            CompetitionMode::Autonomous,
-            competition::is_connected(),
-        )
-        .await;
+        while_in_mode(pending::<()>(), mode, R::CONTROL_PERIOD).await;
     }
 }
 
@@ -285,10 +211,6 @@ pub(crate) async fn while_in_mode<T>(
         Poll::Pending
     })
     .await
-}
-
-pub(super) fn control_sleep(period: Duration, work: Duration) -> Duration {
-    period.saturating_sub(work).max(Duration::from_millis(1))
 }
 
 #[cfg(all(test, not(target_os = "vexos")))]

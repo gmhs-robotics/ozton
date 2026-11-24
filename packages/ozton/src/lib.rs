@@ -18,7 +18,7 @@ pub mod autonomous;
 
 pub mod prelude {
     pub use crate::{
-        autonomous::{Follower, MotionControls, RobotMotion, ScoringControls, TimedMotion},
+        autonomous::{ControlError, ControlResult, Follower},
         control::Tolerances,
         drivetrain::{Drive, Drivetrain, HasLocalization, LateralDrive, model::DriveConfigError},
         motion::{
@@ -26,8 +26,8 @@ pub mod prelude {
             seeking::TravelDirection,
         },
         runtime::{
-            CompetitionBot, Robot, RobotBuilder, RobotLayout,
-            competition::{CompetitionLayout, ProgramDrive, Ui},
+            OztonCompete, Runtime,
+            competition::{RobotRoute, Ui},
             drive_assist::{AssistedDrivetrain, DriveAssists},
         },
         tracking::{

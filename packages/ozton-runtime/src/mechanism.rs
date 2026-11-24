@@ -52,3 +52,20 @@ impl From<ProgressFault> for MechanismError {
         Self::Protection(error)
     }
 }
+
+/// A mechanism serviced by a scoped background worker.
+pub trait Mechanism<E> {
+    fn update(
+        &mut self,
+        _mode: vexide::competition::CompetitionMode,
+        _dt: core::time::Duration,
+    ) -> Result<(), E> {
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<(), E> {
+        Ok(())
+    }
+}
+
+impl<E> Mechanism<E> for () {}

@@ -33,7 +33,6 @@ pub async fn run<A: Application, E: Display>(
 }
 
 /// A completed competition application returned by the initialization block.
-/// Both custom robots and the typed robot builder implement this trait.
 #[allow(async_fn_in_trait)]
 pub trait Application {
     async fn compete(self) -> !;
@@ -42,15 +41,6 @@ pub trait Application {
 impl<R: crate::OztonCompete> Application for crate::Runtime<R> {
     async fn compete(self) -> ! {
         crate::Runtime::compete(self).await
-    }
-}
-
-impl<D, C, X, P, A, S> Application for crate::Robot<D, C, X, P, A, S>
-where
-    Self: crate::competition::CompetitionRobot + 'static,
-{
-    async fn compete(self) -> ! {
-        crate::Robot::compete(self).await
     }
 }
 

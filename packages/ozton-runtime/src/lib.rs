@@ -7,7 +7,6 @@ pub mod diagnostics;
 pub mod drive_assist;
 pub mod mechanism;
 pub mod motor;
-mod robot;
 mod startup;
 pub mod task;
 pub use ozton_diagnostics::{log_event, log_row, profile};
@@ -35,7 +34,6 @@ impl StartupReference {
 }
 
 pub use competition::{OztonCompete, Runtime};
-pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout};
 
 pub mod localization;
 pub use localization::LocalizationSchedule;

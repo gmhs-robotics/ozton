@@ -1,10 +1,12 @@
 //! Competition dispatch for a robot assembled by the application.
 
-use std::{fmt::Display, future::pending, time::Duration};
+use std::{fmt::Display, time::Duration};
+
+use ozton_ui::RouteSelector;
+use vexide::{competition::CompetitionMode, display::Display as BrainDisplay};
 
 use super::{
-    Compete, CompetitionMode, CompetitionRobot, RobotRoute, RouteSelector, RouteSet, Routes, Tick,
-    Ui, selector_task::TaskSelector, session, while_in_mode,
+    Compete, RobotRoute, Ui, selector_task::TaskSelector, session,
 };
 use crate::{clock::CONTROL_PERIOD, localization::LocalizationWorker};
 
@@ -31,12 +33,17 @@ pub trait OztonCompete: Sized + 'static {
 
     /// Reset application-owned transient state without writing motor outputs.
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
+
+    /// Install the Brain route selector and prepare this robot to compete.
+    fn with_brain(self, display: BrainDisplay) -> Runtime<Self> {
+        Runtime::new(self).with_ui(Ui::Brain(display))
+    }
 }
 
 /// Runs competition lifecycle and owns its selector.
 pub struct Runtime<R: OztonCompete> {
-    robot: R,
-    selector: TaskSelector<Option<RobotRoute<R, R::Error>>>,
+    pub(super) robot: R,
+    pub(super) selector: TaskSelector<Option<RobotRoute<R, R::Error>>>,
     localization: Option<LocalizationWorker>,
 }
 
@@ -82,46 +89,14 @@ impl<A> RouteSelector<Option<A>> for DisabledSelector {
     fn status(&mut self, _: &str) {}
 }
 
-impl<R: OztonCompete> Routes<Runtime<R>, R::Error> for RobotRoute<R, R::Error> {
-    async fn run(self, runtime: &mut Runtime<R>) -> Result<(), R::Error> {
-        Routes::run(self, &mut runtime.robot).await
+impl<R: OztonCompete> Runtime<R> {
+    pub(super) fn selected_autonomous(&self) -> Option<RobotRoute<R, R::Error>> {
+        self.selector
+            .action()
+            .filter(|route| route.allows_autonomous())
     }
 
-    fn allows_autonomous(self) -> bool {
-        <Self as Routes<R, R::Error>>::allows_autonomous(self)
-    }
-}
-
-impl<R: OztonCompete> CompetitionRobot for Runtime<R> {
-    type Error = R::Error;
-    type Route = RobotRoute<R, R::Error>;
-    const CONTROL_PERIOD: Duration = R::CONTROL_PERIOD;
-
-    fn menu(&mut self) -> &mut dyn RouteSelector<Option<Self::Route>> {
-        &mut self.selector
-    }
-
-    fn stop(&mut self) -> Result<(), Self::Error> {
-        self.robot.stop()
-    }
-
-    async fn driver_tick(&mut self, _: Tick) {}
-
-    async fn idle_mode(&mut self, mode: CompetitionMode) {
-        while_in_mode(pending::<()>(), mode, R::CONTROL_PERIOD).await;
-    }
-
-    async fn driver_mode(&mut self) -> Result<(), Self::Error> {
-        while_in_mode(
-            self.robot.driver(),
-            CompetitionMode::Driver,
-            R::CONTROL_PERIOD,
-        )
-        .await
-        .unwrap_or(Ok(()))
-    }
-
-    fn mode_changed(&mut self, mode: CompetitionMode) {
+    pub(super) fn mode_changed(&mut self, mode: CompetitionMode) {
         if mode == CompetitionMode::Disabled {
             self.selector.status("Select autonomous route");
         }
@@ -129,6 +104,16 @@ impl<R: OztonCompete> CompetitionRobot for Runtime<R> {
             localization.mode_changed(mode);
         }
         self.robot.mode_changed(mode);
+    }
+
+    pub(super) fn route_failed(&mut self, route: RobotRoute<R, R::Error>, error: R::Error) {
+        crate::log_event!(
+            Error,
+            "autonomous",
+            "Route {:?} stopped ({error})",
+            route.label()
+        );
+        self.selector.status("Autonomous stopped");
     }
 }
 
