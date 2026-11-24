@@ -25,7 +25,7 @@ Shared drivetrain reporters are rate-limited to one hardware snapshot per 10 ms,
 
 PROFILE rows summarize each active stage over a flush window (normally about one second). They include count, total_us, mean_us, max_us, p95_upper_us and over_budget. The p95 value is an upper histogram-bucket estimate, not an exact percentile. ControlInterval reports time between control ticks against the configured period plus 1 ms; other stages count samples exceeding the nominal 10 ms budget.
 
-Tracking measures device sampling. Localization includes estimator work and its logging. MclPredict and MclObserve are nested inside Localization. MotionTick covers synchronous work in PoseSeeking, Planner measures the synchronous path search, HardwareReport measures diagnostic snapshots, and SdFlush measures synchronous SD I/O. These timings are inclusive; do not add nested totals together as if they were independent CPU consumption.
+Tracking measures device sampling. Localization includes estimator work and its logging. MclPredict and MclObserve are nested inside Localization. MotionTick covers synchronous work in physical-velocity Seeking, Planner measures the synchronous path search, HardwareReport measures diagnostic snapshots, and SdFlush measures synchronous SD I/O. These timings are inclusive; do not add nested totals together as if they were independent CPU consumption.
 
 A long flush or planning spike may delay the next control tick. A high average in localization may indicate expensive particle work. Use counts and timestamps to distinguish infrequent spikes from continuous load. SD_GAP indicates dropped rows or uncertain writes. Disable and allow the writer to flush before removing the card.
 

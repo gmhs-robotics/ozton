@@ -281,7 +281,11 @@ where
     }
 
     /// Modifies this motion's lateral feedback controller.
-    pub fn with_lateral_controller(&mut self, controller: A) -> &mut Self {
+    pub fn with_lateral_controller(&mut self, controller: A) -> &mut Self
+    where
+        A: Clone,
+    {
+        self.heading_controller = controller.clone();
         self.lateral_controller = controller;
         self
     }
@@ -331,12 +335,14 @@ where
     /// Modifies this motion's tolerance duration.
     pub const fn with_tolerance_duration(&mut self, duration: Duration) -> &mut Self {
         self.tolerances.duration = Some(duration);
+        self.angular_tolerances.duration = Some(duration);
         self
     }
 
     /// Removes this motion's tolerance duration.
     pub const fn without_tolerance_duration(&mut self) -> &mut Self {
         self.tolerances.duration = None;
+        self.angular_tolerances.duration = None;
         self
     }
 }
@@ -425,24 +431,28 @@ where
     /// Modifies this motion's lateral PID gains.
     pub const fn with_lateral_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
         self.lateral_controller.set_gains(kp, ki, kd);
+        self.heading_controller.set_gains(kp, ki, kd);
         self
     }
 
     /// Modifies this motion's lateral proportional gain (`kp`).
     pub const fn with_lateral_kp(&mut self, kp: f64) -> &mut Self {
         self.lateral_controller.set_kp(kp);
+        self.heading_controller.set_kp(kp);
         self
     }
 
     /// Modifies this motion's lateral integral gain (`ki`).
     pub const fn with_lateral_ki(&mut self, ki: f64) -> &mut Self {
         self.lateral_controller.set_ki(ki);
+        self.heading_controller.set_ki(ki);
         self
     }
 
     /// Modifies this motion's lateral derivative gain (`kd`).
     pub const fn with_lateral_kd(&mut self, kd: f64) -> &mut Self {
         self.lateral_controller.set_kd(kd);
+        self.heading_controller.set_kd(kd);
         self
     }
 
@@ -450,24 +460,29 @@ where
     pub const fn with_lateral_integration_range(&mut self, integration_range: Length) -> &mut Self {
         self.lateral_controller
             .set_integration_range(Some(integration_range.value));
+        self.heading_controller
+            .set_integration_range(Some(integration_range.value));
         self
     }
 
     /// Modifies this motion's lateral output limit.
     pub const fn with_lateral_output_limit(&mut self, limit: f64) -> &mut Self {
         self.lateral_controller.set_output_limit(Some(limit));
+        self.heading_controller.set_output_limit(Some(limit));
         self
     }
 
     /// Removes this motion's lateral integration range.
     pub const fn without_lateral_integration_range(&mut self) -> &mut Self {
         self.lateral_controller.set_integration_range(None);
+        self.heading_controller.set_integration_range(None);
         self
     }
 
     /// Removes this motion's lateral output limit.
     pub const fn without_lateral_output_limit(&mut self) -> &mut Self {
         self.lateral_controller.set_output_limit(None);
+        self.heading_controller.set_output_limit(None);
         self
     }
 }
