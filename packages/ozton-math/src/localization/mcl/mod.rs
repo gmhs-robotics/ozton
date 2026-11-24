@@ -290,8 +290,8 @@ impl ParticleFilter {
             // Split the existing outlier prior equally between random and
             // short returns; use one exponential decay length per sensor span.
             let random_likelihood = (0.5 * outlier_scale * sigma / span).max(1e-12);
-            let short_numerator = random_likelihood
-                * libm::exp(-(beam.distance.value - minimum) / span);
+            let short_numerator =
+                random_likelihood * libm::exp(-(beam.distance.value - minimum) / span);
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
