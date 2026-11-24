@@ -2,7 +2,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-pub use ozton_control as control;
+pub use ozton_math::control;
 pub use ozton_diagnostics as diagnostics;
 pub use ozton_drivetrain as drivetrain;
 pub use ozton_localization as localization;

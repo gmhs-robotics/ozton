@@ -24,5 +24,3 @@ pub use holonomic::Holonomic;
 #[cfg(feature = "vex")]
 pub use seeking::Seeking;
 pub use tank::Tank;
-
-pub mod ramsete;

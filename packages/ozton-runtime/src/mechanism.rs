@@ -2,7 +2,7 @@
 
 use core::{error::Error, fmt};
 
-use ozton_control::protection::ProgressFault;
+use ozton_math::control::protection::ProgressFault;
 use vexide::smart::PortError;
 
 pub type MechanismResult<T = ()> = Result<T, MechanismError>;

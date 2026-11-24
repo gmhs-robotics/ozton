@@ -15,7 +15,6 @@ workspace = true
 [dependencies]
 ozton-localization = { workspace = true }
 glam = { workspace = true }
-ozton-control = { workspace = true }
 ozton-runtime = { workspace = true, optional = true }
 ozton-drivetrain = { workspace = true }
 ozton-math = { workspace = true }

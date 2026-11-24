@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ozton_control::axis::{AxisController, AxisSample, Target};
+use ozton_math::control::axis::{AxisController, AxisSample, Target};
 use ozton_math::uom::si::{electric_potential::volt, f64::ElectricPotential};
 use vexide::{
     prelude::Motor,
@@ -142,7 +142,7 @@ impl<M: MotorDevice> PidMotorBuilder<M> {
 
 #[cfg(test)]
 mod tests {
-    use ozton_control::{axis::AxisConfig, loops::Pid};
+    use ozton_math::control::{Pid, axis::AxisConfig};
     use ozton_math::uom::si::{
         angular_acceleration::radian_per_second_squared,
         angular_velocity::radian_per_second,

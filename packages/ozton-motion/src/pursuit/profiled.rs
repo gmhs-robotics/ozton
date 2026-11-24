@@ -5,7 +5,8 @@ use core::f64::consts::PI;
 pub use ozton_math::path::progress::Progress;
 use ozton_math::{
     desaturate,
-    geometry::{Pose, pursuit_curvature, wheel_speeds, wrap_heading},
+    following::{PurePursuit, Ramsete},
+    geometry::{Pose, wheel_speeds, wrap_heading},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{AngularVelocity, Length, Time, Velocity},
@@ -89,7 +90,6 @@ pub fn command(
         sample.period.value,
         position_tolerance.value,
     );
-    let sign = if reverse { -1.0 } else { 1.0 };
     let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
     let end = path.end();
     let limits = path.limits();
@@ -126,10 +126,15 @@ pub fn command(
                 } else {
                     let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
                     let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
-                    (sign * speed, speed * pursuit_curvature(target))
+                    PurePursuit::new().twist(
+                        pose,
+                        virtual_pose.transform_point(target),
+                        Velocity::new::<meter_per_second>(speed),
+                        reverse,
+                    )
                 }
             }
-            Follower::Ramsete { b, zeta } => crate::ramsete::Ramsete { b, zeta }.twist(
+            Follower::Ramsete { b, zeta } => Ramsete { b, zeta }.twist(
                 pose,
                 path.at_time(Time::new::<second>(elapsed + dt)),
                 reverse,

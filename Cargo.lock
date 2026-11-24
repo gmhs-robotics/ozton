@@ -199,7 +199,6 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "ozton"
 version = "0.4.0"
 dependencies = [
- "ozton-control",
  "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-localization",
@@ -210,13 +209,6 @@ dependencies = [
  "ozton-ui",
  "vex-sdk-mock",
  "vexide",
-]
-
-[[package]]
-name = "ozton-control"
-version = "0.4.0"
-dependencies = [
- "ozton-math",
 ]
 
 [[package]]
@@ -260,7 +252,6 @@ name = "ozton-motion"
 version = "0.4.0"
 dependencies = [
  "glam",
- "ozton-control",
  "ozton-drivetrain",
  "ozton-localization",
  "ozton-math",
@@ -274,7 +265,6 @@ dependencies = [
 name = "ozton-runtime"
 version = "0.4.0"
 dependencies = [
- "ozton-control",
  "ozton-diagnostics",
  "ozton-drivetrain",
  "ozton-localization",

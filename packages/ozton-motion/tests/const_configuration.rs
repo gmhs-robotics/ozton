@@ -1,6 +1,6 @@
 //! Const construction of physical motion templates.
-use ozton_math::control::Pid;
-use ozton_motion::{DriveTuning, MotionConfig, MotionLimits, ramsete::Ramsete};
+use ozton_math::{control::Pid, following::Ramsete};
+use ozton_motion::{DriveTuning, MotionConfig, MotionLimits};
 
 const PID: Pid = Pid::new(4.25, 0.0, 0.50, None);
 const MOTION: MotionConfig = MotionConfig::new()
