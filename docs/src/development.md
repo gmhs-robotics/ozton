@@ -22,7 +22,7 @@ mdbook serve docs --open
 mdbook build docs
 ```
 
-Vercel uses the root `vercel.json` to install the pinned, checksum-verified mdBook binary and build the book. The output is `docs/book`. Connect the existing ozton-docs project to gmhs-robotics/ozton in Vercel Git settings. Set the production branch to main once the changes are merged. Other branches receive previews. The custom domain remains ozton.eli.best. The independent Documentation GitHub Actions workflow checks the book on changes, without requiring firmware compilation.
+Vercel uses the root `vercel.json` to install the pinned, checksum-verified mdBook binary and build the book. The output is `docs/book`. The Vercel project is intended to track `gmhs-robotics/ozton`. Once its Git connection is active, pushes to the production branch update [ozton.eli.best](https://ozton.eli.best), while other branches receive preview URLs. Keep `main` as the long-term production branch after the development changes are merged. To verify a deployment, compare the commit SHA in Vercel with the commit you pushed. The independent Documentation GitHub Actions workflow checks the book on changes, without requiring firmware compilation.
 
 ## Contributing
 
