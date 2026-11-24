@@ -5,8 +5,6 @@ pub use vexide::competition::Compete;
 use vexide::competition::CompetitionMode;
 
 pub(crate) mod activation;
-mod drive;
-pub use drive::ProgramDrive;
 mod routes;
 mod runtime;
 mod selector_task;

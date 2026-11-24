@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{DVec2, Pose},
-    uom::si::f64::{Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity},
+    uom::si::f64::{Angle, Length},
 };
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
@@ -40,9 +40,9 @@ impl Seeking {
         }
     }
 
-    /// Effective settings, including changes made through individual modifiers.
+    /// Physical settings for this motion template.
     pub const fn config(self) -> crate::MotionConfig {
-        self.effective_config()
+        self.config
     }
 
     /// Apply a robot's physical constraints, PID gains and settling configuration.
@@ -93,352 +93,17 @@ impl Seeking {
         self
     }
 
-    pub const fn with_linear_velocity_tolerance(mut self, tolerance: Velocity) -> Self {
-        self.config.settling.velocity_tolerance = tolerance;
-        self
-    }
-
-    pub const fn with_angular_velocity_tolerance(
-        mut self,
-        tolerance: ozton_math::uom::si::f64::AngularVelocity,
-    ) -> Self {
-        self.config.settling.angular_velocity_tolerance = tolerance;
-        self
-    }
-
-    pub const fn with_tolerance_duration(mut self, duration: Duration) -> Self {
-        self.config.settling.settle = duration;
-        self
-    }
-
-    pub const fn with_clearance(mut self, clearance: Length) -> Self {
-        self.config.safety.clearance = clearance;
-        self
-    }
-
-    pub const fn with_braking_deceleration(
-        mut self,
-        forward: Acceleration,
-        yaw: AngularAcceleration,
-    ) -> Self {
-        self.config = self.config.with_braking_deceleration(forward, yaw);
-        self
-    }
-
-    pub const fn with_braking_model(
-        mut self,
-        latency: Duration,
-        preview: Duration,
-        lateral_braking: Acceleration,
-        sigma: f64,
-    ) -> Self {
-        self.config = self
-            .config
-            .with_braking_model(latency, preview, lateral_braking, sigma);
-        self
-    }
-
-    pub const fn with_departure_speed(mut self, speed: Velocity) -> Self {
-        self.config.safety.departure_speed = speed;
-        self
-    }
-
-    pub(super) const fn effective_config(self) -> crate::MotionConfig {
-        self.config
-    }
-
     #[must_use]
-    pub const fn with_acceleration(mut self, value: Acceleration) -> Self {
-        self.config.limits.acceleration = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_deceleration(mut self, value: Acceleration) -> Self {
-        self.config.limits.deceleration = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_lateral_acceleration(mut self, value: Acceleration) -> Self {
-        self.config.limits.lateral_acceleration = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_speed(mut self, value: AngularVelocity) -> Self {
-        self.config.limits.angular_speed = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_acceleration(mut self, value: AngularAcceleration) -> Self {
-        self.config.limits.angular_acceleration = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_deceleration(mut self, value: AngularAcceleration) -> Self {
-        self.config.limits.angular_deceleration = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_rate_filter(mut self, value: Duration) -> Self {
-        self.config.rates.linear_rate_filter = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_rate_filter(mut self, value: Duration) -> Self {
-        self.config.rates.angular_rate_filter = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_period(mut self, value: Duration) -> Self {
-        self.config.timing.period = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_maximum_gap(mut self, value: Duration) -> Self {
-        self.config.timing.maximum_gap = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_progress_timeout(mut self, value: Duration) -> Self {
-        self.config.timing.progress_timeout = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_departure_reserve(mut self, value: Length) -> Self {
-        self.config.safety.departure_reserve = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_lookahead_distance(mut self, value: Length) -> Self {
-        self.config.path.lookahead = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_ramsete_b(mut self, value: f64) -> Self {
-        self.config.path.ramsete_b = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_ramsete_zeta(mut self, value: f64) -> Self {
-        self.config.path.ramsete_zeta = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_realign_enter(mut self, value: Angle) -> Self {
-        self.config.approach.realign_enter = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_realign_exit(mut self, value: Angle) -> Self {
-        self.config.approach.realign_exit = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_reversal_heading(mut self, value: Angle) -> Self {
-        self.config.approach.reversal_heading = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_reversal_distance_factor(mut self, value: f64) -> Self {
-        self.config.approach.reversal_distance_factor = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_reversal_yaw_rate(mut self, value: AngularVelocity) -> Self {
-        self.config.approach.reversal_yaw_rate = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
-        self.config.approach.arc_correction_limit = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_terminal_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
-        self.config.approach.terminal_arc_correction_limit = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_controller(mut self, controller: ozton_math::control::Pid) -> Self {
-        self.config.tuning.linear = controller;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.config.tuning.linear.set_gains(kp, ki, kd);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_ki(mut self, ki: f64) -> Self {
-        self.config.tuning.linear.set_ki(ki);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_kd(mut self, kd: f64) -> Self {
-        self.config.tuning.linear.set_kd(kd);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.config
-            .tuning
-            .linear
-            .set_integration_range(Some(range.value));
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_controller(mut self, controller: ozton_math::control::Pid) -> Self {
-        self.config.tuning.angular = controller;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.config.tuning.angular.set_gains(kp, ki, kd);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_ki(mut self, ki: f64) -> Self {
-        self.config.tuning.angular.set_ki(ki);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_kd(mut self, kd: f64) -> Self {
-        self.config.tuning.angular.set_kd(kd);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_integration_range(mut self, range: Angle) -> Self {
-        self.config
-            .tuning
-            .angular
-            .set_integration_range(Some(range.value));
-        self
-    }
-
-    #[must_use]
-    pub const fn with_linear_output_limit(mut self, limit: f64) -> Self {
-        self.config.tuning.linear.set_output_limit(Some(limit));
-        self
-    }
-
-    #[must_use]
-    pub const fn without_linear_output_limit(mut self) -> Self {
-        self.config.tuning.linear.set_output_limit(None);
-        self
-    }
-
-    #[must_use]
-    pub const fn without_linear_integration_range(mut self) -> Self {
-        self.config.tuning.linear.set_integration_range(None);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_angular_output_limit(mut self, limit: f64) -> Self {
-        self.config.tuning.angular.set_output_limit(Some(limit));
-        self
-    }
-
-    #[must_use]
-    pub const fn without_angular_output_limit(mut self) -> Self {
-        self.config.tuning.angular.set_output_limit(None);
-        self
-    }
-
-    #[must_use]
-    pub const fn without_angular_integration_range(mut self) -> Self {
-        self.config.tuning.angular.set_integration_range(None);
-        self
-    }
-
     pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
         self.config.tuning = tuning;
         self
-    }
-
-    pub const fn with_linear_kp(mut self, kp: f64) -> Self {
-        self.config.tuning.linear.set_kp(kp);
-        self
-    }
-
-    pub const fn with_angular_kp(mut self, kp: f64) -> Self {
-        self.config.tuning.angular.set_kp(kp);
-        self
-    }
-
-    /// Calibrated forward breakaway speed; zero disables compensation.
-    pub const fn with_minimum_linear_speed(mut self, value: Velocity) -> Self {
-        self.config = self.config.with_minimum_linear_speed(value);
-        self
-    }
-
-    /// Calibrated yaw breakaway speed; zero disables compensation.
-    pub const fn with_minimum_angular_speed(mut self, value: AngularVelocity) -> Self {
-        self.config = self.config.with_minimum_angular_speed(value);
-        self
-    }
-
-    pub const fn with_wheel_speed(mut self, wheel_speed: Velocity) -> Self {
-        self.config.limits.wheel_speed = wheel_speed;
-        self
-    }
-
-    pub const fn with_position_tolerance(mut self, tolerance: Length) -> Self {
-        self.config.settling.position_tolerance = tolerance;
-        self
-    }
-
-    pub const fn with_heading_tolerance(mut self, tolerance: Angle) -> Self {
-        self.config.settling.heading_tolerance = tolerance;
-        self
-    }
-
-    /// Set the timeout for each stage of the motion.
-    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.config.timing.stage_timeout = timeout;
-        self
-    }
-
-    /// Run without a stage timeout while autonomous is active.
-    pub const fn without_timeout(self) -> Self {
-        self.with_timeout(Duration::MAX)
     }
 
     pub(super) fn options(
         self,
         drive: &impl ozton_drivetrain::model::DriveEncoders,
     ) -> Option<DriveOptions> {
-        let config = self.effective_config();
+        let config = self.config;
         config.valid().then(|| ())?;
         Some(config.options(drive.track_width()?))
     }
@@ -494,7 +159,7 @@ impl Seeking {
             );
             return Err(PoseMotionError::InsufficientClearance);
         }
-        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .run(
                 crate::basic::differential::DifferentialTarget::DriveDistance {
@@ -544,7 +209,7 @@ impl Seeking {
                 return Err(PoseMotionError::InsufficientClearance);
             }
         }
-        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .run(
                 crate::basic::differential::DifferentialTarget::DriveArc {
@@ -602,7 +267,7 @@ impl Seeking {
             ozton_runtime::log_event!(Warn, "clearance", "Not enough room for an in-place turn");
             return Err(PoseMotionError::InsufficientClearance);
         }
-        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session.run(target, self.config.timing.stage_timeout).await;
         session.finish(result)
     }
@@ -634,7 +299,7 @@ impl Seeking {
         }
         let end = path.end().pose;
         let target = Pose::new(end.position, end.heading + facing);
-        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .follow(
                 path,
@@ -655,7 +320,7 @@ impl Seeking {
         timeout: Duration,
     ) -> Result<bool, PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let mut session = PoseSession::new(drive, options, self.effective_config())?;
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session.try_distance_reset(timeout).await;
         session.finish(result)
     }

@@ -185,9 +185,11 @@ fn breakaway_compensation_preserves_braking_and_limits() {
 
 #[test]
 fn minimum_speed_does_not_prevent_terminal_settling() {
-    let config = crate::MotionConfig::DEFAULT
-        .with_minimum_linear_speed(ozton_math::qty!(0.1 m/s))
-        .with_minimum_angular_speed(ozton_math::qty!(0.5 rad/s));
+    let config = crate::MotionConfig::DEFAULT.with_limits(
+        crate::MotionLimits::DEFAULT
+            .with_minimum_linear_speed(ozton_math::qty!(0.1 m/s))
+            .with_minimum_angular_speed(ozton_math::qty!(0.5 rad/s)),
+    );
     let options = config.options(ozton_math::qty!(0.33 m));
     let mut controller = DifferentialFeedback::default().with_config(config);
     let feedback = Feedback {

@@ -5,10 +5,7 @@ use ozton::{
     drivetrain::model::Differential,
     motion::Arcade,
     route,
-    runtime::{
-        OztonCompete, Runtime,
-        competition::{RobotRoute, Ui},
-    },
+    runtime::{OztonCompete, competition::RobotRoute},
 };
 use vexide::{prelude::*, smart::PortError, time::sleep};
 
@@ -27,8 +24,7 @@ impl Robot {
 
 impl OztonCompete for Robot {
     type Error = PortError;
-    const ROUTES: &'static [RobotRoute<Self, Self::Error>] =
-        &[route!(for Self, "Forward", Self::forward)];
+    const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[route!("Forward", Self::forward)];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         Arcade::drive(&mut self.drive, 0.0, 0.0)
@@ -56,7 +52,7 @@ async fn main(p: Peripherals) -> std::process::ExitCode {
             ),
             controller: p.primary_controller,
         };
-        Ok::<_, PortError>(Runtime::new(robot).with_ui(Ui::Brain(p.display)))
+        Ok::<_, PortError>(robot.with_brain(p.display))
     })
     .await
 }

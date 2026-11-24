@@ -50,7 +50,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         );
         return Err(PoseMotionError::InsufficientClearance);
     }
-    let mut session = PoseSession::new(drive, options, settings.effective_config())?;
+    let mut session = PoseSession::new(drive, options, settings.config())?;
     let result = approach(&mut session, clearance, target, final_heading, settings).await;
     session.finish(result)
 }
@@ -63,7 +63,7 @@ async fn approach<D: PoseDrive>(
     settings: Seeking,
 ) -> MotionResult<D> {
     let options = session.options;
-    let config = settings.effective_config();
+    let config = settings.config();
     let start = session.drive.pose();
     // Prefer a single continuous maneuver, including a clearance-aware wall departure.
     // A planned trajectory failure is not silently retried as a different command.
@@ -104,7 +104,7 @@ async fn approach<D: PoseDrive>(
             field,
             target,
             settings.config.timing.stage_timeout,
-            settings.effective_config(),
+            settings.config(),
         )
         .await?;
     }
