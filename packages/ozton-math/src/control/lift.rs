@@ -1,8 +1,8 @@
 //! Common-command control for a mirrored two-motor lift.
 
-use std::time::Duration;
+use core::time::Duration;
 
-use ozton_math::uom::si::{angle::degree, f64::Angle};
+use crate::uom::si::{angle::degree, f64::Angle};
 
 /// Voltage limits and position control for a mirrored lift.
 #[derive(Debug, Clone, Copy)]
@@ -170,14 +170,14 @@ impl LiftController {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use core::time::Duration;
 
     use super::{LiftController, LiftProfile};
 
     fn controller() -> LiftController {
         LiftController::new(LiftProfile {
-            bottom: ozton_math::qty!(30.0 deg),
-            top: ozton_math::qty!(600.0 deg),
+            bottom: crate::qty!(30.0 deg),
+            top: crate::qty!(600.0 deg),
             up_maximum_command: 0.75,
             down_maximum_command: 0.33,
             up_rise_per_second: 1.5,
@@ -191,38 +191,38 @@ mod tests {
         let mut lift = controller();
         let step = Duration::from_millis(100);
         assert!(
-            (lift.update(1, None, Some(ozton_math::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
         assert!(
-            (lift.update(1, None, Some(ozton_math::qty!(100.0 deg)), step) - 0.30).abs() < 1e-12
+            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.30).abs() < 1e-12
         );
         assert_eq!(
             lift.update(
                 1,
                 None,
-                Some(ozton_math::qty!(100.0 deg)),
+                Some(crate::qty!(100.0 deg)),
                 Duration::from_secs(1)
             ),
             0.75
         );
         assert_eq!(
-            lift.update(0, None, Some(ozton_math::qty!(100.0 deg)), step),
+            lift.update(0, None, Some(crate::qty!(100.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(-1, None, Some(ozton_math::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
+            (lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
         );
         assert_eq!(
             lift.update(
                 -1,
                 None,
-                Some(ozton_math::qty!(100.0 deg)),
+                Some(crate::qty!(100.0 deg)),
                 Duration::from_secs(1)
             ),
             -0.33
         );
         assert!(
-            (lift.update(1, None, Some(ozton_math::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
     }
 
@@ -231,22 +231,22 @@ mod tests {
         let mut lift = controller();
         let step = Duration::from_millis(100);
         assert_eq!(
-            lift.update(1, None, Some(ozton_math::qty!(600.0 deg)), step),
+            lift.update(1, None, Some(crate::qty!(600.0 deg)), step),
             0.0
         );
         assert_eq!(
-            lift.update(-1, None, Some(ozton_math::qty!(30.0 deg)), step),
+            lift.update(-1, None, Some(crate::qty!(30.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(1, None, Some(ozton_math::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
         assert_eq!(
-            lift.update(1, None, Some(ozton_math::qty!(600.0 deg)), step),
+            lift.update(1, None, Some(crate::qty!(600.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(-1, None, Some(ozton_math::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
+            (lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
         );
     }
 
@@ -257,8 +257,8 @@ mod tests {
         assert!(
             (lift.update(
                 1,
-                Some(ozton_math::qty!(120.0 deg)),
-                Some(ozton_math::qty!(100.0 deg)),
+                Some(crate::qty!(120.0 deg)),
+                Some(crate::qty!(100.0 deg)),
                 step
             ) - 0.15)
                 .abs()
@@ -267,8 +267,8 @@ mod tests {
         assert_eq!(
             lift.update(
                 1,
-                Some(ozton_math::qty!(102.0 deg)),
-                Some(ozton_math::qty!(100.0 deg)),
+                Some(crate::qty!(102.0 deg)),
+                Some(crate::qty!(100.0 deg)),
                 step
             ),
             0.0
@@ -276,8 +276,8 @@ mod tests {
         assert!(
             (lift.update(
                 -1,
-                Some(ozton_math::qty!(80.0 deg)),
-                Some(ozton_math::qty!(100.0 deg)),
+                Some(crate::qty!(80.0 deg)),
+                Some(crate::qty!(100.0 deg)),
                 step
             ) + 0.09)
                 .abs()

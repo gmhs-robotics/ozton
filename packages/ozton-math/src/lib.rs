@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod control;
 pub mod curve;
+pub mod following;
 pub mod geometry;
 pub mod localization;
 pub mod path;

@@ -1,10 +1,10 @@
 //! Driver command shaping and pitch recovery for differential robots.
 
-use std::time::Duration;
+use core::time::Duration;
 
-use ozton_math::uom::si::f64::{Angle, Frequency};
+use crate::uom::si::f64::{Angle, Frequency};
 
-use crate::loops::{Feedback, Pid};
+use super::{Feedback, Pid};
 
 /// Limits changes in a normalized command without changing its steady-state value.
 #[derive(Debug, Clone, Copy)]
@@ -96,19 +96,19 @@ mod tests {
     fn anti_tip_is_neutral_near_level_and_recovers_in_both_directions() {
         let mut control = AntiTip::new(
             Pid::new(1.35, 0.0, 0.03, None),
-            ozton_math::qty!(0.16 rad),
+            crate::qty!(0.16 rad),
             1.0,
             0.35,
         );
         let dt = Duration::from_millis(10);
         for tilt in [-0.1, 0.0, 0.1] {
-            assert_eq!(control.correction(ozton_math::qty!((tilt) rad), dt), 0.0);
+            assert_eq!(control.correction(crate::qty!((tilt) rad), dt), 0.0);
         }
         for tilt in [-0.3, 0.3] {
-            let correction = control.correction(ozton_math::qty!((tilt) rad), dt);
+            let correction = control.correction(crate::qty!((tilt) rad), dt);
             assert!(correction * tilt < 0.0);
             assert!(correction.abs() <= 0.35);
-            assert_eq!(control.correction(ozton_math::qty!(0.0 rad), dt), 0.0);
+            assert_eq!(control.correction(crate::qty!(0.0 rad), dt), 0.0);
         }
     }
 }

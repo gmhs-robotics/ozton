@@ -1,17 +1,9 @@
-//! Control theory primitives.
-//!
-//! This module provides basic building blocks and implementations for controlling
-//! systems. These "systems" could be drivetrains, an arm or lift, or any other
-//! mechanism that requires precise motion control.
-
-pub mod axis;
-pub mod drive;
-pub mod lift;
-pub mod loops;
-
-pub mod heading_corrector;
-
-pub mod controller;
-pub mod protection;
-
-pub mod limits;
+//! Control API forwarded to the hardware-independent math crate.
+pub use ozton_math::control::{axis, controller, drive, heading_corrector, lift, limits, protection};
+pub mod loops {
+    pub use ozton_math::control::{
+        ArmFeedforward, ArmFeedforwardSetpoint, BangBang, ElevatorFeedforward,
+        ElevatorFeedforwardSetpoint, Feedback, Feedforward, MotorFeedforward,
+        MotorFeedforwardSetpoint, Pid, TakeBackHalf,
+    };
+}

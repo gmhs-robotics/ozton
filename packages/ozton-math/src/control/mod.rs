@@ -1,6 +1,12 @@
 //! Hardware-independent control loops.
 
 pub mod axis;
+pub mod controller;
+pub mod drive;
+pub mod heading_corrector;
+pub mod lift;
+pub mod limits;
+pub mod protection;
 mod bang_bang;
 mod feedforward;
 mod pid;

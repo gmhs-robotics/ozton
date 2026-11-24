@@ -1,9 +1,9 @@
 //! Bounded progress and encoder checks shared by mechanisms and motion executors.
 use core::{marker::PhantomData, time::Duration};
 
-use ozton_math::uom::ConstZero;
+use crate::uom::ConstZero;
 
-use crate::axis::{AxisDimension, Position, Rotary, Velocity};
+use super::axis::{AxisDimension, Position, Rotary, Velocity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressFault {
@@ -135,44 +135,44 @@ impl<D: AxisDimension> ProgressGuard<D> {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::{angular_velocity::radian_per_second, f64::AngularVelocity};
+    use crate::uom::si::{angular_velocity::radian_per_second, f64::AngularVelocity};
 
     use super::*;
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            ozton_math::qty!(0.01 rad),
+            crate::qty!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         let tick = Duration::from_millis(10);
         for _ in 0..9 {
-            assert!(guard.update(ozton_math::qty!(0.0 rad), 1.0, tick).is_ok());
+            assert!(guard.update(crate::qty!(0.0 rad), 1.0, tick).is_ok());
         }
         assert_eq!(
-            guard.update(ozton_math::qty!(0.0 rad), 1.0, tick),
+            guard.update(crate::qty!(0.0 rad), 1.0, tick),
             Err(ProgressFault::NoProgress)
         );
-        assert!(guard.update(ozton_math::qty!(0.0 rad), 0.0, tick).is_ok());
-        assert!(guard.update(ozton_math::qty!(0.01 rad), 1.0, tick).is_ok());
+        assert!(guard.update(crate::qty!(0.0 rad), 0.0, tick).is_ok());
+        assert!(guard.update(crate::qty!(0.01 rad), 1.0, tick).is_ok());
         assert_eq!(
-            guard.update(ozton_math::qty!(1.0 rad), 1.0, tick),
+            guard.update(crate::qty!(1.0 rad), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
-        assert!(guard.update(ozton_math::qty!(1.0 rad), 0.0, tick).is_err());
+        assert!(guard.update(crate::qty!(1.0 rad), 0.0, tick).is_err());
         guard.reset();
-        assert!(guard.update(ozton_math::qty!(1.0 rad), 0.0, tick).is_ok());
+        assert!(guard.update(crate::qty!(1.0 rad), 0.0, tick).is_ok());
     }
     #[test]
     fn wrong_direction_does_not_count_as_progress() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            ozton_math::qty!(0.01 rad),
+            crate::qty!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         for i in 0..10 {
             let _ = guard.update(
-                ozton_math::qty!((-0.01 * f64::from(i)) rad),
+                crate::qty!((-0.01 * f64::from(i)) rad),
                 1.0,
                 Duration::from_millis(10),
             );
