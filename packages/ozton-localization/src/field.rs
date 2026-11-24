@@ -61,12 +61,36 @@ impl Field {
     }
 }
 
-/// Fixed 2.5D field geometry. Heights are resolved once per sensor at assembly.
+/// Motion policy attached to a physical object, not a second geometry map.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ObjectPolicy {
+    Fixed,
+    Movable,
+}
+
+/// Identifies an object's consecutive faces in the single surveyed surface array.
+struct Object {
+    faces: core::ops::Range<usize>,
+    policy: ObjectPolicy,
+}
+
+type ObstacleBounds = [Option<(DVec2, DVec2)>; 4];
+
+/// Derived, height-independent motion geometry. The containment boundary is
+/// a safety policy, even when a section of the physical perimeter is open.
+pub(crate) struct MotionProjection {
+    pub(crate) bounds: Option<DVec2>,
+    pub(crate) fixed: ObstacleBounds,
+    pub(crate) movable: ObstacleBounds,
+}
+
+/// Unified 2.5D field geometry. Range masks and XY obstacle footprints are
+/// derived from the same faces; object groups carry policy, not duplicate coordinates.
 #[derive(Default)]
 pub struct FieldMap {
     faces: Vec<Surface>,
+    objects: Vec<Object>,
     motion_bounds: Option<DVec2>,
-    motion_obstacles: [Option<(DVec2, DVec2)>; 4],
 }
 
 impl From<Field> for FieldMap {
@@ -74,17 +98,12 @@ impl From<Field> for FieldMap {
         Self {
             faces: field.surfaces().into(),
             motion_bounds: Some(point(field.max.right, field.max.forward)),
-            motion_obstacles: [None; 4],
+            objects: Vec::new(),
         }
     }
 }
 
 impl FieldMap {
-    /// Half extents of the rectangular perimeter, independent of interior faces.
-    pub(crate) fn rectangular_half_extents(&self) -> Option<DVec2> {
-        self.motion_bounds
-    }
-
     /// Configure the closed motion perimeter without creating reflecting walls.
     /// Useful when physical walls have openings or are too low for the sensors.
     pub fn with_motion_bounds(mut self, half_extents: DVec2) -> Option<Self> {
@@ -95,49 +114,102 @@ impl FieldMap {
         Some(self)
     }
 
-    /// Add a reflecting surface only. Use add_fixed_box for a solid fixed
-    /// obstacle; optical visibility must not determine physical clearance.
+    /// Add one physical wall or interior face. Perimeter faces are covered by
+    /// the closed containment policy; interior faces are projected as fixed obstacles.
     pub fn add(&mut self, face: Surface) -> bool {
-        if self.faces.len() >= u128::BITS as usize || !face.is_valid() {
-            return false;
-        }
-        self.faces.push(face);
-        true
+        self.append_object(&[face], ObjectPolicy::Fixed)
     }
 
-    /// Register a floor-mounted solid rectangle in both the reflecting map
-    /// and the motion obstacle map. A face below every sensor remains a
-    /// physical obstacle. The box requires positive width, length and height.
-    /// Registration is atomic, including when the fixed obstacle capacity
-    /// (four rectangles) or surface capacity is exhausted.
-    pub fn add_fixed_box(&mut self, min: DVec2, max: DVec2, height: Length) -> bool {
-        if !min.is_finite()
-            || !max.is_finite()
-            || !min.cmplt(max).all()
-            || !height.value.is_finite()
-            || height.value <= 0.0
-            || self.faces.len() + 4 > u128::BITS as usize
+    fn append_object(&mut self, faces: &[Surface], policy: ObjectPolicy) -> bool {
+        if self.faces.len() + faces.len() > u128::BITS as usize
+            || !faces.iter().all(|face| face.is_valid())
         {
             return false;
         }
-        let Some(slot) = self.motion_obstacles.iter().position(Option::is_none) else {
+        let start = self.faces.len();
+        self.faces.extend_from_slice(faces);
+        self.objects.push(Object {
+            faces: start..self.faces.len(),
+            policy,
+        });
+        true
+    }
+
+    /// Add a fixed box once, for both localization and motion clearance.
+    pub fn add_fixed_box(&mut self, min: DVec2, max: DVec2, height: Length) -> bool {
+        self.add_box(min, max, height, ObjectPolicy::Fixed)
+    }
+
+    /// Add a movable box once. Its faces are localization landmarks and its XY
+    /// footprint is a soft planning cost, never a hard runtime collision limit.
+    pub fn add_movable_box(&mut self, min: DVec2, max: DVec2, height: Length) -> bool {
+        self.add_box(min, max, height, ObjectPolicy::Movable)
+    }
+
+    fn add_box(
+        &mut self,
+        min: DVec2,
+        max: DVec2,
+        height: Length,
+        policy: ObjectPolicy,
+    ) -> bool {
+        if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all() {
             return false;
-        };
+        }
         let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
         let faces = core::array::from_fn::<_, 4, _>(|index| {
             Surface::new(corners[index], corners[(index + 1) % 4], height)
         });
-        if !faces.iter().all(|face| face.is_valid()) {
-            return false;
-        }
-        self.faces.extend(faces);
-        self.motion_obstacles[slot] = Some((min, max));
-        true
+        self.append_object(&faces, policy)
     }
 
-    /// Solid obstacle footprints, independent of sensor height and range.
-    pub fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
-        self.motion_obstacles
+    /// True for a physical wall segment lying on the containment boundary.
+    fn on_perimeter(&self, face: Surface) -> bool {
+        let Some(bounds) = self.motion_bounds else {
+            return false;
+        };
+        (0..2).any(|axis| {
+            [-bounds[axis], bounds[axis]].into_iter().any(|edge| {
+                (face.start[axis] - edge).abs() < 1e-9
+                    && (face.end[axis] - edge).abs() < 1e-9
+            })
+        })
+    }
+
+    /// Compute motion footprints solely from the same XY endpoints raycasting
+    /// uses. The current rectangular planner supports four fixed and four
+    /// movable obstacles; reject overflow rather than silently omit geometry.
+    pub(crate) fn motion_projection(&self) -> Option<MotionProjection> {
+        let mut projection = MotionProjection {
+            bounds: self.motion_bounds,
+            fixed: [None; 4],
+            movable: [None; 4],
+        };
+        for object in &self.objects {
+            let faces = &self.faces[object.faces.clone()];
+            if faces.len() == 1 && self.on_perimeter(faces[0]) {
+                continue;
+            }
+            let (mut min, mut max) = faces.iter().fold(
+                (DVec2::splat(f64::INFINITY), DVec2::splat(f64::NEG_INFINITY)),
+                |(min, max), face| {
+                    (min.min(face.start).min(face.end), max.max(face.start).max(face.end))
+                },
+            );
+            // Preserve zero-thickness interior walls as conservative boxes.
+            for axis in 0..2 {
+                if min[axis] == max[axis] {
+                    min[axis] -= 1e-9;
+                    max[axis] += 1e-9;
+                }
+            }
+            let slots = match object.policy {
+                ObjectPolicy::Fixed => &mut projection.fixed,
+                ObjectPolicy::Movable => &mut projection.movable,
+            };
+            *slots.iter_mut().find(|slot| slot.is_none())? = Some((min, max));
+        }
+        Some(projection)
     }
 
     /// Add a clipped square footprint as eight faces using the same height band.
@@ -170,21 +242,17 @@ impl FieldMap {
         {
             return false;
         }
-        let start = self.faces.len();
-        for (index, (x, y)) in corners.into_iter().enumerate() {
+        let faces = core::array::from_fn::<_, 8, _>(|index| {
+            let (x, y) = corners[index];
             let (end_x, end_y) = corners[(index + 1) % corners.len()];
-            let face = Surface::new(
+            Surface::new(
                 center + point(x, y),
                 center + point(end_x, end_y),
                 top - bottom,
             )
-            .with_base_height(bottom);
-            if !self.add(face) {
-                self.faces.truncate(start);
-                return false;
-            }
-        }
-        true
+            .with_base_height(bottom)
+        });
+        self.append_object(&faces, ObjectPolicy::Fixed)
     }
 
     pub fn surfaces(&self) -> impl ExactSizeIterator<Item = Surface> + '_ {
@@ -282,6 +350,30 @@ mod tests {
             clearance = clearance.with_obstacle(min, max).unwrap();
         }
         assert!(!clearance.contains_translation(Pose::default(), DVec2::new(0.0, 0.8)));
+    }
+
+    #[test]
+    fn motion_projection_uses_same_faces_as_height_filtered_ranges() {
+        use ozton_math::qty;
+
+        let mut field = FieldMap::default()
+            .with_motion_bounds(DVec2::new(1.0, 1.5))
+            .unwrap();
+        assert!(field.add(Surface::new(
+            DVec2::new(1.0, 0.2),
+            DVec2::new(1.0, 1.5),
+            qty!(5.125 in),
+        )));
+        let fixed = (DVec2::new(-0.5, 0.2), DVec2::new(-0.4, 0.3));
+        let movable = (DVec2::new(0.2, 0.2), DVec2::new(0.3, 0.3));
+        assert!(field.add_fixed_box(fixed.0, fixed.1, qty!(1 in)));
+        assert!(field.add_movable_box(movable.0, movable.1, qty!(10.5 in)));
+        let high = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 8.125 in, 0 deg));
+        assert_eq!(field.range_config(high).surface_mask, 0b111100000);
+        let projection = field.motion_projection().unwrap();
+        assert_eq!(projection.bounds, Some(DVec2::new(1.0, 1.5)));
+        assert_eq!(projection.fixed, [Some(fixed), None, None, None]);
+        assert_eq!(projection.movable, [Some(movable), None, None, None]);
     }
 
     #[test]

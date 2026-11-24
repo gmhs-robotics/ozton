@@ -138,6 +138,7 @@ impl LocalizationBuilder {
 
     /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
     pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization> {
+        let projection = self.field.motion_projection()?;
         let map = self.field.surfaces().collect();
         let mounts = layout.ranges.iter().map(|&(_, mount)| mount).collect();
         let mut localizer = Localizer::new_owned(
@@ -159,8 +160,9 @@ impl LocalizationBuilder {
         self.ranges.apply(&mut localizer);
         Some(DifferentialLocalization {
             localizer,
-            rectangular_half_extents: self.field.rectangular_half_extents(),
-            motion_obstacles: self.field.motion_obstacles(),
+            rectangular_half_extents: projection.bounds,
+            motion_obstacles: projection.fixed,
+            movable_obstacles: projection.movable,
             wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),
             observations: super::observations::Observations::new(layout),
             drive: self.drive,

@@ -37,6 +37,7 @@ pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
     rectangular_half_extents: Option<DVec2>,
     motion_obstacles: [Option<(DVec2, DVec2)>; 4],
+    movable_obstacles: [Option<(DVec2, DVec2)>; 4],
     wheels: WheelOdometry,
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
@@ -67,21 +68,14 @@ impl DifferentialLocalization {
         true
     }
 
-    /// Set fixed obstacle bounds separately from the reflecting surface map.
-    pub fn set_motion_obstacles(&mut self, obstacles: [Option<(DVec2, DVec2)>; 4]) -> bool {
-        if obstacles
-            .iter()
-            .flatten()
-            .any(|(min, max)| !min.is_finite() || !max.is_finite() || !min.cmplt(*max).all())
-        {
-            return false;
-        }
-        self.motion_obstacles = obstacles;
-        true
-    }
-
+    /// Fixed footprints projected from the unified field geometry.
     pub fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
         self.motion_obstacles
+    }
+
+    /// Movable footprints projected from the same faces used by localization.
+    pub fn movable_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        self.movable_obstacles
     }
 
     /// Keep raw tracking and logging active while suspending all external corrections.
