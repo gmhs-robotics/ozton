@@ -7,6 +7,7 @@ use super::{Footprint, forward_arc_end};
 use crate::geometry::{Pose, direction};
 
 mod approach;
+mod visibility;
 pub use approach::{PointDeparture, approach_heading};
 
 #[derive(Clone, Copy, Debug)]
@@ -185,6 +186,18 @@ impl RectangularClearance {
         min.cmpge(-self.usable).all()
             && max.cmple(self.usable).all()
             && self.obstacles_clear(min, max)
+    }
+
+    /// Visibility-graph route minimizing traversal through movable obstacles,
+    /// then total distance. Fixed obstacles and perimeter remain hard constraints.
+    pub fn plan_soft_route(
+        self,
+        start: DVec2,
+        goal: DVec2,
+        soft: &[Option<(DVec2, DVec2)>],
+        waypoint_reserve: Length,
+    ) -> Option<alloc::vec::Vec<DVec2>> {
+        visibility::plan(self, start, goal, soft, waypoint_reserve)
     }
 
     /// Distance to the first position with room to pivot, following the current heading.

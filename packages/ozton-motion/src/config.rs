@@ -34,6 +34,10 @@ pub struct MotionConfig {
     pub clearance: Length,
     /// Maximum actuator delay after a brake request, measured on hardware.
     pub brake_latency: Duration,
+    /// Independently measured minimum forward deceleration; None uses profile deceleration.
+    pub forward_braking: Option<Acceleration>,
+    /// Independently measured minimum yaw deceleration; None uses profile deceleration.
+    pub yaw_braking: Option<AngularAcceleration>,
     /// Additional preview interval used by the command governor.
     pub wall_preview: Duration,
     /// Minimum passive lateral braking deceleration (m/s²).
@@ -83,6 +87,8 @@ impl MotionConfig {
         stage_timeout: Duration::from_secs(8),
         clearance: ozton_math::qty!(0.5 in),
         brake_latency: Duration::from_millis(100),
+        forward_braking: None,
+        yaw_braking: None,
         wall_preview: Duration::from_millis(150),
         lateral_braking: ozton_math::qty!(0.35 m/s^2),
         braking_sigma: 2.0,
@@ -224,6 +230,17 @@ impl MotionConfig {
         self
     }
 
+    #[must_use]
+    pub const fn with_braking_deceleration(
+        mut self,
+        forward: Acceleration,
+        yaw: AngularAcceleration,
+    ) -> Self {
+        self.forward_braking = Some(forward);
+        self.yaw_braking = Some(yaw);
+        self
+    }
+
     /// Physical braking and prediction allowances; characterize on the robot.
     #[must_use]
     pub const fn with_braking_model(
@@ -344,6 +361,8 @@ impl MotionConfig {
             && [self.clearance.value, self.departure_reserve.value]
                 .into_iter()
                 .all(|v| v.is_finite() && v >= 0.0)
+            && self.forward_braking.is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self.yaw_braking.is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self.braking_sigma.is_finite()
             && self.braking_sigma >= 0.0
             && self.ramsete_zeta <= 1.0

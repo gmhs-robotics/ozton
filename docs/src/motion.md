@@ -82,3 +82,20 @@ uncertainty, not a deterministic guarantee against slip or bad sensors.
 The default latency and lateral braking values are initial estimates.
 Characterize them with measured stopping distances before increasing speed.
 Configure with MotionConfig::with_braking_model or Seeking::with_braking_model.
+
+
+## Movable-obstacle routing
+
+RectangularClearance::plan_soft_route uses a visibility graph over the corners
+of obstacle boxes inflated by the chassis turning radius and clearance.
+Each edge is clipped against inflated rectangles by the slab algorithm.
+Dijkstra minimizes the total length inside soft-obstacle boxes first and the
+travel length second, while hard obstacles and perimeter cannot be crossed.
+This permits escape from a moved object that already overlaps the chassis
+without treating that object as a hard boundary. The graph assumes the robot
+can pivot at each waypoint. If a start is too close to a wall to pivot, the
+regular clearance-aware departure planner is required.
+
+The minimum braking deceleration can be configured independently of nominal
+trajectory acceleration/deceleration using with_braking_deceleration. Never
+infer guaranteed physical stopping performance from a commanded profile limit.

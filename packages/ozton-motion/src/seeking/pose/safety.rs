@@ -30,14 +30,23 @@ fn bounds(
         return None;
     }
     let [lateral, forward, yaw] = uncertainty.map(|s| s * config.braking_sigma);
-    let forward = interval(v, forward, config.deceleration.value, reaction);
+    let forward = interval(
+        v,
+        forward,
+        config.forward_braking.unwrap_or(config.deceleration).value,
+        reaction,
+    );
     let lateral = interval(
         feedback.lateral_velocity.value,
         lateral,
         config.lateral_braking.value,
         reaction,
     );
-    let yaw = stop(w.abs() + yaw, config.angular_deceleration.value, reaction);
+    let yaw = stop(
+        w.abs() + yaw,
+        config.yaw_braking.unwrap_or(config.angular_deceleration).value,
+        reaction,
+    );
     field.braking_bounds(feedback.pose, forward, lateral, qty!((yaw) rad))
 }
 

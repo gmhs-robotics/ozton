@@ -74,6 +74,15 @@ impl Seeking {
         self
     }
 
+    pub const fn with_braking_deceleration(
+        mut self,
+        forward: Acceleration,
+        yaw: AngularAcceleration,
+    ) -> Self {
+        self.config = self.config.with_braking_deceleration(forward, yaw);
+        self
+    }
+
     pub const fn with_braking_model(
         mut self,
         latency: Duration,
