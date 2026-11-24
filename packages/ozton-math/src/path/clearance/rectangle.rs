@@ -236,14 +236,17 @@ mod tests {
         for sign in [-1.0, 1.0] {
             assert!(!field.contains_translation(
                 Pose::default(),
-                crate::position_xy!(0 in, (sign * 36.0) in),
+                crate::position_xy!(0 in, 36 in) * sign,
             ));
             let start = Pose::new(
-                crate::position_xy!((sign * 20.0) in, -32 in),
+                crate::position_xy!(20 in, 0 in) * sign + crate::position_xy!(0 in, -32 in),
                 Angle::default(),
             );
             assert!(
-                field.contains_translation(start, crate::position_xy!((sign * 20.0) in, 32 in),)
+                field.contains_translation(
+                    start,
+                    crate::position_xy!(20 in, 0 in) * sign + crate::position_xy!(0 in, 32 in),
+                )
             );
         }
     }
