@@ -68,7 +68,10 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
     assert_eq!(Rc::strong_count(&right), 3);
     let range = DistanceTracker::at_mount(
         vexide::prelude::DistanceSensor::new(peripherals.port_7),
-        (Vec3::new(Length::ZERO, Length::ZERO, Length::ZERO), Angle::ZERO),
+        (
+            Vec3::new(Length::ZERO, Length::ZERO, Length::ZERO),
+            Angle::ZERO,
+        ),
     );
     let mut tracking = block_on(Tracking::new((encoders, range, FieldFix))).unwrap();
 

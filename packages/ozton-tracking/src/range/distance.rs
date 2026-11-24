@@ -66,7 +66,6 @@ impl DistanceTracker {
         self.config.gate = gate;
         self
     }
-
 }
 
 #[derive(Clone, Copy, Default)]

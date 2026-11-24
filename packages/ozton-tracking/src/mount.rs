@@ -73,8 +73,9 @@ impl MountAxes {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use ozton_math::position_xyz;
+
+    use super::*;
 
     #[test]
     fn alternate_axes_use_the_same_origin_and_wheel_lever_arms() {

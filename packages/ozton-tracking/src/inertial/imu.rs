@@ -42,7 +42,10 @@ impl From<InertialSensor> for InertialSensorTracking {
     fn from(sensor: InertialSensor) -> Self {
         Self::at_mount(
             sensor,
-            (Vec3::new(Length::default(), Length::default(), Length::default()), Angle::default()),
+            (
+                Vec3::new(Length::default(), Length::default(), Length::default()),
+                Angle::default(),
+            ),
         )
     }
 }

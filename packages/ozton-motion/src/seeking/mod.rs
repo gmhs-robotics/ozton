@@ -183,7 +183,6 @@ impl Seeking<Normalized> {
         self.config.angular_controller.set_integration_range(None);
         self
     }
-
 }
 
 impl<L, A> Seeking<Normalized<L, A>>

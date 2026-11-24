@@ -7,10 +7,7 @@ use ozton_math::{
     uom::si::f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
 };
 
-use crate::{
-    basic::differential::{DriveOptions, DriveTuning},
-    defaults::AUTON_STAGE_TIMEOUT,
-};
+use crate::basic::differential::{DriveOptions, DriveTuning};
 
 mod approach;
 mod drive;
@@ -21,8 +18,6 @@ pub use error::PoseMotionError;
 use session::PoseSession;
 
 use super::Seeking;
-
-pub const DEFAULT_STAGE_TIMEOUT: Duration = AUTON_STAGE_TIMEOUT;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TravelDirection {
@@ -38,7 +33,10 @@ impl Default for Seeking {
 
 impl Seeking {
     pub const fn new() -> Self {
-        Self { config: crate::MotionConfig::DEFAULT, travel: None }
+        Self {
+            config: crate::MotionConfig::DEFAULT,
+            travel: None,
+        }
     }
 
     /// Effective settings, including changes made through individual modifiers.

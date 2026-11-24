@@ -19,7 +19,10 @@ use ozton_math::uom::si::{
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_motion::{Basic, Seeking, seeking::{Normalized, TravelDirection}};
+use ozton_motion::{
+    Basic, Seeking,
+    seeking::{Normalized, TravelDirection},
+};
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssists};
 use ozton_tracking::{
     TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
