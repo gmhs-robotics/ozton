@@ -19,6 +19,7 @@ mod session;
 pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
 use session::PoseSession;
+use super::Seeking;
 
 pub const DEFAULT_STAGE_TIMEOUT: Duration = AUTON_STAGE_TIMEOUT;
 
@@ -28,43 +29,20 @@ pub enum TravelDirection {
     Backward,
 }
 
-/// Reusable route settings for motion with live differential localization.
-///
-/// If the drivetrain has a footprint, a rectangular field is required for
-/// planning a clear departure from a wall and checking in-place turns.
-#[derive(Clone, Copy, Debug)]
-pub struct PoseSeeking {
-    pub(super) tuning: DriveTuning,
-    pub(super) wheel_speed: Velocity,
-    pub(super) position_tolerance: Option<Length>,
-    pub(super) heading_tolerance: Option<Angle>,
-    pub(super) travel: Option<TravelDirection>,
-    pub(super) stage_timeout: Duration,
-    pub(super) config: crate::MotionConfig,
-}
-
-impl Default for PoseSeeking {
+impl Default for Seeking {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl PoseSeeking {
+impl Seeking {
     pub const fn new() -> Self {
         Self::from_config(crate::MotionConfig::DEFAULT)
     }
 
     /// Declare a reusable motion primitive directly from physical motion settings.
     pub const fn from_config(config: crate::MotionConfig) -> Self {
-        Self {
-            tuning: config.tuning,
-            wheel_speed: config.wheel_speed,
-            position_tolerance: Some(config.position_tolerance),
-            heading_tolerance: Some(config.heading_tolerance),
-            travel: None,
-            stage_timeout: config.stage_timeout,
-            config,
-        }
+        Self { config, travel: None }
     }
 
     /// Effective settings, including changes made through individual modifiers.
@@ -74,11 +52,6 @@ impl PoseSeeking {
 
     /// Apply a robot's physical constraints, PID gains and settling configuration.
     pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
-        self.tuning = config.tuning;
-        self.wheel_speed = config.wheel_speed;
-        self.position_tolerance = Some(config.position_tolerance);
-        self.heading_tolerance = Some(config.heading_tolerance);
-        self.stage_timeout = config.stage_timeout;
         self.config = config;
         self
     }
@@ -112,19 +85,7 @@ impl PoseSeeking {
     }
 
     pub(super) const fn effective_config(self) -> crate::MotionConfig {
-        let mut config = self.config;
-        config.tuning = self.tuning;
-        config.wheel_speed = self.wheel_speed;
-        config.position_tolerance = match self.position_tolerance {
-            Some(value) => value,
-            None => config.position_tolerance,
-        };
-        config.heading_tolerance = match self.heading_tolerance {
-            Some(value) => value,
-            None => config.heading_tolerance,
-        };
-        config.stage_timeout = self.stage_timeout;
-        config
+        self.config
     }
 
     #[must_use]
@@ -261,144 +222,143 @@ impl PoseSeeking {
 
     #[must_use]
     pub const fn with_linear_controller(mut self, controller: ozton_math::control::Pid) -> Self {
-        self.tuning.linear = controller;
+        self.config.tuning.linear = controller;
         self
     }
 
     #[must_use]
     pub const fn with_linear_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.tuning.linear.set_gains(kp, ki, kd);
+        self.config.tuning.linear.set_gains(kp, ki, kd);
         self
     }
 
     #[must_use]
     pub const fn with_linear_ki(mut self, ki: f64) -> Self {
-        self.tuning.linear.set_ki(ki);
+        self.config.tuning.linear.set_ki(ki);
         self
     }
 
     #[must_use]
     pub const fn with_linear_kd(mut self, kd: f64) -> Self {
-        self.tuning.linear.set_kd(kd);
+        self.config.tuning.linear.set_kd(kd);
         self
     }
 
     #[must_use]
     pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.tuning.linear.set_integration_range(Some(range.value));
+        self.config.tuning.linear.set_integration_range(Some(range.value));
         self
     }
 
     #[must_use]
     pub const fn with_angular_controller(mut self, controller: ozton_math::control::Pid) -> Self {
-        self.tuning.angular = controller;
+        self.config.tuning.angular = controller;
         self
     }
 
     #[must_use]
     pub const fn with_angular_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.tuning.angular.set_gains(kp, ki, kd);
+        self.config.tuning.angular.set_gains(kp, ki, kd);
         self
     }
 
     #[must_use]
     pub const fn with_angular_ki(mut self, ki: f64) -> Self {
-        self.tuning.angular.set_ki(ki);
+        self.config.tuning.angular.set_ki(ki);
         self
     }
 
     #[must_use]
     pub const fn with_angular_kd(mut self, kd: f64) -> Self {
-        self.tuning.angular.set_kd(kd);
+        self.config.tuning.angular.set_kd(kd);
         self
     }
 
     #[must_use]
     pub const fn with_angular_integration_range(mut self, range: Angle) -> Self {
-        self.tuning.angular.set_integration_range(Some(range.value));
+        self.config.tuning.angular.set_integration_range(Some(range.value));
         self
     }
 
     #[must_use]
     pub const fn with_linear_output_limit(mut self, limit: f64) -> Self {
-        self.tuning.linear.set_output_limit(Some(limit));
+        self.config.tuning.linear.set_output_limit(Some(limit));
         self
     }
 
     #[must_use]
     pub const fn without_linear_output_limit(mut self) -> Self {
-        self.tuning.linear.set_output_limit(None);
+        self.config.tuning.linear.set_output_limit(None);
         self
     }
 
     #[must_use]
     pub const fn without_linear_integration_range(mut self) -> Self {
-        self.tuning.linear.set_integration_range(None);
+        self.config.tuning.linear.set_integration_range(None);
         self
     }
 
     #[must_use]
     pub const fn with_angular_output_limit(mut self, limit: f64) -> Self {
-        self.tuning.angular.set_output_limit(Some(limit));
+        self.config.tuning.angular.set_output_limit(Some(limit));
         self
     }
 
     #[must_use]
     pub const fn without_angular_output_limit(mut self) -> Self {
-        self.tuning.angular.set_output_limit(None);
+        self.config.tuning.angular.set_output_limit(None);
         self
     }
 
     #[must_use]
     pub const fn without_angular_integration_range(mut self) -> Self {
-        self.tuning.angular.set_integration_range(None);
+        self.config.tuning.angular.set_integration_range(None);
         self
     }
 
     pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
-        self.tuning = tuning;
+        self.config.tuning = tuning;
         self
     }
 
     pub const fn with_linear_kp(mut self, kp: f64) -> Self {
-        self.tuning.linear.set_kp(kp);
+        self.config.tuning.linear.set_kp(kp);
         self
     }
 
     pub const fn with_angular_kp(mut self, kp: f64) -> Self {
-        self.tuning.angular.set_kp(kp);
+        self.config.tuning.angular.set_kp(kp);
         self
     }
 
     pub const fn with_wheel_speed(mut self, wheel_speed: Velocity) -> Self {
-        self.wheel_speed = wheel_speed;
+        self.config.wheel_speed = wheel_speed;
         self
     }
 
+    /// Alias for the position tolerance of a point or pose.
+    pub const fn with_error_tolerance(self, tolerance: Length) -> Self {
+        self.with_position_tolerance(tolerance)
+    }
+
+    /// Alias for the linear velocity tolerance.
+    pub const fn with_velocity_tolerance(self, tolerance: Velocity) -> Self {
+        self.with_linear_velocity_tolerance(tolerance)
+    }
+
     pub const fn with_position_tolerance(mut self, tolerance: Length) -> Self {
-        self.position_tolerance = Some(tolerance);
+        self.config.position_tolerance = tolerance;
         self
     }
 
     pub const fn with_heading_tolerance(mut self, tolerance: Angle) -> Self {
-        self.heading_tolerance = Some(tolerance);
+        self.config.heading_tolerance = tolerance;
         self
-    }
-
-    /// Choose the direction of the approach after the clearance maneuver.
-    /// By default the motion chooses the direction that requires less turning.
-    pub const fn with_travel(mut self, travel: TravelDirection) -> Self {
-        self.travel = Some(travel);
-        self
-    }
-
-    pub const fn reverse(self) -> Self {
-        self.with_travel(TravelDirection::Backward)
     }
 
     /// Set the timeout for each stage of the motion.
     pub const fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.stage_timeout = timeout;
+        self.config.stage_timeout = timeout;
         self
     }
 
@@ -425,13 +385,23 @@ impl PoseSeeking {
         approach::drive_to_target(drive, point.into(), None, *self).await
     }
 
+    /// Move to a field point and finish at an explicit absolute heading.
+    pub async fn move_to_point_at_heading<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        point: impl Into<DVec2>,
+        heading: Angle,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        approach::drive_to_target(drive, point.into(), Some(heading), *self).await
+    }
+
     /// Move to a field pose and settle at its heading.
     pub async fn move_to_pose<D: PoseDrive>(
         &self,
         drive: &mut D,
         target: Pose,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        approach::drive_to_target(drive, target.position, Some(target.heading), *self).await
+        self.move_to_point_at_heading(drive, target.position, target.heading).await
     }
     /// Drive a signed distance while preserving the starting heading.
     pub async fn drive_distance<D: PoseDrive>(
@@ -461,7 +431,7 @@ impl PoseSeeking {
                     heading: Some(heading),
                     maximum_speed: options.maximum_wheel_speed,
                 },
-                self.stage_timeout,
+                self.config.stage_timeout,
             )
             .await;
         session.finish(result)
@@ -499,7 +469,7 @@ impl PoseSeeking {
                     sweep,
                     maximum_speed: options.maximum_wheel_speed,
                 },
-                self.stage_timeout,
+                self.config.stage_timeout,
             )
             .await;
         session.finish(result)
@@ -523,7 +493,7 @@ impl PoseSeeking {
         let result = session
             .run(
                 crate::basic::differential::DifferentialTarget::Turn { heading },
-                self.stage_timeout,
+                self.config.stage_timeout,
             )
             .await;
         session.finish(result)
@@ -557,7 +527,7 @@ impl PoseSeeking {
         let target = Pose::new(end.position, end.heading + facing);
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
         let result = session
-            .follow(path, follower, reverse, target, field, self.stage_timeout)
+            .follow(path, follower, reverse, target, field, self.config.stage_timeout)
             .await;
         session.finish(result)
     }

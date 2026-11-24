@@ -19,7 +19,7 @@ use ozton_math::uom::si::{
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_motion::{Basic, Seeking};
+use ozton_motion::{Basic, Seeking, seeking::Normalized};
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssists};
 use ozton_tracking::{
     TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
@@ -239,19 +239,18 @@ fn basic_motion() -> Basic<Pid, AngularPid> {
     }
 }
 
-fn seeking_motion() -> Seeking<Pid, Pid> {
+fn seeking_motion() -> Seeking<Normalized> {
     let mut linear = Pid::new(1.2, 0.0, 0.06, None);
     linear.set_output_limit(Some(1.0));
 
     let mut lateral = Pid::new(3.2, 0.0, 0.08, None);
     lateral.set_output_limit(Some(1.0));
 
-    Seeking {
-        linear_controller: linear,
-        lateral_controller: lateral,
-        tolerances: point_tolerances(),
-        timeout: Some(Duration::from_secs(3)),
-    }
+    Seeking::normalized()
+        .with_linear_controller(linear)
+        .with_lateral_controller(lateral)
+        .with_tolerances(point_tolerances())
+        .with_timeout(Duration::from_secs(3))
 }
 
 #[test]
@@ -332,8 +331,7 @@ fn seeking_motion_reaches_multiple_waypoints() {
 #[test]
 fn reverse_seeking_drives_backward_to_target() {
     let mut drivetrain = new_drivetrain();
-    let mut motion = seeking_motion();
-    motion.timeout = Some(Duration::from_secs(5));
+    let motion = seeking_motion().with_timeout(Duration::from_secs(5));
 
     block_on(async {
         motion
@@ -387,7 +385,7 @@ fn default_motions_chain_to_a_route() {
             .expect("drive output succeeds");
         assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
 
-        let outcome = Seeking::default()
+        let outcome = Seeking::normalized()
             .move_to_point(&mut drivetrain, (target.x, target.y))
             .reverse()
             .with_angular_kp(0.4)

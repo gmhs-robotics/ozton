@@ -10,7 +10,7 @@ use ozton_math::{
 use ozton_runtime::clock::CONTROL_PERIOD;
 
 use super::{
-    PoseDrive, PoseSeeking, TravelDirection, error::PoseMotionError, session::PoseSession,
+    PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession,
 };
 use crate::basic::differential::DifferentialTarget;
 
@@ -20,7 +20,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
     drive: &mut D,
     position: DVec2,
     final_heading: Option<Angle>,
-    settings: PoseSeeking,
+    settings: Seeking,
 ) -> MotionResult<D> {
     let target = Pose::new(
         position,
@@ -34,7 +34,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         target.position.y,
         target.heading.value
     );
-    if !target.is_finite() || settings.stage_timeout < CONTROL_PERIOD {
+    if !target.is_finite() || settings.config.stage_timeout < CONTROL_PERIOD {
         return Err(PoseMotionError::Configuration);
     }
 
@@ -42,7 +42,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
-    if clearance.is_some_and(|field| !field.contains_pose(target)) {
+    if final_heading.is_some() && clearance.is_some_and(|field| !field.contains_pose(target)) {
         ozton_runtime::log_event!(
             Error,
             "path",
@@ -62,7 +62,7 @@ async fn approach<D: PoseDrive>(
     clearance: Option<RectangularClearance>,
     target: Pose,
     final_heading: Option<Angle>,
-    settings: PoseSeeking,
+    settings: Seeking,
 ) -> MotionResult<D> {
     let options = session.options;
     let config = settings.effective_config();
@@ -91,21 +91,21 @@ async fn approach<D: PoseDrive>(
                     plan.reverse,
                     target,
                     clearance,
-                    settings.stage_timeout,
+                    settings.config.stage_timeout,
                 )
                 .await;
         }
     }
     // Fall back only when no feasible continuous candidate was generated.
     if let Some(field) = clearance {
-        if !field.can_turn(target) {
+        if final_heading.is_some() && !field.can_turn(target) {
             return Err(PoseMotionError::InsufficientClearance);
         }
         depart_wall(
             session,
             field,
             target,
-            settings.stage_timeout,
+            settings.config.stage_timeout,
             settings.effective_config(),
         )
         .await?;
@@ -128,7 +128,12 @@ async fn approach<D: PoseDrive>(
         if displacement.length() > tolerance {
             let heading =
                 bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
-            turn_checked(session, clearance, heading, settings.stage_timeout).await?;
+            // A point-only target does not require enough space to rotate at
+            // the destination; only the actual approach orientation must fit.
+            if clearance.is_some_and(|field| !field.contains_pose(Pose::new(target.position, heading))) {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+            turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;
         }
         session
             .run(
@@ -137,11 +142,11 @@ async fn approach<D: PoseDrive>(
                     maximum_speed: options.maximum_wheel_speed,
                     reverse,
                 },
-                settings.stage_timeout,
+                settings.config.stage_timeout,
             )
             .await?;
         if let Some(heading) = final_heading {
-            turn_checked(session, clearance, heading, settings.stage_timeout).await?;
+            turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;
         }
         let error = session.drive.pose().position.distance(target.position);
         if error <= tolerance {

@@ -3,7 +3,7 @@
 use core::{error::Error, fmt};
 
 use ozton_drivetrain::model::WheelSpeedError;
-use ozton_motion::seeking::pose::{DriveMotionFault, PoseMotionError};
+use ozton_motion::seeking::{DriveMotionFault, PoseMotionError};
 use ozton_runtime::mechanism::MechanismError;
 use vexide::controller::ControllerError;
 

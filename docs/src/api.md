@@ -11,7 +11,7 @@ Start with the ozton facade crate. It re-exports the workspace modules, macros a
 
 ## Motion and competition
 
-- [motion](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-motion/src/lib.rs): Basic, Seeking, PurePursuit, PoseSeeking and MotionConfig.
+- [motion](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-motion/src/lib.rs): Basic, Seeking, PurePursuit and MotionConfig.
 - [autonomous](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/src/autonomous/mod.rs): programmed runner, motion commands and mechanism coordination.
 - [runtime](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-runtime/src/lib.rs): Runtime, OztonCompete, RobotBuilder, TaskSlot, localization schedules and diagnostics.
 - [ui](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton-ui/src/lib.rs): menu and route selector.

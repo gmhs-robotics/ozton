@@ -17,11 +17,11 @@ This is the development API. Pin a tested commit for competition firmware. The r
 Driver control needs only a drive model. Add calibrated wheel travel and an IMU when you want reliable autonomous movement. For position-based movement, register a known starting pose before issuing commands:
 
 ```rust
-use ozton::{length, angle, position_xyh, motion::PoseSeeking};
+use ozton::{length, angle, position_xyh, motion::Seeking};
 
 // drivetrain is an assembled, localized differential drive.
 // Run inside an enabled autonomous route.
-let motion = PoseSeeking::default()
+let motion = Seeking::new()
     .with_position_tolerance(length!(0.75 in))
     .with_heading_tolerance(angle!(2 deg));
 
@@ -33,7 +33,7 @@ motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 - [Your first robot](docs/src/getting-started.md): motor setup, controller and competition modes.
 - [Coordinates and units](docs/src/coordinates.md): how Ozton describes positions, headings and mounts.
 - [Tracking and localization](docs/src/localization.md): wheel encoders, IMU, odometry, MCL and DSR.
-- [Motion commands](docs/src/motion.md): choose between Basic, Seeking, Pure Pursuit and PoseSeeking.
+- [Motion commands](docs/src/motion.md): choose between Basic, Seeking and Pure Pursuit.
 - [Competition routes](docs/src/routes.md): register autonomous and driver callbacks.
 - [Calibration and logs](docs/src/calibration.md): tune the robot from measured results.
 - [API map](docs/src/api.md): find types, modules and examples.

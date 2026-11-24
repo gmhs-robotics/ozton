@@ -18,8 +18,6 @@ pub use arcade::Arcade;
 pub use basic::{Basic, differential::DriveTuning};
 use defaults::{AUTON_POSITION_TOLERANCE, AUTON_SETTLE_TIME, AUTON_SPEED_TOLERANCE};
 pub use holonomic::Holonomic;
-#[cfg(feature = "vex")]
-pub use seeking::pose::PoseSeeking;
 pub use tank::Tank;
 mod defaults;
 pub use curvature::CurvatureDrive;

@@ -44,18 +44,18 @@ fn constant_templates_preserve_configuration() {
 #[cfg(feature = "vex")]
 #[test]
 fn seeking_templates_are_const() {
-    use ozton_motion::{PoseSeeking, Seeking};
-    const SEEKING: Seeking = Seeking::new()
+    use ozton_motion::{Seeking, seeking::Normalized};
+    const NORMALIZED: Seeking<Normalized> = Seeking::normalized()
         .with_linear_controller(PID)
         .with_lateral_gains(1.8, 0.0, 0.06)
         .with_error_tolerance(length!(1 in));
-    const POSE: PoseSeeking = PoseSeeking::new()
+    const SEEKING: Seeking = Seeking::new()
         .with_linear_gains(4.25, 0.0, 0.5)
         .with_angular_gains(3.0, 0.0, 0.22)
         .with_acceleration(acceleration!(2.5, meter_per_second_squared))
         .with_wheel_speed(velocity!(1.2, meter_per_second));
-    const SETTINGS: MotionConfig = POSE.config();
-    assert_eq!(SEEKING.linear_controller, PID);
+    const SETTINGS: MotionConfig = SEEKING.config();
+    assert_eq!(NORMALIZED.config().linear_controller, PID);
     assert_eq!(SETTINGS.tuning.linear.gains(), (4.25, 0.0, 0.5));
     assert_eq!(SETTINGS.wheel_speed.value, 1.2);
 }
