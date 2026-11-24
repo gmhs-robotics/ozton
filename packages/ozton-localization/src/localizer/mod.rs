@@ -149,12 +149,11 @@ impl<'a> Localizer<'a> {
         }
         // Resolve height eligibility once, including direct Localizer callers.
         for sensor in sensors.to_mut() {
-            for (index, surface) in map.iter().enumerate() {
-                if !surface.visible_at(sensor.mount_height) {
-                    sensor.surface_mask &= !(1u128 << index);
-                }
-            }
+            *sensor = sensor.with_visible_surfaces(&map);
         }
+        let eligible = sensors.iter().enumerate().fold(0u8, |mask, (index, sensor)| {
+            mask | (u8::from(sensor.surface_mask != 0) << index)
+        });
         let pose = Pose {
             heading: wrap_heading(pose.heading),
             ..pose
@@ -178,8 +177,8 @@ impl<'a> Localizer<'a> {
             mcl_correction_gain: 0.4,
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
-            reset_ranges: u8::MAX,
-            filter_ranges: u8::MAX,
+            reset_ranges: eligible,
+            filter_ranges: eligible,
         })
     }
 }
@@ -247,8 +246,11 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
     /// Select range indices for geometric resets and for the active filter.
     pub fn set_range_usage(&mut self, reset: u8, filter: u8) {
-        self.reset_ranges = reset;
-        self.filter_ranges = filter;
+        let eligible = self.sensors.iter().enumerate().fold(0u8, |mask, (index, sensor)| {
+            mask | (u8::from(sensor.surface_mask != 0) << index)
+        });
+        self.reset_ranges = reset & eligible;
+        self.filter_ranges = filter & eligible;
     }
 
     /// Odometry limits and legacy snapshot geometry.

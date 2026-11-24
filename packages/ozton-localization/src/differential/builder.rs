@@ -142,7 +142,7 @@ impl LocalizationBuilder {
         let mounts = layout
             .ranges
             .iter()
-            .map(|&(_, mount)| self.field.range_config(mount))
+            .map(|&(_, mount)| mount)
             .collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
@@ -164,7 +164,7 @@ impl LocalizationBuilder {
         Some(DifferentialLocalization {
             localizer,
             rectangular_half_extents: self.field.rectangular_half_extents(),
-            motion_obstacles: [None; 4],
+            motion_obstacles: self.field.motion_obstacles(),
             wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),
             observations: super::observations::Observations::new(layout),
             drive: self.drive,

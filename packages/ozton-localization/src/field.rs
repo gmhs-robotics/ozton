@@ -66,6 +66,7 @@ impl Field {
 pub struct FieldMap {
     faces: Vec<Surface>,
     perimeter: Option<Field>,
+    motion_obstacles: [Option<(DVec2, DVec2)>; 4],
 }
 
 impl From<Field> for FieldMap {
@@ -73,24 +74,61 @@ impl From<Field> for FieldMap {
         Self {
             faces: field.surfaces().into(),
             perimeter: Some(field),
+            motion_obstacles: [None; 4],
         }
     }
 }
 
 impl FieldMap {
-    /// Half extents of an unobstructed rectangular field in right/forward order.
+    /// Half extents of the rectangular perimeter, independent of interior faces.
     pub(crate) fn rectangular_half_extents(&self) -> Option<DVec2> {
-        let field = self.perimeter.filter(|_| self.faces.len() == 4)?;
+        let field = self.perimeter?;
         Some(point(field.max.right, field.max.forward))
     }
 
-    /// Add a surveyed surface. Leave movable game objects out of the fixed map.
+    /// Add a reflecting surface only. Use add_fixed_box for a solid fixed
+    /// obstacle; optical visibility must not determine physical clearance.
     pub fn add(&mut self, face: Surface) -> bool {
         if self.faces.len() >= u128::BITS as usize || !face.is_valid() {
             return false;
         }
         self.faces.push(face);
         true
+    }
+
+    /// Register a floor-mounted solid rectangle in both the reflecting map
+    /// and the motion obstacle map. A face below every sensor remains a
+    /// physical obstacle. The box requires positive width, length and height.
+    /// Registration is atomic, including when the fixed obstacle capacity
+    /// (four rectangles) or surface capacity is exhausted.
+    pub fn add_fixed_box(&mut self, min: DVec2, max: DVec2, height: Length) -> bool {
+        if !min.is_finite()
+            || !max.is_finite()
+            || !min.cmplt(max).all()
+            || !height.value.is_finite()
+            || height.value <= 0.0
+            || self.faces.len() + 4 > u128::BITS as usize
+        {
+            return false;
+        }
+        let Some(slot) = self.motion_obstacles.iter().position(Option::is_none) else {
+            return false;
+        };
+        let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
+        let faces = core::array::from_fn::<_, 4, _>(|index| {
+            Surface::new(corners[index], corners[(index + 1) % 4], height)
+        });
+        if !faces.iter().all(|face| face.is_valid()) {
+            return false;
+        }
+        self.faces.extend(faces);
+        self.motion_obstacles[slot] = Some((min, max));
+        true
+    }
+
+    /// Solid obstacle footprints, independent of sensor height and range.
+    pub fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+        self.motion_obstacles
     }
 
     /// Add a clipped square footprint as eight faces using the same height band.
@@ -144,16 +182,8 @@ impl FieldMap {
         self.faces.iter().copied()
     }
 
-    pub fn range_config(&self, mut mount: RangeSensorConfig) -> RangeSensorConfig {
-        let mask = self
-            .faces
-            .iter()
-            .enumerate()
-            .fold(0, |mask, (index, face)| {
-                mask | (u128::from(face.visible_at(mount.mount_height)) << index)
-            });
-        mount.surface_mask &= mask;
-        mount
+    pub fn range_config(&self, mount: RangeSensorConfig) -> RangeSensorConfig {
+        mount.with_visible_surfaces(&self.faces)
     }
 }
 
@@ -197,6 +227,40 @@ mod tests {
         assert!(hits[0].surface >= 32);
         assert!((hits[0].distance - 0.7).abs() < 1e-12);
         assert!((hits[1].distance - ozton_math::qty!(70.2 in).value).abs() < 1e-12);
+    }
+
+    #[test]
+    fn low_fixed_wall_is_invisible_to_ranges_but_blocks_motion() {
+        use ozton_math::{
+            geometry::Pose,
+            localization::{observation::ObservationLayout, range::cast_masked},
+            path::clearance::{Footprint, RectangularClearance},
+            qty,
+        };
+
+        let mut field = FieldMap::from(Field::METAL);
+        let min = DVec2::new(-0.5, 0.4);
+        let max = DVec2::new(0.5, 0.45);
+        assert!(field.add_fixed_box(min, max, qty!(1 in)));
+        let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg));
+        let low = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 0.5 in, 0 deg));
+        assert_eq!(field.range_config(mount).surface_mask, 0b1111);
+        assert_eq!(field.range_config(low).surface_mask, 0xff);
+        let map: Vec<_> = field.surfaces().collect();
+        let hit = cast_masked(Pose::default(), mount.mount, &map, field.range_config(mount).surface_mask).unwrap();
+        assert!(hit.distance > 1.0);
+        let ranges = [(0, mount)];
+        let localization = crate::differential::LocalizationBuilder::new(field)
+            .build(ObservationLayout { wheels: &[], ranges: &ranges })
+            .unwrap();
+        let bounds = localization.rectangular_half_extents().unwrap();
+        let mut clearance = RectangularClearance::new(
+            Footprint::new(qty!(6 in), qty!(6 in)).unwrap(), bounds, qty!(0 in)
+        ).unwrap();
+        for (min, max) in localization.motion_obstacles().into_iter().flatten() {
+            clearance = clearance.with_obstacle(min, max).unwrap();
+        }
+        assert!(!clearance.contains_translation(Pose::default(), DVec2::new(0.0, 0.8)));
     }
 
     #[test]

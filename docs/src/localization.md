@@ -156,3 +156,22 @@ range limit. EKF, consensus and stationary DSR use the same sensor noise
 model. DSR remains a geometric reset, not a probabilistic bound on accuracy;
 tighten the gate for precision-sensitive resets. The maximum MCL residual
 remains an independent association ceiling, not the hardware range.
+
+## Optical height versus physical obstacles
+
+Each horizontal beam is assigned an intersection mask of its explicit surface
+selection and faces whose vertical interval [base, base + height) contains its
+surveyed mounting height. This is computed once at Localizer construction, not
+per particle. Sensors with an empty mask are excluded from MCL, EKF and DSR;
+they remain available for raw or relative-distance feedback. Heights assume
+a level chassis and horizontal center rays, not a full optical cone model.
+
+FieldMap::add_fixed_box(min, max, height) registers a solid floor-mounted
+rectangle as four reflecting faces plus an independent hard motion obstacle.
+The builder carries the physical footprint into motion clearance even if no
+sensor can see any of the four faces. Adding interior faces no longer hides a
+known rectangular perimeter. FieldMap::add remains optical-only; use it for
+reflecting surfaces that should not automatically become hard obstacles.
+Existing movable calibration objects remain soft, not hard obstacles.
+The fixed obstacle map supports four rectangles; registration fails atomically
+if capacity is exhausted.

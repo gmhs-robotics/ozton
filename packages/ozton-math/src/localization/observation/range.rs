@@ -78,6 +78,16 @@ impl RangeSensorConfig {
             && self.surface.is_none_or(|index| index < map.len())
     }
 
+    /// Intersect explicit surface selection with the surveyed horizontal beam
+    /// height. Bits beyond the actual map are removed as well.
+    pub fn with_visible_surfaces(mut self, map: &[Surface]) -> Self {
+        let visible = map.iter().take(128).enumerate().fold(0u128, |mask, (index, face)| {
+            mask | (u128::from(face.visible_at(self.mount_height)) << index)
+        });
+        self.surface_mask &= visible;
+        self
+    }
+
     /// Apply the physical sensor limits even if the application supplies
     /// a wider acceptance gate.
     pub fn effective_gate(self) -> RangeGate {
