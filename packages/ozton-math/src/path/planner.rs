@@ -39,7 +39,8 @@ pub fn plan(
     let mut best: Option<Maneuver> = None;
     let start_direction = direction(start.heading) * distance;
     let end_direction = direction(end.heading) * distance;
-    let minimum_derivative_squared = (distance * 0.015).powi(2);
+    let minimum_derivative = distance * 0.015;
+    let minimum_derivative_squared = minimum_derivative * minimum_derivative;
     let mut points = Vec::new();
     for reverse in [false, true] {
         if direction_preference.is_some_and(|value| value != reverse) {
