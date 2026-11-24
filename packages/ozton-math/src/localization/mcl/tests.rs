@@ -86,7 +86,11 @@ fn no_surface_is_neutral_and_all_missing_returns_no_estimate() {
 
 #[test]
 fn quality_rejects_out_of_range_predictions_and_downweights_distant_returns() {
-    let map = [Surface::new(DVec2::new(-1.0, 1.0), DVec2::new(1.0, 1.0), crate::qty!(1 m))];
+    let map = [Surface::new(
+        DVec2::new(-1.0, 1.0),
+        DVec2::new(1.0, 1.0),
+        crate::qty!(1 m),
+    )];
     let beam = Beam {
         mount: Pose::default(),
         distance: crate::qty!(0.9 m),
@@ -95,19 +99,51 @@ fn quality_rejects_out_of_range_predictions_and_downweights_distant_returns() {
     };
     let mut prior = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
     for (index, particle) in prior.particles.iter_mut().enumerate() {
-        particle.pose = Pose::new(DVec2::new(0.0, if index % 2 == 0 { 0.1 } else { 0.0 }), Angle::default());
+        particle.pose = Pose::new(
+            DVec2::new(0.0, if index % 2 == 0 { 0.1 } else { 0.0 }),
+            Angle::default(),
+        );
     }
     let quality = |minimum, sigma| BeamQuality {
         min_range: crate::qty!((minimum) m),
         sigma: crate::qty!((sigma) m),
     };
     let mut near = prior.clone();
-    let a = near.observe_position_with_quality(&[beam], &[quality(0.02, 0.025)], &map, Angle::default()).unwrap();
+    let a = near
+        .observe_position_with_quality(&[beam], &[quality(0.02, 0.025)], &map, Angle::default())
+        .unwrap();
     let mut far = prior.clone();
-    let b = far.observe_position_with_quality(&[beam], &[quality(0.02, 0.1)], &map, Angle::default()).unwrap();
+    let b = far
+        .observe_position_with_quality(&[beam], &[quality(0.02, 0.1)], &map, Angle::default())
+        .unwrap();
     assert!(a.pose.position.y > b.pose.position.y);
-    let too_close = Beam { distance: crate::qty!(1.2 m), ..beam };
-    assert!(prior.observe_position_with_quality(&[too_close], &[quality(1.1, 0.1)], &map, Angle::default()).is_none());
-    let outside = Beam { max_range: crate::qty!(0.8 m), distance: crate::qty!(0.7 m), ..beam };
-    assert!(prior.observe_position_with_quality(&[outside], &[quality(0.02, 0.1)], &map, Angle::default()).is_none());
+    let too_close = Beam {
+        distance: crate::qty!(1.2 m),
+        ..beam
+    };
+    assert!(
+        prior
+            .observe_position_with_quality(
+                &[too_close],
+                &[quality(1.1, 0.1)],
+                &map,
+                Angle::default()
+            )
+            .is_none()
+    );
+    let outside = Beam {
+        max_range: crate::qty!(0.8 m),
+        distance: crate::qty!(0.7 m),
+        ..beam
+    };
+    assert!(
+        prior
+            .observe_position_with_quality(
+                &[outside],
+                &[quality(0.02, 0.1)],
+                &map,
+                Angle::default()
+            )
+            .is_none()
+    );
 }

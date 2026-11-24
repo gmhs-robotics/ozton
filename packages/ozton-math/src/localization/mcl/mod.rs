@@ -281,19 +281,29 @@ impl ParticleFilter {
         let mut likelihoods = [f64::NAN; MAX_PARTICLES];
         let mut used = false;
         for (index, beam) in beams.iter().enumerate() {
-            let (minimum, sigma) = quality.map_or((0.0, self.config.range_sigma.value), |quality| {
-                let q = quality[index];
-                (q.min_range.value, q.sigma.value.max(self.config.range_sigma.value))
-            });
-            if !minimum.is_finite() || minimum < 0.0 || minimum >= beam.max_range.value
-                || !sigma.is_finite() || sigma <= 0.0 || beam.distance.value < minimum
-                || quality.is_some_and(|q| !q[index].sigma.value.is_finite() || q[index].sigma.value <= 0.0)
+            let (minimum, sigma) =
+                quality.map_or((0.0, self.config.range_sigma.value), |quality| {
+                    let q = quality[index];
+                    (
+                        q.min_range.value,
+                        q.sigma.value.max(self.config.range_sigma.value),
+                    )
+                });
+            if !minimum.is_finite()
+                || minimum < 0.0
+                || minimum >= beam.max_range.value
+                || !sigma.is_finite()
+                || sigma <= 0.0
+                || beam.distance.value < minimum
+                || quality.is_some_and(|q| {
+                    !q[index].sigma.value.is_finite() || q[index].sigma.value <= 0.0
+                })
             {
                 continue;
             }
             let inverse_sigma = 1.0 / sigma;
-            let random_likelihood = (random_scale * sigma / (beam.max_range.value - minimum))
-                .clamp(1e-12, 1e12);
+            let random_likelihood =
+                (random_scale * sigma / (beam.max_range.value - minimum)).clamp(1e-12, 1e12);
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));

@@ -82,8 +82,16 @@ impl RangeSensorConfig {
     /// a wider acceptance gate.
     pub fn effective_gate(self) -> RangeGate {
         let mut gate = self.gate;
-        gate.min_range = if gate.min_range < V5_MIN_RANGE { V5_MIN_RANGE } else { gate.min_range };
-        gate.max_range = if gate.max_range > V5_MAX_RANGE { V5_MAX_RANGE } else { gate.max_range };
+        gate.min_range = if gate.min_range < V5_MIN_RANGE {
+            V5_MIN_RANGE
+        } else {
+            gate.min_range
+        };
+        gate.max_range = if gate.max_range > V5_MAX_RANGE {
+            V5_MAX_RANGE
+        } else {
+            gate.max_range
+        };
         gate
     }
 
@@ -96,7 +104,11 @@ impl RangeSensorConfig {
         }
         let maximum = crate::qty!((maximum_error.value / 0.05) m);
         let mut gate = self.effective_gate();
-        gate.max_range = if gate.max_range > maximum { maximum } else { gate.max_range };
+        gate.max_range = if gate.max_range > maximum {
+            maximum
+        } else {
+            gate.max_range
+        };
         if !gate.is_valid() {
             return false;
         }
@@ -112,7 +124,11 @@ impl RangeSensorConfig {
 
     /// Use the farther of the measured and associated modeled distances,
     /// then project range uncertainty onto the surface normal.
-    pub fn constraint_sigma(self, constraint: crate::localization::range::Constraint, distance: f64) -> f64 {
+    pub fn constraint_sigma(
+        self,
+        constraint: crate::localization::range::Constraint,
+        distance: f64,
+    ) -> f64 {
         self.range_sigma(crate::qty!((distance.max(constraint.hit.distance)) m))
             * constraint.hit.incidence.abs()
     }
@@ -194,8 +210,14 @@ mod tests {
         };
         assert!(sensor.relative_distance(sample, Duration::ZERO).is_ok());
         sample.distance = crate::qty!(500 mm);
-        assert_eq!(sensor.relative_distance(sample, Duration::ZERO), Err(Rejection::LowConfidence));
+        assert_eq!(
+            sensor.relative_distance(sample, Duration::ZERO),
+            Err(Rejection::LowConfidence)
+        );
         sample.distance = crate::qty!(2001 mm);
-        assert_eq!(sensor.relative_distance(sample, Duration::ZERO), Err(Rejection::OutOfRange));
+        assert_eq!(
+            sensor.relative_distance(sample, Duration::ZERO),
+            Err(Rejection::OutOfRange)
+        );
     }
 }

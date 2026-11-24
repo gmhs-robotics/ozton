@@ -170,7 +170,10 @@ impl ResetWindow {
                 let sample = sample?;
                 let age = now.checked_sub(sample.timestamp)?.as_secs_f64();
                 let c = constrain_sample(pose, map, sensor, sample, age).ok()?;
-                Some((c, sensor.constraint_sigma(c, (sample.distance - sensor.bias).value)))
+                Some((
+                    c,
+                    sensor.constraint_sigma(c, (sample.distance - sensor.bias).value),
+                ))
             })
         {
             constraints[count] = constraint;

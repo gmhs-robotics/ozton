@@ -92,7 +92,10 @@ impl PoseEstimator for Mcl {
             surface_mask: u128::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
-        let mut qualities = [BeamQuality { min_range: ozton_math::qty!(0 m), sigma: self.config.range_sigma }; MAX_RANGES];
+        let mut qualities = [BeamQuality {
+            min_range: ozton_math::qty!(0 m),
+            sigma: self.config.range_sigma,
+        }; MAX_RANGES];
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
         let measurements = observations
@@ -102,7 +105,10 @@ impl PoseEstimator for Mcl {
             let range_sigma = sensor.range_sigma(range).max(self.config.range_sigma.value);
             let sigma = range_sigma * constraint.hit.incidence.abs();
             let gate = sensor.effective_gate();
-            qualities[count] = BeamQuality { min_range: gate.min_range, sigma: ozton_math::qty!((range_sigma) m) };
+            qualities[count] = BeamQuality {
+                min_range: gate.min_range,
+                sigma: ozton_math::qty!((range_sigma) m),
+            };
             constraints[count] = (constraint, sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
@@ -156,10 +162,12 @@ impl PoseEstimator for Mcl {
         self.candidate.clone_from(&self.filter);
         self.candidate
             .propose_position(predicted.position + change, normal, noise);
-        let Some(estimate) =
-            self.candidate
-                .observe_position_with_quality(&beams[..count], &qualities[..count], map, predicted.heading)
-        else {
+        let Some(estimate) = self.candidate.observe_position_with_quality(
+            &beams[..count],
+            &qualities[..count],
+            map,
+            predicted.heading,
+        ) else {
             log_row!(
                 Trace,
                 "MCL",

@@ -56,10 +56,7 @@ impl<'a> Observations<'a> {
         let mut buffer = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
         for (sensor, constraint, distance) in measurements.clone().take(MAX_RANGES) {
-            buffer[count] = (
-                constraint,
-                sensor.constraint_sigma(constraint, distance),
-            );
+            buffer[count] = (constraint, sensor.constraint_sigma(constraint, distance));
             count += 1;
         }
         let mask = ozton_math::localization::range::fit_consensus(&buffer[..count])
