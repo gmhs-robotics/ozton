@@ -42,3 +42,10 @@ runs on the writer task after the hardware initialization future has yielded,
 so synchronous card setup can overlap IMU calibration. The startup event reports
 elapsed application initialization and the SD event reports card-open duration.
 A failed card probe disables the SD sink; operational USB messages remain.
+
+USB is reserved for readable operational events: command start/settle, trajectory
+terminal correction, distance-reset request/result, sustained clearance-governor
+engagement/release, and motion interruption/failure. Governor changes must persist
+for 250 ms before being announced; the safety check itself is not delayed.
+Stall events distinguish currently governed output from unrestricted output.
+Numeric per-tick motion, localization and profiling rows remain SD-only.

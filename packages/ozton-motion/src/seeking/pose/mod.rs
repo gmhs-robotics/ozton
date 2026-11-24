@@ -433,6 +433,11 @@ impl Seeking {
                 end.position.x,
                 end.position.y
             );
+            ozton_runtime::log_event!(
+                Warn,
+                "clearance",
+                "Planned straight translation violates clearance"
+            );
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
@@ -481,6 +486,7 @@ impl Seeking {
                     radius.value,
                     sweep.value
                 );
+                ozton_runtime::log_event!(Warn, "clearance", "Planned arc violates clearance");
                 return Err(PoseMotionError::InsufficientClearance);
             }
         }
@@ -510,6 +516,7 @@ impl Seeking {
         if approach::clearance(drive, self.config.clearance)?
             .is_some_and(|f| !f.can_turn(drive.pose()))
         {
+            ozton_runtime::log_event!(Warn, "clearance", "Not enough room for an in-place turn");
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
@@ -544,6 +551,7 @@ impl Seeking {
             return Err(PoseMotionError::Configuration);
         }
         if field.is_some_and(|f| !ozton_math::path::planner::clear(path, reverse, f)) {
+            ozton_runtime::log_event!(Warn, "clearance", "Planned trajectory violates clearance");
             return Err(PoseMotionError::InsufficientClearance);
         }
         let end = path.end().pose;

@@ -5,7 +5,7 @@ use ozton_math::{
     geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
-use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_row};
+use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_event, log_row};
 
 use super::{
     PoseDrive, PoseMotionError,
@@ -67,6 +67,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             DifferentialTarget::DriveDistance { .. } => "Autonomous: drive distance",
             DifferentialTarget::DriveArc { .. } => "Autonomous: drive arc",
         };
+        log_event!(Info, "motion", "{status}: started");
         log_row!(
             Debug,
             "MOTION_COMMAND",
@@ -75,7 +76,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         );
         let result = self.run_stage(target, timeout, status).await;
         match &result {
-            Ok(()) => log_row!(Debug, "MOTION_COMMAND", "state=complete,command={status}"),
+            Ok(()) => {
+                log_row!(Debug, "MOTION_COMMAND", "state=complete,command={status}");
+                log_event!(Info, "motion", "{status}: settled");
+            }
             Err(error) => log_row!(
                 Debug,
                 "MOTION_COMMAND",
@@ -96,6 +100,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
+        let mut governor = GovernorLog::default();
         let mut last_feedback = None;
         let mut feedback_at = Instant::now();
         loop {
@@ -157,11 +162,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            let (wheels, ready) = controller.step(target, feedback, dt, self.options);
+            let (requested, ready) = controller.step(target, feedback, dt, self.options);
             let wheels = limit_wall_command(
                 clearance,
                 feedback,
-                wheels,
+                requested,
                 self.options,
                 self.config,
                 uncertainty,
@@ -176,6 +181,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     .drive_wheels(wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
+            governor.observe(status, requested, wheels, dt);
             log_row!(
                 Trace,
                 "MOTION_STEP",
@@ -198,6 +204,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Ok(());
             }
             if progress.stalled(target, feedback, ready, dt, self.config.progress_timeout) {
+                governor.report_stall(status, requested, wheels);
                 return Err(PoseMotionError::NoProgress);
             }
         }
@@ -227,6 +234,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut no_progress = Duration::ZERO;
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
+        let mut governor = GovernorLog::default();
+        log_event!(Info, "motion", "Trajectory: started");
         let end = path.end();
         let mut options = self.options;
         options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
@@ -319,11 +328,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 )
             {
                 terminal = true;
+                log_event!(Info, "motion", "Trajectory: entering final pose correction");
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;
                 controller.pid.reset();
             }
-            let (wheels, ready, objective, phase_changed) = if terminal {
+            let (requested, ready, objective, phase_changed) = if terminal {
                 terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
                 let desired = profiled::command(
@@ -339,7 +349,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let wheels = limit_wall_command(
                 clearance,
                 feedback,
-                wheels,
+                requested,
                 options,
                 self.config,
                 uncertainty,
@@ -356,6 +366,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 no_progress += dt;
             }
             if no_progress >= self.config.progress_timeout {
+                governor.report_stall("Trajectory", requested, wheels);
                 return Err(PoseMotionError::NoProgress);
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
@@ -367,6 +378,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     .drive_wheels(wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
+            governor.observe("Trajectory", requested, wheels, dt);
             log_row!(
                 Trace,
                 "PATH_TICK",
@@ -381,6 +393,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             );
             self.drive.log_step(self.started.elapsed(), dt);
             if complete {
+                log_event!(Info, "motion", "Trajectory: settled");
                 return Ok(());
             }
         }
@@ -393,9 +406,15 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
         self.drive.request_distance_reset();
+        log_event!(Info, "localization", "Stationary distance correction: requested");
         loop {
             let dt = self.tick().await?;
             if started.elapsed() >= timeout {
+                log_event!(
+                    Warn,
+                    "localization",
+                    "Stationary distance correction: no accepted fix before timeout"
+                );
                 return Ok(false);
             }
             let feedback = self.drive.pose_feedback().map_err(PoseMotionError::Drive)?;
@@ -405,6 +424,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     return Err(PoseMotionError::InvalidFeedback);
                 }
                 if feedback.reset_accepted {
+                    log_event!(Info, "localization", "Stationary distance correction: accepted");
                     return Ok(true);
                 }
             }
@@ -425,6 +445,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }),
         };
         self.finished = true;
+        if let Err(error) = &result {
+            log_event!(Warn, "motion", "Motion ended: {}", error.reason());
+        }
         result
     }
 }
@@ -433,7 +456,12 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     fn drop(&mut self) {
         if !self.finished {
             self.drive.cancel_distance_reset();
-            let _ = self.drive.brake();
+            let stopped = self.drive.brake();
+            if stopped.is_ok() {
+                log_event!(Info, "motion", "Motion interrupted; brake requested");
+            } else {
+                log_event!(Error, "motion", "Motion interrupted; brake request failed");
+            }
         }
     }
 }
@@ -509,5 +537,87 @@ impl Progress {
             self.elapsed += dt;
         }
         self.elapsed >= timeout
+    }
+}
+
+/// USB reports sustained governor transitions, not per-tick measurements.
+/// Reporting thresholds do not change the physical safety constraints.
+#[derive(Default)]
+struct GovernorLog {
+    active: bool,
+    pending: Duration,
+}
+
+impl GovernorLog {
+    fn limited(requested: [f64; 2], applied: [f64; 2]) -> bool {
+        let peak = requested[0].abs().max(requested[1].abs());
+        let difference = (requested[0] - applied[0])
+            .abs()
+            .max((requested[1] - applied[1]).abs());
+        peak > 0.0 && difference > peak * 0.05
+    }
+
+    fn transition(&mut self, limited: bool, dt: Duration) -> Option<bool> {
+        if limited == self.active {
+            self.pending = Duration::ZERO;
+            return None;
+        }
+        self.pending += dt;
+        if self.pending < Duration::from_millis(250) {
+            return None;
+        }
+        self.pending = Duration::ZERO;
+        self.active = limited;
+        Some(limited)
+    }
+
+    fn observe(&mut self, status: &str, requested: [f64; 2], applied: [f64; 2], dt: Duration) {
+        match self.transition(Self::limited(requested, applied), dt) {
+            Some(true) => log_event!(
+                Info,
+                "clearance",
+                "{status}: wall/obstacle speed governor active"
+            ),
+            Some(false) => log_event!(Info, "clearance", "{status}: speed governor released"),
+            None => {}
+        }
+    }
+
+    fn report_stall(&self, status: &str, requested: [f64; 2], applied: [f64; 2]) {
+        if Self::limited(requested, applied) {
+            log_event!(
+                Warn,
+                "motion",
+                "{status}: no progress while clearance governor limits output"
+            );
+        } else {
+            log_event!(
+                Warn,
+                "motion",
+                "{status}: no progress without current clearance limiting"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod governor_log_tests {
+    use super::*;
+
+    #[test]
+    fn only_sustained_transitions_are_reported() {
+        let mut report = GovernorLog::default();
+        let dt = Duration::from_millis(100);
+        assert!(GovernorLog::limited([0.2, -0.2], [0.1, -0.1]));
+        assert!(!GovernorLog::limited([0.2, -0.2], [0.2, -0.2]));
+        assert_eq!(report.transition(true, dt), None);
+        assert_eq!(report.transition(false, dt), None);
+        assert_eq!(report.transition(true, dt), None);
+        assert_eq!(report.transition(true, dt), None);
+        assert_eq!(report.transition(true, dt), Some(true));
+        assert_eq!(report.transition(true, dt), None);
+        assert_eq!(report.transition(false, dt), None);
+        assert_eq!(report.transition(false, dt), None);
+        assert_eq!(report.transition(false, dt), Some(false));
     }
 }

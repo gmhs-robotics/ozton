@@ -1,7 +1,7 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
 use ozton_localization::Feedback;
 use ozton_math::{geometry::DVec2, path::clearance::RectangularClearance, qty};
-use ozton_runtime::log_row;
+use ozton_runtime::{log_event, log_row};
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
 
@@ -120,6 +120,12 @@ pub(super) fn safe_feedback(
     } else {
         return true;
     };
+    let explanation = match reason {
+        "current_footprint" => "Current chassis footprint violates clearance",
+        "wall_stopping_envelope" => "Predicted braking sweep exceeds the wall boundary",
+        _ => "Predicted braking sweep intersects a hard obstacle",
+    };
+    log_event!(Warn, "clearance", "{explanation}; motion rejected");
     let (min, max) = projected.unwrap_or((DVec2::splat(f64::NAN), DVec2::splat(f64::NAN)));
     log_row!(
         Warn,
