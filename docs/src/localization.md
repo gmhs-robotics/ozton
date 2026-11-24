@@ -175,3 +175,10 @@ reflecting surfaces that should not automatically become hard obstacles.
 Existing movable calibration objects remain soft, not hard obstacles.
 The fixed obstacle map supports four rectangles; registration fails atomically
 if capacity is exhausted.
+
+Range consensus checks both each normalized residual and their combined squared
+sum against the residual degrees of freedom. This prevents contradictory
+redundant readings from passing merely because the distance-dependent noise
+increases their individual tolerances. The existing absolute residual floor
+is preserved; this is an engineering consistency gate, not an exact chi-square
+confidence test.

@@ -494,11 +494,24 @@ fn fit_details(constraints: &[(Constraint, f64)]) -> Option<TranslationFit> {
         let n = vector.normalize();
         (n * (rhs.dot(n) / eigenvalue), 1, Some(n))
     };
-    if !change.is_finite()
-        || constraints.iter().any(|(c, sigma)| {
-            (c.hit.normal.dot(change) - c.displacement).abs() > (3.0 * sigma).max(0.025)
-        })
-    {
+    if !change.is_finite() {
+        return None;
+    }
+    // Check both each innovation and the aggregate normalized residual.
+    // The latter accounts for the degrees of freedom spent fitting the pose:
+    // two opposing 3-sigma residuals are not a coherent one-axis measurement.
+    let mut squared_residual = 0.0;
+    for (c, sigma) in constraints {
+        let residual = (c.hit.normal.dot(change) - c.displacement).abs();
+        let limit = (3.0 * sigma).max(0.025);
+        if residual > limit {
+            return None;
+        }
+        let normalized = residual / limit;
+        squared_residual += normalized * normalized;
+    }
+    let degrees_of_freedom = constraints.len().saturating_sub(axes as usize);
+    if degrees_of_freedom > 0 && squared_residual > degrees_of_freedom as f64 {
         return None;
     }
     Some(TranslationFit {

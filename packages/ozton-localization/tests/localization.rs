@@ -723,3 +723,35 @@ fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
     assert!(corrected.pose.position.y > corrected.predicted.position.y);
     assert_eq!(corrected.pose.heading, corrected.predicted.heading);
 }
+
+#[test]
+fn sensors_above_every_face_are_excluded_from_pose_corrections() {
+    let map = [Surface::new(
+        ozton_math::geometry::point(ozton_math::qty!(-1 m), ozton_math::qty!(1 m)),
+        ozton_math::geometry::point(ozton_math::qty!(1 m), ozton_math::qty!(1 m)),
+        ozton_math::qty!(1 in),
+    )];
+    let sensors = [RangeSensorConfig {
+        mount_height: ozton_math::qty!(4 in),
+        ..SENSOR
+    }];
+    let mut tracker = Localizer::new(
+        Config::new(CONFIG, Estimator::Mcl(ParticleConfig::default()), false),
+        Pose::default(),
+        &map,
+        &sensors,
+    )
+    .unwrap();
+    assert_eq!(tracker.range_config(0).unwrap().surface_mask, 0);
+    tracker.set_range_usage(u8::MAX, u8::MAX);
+    assert!(!tracker.request_distance_reset_axes(1));
+    tracker.update(snapshot(10), &[]).unwrap_err();
+    let update = tracker
+        .update(snapshot(20), &[reading(20, false)])
+        .unwrap();
+    assert!(update.ranges[0].is_none());
+    assert_eq!(update.pose, update.predicted);
+    assert!(sensors[0]
+        .relative_distance(reading(20, false).unwrap(), Duration::from_millis(20))
+        .is_ok());
+}
