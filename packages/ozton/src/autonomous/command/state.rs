@@ -31,6 +31,7 @@ pub(in crate::autonomous) struct Step {
     pub objective: Option<f64>,
     pub terminal: bool,
     pub phase_changed: bool,
+    pub brake: bool,
 }
 
 trait WithSettle {
@@ -412,6 +413,7 @@ impl<'path> State<'path> {
             objective,
             terminal: self.terminal,
             phase_changed,
+            brake: self.terminal && (self.terminal_pose.is_braking() || ready),
         }
     }
 

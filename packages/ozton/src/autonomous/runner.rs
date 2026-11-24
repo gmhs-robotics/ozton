@@ -530,7 +530,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 }
                 mechanism_retry_since = None;
                 let stationary_command = matches!(command, Command::DistanceReset | Command::Wait(_) | Command::WaitFor { .. });
-                if step.complete || (stationary_command && step.wheels == [0.0; 2]) {
+                if step.complete || step.brake || (stationary_command && step.wheels == [0.0; 2]) {
                     active
                         .robot
                         .stop_drive()

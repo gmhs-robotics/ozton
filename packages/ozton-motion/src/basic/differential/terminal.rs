@@ -1,6 +1,6 @@
 //! Terminal pose settling shared by prepared-path followers.
 
-use ozton_math::geometry::Pose;
+use ozton_math::geometry::{Pose, bearing};
 
 use super::*;
 
@@ -9,9 +9,17 @@ use super::*;
 #[derive(Default)]
 pub struct TerminalPose {
     turning: bool,
+    braking: bool,
+    stationary: Duration,
+    approach_reverse: Option<bool>,
 }
 
 impl TerminalPose {
+    /// Whether the platform should brake instead of sending a zero-speed setpoint.
+    pub const fn is_braking(&self) -> bool {
+        self.braking
+    }
+
     /// Return wheel targets, full-pose readiness, progress objective and
     /// whether the position/heading phase changed.
     pub fn step(
@@ -29,9 +37,45 @@ impl TerminalPose {
             .abs();
         let inside = distance <= options.position_tolerance.value;
         let mut changed = false;
-        if !self.turning && inside {
-            self.turning = true;
-            controller.pid.reset();
+        if !self.turning && inside && !self.braking {
+            self.braking = true;
+            self.stationary = Duration::ZERO;
+            controller.reset();
+            changed = true;
+        }
+        if self.braking {
+            let slow = feedback
+                .forward_velocity
+                .value
+                .hypot(feedback.lateral_velocity.value)
+                <= options.speed_tolerance.value
+                && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
+            self.stationary = if slow {
+                self.stationary.saturating_add(dt)
+            } else {
+                Duration::ZERO
+            };
+            if self.stationary < options.settle.max(dt) {
+                return ([0.0; 2], false, distance, changed);
+            }
+            self.braking = false;
+            self.turning = inside;
+            // Recover a short overshoot in the closer travel direction, but
+            // preserve the planned direction farther from the endpoint.
+            self.approach_reverse = if !inside
+                && distance
+                    <= controller.config.reversal_distance_factor * options.position_tolerance.value
+            {
+                let error = wrap_heading(
+                    bearing(target.position - feedback.pose.position) - feedback.pose.heading,
+                );
+                Some(error.value.abs() > core::f64::consts::FRAC_PI_2)
+            } else {
+                None
+            };
+            controller.reset();
+            controller.point_backing = None;
+            controller.point_aligning = false;
             changed = true;
         }
 
@@ -42,7 +86,7 @@ impl TerminalPose {
         } else {
             DifferentialTarget::DriveToPoint {
                 target: target.position,
-                reverse,
+                reverse: self.approach_reverse.unwrap_or(reverse),
                 maximum_speed: options.maximum_wheel_speed,
             }
         };
@@ -57,10 +101,10 @@ impl TerminalPose {
         // the turn has actually stopped, not on each tolerance crossing.
         if self.turning && ready && !inside {
             self.turning = false;
-            controller.pid.reset();
-            controller.point_backing = None;
-            controller.point_aligning = false;
-            return (wheels, false, distance, true);
+            self.braking = true;
+            self.stationary = Duration::ZERO;
+            controller.reset();
+            return ([0.0; 2], false, distance, true);
         }
         (wheels, self.turning && ready && inside, objective, changed)
     }
@@ -97,6 +141,18 @@ mod tests {
             reset_accepted: false,
         };
         let target = Pose::default();
+        for _ in 0..(options.settle.as_millis() / tick.as_millis() - 1) {
+            let (wheels, ready, _, _) = terminal.step(
+                &mut controller,
+                target,
+                false,
+                feedback(0.005, 0.2),
+                tick,
+                options,
+            );
+            assert!(!ready && terminal.is_braking());
+            assert_eq!(wheels, [0.0; 2]);
+        }
         let (_, ready, _, changed) = terminal.step(
             &mut controller,
             target,
@@ -126,6 +182,56 @@ mod tests {
             tick,
             options,
         );
-        assert!(changed && !ready && !terminal.turning);
+        assert!(changed && !ready && !terminal.turning && terminal.is_braking());
+    }
+
+    #[test]
+    fn capture_brakes_through_overshoot_before_reapproach() {
+        let options = DriveOptions::differential(
+            ozton_math::qty!(0.3292677692 m),
+            ozton_math::qty!(0.45 m/s),
+        );
+        let tick = Duration::from_millis(10);
+        let mut terminal = TerminalPose::default();
+        let mut controller = DifferentialFeedback::default();
+        let target = Pose::default();
+        let feedback = |y, velocity| Feedback {
+            time: tick,
+            pose: Pose::new(DVec2::new(0.0, y), ozton_math::qty!(0 rad)),
+            forward_travel: Length::ZERO,
+            forward_velocity: ozton_math::qty!((velocity) m/s),
+            lateral_velocity: Velocity::ZERO,
+            angular_velocity: AngularVelocity::ZERO,
+            ranges: [None; _],
+            reset_accepted: false,
+        };
+        for sample in [feedback(-0.005, 0.3), feedback(0.04, 0.2)] {
+            let (wheels, ready, _, _) =
+                terminal.step(&mut controller, target, false, sample, tick, options);
+            assert!(!ready && terminal.is_braking());
+            assert_eq!(wheels, [0.0; 2]);
+        }
+        for _ in 0..(options.settle.as_millis() / tick.as_millis() - 1) {
+            let (wheels, ready, _, _) = terminal.step(
+                &mut controller,
+                target,
+                false,
+                feedback(0.04, 0.0),
+                tick,
+                options,
+            );
+            assert!(!ready && terminal.is_braking());
+            assert_eq!(wheels, [0.0; 2]);
+        }
+        let (wheels, ready, _, changed) = terminal.step(
+            &mut controller,
+            target,
+            false,
+            feedback(0.04, 0.0),
+            tick,
+            options,
+        );
+        assert!(changed && !ready && !terminal.is_braking());
+        assert!(wheels.iter().all(|speed| *speed < 0.0), "{wheels:?}");
     }
 }
