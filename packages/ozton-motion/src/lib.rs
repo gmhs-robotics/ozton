@@ -8,6 +8,8 @@ pub mod tank;
 #[cfg(feature = "vex")]
 pub mod assists;
 pub mod basic;
+pub mod config;
+pub use config::MotionConfig;
 pub mod pursuit;
 #[cfg(feature = "vex")]
 pub mod seeking;

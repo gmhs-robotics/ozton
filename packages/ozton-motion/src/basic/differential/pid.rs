@@ -15,6 +15,8 @@ pub struct MotionPid {
     angular: Pid,
     forward_limit: f64,
     angular_limit: f64,
+    linear_filter: Duration,
+    angular_filter: Duration,
 }
 
 impl Default for MotionPid {
@@ -30,9 +32,17 @@ impl MotionPid {
             angular: tuning.angular,
             forward_limit: tuning.linear.output_limit().unwrap_or(f64::INFINITY),
             angular_limit: tuning.angular.output_limit().unwrap_or(f64::INFINITY),
+            linear_filter: RATE_FILTER,
+            angular_filter: RATE_FILTER,
         };
         pid.reset();
         pid
+    }
+
+    pub fn with_rate_filters(mut self, linear: Duration, angular: Duration) -> Self {
+        self.linear_filter = linear;
+        self.angular_filter = angular;
+        self
     }
 
     pub fn reset(&mut self) {
@@ -45,7 +55,7 @@ impl MotionPid {
             .set_output_limit(Some(limit.max(0.0).min(self.forward_limit)));
         let output = self
             .forward
-            .update_with_rate(error, -measured_rate, dt, RATE_FILTER, 0.0);
+            .update_with_rate(error, -measured_rate, dt, self.linear_filter, 0.0);
         #[cfg(feature = "logging")]
         log_row!(
             Trace,
@@ -70,7 +80,7 @@ impl MotionPid {
                 error,
                 feedforward - measured_rate,
                 dt,
-                RATE_FILTER,
+                self.angular_filter,
                 0.0,
             );
         #[cfg(feature = "logging")]

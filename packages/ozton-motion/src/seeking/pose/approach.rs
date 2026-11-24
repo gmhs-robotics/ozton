@@ -5,21 +5,17 @@ use std::time::Duration;
 use ozton_math::{
     geometry::{DVec2, Pose, bearing},
     path::clearance::{RectangularClearance, approach_heading},
-    uom::si::f64::{Angle, Velocity},
+    uom::si::f64::Angle,
 };
 use ozton_runtime::clock::CONTROL_PERIOD;
 
 use super::{
     PoseDrive, PoseSeeking, TravelDirection, error::PoseMotionError, session::PoseSession,
 };
-use crate::{basic::differential::DifferentialTarget, defaults::AUTON_SPEED};
+use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
 
-const DEPARTURE_SPEED: Velocity = Velocity {
-    value: 0.30,
-    ..AUTON_SPEED
-};
 pub(super) async fn drive_to_target<D: PoseDrive>(
     drive: &mut D,
     position: DVec2,
@@ -42,7 +38,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         return Err(PoseMotionError::Configuration);
     }
 
-    let clearance = clearance(drive)?;
+    let clearance = clearance(drive, settings.config.clearance)?;
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
@@ -56,7 +52,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         );
         return Err(PoseMotionError::InsufficientClearance);
     }
-    let mut session = PoseSession::new(drive, options, settings.tuning)?;
+    let mut session = PoseSession::new(drive, options, settings.effective_config())?;
     let result = approach(&mut session, clearance, target, final_heading, settings).await;
     session.finish(result)
 }
@@ -70,7 +66,7 @@ async fn approach<D: PoseDrive>(
 ) -> MotionResult<D> {
     let options = session.options;
     if let Some(field) = clearance {
-        depart_wall(session, field, target, settings.stage_timeout).await?;
+        depart_wall(session, field, target, settings.stage_timeout, settings.effective_config()).await?;
     }
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
@@ -124,6 +120,7 @@ async fn depart_wall<D: PoseDrive>(
     field: RectangularClearance,
     target: Pose,
     timeout: Duration,
+    config: crate::MotionConfig,
 ) -> MotionResult<D> {
     let start = session.drive.pose();
     if field.can_turn(start) {
@@ -131,8 +128,8 @@ async fn depart_wall<D: PoseDrive>(
     }
 
     let options = session.options;
-    let reserve = options.position_tolerance + ozton_math::length!(0.00635 m);
-    let speed = DEPARTURE_SPEED.min(options.maximum_wheel_speed);
+    let reserve = options.position_tolerance + config.departure_reserve;
+    let speed = config.departure_speed.min(options.maximum_wheel_speed);
     let plan = field
         .point_departure(start, target, options.track_width / 2.0, reserve)
         .ok_or(PoseMotionError::InsufficientClearance)?;
@@ -193,14 +190,14 @@ async fn turn_checked<D: PoseDrive>(
         .await
 }
 
-fn clearance<D: PoseDrive>(drive: &D) -> MotionResult<D, Option<RectangularClearance>> {
+pub(super) fn clearance<D: PoseDrive>(drive: &D, margin: ozton_math::uom::si::f64::Length) -> MotionResult<D, Option<RectangularClearance>> {
     let Some(footprint) = drive.footprint() else {
         return Ok(None);
     };
     let bounds = drive
         .rectangular_half_extents()
         .ok_or(PoseMotionError::Configuration)?;
-    RectangularClearance::new(footprint, bounds, ozton_math::length!(0.0127 m))
+    RectangularClearance::new(footprint, bounds, margin)
         .map(Some)
         .ok_or(PoseMotionError::Configuration)
 }

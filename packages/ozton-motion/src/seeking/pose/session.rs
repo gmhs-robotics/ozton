@@ -6,23 +6,21 @@ use ozton_math::{
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 use ozton_runtime::{
-    clock::{CONTROL_PERIOD, CommandClock},
+    clock::CommandClock,
     competition::autonomous_active,
     log_row,
 };
 
 use super::{PoseDrive, PoseMotionError};
 use crate::basic::differential::{
-    DifferentialFeedback, DifferentialTarget, DriveOptions, DriveTuning,
+    DifferentialFeedback, DifferentialTarget, DriveOptions,
 };
 
-pub(super) const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
-const STALL_TIME: Duration = Duration::from_millis(2500);
 
 pub(super) struct PoseSession<'a, D: PoseDrive> {
     pub(super) drive: &'a mut D,
     pub(super) options: DriveOptions,
-    tuning: DriveTuning,
+    config: crate::MotionConfig,
     clock: CommandClock,
     started: Instant,
     finished: bool,
@@ -32,16 +30,16 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     pub(super) fn new(
         drive: &'a mut D,
         options: DriveOptions,
-        tuning: DriveTuning,
+        config: crate::MotionConfig,
     ) -> Result<Self, PoseMotionError<D::Error>> {
-        if !options.valid() || !tuning.valid() {
+        if !options.valid() || !config.valid() {
             return Err(PoseMotionError::Configuration);
         }
         Ok(Self {
             drive,
             options,
-            tuning,
-            clock: CommandClock::new(CONTROL_PERIOD).ok_or(PoseMotionError::Configuration)?,
+            config,
+            clock: CommandClock::new(config.period).ok_or(PoseMotionError::Configuration)?,
             started: Instant::now(),
             finished: false,
         })
@@ -52,7 +50,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         if !autonomous_active() {
             return Err(PoseMotionError::Cancelled);
         }
-        if dt.is_zero() || dt > MAX_CONTROL_GAP {
+        if dt.is_zero() || dt > self.config.maximum_gap {
             return Err(PoseMotionError::ControlGap);
         }
         Ok(dt)
@@ -97,7 +95,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         status: &str,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
-        let mut controller = DifferentialFeedback::new(self.tuning);
+        let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
         let mut last_feedback = None;
@@ -115,14 +113,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     started.elapsed().as_millis()
                 );
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
-                controller.pid.reset();
+                controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
                 continue;
             };
             let dt = match last_feedback {
                 Some(previous) if feedback.time <= previous => {
-                    if feedback_at.elapsed() > MAX_CONTROL_GAP {
+                    if feedback_at.elapsed() > self.config.maximum_gap {
                         return Err(PoseMotionError::ControlGap);
                     }
                     continue;
@@ -130,7 +128,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 Some(previous) => feedback.time.saturating_sub(previous),
                 None => dt,
             };
-            if dt > MAX_CONTROL_GAP {
+            if dt > self.config.maximum_gap {
                 return Err(PoseMotionError::ControlGap);
             }
             last_feedback = Some(feedback.time);
@@ -173,7 +171,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if complete {
                 return Ok(());
             }
-            if progress.stalled(target, feedback, ready, dt) {
+            if progress.stalled(target, feedback, ready, dt, self.config.progress_timeout) {
                 return Err(PoseMotionError::NoProgress);
             }
         }
@@ -251,7 +249,7 @@ struct Progress {
 }
 
 impl Progress {
-    fn stalled(&mut self, target: DifferentialTarget, feedback: Feedback, ready: bool, dt: Duration) -> bool {
+    fn stalled(&mut self, target: DifferentialTarget, feedback: Feedback, ready: bool, dt: Duration, timeout: Duration) -> bool {
         let start = *self.start.get_or_insert(feedback);
         let pose = feedback.pose;
         let error = match target {
@@ -282,6 +280,6 @@ impl Progress {
         } else {
             self.elapsed += dt;
         }
-        self.elapsed >= STALL_TIME
+        self.elapsed >= timeout
     }
 }
