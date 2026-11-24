@@ -40,6 +40,12 @@ impl Activation {
         advance();
         Self(current())
     }
+
+    /// Cancel route-owned work, while keeping the idle part of this mode scoped.
+    pub(super) fn renew(&mut self) {
+        advance();
+        self.0 = current();
+    }
 }
 
 impl Drop for Activation {
@@ -79,6 +85,18 @@ mod tests {
     use vex_sdk_mock as _;
 
     use super::*;
+
+    #[test]
+    fn renewed_scope_invalidates_both_route_and_idle_work() {
+        let mut activation = Activation::enter();
+        let route = Token::capture(competition::mode());
+        activation.renew();
+        assert!(!route.active());
+        let idle = Token::capture(competition::mode());
+        assert!(idle.active());
+        drop(activation);
+        assert!(!idle.active());
+    }
 
     #[test]
     fn dropping_activation_invalidates_its_tokens_before_reentry() {

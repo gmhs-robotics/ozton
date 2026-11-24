@@ -142,7 +142,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             }
             if mode == CompetitionMode::Driver {
                 self.0.driver_tick(tick).await;
-            } else {
+            } else if disabled {
                 let _ = self.0.stop();
             }
             if !token.active() {
@@ -164,7 +164,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     }
 
     pub(super) async fn driver(&mut self) {
-        let _activation = super::activation::Activation::enter();
+        let mut activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Driver);
         self.0.menu().status(DRIVER_STATUS);
         let _localization = self.0.start_localization(CompetitionMode::Driver);
@@ -174,14 +174,14 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             return;
         }
         if let Err(error) = result {
-            super::activation::advance();
+            activation.renew();
             self.stop();
             self.0.driver_failed(error);
         }
     }
 
     pub(super) async fn autonomous(&mut self) {
-        let _activation = super::activation::Activation::enter();
+        let mut activation = super::activation::Activation::enter();
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
         let _localization = self.0.start_localization(mode);
@@ -199,7 +199,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
                 // motor commands or update the next mode's status on exit.
                 return;
             }
-            super::activation::advance();
+            activation.renew();
             match result {
                 Some(Ok(())) => match robot.stop() {
                     Ok(()) => {
