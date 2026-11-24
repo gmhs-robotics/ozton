@@ -170,6 +170,7 @@ impl crate::TrackingSource for InertialSensorTracking {
             if self.planar_acceleration
                 && self.position.right.value.abs() < 1e-6
                 && self.position.forward.value.abs() < 1e-6
+                && self.position.up.value.abs() < 1e-6
                 && let (Ok(accel), Ok(tilt)) = (self.sensor.acceleration(), self.sensor.euler())
             {
                 let planar = planar_acceleration(

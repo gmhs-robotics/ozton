@@ -44,6 +44,9 @@ impl Observations {
             matches!(observation.measurement, Measurement::Heading(_)).then_some(observation.source)
         });
         for observation in sample.observations {
+            // Kinematic samples must belong to this tracking frame. Range packets
+            // carry their own capture time and are validated by the range gate.
+            let current = observation.time == sample.time;
             match observation.measurement {
                 Measurement::Displacement(DisplacementObservation::Differential(positions)) => {
                     snapshot.drive = positions;
@@ -64,15 +67,15 @@ impl Observations {
                     };
                     snapshot.imu = heading.value.is_finite().then_some(heading);
                 }
-                Measurement::Velocity(velocity) if velocity.is_finite() => {
+                Measurement::Velocity(velocity) if current && velocity.is_finite() => {
                     rates.forward_rate = Some(velocity.y);
                 }
-                Measurement::Rotation(rate) if rate.is_finite() => {
+                Measurement::Rotation(rate) if current && rate.is_finite() => {
                     if Some(observation.source) == imu_source || rates.yaw_rate.is_none() {
                         rates.yaw_rate = Some(rate.z);
                     }
                 }
-                Measurement::Acceleration(acceleration) if acceleration.is_finite() => {
+                Measurement::Acceleration(acceleration) if current && acceleration.is_finite() => {
                     rates.acceleration = Some(acceleration.truncate());
                 }
                 Measurement::Range(range) => {

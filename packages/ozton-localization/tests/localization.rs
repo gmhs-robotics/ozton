@@ -212,7 +212,9 @@ fn full_dsr_waits_for_second_axis_and_retains_requirement_after_motion() {
             .distance_reset
     );
     let before = tracking.pose();
-    for time in (260..=480).step_by(10) {
+    // The velocity estimator must also settle before the stationary dwell
+    // and collection windows begin. A zero encoder delta alone is not proof of rest.
+    for time in (260..=600).step_by(10) {
         let mut stopped = snapshot(time);
         stopped.drive = moved.drive;
         assert!(
@@ -227,9 +229,9 @@ fn full_dsr_waits_for_second_axis_and_retains_requirement_after_motion() {
         before,
         "a partial reset must not be applied"
     );
-    let mut stopped = snapshot(490);
+    let mut stopped = snapshot(610);
     stopped.drive = moved.drive;
-    let fixed = tracking.update(stopped, &[reading(490, false); 2]).unwrap();
+    let fixed = tracking.update(stopped, &[reading(610, false); 2]).unwrap();
     assert!(fixed.distance_reset);
     assert_eq!(fixed.distance_reset_axes, 2);
     assert!(fixed.pose.position.length() < 1e-10);

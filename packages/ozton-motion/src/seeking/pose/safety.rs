@@ -1,9 +1,7 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
 use ozton_localization::Feedback;
 use ozton_math::{
-    geometry::DVec2,
-    path::clearance::RectangularClearance,
-    qty,
+    geometry::DVec2, path::clearance::RectangularClearance, qty,
 };
 use ozton_runtime::log_row;
 
@@ -16,8 +14,8 @@ fn stop(v: f64, deceleration: f64, reaction: f64) -> f64 {
 
 fn interval(v: f64, sigma: f64, deceleration: f64, reaction: f64) -> [f64; 2] {
     [
-        stop(v - sigma, deceleration, reaction).min(0.0),
-        stop(v + sigma, deceleration, reaction).max(0.0),
+        stop(v.min(0.0) - sigma, deceleration, reaction),
+        stop(v.max(0.0) + sigma, deceleration, reaction),
     ]
 }
 
