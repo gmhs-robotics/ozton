@@ -130,7 +130,8 @@ impl ResetWindow {
         }
         if self.anchor.is_some_and(|(_, anchor)| {
             pose.position.distance(anchor.position) > config.maximum_position_drift
-                || wrap_heading(pose.heading - anchor.heading).value.abs() > config.maximum_heading_drift
+                || wrap_heading(pose.heading - anchor.heading).value.abs()
+                    > config.maximum_heading_drift
         }) {
             self.restart();
         }
