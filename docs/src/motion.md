@@ -69,10 +69,14 @@ The velocity estimate's covariance defines an interval v ± k sigma for
 each axis. Propagate the endpoints through the monotone stopping equation,
 including zero; forward and lateral displacement bounds are combined
 independently, so lateral motion cannot cancel a potential forward wall
-crossing. For a yaw excursion theta, each corner and each translational
-increment may rotate through a chord bounded by min(2, |theta|) times its
-length. Inflate the swept AABB by that bound, then test the wall rectangle
-and any hard obstacle bounds separately. Loose landmarks are not hard
+crossing. For a yaw excursion theta, compute the maximum projection of each
+rotated chassis corner and each signed travel interval onto the four
+field axes. The support of a vector r along unit axis n is |r| if the
+aligned direction is within the heading interval; otherwise it is
+(r dot n) cos(theta) + |r cross n| sin(theta). Sum independent travel
+supports and the maximum corner support. This conservatively bounds the
+sweep without inflating the chassis beyond its actual turning disk.
+Test the resulting AABB against the perimeter and hard obstacles. Loose landmarks are not hard
 obstacles.
 
 The braking model is conditional on its physical assumptions: the reaction
