@@ -5,7 +5,7 @@ use ozton_math::uom::{
     ConstZero,
     si::f64::{Acceleration, Length, Velocity},
 };
-pub use ozton_motion::seeking::pose::DEFAULT_STAGE_TIMEOUT as AUTON_STAGE_TIMEOUT;
+pub const AUTON_STAGE_TIMEOUT: Duration = ozton_motion::MotionConfig::DEFAULT.stage_timeout;
 pub const AUTON_SPEED: Velocity = Velocity {
     value: 0.40,
     ..Velocity::ZERO
