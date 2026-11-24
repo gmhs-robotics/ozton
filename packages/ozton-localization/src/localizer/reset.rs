@@ -12,6 +12,46 @@ use ozton_math::{
 
 use super::ranges::{RangeReport, constrain_sample};
 
+/// Stationary evidence required before applying a geometric distance reset.
+/// Scalar distances, velocities and angles are in SI units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DsrConfig {
+    pub maximum_linear_velocity: f64,
+    pub maximum_angular_velocity: f64,
+    pub maximum_position_drift: f64,
+    pub maximum_heading_drift: f64,
+    pub stationary_duration: Duration,
+    pub collection_duration: Duration,
+}
+
+impl Default for DsrConfig {
+    fn default() -> Self {
+        Self {
+            maximum_linear_velocity: 0.025,
+            maximum_angular_velocity: 0.06,
+            maximum_position_drift: 0.012,
+            maximum_heading_drift: 0.02,
+            stationary_duration: Duration::from_millis(120),
+            collection_duration: Duration::from_millis(45),
+        }
+    }
+}
+
+impl DsrConfig {
+    pub fn valid(self) -> bool {
+        [
+            self.maximum_linear_velocity,
+            self.maximum_angular_velocity,
+            self.maximum_position_drift,
+            self.maximum_heading_drift,
+        ]
+        .into_iter()
+        .all(|value| value.is_finite() && value > 0.0)
+            && !self.stationary_duration.is_zero()
+            && !self.collection_duration.is_zero()
+    }
+}
+
 pub(super) struct ResetWindow {
     anchor: Option<(Duration, Pose)>,
     samples: [Option<RangeObservation>; MAX_RANGES],
@@ -65,6 +105,7 @@ impl ResetWindow {
         map: &[Surface],
         sensors: &[RangeSensorConfig],
         reports: &[Option<RangeReport>; MAX_RANGES],
+        config: DsrConfig,
     ) -> ResetResult {
         let ResetTick {
             time: now,
@@ -76,8 +117,8 @@ impl ResetWindow {
         if ![forward_velocity, lateral_velocity, angular_velocity]
             .iter()
             .all(|v| v.is_finite())
-            || forward_velocity.hypot(lateral_velocity) > 0.025
-            || angular_velocity.abs() > 0.06
+            || forward_velocity.hypot(lateral_velocity) > config.maximum_linear_velocity
+            || angular_velocity.abs() > config.maximum_angular_velocity
         {
             log_row!(
                 Trace,
@@ -88,14 +129,14 @@ impl ResetWindow {
             return ResetResult::Waiting;
         }
         if self.anchor.is_some_and(|(_, anchor)| {
-            pose.position.distance(anchor.position) > 0.012
-                || wrap_heading(pose.heading - anchor.heading).value.abs() > 0.02
+            pose.position.distance(anchor.position) > config.maximum_position_drift
+                || wrap_heading(pose.heading - anchor.heading).value.abs() > config.maximum_heading_drift
         }) {
             self.restart();
         }
         let (started, _) = *self.anchor.get_or_insert((now, pose));
-        // Require 120 ms of measured rest before collecting any packets.
-        if now.saturating_sub(started) < Duration::from_millis(120) {
+        // Require the configured rest interval before collecting any packets.
+        if now.saturating_sub(started) < config.stationary_duration {
             return ResetResult::Waiting;
         }
         let collection_start = *self.collecting.get_or_insert(now);
@@ -113,7 +154,7 @@ impl ResetWindow {
                 }
             }
         }
-        if now.saturating_sub(collection_start) < Duration::from_millis(45) {
+        if now.saturating_sub(collection_start) < config.collection_duration {
             return ResetResult::Waiting;
         }
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];

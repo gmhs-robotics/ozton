@@ -20,6 +20,7 @@ pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometr
 pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 pub use ranges::RangeReport;
 use ranges::{RangeTick, inspect};
+pub use reset::DsrConfig;
 use reset::{ResetResult, ResetTick, ResetWindow};
 pub use snapshot::{Fault, OdometryConfig, Snapshot};
 
@@ -99,6 +100,8 @@ pub struct Localizer<'a, E = Filter> {
     forward_velocity: f64,
     angular_velocity: f64,
     reset: Option<ResetWindow>,
+    dsr_config: DsrConfig,
+    mcl_correction_gain: f64,
     trust: PoseTrust,
     corrections_enabled: bool,
     reset_ranges: u8,
@@ -158,6 +161,8 @@ impl<'a> Localizer<'a> {
             forward_velocity: 0.0,
             angular_velocity: 0.0,
             reset: None,
+            dsr_config: DsrConfig::default(),
+            mcl_correction_gain: 0.4,
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
             reset_ranges: u8::MAX,
@@ -180,6 +185,8 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             forward_travel,
             forward_velocity,
             angular_velocity,
+            dsr_config,
+            mcl_correction_gain,
             trust,
             corrections_enabled,
             reset_ranges,
@@ -200,11 +207,27 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             forward_velocity,
             angular_velocity,
             reset: None,
+            dsr_config,
+            mcl_correction_gain,
             trust,
             corrections_enabled,
             reset_ranges,
             filter_ranges,
         }
+    }
+
+    /// Change DSR collection requirements and discard any in-flight collection.
+    pub fn set_dsr_config(&mut self, config: DsrConfig) -> bool {
+        if !config.valid() {
+            return false;
+        }
+        self.dsr_config = config;
+        self.reset = None;
+        true
+    }
+
+    pub fn dsr_config(&self) -> DsrConfig {
+        self.dsr_config
     }
 
     /// Select range indices for geometric resets and for the active filter.
@@ -452,6 +475,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 &self.map,
                 &self.sensors,
                 &reports,
+                self.dsr_config,
             ) {
                 ResetResult::Waiting => reset_status = DistanceReset::Waiting,
                 ResetResult::Applied(pose, axes) => {
@@ -512,11 +536,23 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 }
 
 impl Localizer<'_> {
+    /// Set the upper bound on a single MCL translation correction's gain.
+    /// Retained when selecting another estimator and later returning to MCL.
+    pub fn set_mcl_correction_gain(&mut self, gain: f64) -> bool {
+        if !(0.0..=1.0).contains(&gain) {
+            return false;
+        }
+        self.mcl_correction_gain = gain;
+        self.filter.set_mcl_correction_gain(gain);
+        true
+    }
+
     /// Switch estimator without changing the sensor model or claiming pose recovery.
     pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
-        let Some(filter) = Filter::new(self.pose, estimator) else {
+        let Some(mut filter) = Filter::new(self.pose, estimator) else {
             return false;
         };
+        filter.set_mcl_correction_gain(self.mcl_correction_gain);
         self.filter = filter;
         self.filter_pose = self.pose;
         self.config.estimator = estimator;

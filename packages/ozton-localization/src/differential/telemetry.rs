@@ -95,7 +95,9 @@ impl Telemetry {
                 "index={index},status={verdict},reason={reason:?},sample_ms={:.0},distance_m={:.4},calibrated_m={:.4},confidence={:.3},occluded={},surface={hit:?},residual_m={residual:.4}",
                 reading.map_or(f64::NAN, |reading| reading.timestamp.as_secs_f64() * 1000.0),
                 meters(reading.map(|reading| reading.distance)),
-                meters(report.and_then(|report| report.calibrated_distance)),
+                meters(report.and_then(|report| report.calibrated_distance).or_else(|| {
+                    reading.zip(localizer.range_config(index)).map(|(sample, config)| sample.distance - config.bias)
+                })),
                 reading.map_or(f64::NAN, |reading| reading.confidence),
                 reading.is_some_and(|reading| reading.occluded),
             ));

@@ -102,6 +102,12 @@ pub enum Filter {
 }
 
 impl Filter {
+    pub(super) fn set_mcl_correction_gain(&mut self, gain: f64) {
+        if let Self::Mcl(inner) = self {
+            inner.set_correction_gain(gain);
+        }
+    }
+
     pub(super) fn new(pose: Pose, estimator: Estimator) -> Option<Self> {
         match estimator {
             Estimator::Odometry => Some(Self::Odometry(Odometry)),

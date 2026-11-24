@@ -19,6 +19,7 @@ pub struct Mcl {
     candidate: ParticleFilter,
     config: ParticleConfig,
     yaw_rate: f64,
+    correction_gain: f64,
 }
 
 impl Mcl {
@@ -30,7 +31,18 @@ impl Mcl {
             candidate,
             config,
             yaw_rate: 0.0,
+            correction_gain: 0.4,
         })
+    }
+}
+
+impl Mcl {
+    pub fn set_correction_gain(&mut self, gain: f64) -> bool {
+        if !(0.0..=1.0).contains(&gain) {
+            return false;
+        }
+        self.correction_gain = gain;
+        true
     }
 }
 
@@ -137,7 +149,7 @@ impl PoseEstimator for Mcl {
             return None;
         }
         let signal = correction.length().hypot(noise);
-        let gain = 0.4 * signal / (signal + spread);
+        let gain = self.correction_gain * signal / (signal + spread);
         let pose = Pose {
             position: predicted.position + correction * gain,
             ..predicted

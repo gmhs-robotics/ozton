@@ -109,6 +109,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
+                if feedback_at.elapsed() > self.config.maximum_gap {
+                    return Err(PoseMotionError::ControlGap);
+                }
                 continue;
             };
             let dt = match last_feedback {
@@ -129,12 +132,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !valid_feedback(feedback) {
                 return Err(PoseMotionError::InvalidFeedback);
             }
-            if matches!(
-                target,
-                DifferentialTarget::DriveArc { .. }
-                    | DifferentialTarget::TurnToPoint { .. }
-                    | DifferentialTarget::DriveToPoint { .. }
-            ) && !self.drive.pose_trusted()
+            if (self.drive.footprint().is_some()
+                || matches!(
+                    target,
+                    DifferentialTarget::DriveArc { .. }
+                        | DifferentialTarget::TurnToPoint { .. }
+                        | DifferentialTarget::DriveToPoint { .. }
+                ))
+                && !self.drive.pose_trusted()
             {
                 return Err(PoseMotionError::UntrustedPose);
             }
@@ -205,6 +210,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut terminal_turn = false;
         let mut terminal = false;
         let end = path.end();
+        let mut options = self.options;
+        options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
         log_row!(
             Debug,
             "PATH_PLAN",
@@ -254,7 +261,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             progress.update(
                 feedback.pose.position,
                 ozton_math::length!(
-                    self.options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
+                    options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
                     m
                 ),
             );
@@ -310,10 +317,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     DifferentialTarget::DriveToPoint {
                         target: target.position,
                         reverse,
-                        maximum_speed: self.options.maximum_wheel_speed,
+                        maximum_speed: options.maximum_wheel_speed,
                     }
                 };
-                let (wheels, ready) = controller.step(command, feedback, dt, self.options);
+                let (wheels, ready) = controller.step(command, feedback, dt, options);
                 (
                     wheels,
                     ready && turn && heading_error <= self.options.heading_tolerance.value,
@@ -326,7 +333,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     reverse,
                     self.options.position_tolerance,
                 );
-                controller.limit_step(desired, false, dt, self.options)
+                controller.limit_step(desired, false, dt, options)
             };
             let objective = if terminal {
                 distance + self.options.track_width.value * heading_error * 0.5

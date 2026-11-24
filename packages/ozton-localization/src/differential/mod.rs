@@ -106,6 +106,18 @@ impl DifferentialLocalization {
         true
     }
 
+    pub fn set_dsr_config(&mut self, config: crate::DsrConfig) -> bool {
+        if !self.localizer.set_dsr_config(config) {
+            return false;
+        }
+        self.last_reset = DistanceReset::Idle;
+        true
+    }
+
+    pub fn set_mcl_correction_gain(&mut self, gain: f64) -> bool {
+        self.localizer.set_mcl_correction_gain(gain)
+    }
+
     pub fn request_distance_reset(&mut self) {
         self.last_reset = DistanceReset::Idle;
         if let Ok(Some(feedback)) = &mut self.feedback {

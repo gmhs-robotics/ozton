@@ -1,7 +1,7 @@
 use ozton_math::localization::observation::ObservationLayout;
 
 use super::*;
-use crate::{Config, OdometryConfig, field::FieldMap};
+use crate::{Config, DsrConfig, OdometryConfig, field::FieldMap};
 
 /// Which estimator or reset may consume the installed distance sensors.
 #[derive(Clone, Copy)]
@@ -46,6 +46,9 @@ pub struct LocalizationBuilder {
     use_imu: bool,
     drive: Option<DriveEncoderUse>,
     ranges: RangeUses,
+    dsr_config: DsrConfig,
+    maximum_odometry_gap: Duration,
+    mcl_correction_gain: f64,
 }
 
 impl Default for LocalizationBuilder {
@@ -56,6 +59,9 @@ impl Default for LocalizationBuilder {
             use_imu: true,
             drive: Some(DriveEncoderUse::ForwardAndHeading),
             ranges: RangeUses::default(),
+            dsr_config: DsrConfig::default(),
+            maximum_odometry_gap: Duration::from_millis(100),
+            mcl_correction_gain: 0.4,
         }
     }
 }
@@ -70,6 +76,21 @@ impl LocalizationBuilder {
 
     pub fn with_estimator(mut self, estimator: Estimator) -> Self {
         self.estimator = estimator;
+        self
+    }
+
+    pub fn with_dsr_config(mut self, config: DsrConfig) -> Self {
+        self.dsr_config = config;
+        self
+    }
+
+    pub fn with_maximum_odometry_gap(mut self, gap: Duration) -> Self {
+        self.maximum_odometry_gap = gap;
+        self
+    }
+
+    pub fn with_mcl_correction_gain(mut self, gain: f64) -> Self {
+        self.mcl_correction_gain = gain;
         self
     }
 
@@ -118,7 +139,7 @@ impl LocalizationBuilder {
             .collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
-                OdometryConfig::for_mounted_wheels(Duration::from_millis(100)),
+                OdometryConfig::for_mounted_wheels(self.maximum_odometry_gap),
                 self.estimator,
                 false,
             ),
@@ -126,6 +147,11 @@ impl LocalizationBuilder {
             map,
             mounts,
         )?;
+        if !localizer.set_dsr_config(self.dsr_config)
+            || !localizer.set_mcl_correction_gain(self.mcl_correction_gain)
+        {
+            return None;
+        }
         self.ranges.apply(&mut localizer);
         Some(DifferentialLocalization {
             localizer,
