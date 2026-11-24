@@ -17,7 +17,9 @@ struct Pending {
     dropped_rows: u64,
     uncertain_bytes: usize,
     session_started: bool,
-    schemas: Vec<String>,
+    schemas: Vec<(String, bool)>,
+    row: String,
+    schema: String,
     #[cfg(target_os = "vexos")]
     probed: bool,
 }
@@ -28,6 +30,8 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     uncertain_bytes: 0,
     session_started: false,
     schemas: Vec::new(),
+    row: String::new(),
+    schema: String::new(),
     #[cfg(target_os = "vexos")]
     probed: false,
 });
@@ -98,43 +102,58 @@ pub fn flush() -> io::Result<()> {
 
 impl Pending {
     fn push(&mut self, row: fmt::Arguments<'_>) {
-        // Schema dictionary is scoped to a flush batch. A decoder can recover
-        // after partial writes without relying on earlier dictionary records.
-        let text = row.to_string();
-        let mut parts = text.split(',');
+        // Reuse both scratch strings and schema storage. The steady-state
+        // path performs no per-record heap allocation or intermediate field Vec.
+        self.row.clear();
+        if self.row.write_fmt(row).is_err() {
+            self.dropped_rows = self.dropped_rows.saturating_add(1);
+            return;
+        }
+        let mut parts = self.row.split(',');
         let prefix = parts.next();
         let kind = parts.next();
-        let fields: Option<Vec<_>> = parts.map(|part| part.split_once('=')).collect();
         let start = self.bytes.len();
-        let result = if let (Some("DBG"), Some(kind), Some(fields)) = (prefix, kind, fields) {
-            if kind == "EVENT" || kind == "SD_GAP" || kind == "SESSION" {
-                writeln!(BatchWriter(&mut self.bytes), "{text}")
+        let result = if let (Some("DBG"), Some(kind)) = (prefix, kind) {
+            if matches!(kind, "EVENT" | "SD_GAP" | "SESSION")
+                || !parts.clone().all(|part| part.contains('='))
+            {
+                writeln!(BatchWriter(&mut self.bytes), "{}", self.row)
             } else {
-                let mut schema = kind.to_owned();
-                for (key, _) in &fields {
-                    schema.push(',');
-                    schema.push_str(key);
+                self.schema.clear();
+                self.schema.push_str(kind);
+                for (key, _) in parts.clone().filter_map(|part| part.split_once('=')) {
+                    self.schema.push(',');
+                    self.schema.push_str(key);
                 }
-                let id = self.schemas.iter().position(|old| *old == schema);
-                let index = id.unwrap_or(self.schemas.len());
-                let mut output = BatchWriter(&mut self.bytes);
-                let encoded = (|| -> fmt::Result {
-                    if id.is_none() {
-                        writeln!(output, "S,{index},{schema}")?;
+                let found = self.schemas.iter().position(|(old, _)| *old == self.schema);
+                if found.is_none() && self.schemas.len() >= 128 {
+                    writeln!(BatchWriter(&mut self.bytes), "{}", self.row)
+                } else {
+                    let index = found.unwrap_or(self.schemas.len());
+                    let emit = found.is_none_or(|index| !self.schemas[index].1);
+                    let mut output = BatchWriter(&mut self.bytes);
+                    let encoded = (|| -> fmt::Result {
+                        if emit {
+                            writeln!(output, "S,{index},{}", self.schema)?;
+                        }
+                        write!(output, "R,{index}")?;
+                        for (_, value) in parts.filter_map(|part| part.split_once('=')) {
+                            write!(output, ",{value}")?;
+                        }
+                        writeln!(output)
+                    })();
+                    if encoded.is_ok() {
+                        if found.is_none() {
+                            self.schemas.push((self.schema.clone(), true));
+                        } else {
+                            self.schemas[index].1 = true;
+                        }
                     }
-                    write!(output, "R,{index}")?;
-                    for (_, value) in &fields {
-                        write!(output, ",{value}")?;
-                    }
-                    writeln!(output)
-                })();
-                if encoded.is_ok() && id.is_none() {
-                    self.schemas.push(schema);
+                    encoded
                 }
-                encoded
             }
         } else {
-            writeln!(BatchWriter(&mut self.bytes), "{text}")
+            writeln!(BatchWriter(&mut self.bytes), "{}", self.row)
         };
         if result.is_err() {
             self.bytes.truncate(start);
@@ -167,7 +186,9 @@ impl Pending {
             self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.bytes.len());
         }
         self.bytes.clear();
-        self.schemas.clear();
+        for (_, emitted) in &mut self.schemas {
+            *emitted = false;
+        }
         result
     }
 }

@@ -51,7 +51,10 @@ pub trait LocalizationInput<T> {
 impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocalization {
     fn sample(&mut self, tracking: &mut Tracking<S>) {
         let width = tracking.drive_wheels().map(|source| source.track_width());
+        let span = crate::profile::Span::new(crate::profile::Stage::Tracking);
         let sample = tracking.sample(self.occluded());
+        drop(span);
+        let _span = crate::profile::Span::new(crate::profile::Stage::Localization);
         let _ = self.update(sample, width);
     }
 

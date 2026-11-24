@@ -45,11 +45,16 @@ where
     let groups = drive.model.motor_groups().to_vec();
     let diameter = drive.wheel_diameter();
     let state = drive.localization_state();
+    let stamp = drive.diagnostic_stamp();
     move |frame| {
         let Some(state) = state.upgrade() else { return };
         let Ok(state) = state.try_borrow() else {
             return;
         };
+        if !super::claim_drive_sample(&stamp, frame.time) {
+            return;
+        }
+        let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
         let (tracking, localization) = &*state;
         if groups.len() == 2 {
             let feedback = tracking

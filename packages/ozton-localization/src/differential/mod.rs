@@ -222,8 +222,10 @@ impl DifferentialLocalization {
             };
 
         #[cfg(feature = "logging")]
-        self.telemetry
-            .record(&update, &self.localizer, wheels, &ranges, self.occluded);
+        {
+            let _span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::LocalizationLog);
+            self.telemetry.record(&update, &self.localizer, wheels, &ranges, self.occluded);
+        }
 
         if update.reset != DistanceReset::Idle {
             self.last_reset = update.reset;

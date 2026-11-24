@@ -74,13 +74,16 @@ async fn approach<D: PoseDrive>(
         let direction = settings
             .travel
             .map(|d| matches!(d, TravelDirection::Backward));
-        if let Some(plan) = ozton_math::path::planner::plan(
+        let span = ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::Planner);
+        let plan = ozton_math::path::planner::plan(
             start,
             target,
             config.path_limits(options.track_width),
             clearance,
             direction,
-        ) {
+        );
+        drop(span);
+        if let Some(plan) = plan {
             return session
                 .follow(
                     &plan.path,

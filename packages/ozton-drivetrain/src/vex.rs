@@ -1,7 +1,8 @@
 //! VEX drivetrain actuation and tracking integration.
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
+    time::Duration,
 };
 
 use ozton_math::uom::si::f64::{ElectricPotential, Length, Velocity};
@@ -34,6 +35,7 @@ pub struct Drivetrain<M: Drive, T = (), L = ()> {
     pub model: M,
     state: Rc<RefCell<(T, L)>>,
     driver_output: bool,
+    diagnostic_stamp: Rc<Cell<Option<Duration>>>,
 }
 
 impl<M: Drive, T, L> Drivetrain<M, T, L> {
@@ -42,7 +44,14 @@ impl<M: Drive, T, L> Drivetrain<M, T, L> {
             model,
             state: Rc::new(RefCell::new((tracking, localization))),
             driver_output: false,
+            diagnostic_stamp: Rc::new(Cell::new(None)),
         }
+    }
+
+    /// Shared rate gate for independently scheduled diagnostic reporters.
+    #[doc(hidden)]
+    pub fn diagnostic_stamp(&self) -> Rc<Cell<Option<Duration>>> {
+        Rc::clone(&self.diagnostic_stamp)
     }
 
     /// Consume the write marker used by competition output watchdogs.

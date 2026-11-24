@@ -10,6 +10,7 @@ pub mod calibration;
 #[cfg(all(feature = "logging", any(target_os = "vexos", test)))]
 pub mod sd;
 pub mod serial;
+pub mod profile;
 
 pub const CSV_HEADER: &str = "version,time_us,kind,name,a,b,c,d,e";
 

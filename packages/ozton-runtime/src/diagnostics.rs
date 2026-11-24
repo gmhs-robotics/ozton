@@ -19,6 +19,15 @@ mod sd;
 pub use sd::{flush_sd_logging, start_sd_logging};
 
 pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
+
+#[cfg(feature = "logging")]
+fn claim_drive_sample(stamp: &std::cell::Cell<Option<Duration>>, now: Duration) -> bool {
+    if stamp.get().is_some_and(|last| now.saturating_sub(last) < SD_SAMPLE_INTERVAL) {
+        return false;
+    }
+    stamp.set(Some(now));
+    true
+}
 /// Legacy interval for callers configured before periodic rows became SD-only.
 pub const USB_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -92,6 +101,10 @@ where
     fn report(&self, frame: Frame) {
         #[cfg(feature = "logging")]
         {
+            if !claim_drive_sample(&self.diagnostic_stamp(), frame.time) {
+                return;
+            }
+            let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
             let groups = self.model.motor_groups();
             if groups.len() == 2 {
                 report_drive_feedback(frame, self.feedback(), self.wheel_diameter());
@@ -313,6 +326,10 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, L>(
 ) {
     if serial::sd_enabled() {
         let time = serial::now();
+        if !claim_drive_sample(&drive.diagnostic_stamp(), time) {
+            return;
+        }
+        let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
         let frame = Frame {
             stamp: serial::Frame {
                 sequence: time.as_micros().try_into().unwrap_or(u64::MAX),

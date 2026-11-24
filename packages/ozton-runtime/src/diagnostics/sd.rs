@@ -25,6 +25,8 @@ pub fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             let mut failed = false;
             loop {
                 vexide::time::sleep(Duration::from_secs(1)).await;
+                ozton_diagnostics::profile::flush_summary();
+                let _span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::SdFlush);
                 match sd::flush() {
                     Err(error) if !failed => {
                         log_event!(
