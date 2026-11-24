@@ -215,7 +215,7 @@ mod tests {
         );
         for heading in [0.0, PI / 2.0, -PI / 2.0, 2.1] {
             assert!(
-                wrap_heading(crate::qty!(((bearing(direction(crate::angle!(heading, rad))) - crate::angle!(heading, rad))
+                wrap_heading(crate::qty!(((bearing(direction(crate::qty!((heading) rad))) - crate::qty!((heading) rad))
                         .value) rad))
                 .value
                 .abs()
