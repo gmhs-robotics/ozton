@@ -19,3 +19,5 @@ Export waypoints from JerryIO and parse them using ozton::path_io::jerryio. Buil
 ## Errors and timeouts
 
 Give each stage a time budget. Propagate failures with ? unless you have a deliberate recovery strategy. A timed-out movement is not success. A driver or autonomous callback should never block indefinitely without yielding. Test cancellation between stages and during a movement before using a route in competition.
+
+A programmed path command takes one ordered marker slice: `Command::Follow { path, follower, reverse, markers }`. Use an empty slice for no mechanism actions, or a one-element slice for one action. `Command::WaitFor { ready, stable }` accepts a captured predicate and the required stable duration. The `RobotMotion::follow_path` method takes the direction and follower explicitly; `drive_to` takes the target and travel direction.

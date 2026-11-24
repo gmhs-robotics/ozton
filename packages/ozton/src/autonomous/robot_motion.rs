@@ -18,7 +18,6 @@ use super::{
     Alignment, Command, CommandError, MotionControls, MotionPlatform, Runner, TravelDirection,
     routine_settings::{
         AUTON_SPEED, PATH_ACCELERATION, PATH_DECELERATION, PATH_LATERAL_ACCELERATION,
-        PATH_LOOKAHEAD,
     },
 };
 
@@ -39,11 +38,7 @@ pub trait RobotMotion: Sized {
 
     async fn turn_toward(&mut self, target: DVec2) -> Result<(), CommandError<Self::Error>>;
 
-    async fn drive_to(&mut self, target: DVec2) -> Result<(), CommandError<Self::Error>> {
-        self.drive_to_with(target, TravelDirection::Forward).await
-    }
-
-    async fn drive_to_with(
+    async fn drive_to(
         &mut self,
         target: DVec2,
         direction: TravelDirection,
@@ -58,14 +53,8 @@ pub trait RobotMotion: Sized {
 
     fn profile_path(&self, waypoints: &[Waypoint]) -> Result<Path, CommandError<Self::Error>>;
 
-    async fn follow_path(
-        &mut self,
-        path: &Path,
-        direction: TravelDirection,
-    ) -> Result<(), CommandError<Self::Error>>;
-
     /// Follow a prepared path with the selected Ozton algorithm and tuning.
-    async fn follow_path_with(
+    async fn follow_path(
         &mut self,
         path: &Path,
         direction: TravelDirection,
@@ -137,7 +126,7 @@ where
         self.run_command(Command::TurnToPoint { target }).await
     }
 
-    async fn drive_to_with(
+    async fn drive_to(
         &mut self,
         target: DVec2,
         direction: TravelDirection,
@@ -180,28 +169,13 @@ where
         &mut self,
         path: &Path,
         direction: TravelDirection,
-    ) -> Result<(), CommandError<Self::Error>> {
-        self.follow_path_with(
-            path,
-            direction,
-            Follower::PurePursuit {
-                lookahead: P::motion_config(self).map_or(PATH_LOOKAHEAD, |config| config.lookahead),
-            },
-        )
-        .await
-    }
-
-    async fn follow_path_with(
-        &mut self,
-        path: &Path,
-        direction: TravelDirection,
         follower: Follower,
     ) -> Result<(), CommandError<Self::Error>> {
         self.run_command(Command::Follow {
             path,
             follower,
             reverse: matches!(direction, TravelDirection::Backward),
-            trigger: None,
+            markers: &[],
         })
         .await
     }

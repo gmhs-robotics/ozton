@@ -289,10 +289,10 @@ fn followers_converge_and_cancel_with_mechanisms_running() {
                             path: &path,
                             follower,
                             reverse,
-                            trigger: Some(ozton::autonomous::PathMarker::new(
+                            markers: &[ozton::autonomous::PathMarker::new(
                                 Length::new::<meter>(0.12),
                                 |robot: &mut Sim| robot.intake = true,
-                            )),
+                            )],
                         },
                         Duration::from_secs(3),
                         || true,
@@ -360,7 +360,7 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
         ];
         runner
             .run_while(
-                Command::FollowMarked {
+                Command::Follow {
                     path: &path,
                     follower: Follower::PurePursuit {
                         lookahead: Length::new::<meter>(0.14),
@@ -391,9 +391,11 @@ fn ordered_markers_and_optional_alignment_keep_the_route_running() {
                 .unwrap()
         );
         assert_eq!(runner.robot().wheels, [0.0; 2]);
+        let stable = runner.options().settle;
         runner
-            .run_while(
-                Command::WaitUntil(|robot: &Sim| !robot.intake),
+            .wait_until_while(
+                |robot: &Sim| !robot.intake,
+                stable,
                 Duration::from_millis(50),
                 || true,
             )

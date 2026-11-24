@@ -26,11 +26,11 @@ motion.move_to_point(&mut drivetrain, ozton::position_xy!(8 in, 12 in)).await?;
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
 
-Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` (or `move_to_point_at_heading`) requires a final heading and can plan a continuous trajectory. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; reverse() selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
+Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` requires a final heading and can plan a continuous trajectory. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
 
 ## Configure once
 
-Declare a reusable controller with a const builder. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
+Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
 
 ```rust,ignore
 use ozton::{

@@ -116,12 +116,6 @@ impl<'path> State<'path> {
                 follower,
                 reverse,
                 ..
-            }
-            | Command::FollowMarked {
-                path,
-                follower,
-                reverse,
-                ..
             } => {
                 let progress = self.progress.get_or_insert_with(|| Progress::new(path));
                 progress.update(
@@ -357,7 +351,6 @@ impl<'path> State<'path> {
             ),
             Command::DistanceReset => ([0.0; 2], feedback.reset_accepted, Duration::ZERO),
             Command::Wait(duration) => ([0.0; 2], elapsed >= *duration, Duration::ZERO),
-            Command::WaitUntil(ready) => ([0.0; 2], ready(robot) && slow, options.settle),
             Command::WaitFor { ready, stable } => ([0.0; 2], ready(robot) && slow, *stable),
         };
         if objective.is_none() {
@@ -428,16 +421,7 @@ impl<'path> State<'path> {
 
     fn trigger<R>(&mut self, command: &mut Command<'_, R>, robot: &mut R, distance: f64) {
         match command {
-            Command::Follow { trigger, .. } => {
-                if trigger
-                    .as_ref()
-                    .is_some_and(|marker| distance >= marker.distance.value)
-                    && let Some(marker) = trigger.take()
-                {
-                    (marker.action)(robot);
-                }
-            }
-            Command::FollowMarked { markers, .. } => {
+            Command::Follow { markers, .. } => {
                 while let Some(marker) = markers.get(self.next_marker) {
                     if distance < marker.distance.value {
                         break;
@@ -505,11 +489,12 @@ mod settling_tests {
     #[test]
     fn sideways_motion_prevents_arrival_even_with_correct_position_and_heading() {
         let mut state = State::default();
-        let mut command = Command::WaitUntil(|_: &()| true);
         let options = DriveOptions::differential(
             ozton_math::length!(0.3 m),
             Velocity::new::<meter_per_second>(1.0),
         );
+        let mut ready = |_: &()| true;
+        let mut command = Command::WaitFor { ready: &mut ready, stable: options.settle };
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),

@@ -203,7 +203,7 @@ fn match_corner_reaches_center_with_position_and_heading_settled() {
         bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
     plant.run(Command::Turn { heading }, options);
     plant.run(
-        Command::drive_to_point(target.position, max_speed, reverse),
+        Command::DriveToPoint { target: target.position, maximum_speed: max_speed, reverse },
         options,
     );
     plant.run(

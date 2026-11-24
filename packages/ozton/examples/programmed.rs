@@ -176,7 +176,7 @@ async fn straight(robot: &mut CompetitionBot) -> Result<(), RouteError> {
     let path = Rc::clone(&robot.program.straight_path);
     robot.confirm_start(START)?;
     robot.mechanisms.intake.on = true;
-    robot.follow_path(&path, TravelDirection::Forward).await?;
+    robot.follow_path(&path, TravelDirection::Forward, ozton::autonomous::Follower::PurePursuit { lookahead: ozton::autonomous::routine_settings::PATH_LOOKAHEAD }).await?;
     robot.mechanisms.intake.on = false;
     robot
         .try_align(

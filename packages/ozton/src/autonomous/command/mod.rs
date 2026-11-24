@@ -71,14 +71,7 @@ pub enum Command<'a, R> {
         path: &'a Path,
         follower: Follower,
         reverse: bool,
-        /// Trigger once when the monotonic path progress crosses this distance.
-        trigger: Option<PathMarker<R>>,
-    },
-    FollowMarked {
-        path: &'a Path,
-        follower: Follower,
-        reverse: bool,
-        /// Triggers run once, in ascending distance order. Equal distances are allowed.
+         /// Triggers run once, in ascending distance order. Equal distances are allowed.
         markers: &'a [PathMarker<R>],
     },
     Turn {
@@ -118,7 +111,6 @@ pub enum Command<'a, R> {
     },
     DistanceReset,
     Wait(Duration),
-    WaitUntil(fn(&R) -> bool),
     /// A captured predicate, continuously true while stopped for `stable`.
     WaitFor {
         ready: &'a mut dyn FnMut(&R) -> bool,
@@ -136,26 +128,8 @@ impl<R> Command<'_, R> {
             Self::DistanceReset => "Autonomous: distance reset",
             Self::Contact(_) | Self::ApproachContact { .. } => "Autonomous: approach contact",
             Self::Align(_) => "Autonomous: align",
-            Self::Follow { .. } | Self::FollowMarked { .. } => "Autonomous: follow path",
-            Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } => "Autonomous: wait",
-        }
-    }
-
-    /// Encoder-based travel along a heading in CCW radians.
-    pub const fn drive_distance(distance: Length, heading: Angle, maximum_speed: Velocity) -> Self {
-        Self::DriveDistance {
-            meters: distance,
-            heading: Some(heading),
-            maximum_speed,
-        }
-    }
-
-    /// Field target in right/forward order.
-    pub const fn drive_to_point(target: DVec2, maximum_speed: Velocity, reverse: bool) -> Self {
-        Self::DriveToPoint {
-            target,
-            maximum_speed,
-            reverse,
+            Self::Follow { .. } => "Autonomous: follow path",
+            Self::Wait(_) | Self::WaitFor { .. } => "Autonomous: wait",
         }
     }
 
@@ -166,14 +140,14 @@ impl<R> Command<'_, R> {
                 | Self::DriveArc { .. }
                 | Self::TurnToPoint { .. }
                 | Self::Follow { .. }
-                | Self::FollowMarked { .. }
+               
                 | Self::ApproachContact { .. }
                 | Self::DistanceReset
         )
     }
     pub(super) fn path_start(&self) -> Option<(&Path, bool)> {
         match self {
-            Self::Follow { path, reverse, .. } | Self::FollowMarked { path, reverse, .. } => {
+            Self::Follow { path, reverse, .. } => {
                 Some((path, *reverse))
             }
             _ => None,
@@ -183,19 +157,6 @@ impl<R> Command<'_, R> {
     pub(super) fn valid(&self, options: DriveOptions) -> bool {
         match self {
             Self::Follow {
-                path,
-                follower,
-                trigger,
-                ..
-            } => {
-                follower.is_valid()
-                    && (path.limits().track_width.value - options.track_width.value).abs() < 1e-6
-                    && path.limits().wheel_speed <= options.maximum_wheel_speed
-                    && trigger.as_ref().is_none_or(|marker| {
-                        (0.0..=path.end().distance).contains(&marker.distance.value)
-                    })
-            }
-            Self::FollowMarked {
                 path,
                 follower,
                 markers,
@@ -274,7 +235,7 @@ impl<R> Command<'_, R> {
                     && speed.value != 0.0
                     && !settle.is_zero()
             }
-            Self::Wait(_) | Self::WaitUntil(_) | Self::WaitFor { .. } | Self::DistanceReset => true,
+            Self::Wait(_) | Self::WaitFor { .. } | Self::DistanceReset => true,
         }
     }
 }

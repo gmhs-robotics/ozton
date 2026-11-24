@@ -529,7 +529,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     return Err(CommandError::Robot(error));
                 }
                 mechanism_retry_since = None;
-                let stationary_command = matches!(command, Command::DistanceReset | Command::Wait(_) | Command::WaitUntil(_) | Command::WaitFor { .. });
+                let stationary_command = matches!(command, Command::DistanceReset | Command::Wait(_) | Command::WaitFor { .. });
                 if step.complete || (stationary_command && step.wheels == [0.0; 2]) {
                     active
                         .robot
