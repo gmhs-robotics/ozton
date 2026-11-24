@@ -190,6 +190,54 @@ mod tests {
     }
 
     #[test]
+    fn logged_diagonal_stall_allows_a_governed_pivot() {
+        let field = RectangularClearance::new(
+            Footprint::from_extents(
+                qty!(7.55 in),
+                qty!(7.55 in),
+                qty!(7.761804 in),
+                qty!(7.238196 in),
+            )
+            .unwrap(),
+            DVec2::new(0.93345, 1.3843),
+            qty!(0.5 in),
+        )
+        .unwrap();
+        let mut feedback = sample(0.00011);
+        feedback.pose = Pose::new(DVec2::new(0.48862, 0.01052), qty!(-0.89179 rad));
+        feedback.angular_velocity = qty!(0 rad/s);
+        let config = MotionConfig::DEFAULT
+            .with_braking_deceleration(qty!(0.55 m/s^2), qty!(3 rad/s^2));
+        let uncertainty = [0.1117, 0.0607, 0.0474];
+        assert!(safe_feedback(field, feedback, config, uncertainty));
+        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));
+        let wheels = limit_wall_command(
+            Some(field),
+            feedback,
+            [-0.2, 0.2],
+            options,
+            config,
+            uncertainty,
+        );
+        assert!(wheels[1] > 0.04 && wheels[1] < 0.2);
+        assert_eq!(wheels[0], -wheels[1]);
+        // The same request near the physical boundary must still be rejected.
+        feedback.pose.position.x = 0.85;
+        assert!(!safe_feedback(field, feedback, config, uncertainty));
+        assert_eq!(
+            limit_wall_command(
+                Some(field),
+                feedback,
+                [-0.2, 0.2],
+                options,
+                config,
+                uncertainty,
+            ),
+            [0.0; 2]
+        );
+    }
+
+    #[test]
     fn diagonal_lateral_and_angular_sweep_cannot_cancel() {
         let f = field();
         let pose = Pose::new(DVec2::new(0.5, 0.0), qty!(-45 deg));
