@@ -118,7 +118,8 @@ impl ResetWindow {
         if ![forward_velocity, lateral_velocity, angular_velocity]
             .iter()
             .all(|v| v.is_finite())
-            || forward_velocity.hypot(lateral_velocity) > config.maximum_linear_velocity.value
+            || forward_velocity * forward_velocity + lateral_velocity * lateral_velocity
+                > config.maximum_linear_velocity.value * config.maximum_linear_velocity.value
             || angular_velocity.abs() > config.maximum_angular_velocity.value
         {
             log_row!(
@@ -130,7 +131,8 @@ impl ResetWindow {
             return ResetResult::Waiting;
         }
         if self.anchor.is_some_and(|(_, anchor)| {
-            pose.position.distance(anchor.position) > config.maximum_position_drift.value
+            pose.position.distance_squared(anchor.position)
+                > config.maximum_position_drift.value * config.maximum_position_drift.value
                 || wrap_heading(pose.heading - anchor.heading).value.abs()
                     > config.maximum_heading_drift.value
         }) {

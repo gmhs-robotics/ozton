@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use ozton_math::{
-    geometry::{BodyDelta, Pose},
+    geometry::Pose,
     localization::{
         observation::{RangeObservation, RangeSensorConfig},
         range::{Constraint, Rejection, Surface, constrain_masked},
@@ -24,8 +24,8 @@ pub struct RangeReport {
 #[derive(Clone, Copy)]
 pub(super) struct RangeTick {
     pub pose: Pose,
-    pub movement: BodyDelta,
-    pub dt: Duration,
+    pub linear_rate: f64,
+    pub yaw_rate: f64,
     pub now: Duration,
 }
 
@@ -38,8 +38,8 @@ pub(super) fn inspect(
 ) -> RangeReport {
     let RangeTick {
         pose,
-        movement,
-        dt,
+        linear_rate,
+        yaw_rate,
         now,
     } = tick;
     let constraint = (|| {
@@ -56,11 +56,9 @@ pub(super) fn inspect(
             .ok_or(Rejection::Stale)?
             .as_secs_f64();
         *previous = Some(sample.timestamp);
-        let motion_during_age = (movement.translation.length()
-            + movement.heading.value.abs()
-                * (sample.distance.value.abs() + sensor.mount.position.length()))
-            * age
-            / dt.as_secs_f64();
+        let motion_during_age = (linear_rate
+            + yaw_rate * (sample.distance.value.abs() + sensor.mount.position.length()))
+            * age;
         if motion_during_age > sensor.sigma.value * 2.0 {
             return Err(Rejection::Stale);
         }

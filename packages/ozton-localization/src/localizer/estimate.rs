@@ -31,22 +31,28 @@ pub struct Observations<'a> {
 }
 
 impl<'a> Observations<'a> {
+    fn associated_measurements(
+        &self,
+        max_residual: Option<f64>,
+    ) -> impl Iterator<Item = (&'a RangeSensorConfig, Constraint, f64)> + Clone {
+        self.sensors
+            .iter()
+            .zip(self.reports)
+            .filter_map(move |(sensor, report)| {
+                let report = report.as_ref()?;
+                let constraint = report.constraint.ok()?;
+                if max_residual.is_some_and(|limit| constraint.residual.abs() > limit) {
+                    return None;
+                }
+                Some((sensor, constraint, report.calibrated_distance?.value))
+            })
+    }
+
     fn measurements(
         &self,
         max_residual: Option<f64>,
     ) -> impl Iterator<Item = (&'a RangeSensorConfig, Constraint, f64)> + Clone {
-        let measurements =
-            self.sensors
-                .iter()
-                .zip(self.reports)
-                .filter_map(move |(sensor, report)| {
-                    let report = report.as_ref()?;
-                    let constraint = report.constraint.ok()?;
-                    if max_residual.is_some_and(|limit| constraint.residual.abs() > limit) {
-                        return None;
-                    }
-                    Some((sensor, constraint, report.calibrated_distance?.value))
-                });
+        let measurements = self.associated_measurements(max_residual);
         let mut buffer = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
         for (sensor, constraint, _) in measurements.clone().take(MAX_RANGES) {
@@ -56,9 +62,11 @@ impl<'a> Observations<'a> {
             );
             count += 1;
         }
-        let consistent =
-            ozton_math::localization::range::fit_translation(&buffer[..count]).is_some();
-        measurements.filter(move |_| consistent)
+        let mask = ozton_math::localization::range::fit_consensus(&buffer[..count])
+            .map_or(0, |fit| fit.mask);
+        measurements.enumerate().filter_map(move |(index, measurement)| {
+            (index < MAX_RANGES && mask & (1 << index) != 0).then_some(measurement)
+        })
     }
 }
 

@@ -73,8 +73,9 @@ pub fn cast_masked(pose: Pose, mount: Pose, surfaces: &[Surface], mask: u128) ->
 }
 
 fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
-    let origin = pose.transform_point(mount.position);
-    let beam = direction(pose.heading + mount.heading);
+    let orientation = rotation(pose.heading);
+    let origin = pose.position + orientation.rotate(mount.position);
+    let beam = orientation.rotate(direction(mount.heading));
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
     for (index, surface) in surfaces.iter().enumerate() {
@@ -359,6 +360,9 @@ fn constrain_hit(
     gate: RangeGate,
     expected_surface: Option<usize>,
 ) -> Result<Constraint, Rejection> {
+    if !(gate.min_range.value..=gate.max_range.value).contains(&hit.distance) {
+        return Err(Rejection::NoSurface);
+    }
     if expected_surface.is_some_and(|expected| expected != hit.surface) {
         return Err(Rejection::WrongSurface);
     }
@@ -399,6 +403,54 @@ pub fn reset_translation(first: Constraint, second: Option<Constraint>) -> DVec2
 /// rather than selecting whichever sensor happens to appear first. Noise is in metres
 /// along the wall normal. Rank one preserves the unobserved tangent exactly.
 pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)> {
+    fit_details(constraints).map(|fit| (fit.change, fit.axes))
+}
+
+/// Translation fit with its actual observable direction and inlier mask.
+#[derive(Debug, Clone, Copy)]
+pub struct TranslationFit {
+    pub change: DVec2,
+    pub axes: u8,
+    pub normal: Option<DVec2>,
+    pub mask: u8,
+}
+
+/// Prefer all observations; if they contradict, accept a unique coherent
+/// leave-one-out set of at least two beams. Ambiguous exclusions are rejected.
+pub fn fit_consensus(constraints: &[(Constraint, f64)]) -> Option<TranslationFit> {
+    if constraints.is_empty() || constraints.len() > 8 {
+        return None;
+    }
+    let mask = ((1u16 << constraints.len()) - 1) as u8;
+    if let Some(mut fit) = fit_details(constraints) {
+        fit.mask = mask;
+        return Some(fit);
+    }
+    if constraints.len() < 3 {
+        return None;
+    }
+    let mut selected = None;
+    let mut subset = [(Constraint::default(), 0.0); 8];
+    for excluded in 0..constraints.len() {
+        let mut count = 0;
+        for (index, &constraint) in constraints.iter().enumerate() {
+            if index != excluded {
+                subset[count] = constraint;
+                count += 1;
+            }
+        }
+        if let Some(mut fit) = fit_details(&subset[..count]) {
+            if selected.is_some() {
+                return None;
+            }
+            fit.mask = mask & !(1 << excluded);
+            selected = Some(fit);
+        }
+    }
+    selected
+}
+
+fn fit_details(constraints: &[(Constraint, f64)]) -> Option<TranslationFit> {
     let mut xx = 0.0;
     let mut xy = 0.0;
     let mut yy = 0.0;
@@ -422,17 +474,23 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
         return None;
     }
     let determinant = xx * yy - xy * xy;
-    let (change, axes) = if determinant > 0.05 * trace * trace {
+    let (change, axes, normal) = if determinant > 0.05 * trace * trace {
         (
             DVec2::new(yy * rhs.x - xy * rhs.y, xx * rhs.y - xy * rhs.x) / determinant,
             2,
+            None,
         )
     } else {
-        // Principal direction of the symmetric normal matrix; sign does not matter.
-        let angle = 0.5 * libm::atan2(2.0 * xy, xx - yy);
-        let n = rotation(crate::qty!((angle) rad));
-        let eigenvalue = xx * n.x * n.x + 2.0 * xy * n.x * n.y + yy * n.y * n.y;
-        (n * (rhs.dot(n) / eigenvalue), 1)
+        // Largest eigenvalue of the symmetric 2x2 normal matrix. Select
+        // the better-conditioned eigenvector without atan2 or sin/cos.
+        let eigenvalue = 0.5 * (trace + libm::hypot(xx - yy, 2.0 * xy));
+        let vector = if xx >= yy {
+            DVec2::new(eigenvalue - yy, xy)
+        } else {
+            DVec2::new(xy, eigenvalue - xx)
+        };
+        let n = vector.normalize();
+        (n * (rhs.dot(n) / eigenvalue), 1, Some(n))
     };
     if !change.is_finite()
         || constraints.iter().any(|(c, sigma)| {
@@ -441,7 +499,7 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
     {
         return None;
     }
-    Some((change, axes))
+    Some(TranslationFit { change, axes, normal, mask: 0 })
 }
 
 #[cfg(test)]
@@ -491,6 +549,26 @@ mod tests {
         }
         assert_eq!(prepared_ray_distance(DVec2::ZERO, DVec2::X, &faces, 3, 2.0), None);
         assert_eq!(prepared_ray_distance(DVec2::new(0.0, 0.5), DVec2::X, &faces, 3, 0.5), None);
+    }
+
+    #[test]
+    fn consensus_rejects_one_identifiable_outlier_but_not_ambiguous_pairs() {
+        let constraint = |displacement| {
+            (
+                Constraint {
+                    hit: Hit { normal: DVec2::X, ..Hit::default() },
+                    displacement,
+                    ..Constraint::default()
+                },
+                0.01,
+            )
+        };
+        let readings = [constraint(0.02), constraint(0.021), constraint(0.2)];
+        let fit = fit_consensus(&readings).unwrap();
+        assert_eq!(fit.mask, 0b011);
+        assert_eq!(fit.axes, 1);
+        assert!((fit.change.x - 0.0205).abs() < 1e-12);
+        assert!(fit_consensus(&[readings[0], readings[2]]).is_none());
     }
 
     #[test]

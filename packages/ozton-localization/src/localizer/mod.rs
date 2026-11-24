@@ -481,17 +481,18 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             (filter_prediction, self.filter_ranges)
         };
         if self.corrections_enabled && active_ranges != 0 {
+            let range_tick = RangeTick {
+                pose: checking_pose,
+                linear_rate: movement.translation.length() / seconds,
+                yaw_rate: movement.heading.value.abs() / seconds,
+                now: raw.time,
+            };
             for (index, sensor) in self.sensors.iter().copied().enumerate() {
                 if active_ranges & (1 << index) == 0 {
                     continue;
                 }
                 reports[index] = Some(inspect(
-                    RangeTick {
-                        pose: checking_pose,
-                        movement,
-                        dt,
-                        now: raw.time,
-                    },
+                    range_tick,
                     &self.map,
                     sensor,
                     observations.get(index).copied().flatten(),

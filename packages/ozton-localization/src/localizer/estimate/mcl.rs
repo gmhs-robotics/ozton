@@ -6,7 +6,7 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{Beam, ParticleConfig, ParticleFilter},
-        range::{Constraint, fit_translation},
+        range::{Constraint, Rejection, fit_consensus},
     },
     uom::si::f64::Angle,
 };
@@ -93,14 +93,12 @@ impl PoseEstimator for Mcl {
         };
         let mut beams = [empty; MAX_RANGES];
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
-        let mut noise = f64::INFINITY;
         let mut count = 0;
         let measurements =
-            observations.measurements(self.config.max_range_residual.map(|limit| limit.value));
+            observations.associated_measurements(self.config.max_range_residual.map(|limit| limit.value));
         for (sensor, constraint, distance) in measurements {
             let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
             constraints[count] = (constraint, sigma);
-            noise = noise.min(sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
                 distance: ozton_math::qty!((distance) m),
@@ -110,14 +108,28 @@ impl PoseEstimator for Mcl {
             count += 1;
         }
         if count == 0 {
-            log_row!(Trace, "MCL", "status=no_consistent_beams,beams=0");
+            let no_surface = observations.reports.iter().flatten()
+                .filter(|report| report.constraint == Err(Rejection::NoSurface)).count();
+            let residual = observations.reports.iter().flatten()
+                .filter(|report| report.constraint.is_ok()).count();
+            log_row!(Trace, "MCL", "status=no_consistent_beams,beams=0,no_surface={no_surface},residual_rejected={residual}");
             return None;
         }
-        let Some((change, rank)) = fit_translation(&constraints[..count]) else {
+        let Some(fit) = fit_consensus(&constraints[..count]) else {
             log_row!(Trace, "MCL", "status=translation_fit_failed,beams={count}");
             return None;
         };
-        let normal = (rank == 1).then_some(constraints[0].0.hit.normal);
+        let (change, rank, normal) = (fit.change, fit.axes, fit.normal);
+        let mut accepted = 0;
+        let mut noise = f64::INFINITY;
+        for index in 0..count {
+            if fit.mask & (1 << index) != 0 {
+                beams[accepted] = beams[index];
+                noise = noise.min(constraints[index].1);
+                accepted += 1;
+            }
+        }
+        count = accepted;
         self.candidate.clone_from(&self.filter);
         self.candidate
             .propose_position(predicted.position + change, normal, noise);
