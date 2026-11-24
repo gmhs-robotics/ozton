@@ -2,12 +2,14 @@
 
 use std::time::Duration;
 
-use glam::DVec2 as Vec2;
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
-#[cfg(feature = "vex")]
-use ozton_math::{localization::observation::{TracksHeading, TracksPosition}, path::Waypoint};
 use ozton_math::{control::Pid, uom::si::f64::Length};
+#[cfg(feature = "vex")]
+use ozton_math::{
+    localization::observation::{TracksHeading, TracksPosition},
+    path::Waypoint,
+};
 
 /// Normalized-output endpoint controller for the Evian-compatible pursuit API.
 /// Gains output motor fractions, not physical wheel velocities.

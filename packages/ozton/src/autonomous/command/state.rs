@@ -494,7 +494,10 @@ mod settling_tests {
             Velocity::new::<meter_per_second>(1.0),
         );
         let mut ready = |_: &()| true;
-        let mut command = Command::WaitFor { ready: &mut ready, stable: options.settle };
+        let mut command = Command::WaitFor {
+            ready: &mut ready,
+            stable: options.settle,
+        };
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),

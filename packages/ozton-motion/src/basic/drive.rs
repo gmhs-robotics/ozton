@@ -5,18 +5,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ozton_control::{
-    Tolerances,
-    axis::Linear,
-    loops::Feedback,
-};
+use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     geometry::wrap_heading,
     localization::observation::{TracksForwardTravel, TracksHeading, TracksVelocity},
     uom::si::{
         angular_velocity::radian_per_second,
-        f64::{Angle, AngularVelocity, Length, Velocity},
+        f64::{Angle, AngularVelocity, Velocity},
         velocity::meter_per_second,
     },
 };

@@ -71,7 +71,7 @@ pub enum Command<'a, R> {
         path: &'a Path,
         follower: Follower,
         reverse: bool,
-         /// Triggers run once, in ascending distance order. Equal distances are allowed.
+        /// Triggers run once, in ascending distance order. Equal distances are allowed.
         markers: &'a [PathMarker<R>],
     },
     Turn {
@@ -140,16 +140,13 @@ impl<R> Command<'_, R> {
                 | Self::DriveArc { .. }
                 | Self::TurnToPoint { .. }
                 | Self::Follow { .. }
-               
                 | Self::ApproachContact { .. }
                 | Self::DistanceReset
         )
     }
     pub(super) fn path_start(&self) -> Option<(&Path, bool)> {
         match self {
-            Self::Follow { path, reverse, .. } => {
-                Some((path, *reverse))
-            }
+            Self::Follow { path, reverse, .. } => Some((path, *reverse)),
             _ => None,
         }
     }

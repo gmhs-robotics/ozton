@@ -8,12 +8,12 @@ use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     localization::observation::{TracksHeading, TracksPosition},
+    path::Waypoint,
     uom::si::f64::Angle,
 };
 use ozton_runtime::clock::{Sleep, sleep};
 
 use super::PursuitTerminalConfig;
-use ozton_math::path::Waypoint;
 use crate::Tank;
 
 pub struct State {

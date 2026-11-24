@@ -6,11 +6,7 @@ use std::{
 };
 
 use glam::DVec2 as Vec2;
-use ozton_control::{
-    Tolerances,
-    axis::Linear,
-    loops::Feedback,
-};
+use ozton_control::{Tolerances, axis::Linear, loops::Feedback};
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     geometry::wrap_heading,
@@ -21,7 +17,7 @@ use ozton_math::{
         ConstZero,
         si::{
             angular_velocity::radian_per_second,
-            f64::{Angle, AngularVelocity, Length, Velocity},
+            f64::{Angle, AngularVelocity, Velocity},
             velocity::meter_per_second,
         },
     },

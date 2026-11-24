@@ -20,9 +20,7 @@ use uom::si::f64::Length;
 mod quantities;
 pub use quantities::*;
 
-pub use crate::{
-    angle, length, position_xy, position_xyh, position_xyz, position_xyzh, quantity,
-};
+pub use crate::{angle, length, position_xy, position_xyh, position_xyz, position_xyzh, quantity};
 
 /// Three coordinates in right, forward, up order.
 #[derive(Clone, Copy, Debug, PartialEq)]
