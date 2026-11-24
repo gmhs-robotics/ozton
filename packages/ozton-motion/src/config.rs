@@ -12,6 +12,10 @@ use crate::basic::differential::{DriveOptions, DriveTuning};
 pub struct MotionConfig {
     pub tuning: DriveTuning,
     pub wheel_speed: Velocity,
+    /// Breakaway compensation, applied only to active forward feedback near rest.
+    pub minimum_linear_speed: Velocity,
+    /// Breakaway compensation, applied only to active yaw feedback near rest.
+    pub minimum_angular_speed: AngularVelocity,
     pub acceleration: Acceleration,
     pub deceleration: Acceleration,
     pub lateral_acceleration: Acceleration,
@@ -68,6 +72,8 @@ impl MotionConfig {
     pub const DEFAULT: Self = Self {
         tuning: DriveTuning::STANDARD,
         wheel_speed: ozton_math::units::qty!(0.50 m/s),
+        minimum_linear_speed: ozton_math::qty!(0 m/s),
+        minimum_angular_speed: ozton_math::qty!(0 rad/s),
         acceleration: ozton_math::units::qty!(0.8 m/s^2),
         deceleration: ozton_math::units::qty!(2.0 m/s^2),
         lateral_acceleration: ozton_math::units::qty!(0.8 m/s^2),
@@ -119,6 +125,18 @@ impl MotionConfig {
     #[must_use]
     pub const fn with_wheel_speed(mut self, value: Velocity) -> Self {
         self.wheel_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_minimum_linear_speed(mut self, value: Velocity) -> Self {
+        self.minimum_linear_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_minimum_angular_speed(mut self, value: AngularVelocity) -> Self {
+        self.minimum_angular_speed = value;
         self
     }
 
@@ -358,6 +376,10 @@ impl MotionConfig {
             ]
             .into_iter()
             .all(|v| v.is_finite() && v > 0.0)
+            && self.minimum_linear_speed.value.is_finite()
+            && self.minimum_linear_speed.value >= 0.0
+            && self.minimum_angular_speed.value.is_finite()
+            && self.minimum_angular_speed.value >= 0.0
             && [self.clearance.value, self.departure_reserve.value]
                 .into_iter()
                 .all(|v| v.is_finite() && v >= 0.0)

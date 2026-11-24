@@ -354,6 +354,18 @@ impl Seeking {
         self
     }
 
+    /// Calibrated forward breakaway speed; zero disables compensation.
+    pub const fn with_minimum_linear_speed(mut self, value: Velocity) -> Self {
+        self.config = self.config.with_minimum_linear_speed(value);
+        self
+    }
+
+    /// Calibrated yaw breakaway speed; zero disables compensation.
+    pub const fn with_minimum_angular_speed(mut self, value: AngularVelocity) -> Self {
+        self.config = self.config.with_minimum_angular_speed(value);
+        self
+    }
+
     pub const fn with_wheel_speed(mut self, wheel_speed: Velocity) -> Self {
         self.config.wheel_speed = wheel_speed;
         self

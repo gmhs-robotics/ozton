@@ -90,3 +90,33 @@ publishing a timestamped range. Disconnected sensors keep their configured slots
 and can recover on later captures. The required IMU calibration still blocks
 startup until it succeeds; explicit Distances::initialize remains available for
 applications that intentionally wait on range readiness.
+
+
+## Incomplete maps and efficient beam updates
+
+A finite range is eligible only if its modeled ray reaches an eligible surface
+within the sensor range, and passes normal incidence, edge, age and residual
+gates. An open ray is not a measurement of a virtual boundary. The virtual
+motion perimeter is separate from the surveyed reflecting map.
+
+Within MCL, let H be the particles with finite in-range predicted hits and
+L_i the robust Gaussian-plus-outlier likelihood. Their conditional mean
+likelihood is sum_H(w_i L_i) / sum_H(w_i). Multiply modeled weights by
+L_i divided by this mean; leave unmodeled weights unchanged. Thus the modeled
+and unmodeled groups retain their prior probability mass relative to each other.
+A beam with no modeled mass is skipped. No correction is returned if every beam
+is skipped. This is a missing-geometry model, not a negative free-space sensor.
+
+The common translation fit accepts all coherent observations or a unique
+leave-one-out coherent set of at least two readings; ambiguous subsets are
+rejected. Explicit stationary DSR continues to require a consistent fit of its
+collected readings. Rank-one fits use the actual principal eigenvector.
+
+Distance-only particle rays use prepared segment vectors and squared parallel
+thresholds, iterate the height-mask bits, and compare signed cross-product
+numerators before division. Only closer valid intersections require division.
+Fixed-heading updates share a rotated beam origin offset and direction across
+all particles. Free-heading updates cache each particle orientation across
+beams. Translation-only moments avoid circular-heading computations; the
+Box-Muller sampler reuses both independent normal variates. These are algebraic
+work reductions, not changes to the range noise or particle count.

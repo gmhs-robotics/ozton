@@ -196,3 +196,45 @@ fn slew_uses_actual_governed_wheel_targets() {
     let expected = 0.1 + config.acceleration.value * dt.as_secs_f64();
     assert!(wheels.iter().all(|v| (*v - expected).abs() < 1e-10));
 }
+
+#[test]
+fn breakaway_compensation_preserves_braking_and_limits() {
+    let compensate = |output, error, rate, limit| {
+        compensate_breakaway(output, error, rate, 0.02, 0.04, 0.1, limit, 1.0, 0.1)
+    };
+    assert_eq!(compensate(0.03, 0.20, 0.0, 0.5), 0.1);
+    assert_eq!(compensate(-0.03, -0.20, 0.0, 0.5), -0.1);
+    assert_eq!(compensate(0.03, 0.20, 0.0, 0.06), 0.06);
+    assert_eq!(compensate(0.03, 0.01, 0.0, 0.5), 0.03);
+    assert_eq!(compensate(-0.03, 0.20, 0.0, 0.5), -0.03);
+    assert_eq!(compensate(0.03, 0.20, 0.1, 0.5), 0.03);
+    assert_eq!(compensate(0.0, 0.20, 0.0, 0.5), 0.0);
+    assert!(compensate(0.001, 0.021, 0.0, 0.5) < 0.02);
+}
+
+#[test]
+fn minimum_speed_does_not_prevent_terminal_settling() {
+    let config = crate::MotionConfig::DEFAULT
+        .with_minimum_linear_speed(ozton_math::qty!(0.1 m/s))
+        .with_minimum_angular_speed(ozton_math::qty!(0.5 rad/s));
+    let options = config.options(ozton_math::qty!(0.33 m));
+    let mut controller = DifferentialFeedback::default().with_config(config);
+    let feedback = Feedback {
+        time: Duration::from_millis(10),
+        pose: Pose::default(),
+        forward_travel: Length::ZERO,
+        forward_velocity: Velocity::ZERO,
+        lateral_velocity: Velocity::ZERO,
+        angular_velocity: AngularVelocity::ZERO,
+        ranges: [None; _],
+        reset_accepted: false,
+    };
+    let (wheels, ready) = controller.step(
+        DifferentialTarget::Turn { heading: Angle::default() },
+        feedback,
+        Duration::from_millis(10),
+        options,
+    );
+    assert!(ready);
+    assert_eq!(wheels, [0.0; 2]);
+}

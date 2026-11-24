@@ -107,3 +107,18 @@ infer guaranteed physical stopping performance from a commanded profile limit.
 The command slew limiter records the wheel targets actually sent after wall
 governance. Releasing a safety limit therefore resumes from the constrained
 speed rather than the unconstrained internal target.
+
+
+## Optional breakaway compensation
+
+Seeking::with_minimum_linear_speed and with_minimum_angular_speed configure
+measured breakaway rates; zero (default) disables them. The controller only
+raises a nonzero error-reducing command when its measured axis is nearly at
+rest and outside the arrival tolerance. Compensation is capped by the PID and
+route limits and by the stopping speed obtained from d = v*T + v^2/(2*a),
+where d is the remaining error outside the arrival band. Slew, curvature
+desaturation and wall governance still apply afterward. Inside the arrival
+band, during braking, or when the safety governor requires it, the output can
+be below the configured minimum or zero. Profiled path tracking is unchanged
+until terminal feedback takes over. Characterize linear and rotational
+breakaway rates on the actual chassis rather than assuming universal values.

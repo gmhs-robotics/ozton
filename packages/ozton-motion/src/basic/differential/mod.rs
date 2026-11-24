@@ -171,11 +171,9 @@ impl DifferentialFeedback {
         dt: Duration,
         options: DriveOptions,
     ) -> ([f64; 2], bool) {
-        let slow = feedback
-            .forward_velocity
-            .value
-            .hypot(feedback.lateral_velocity.value)
-            <= options.speed_tolerance.value
+        let linear_rate_squared = feedback.forward_velocity.value * feedback.forward_velocity.value
+            + feedback.lateral_velocity.value * feedback.lateral_velocity.value;
+        let slow = linear_rate_squared <= options.speed_tolerance.value.powi(2)
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let error_at = |heading| wrap_heading(heading - feedback.pose.heading).value;
         let drive = |linear, angular| {
@@ -202,12 +200,38 @@ impl DifferentialFeedback {
                 .max(options.speed_tolerance.value * 3.0)
                 .min(maximum)
         };
+        let reaction = config.maximum_gap.as_secs_f64() + config.brake_latency.as_secs_f64();
+        let forward = |pid: &mut MotionPid, error: f64, limit: f64| {
+            let output = pid.forward(error, forward_rate, limit, dt);
+            compensate_breakaway(
+                output,
+                error,
+                forward_rate,
+                options.position_tolerance.value,
+                options.speed_tolerance.value,
+                config.minimum_linear_speed.value,
+                limit.min(config.tuning.linear.output_limit().unwrap_or(f64::INFINITY)),
+                config.forward_braking.unwrap_or(config.deceleration).value.min(config.deceleration.value),
+                reaction,
+            )
+        };
         let angular = |pid: &mut MotionPid, error: f64| {
             let limit = (2.0 * config.angular_deceleration.value * error.abs())
                 .sqrt()
                 .max(options.angular_speed_tolerance.value * 4.0)
                 .min(yaw_limit);
-            pid.yaw(error, yaw_rate, 0.0, limit, dt)
+            let output = pid.yaw(error, yaw_rate, 0.0, limit, dt);
+            compensate_breakaway(
+                output,
+                error,
+                yaw_rate,
+                options.heading_tolerance.value,
+                options.angular_speed_tolerance.value,
+                config.minimum_angular_speed.value,
+                limit.min(config.tuning.angular.output_limit().unwrap_or(f64::INFINITY)),
+                config.yaw_braking.unwrap_or(config.angular_deceleration).value.min(config.angular_deceleration.value),
+                reaction,
+            )
         };
         let (wheels, ready) = match &mut target {
             DifferentialTarget::Turn { heading } => {
@@ -227,7 +251,7 @@ impl DifferentialFeedback {
             }
             DifferentialTarget::TurnToPoint { target } => {
                 let delta = *target - feedback.pose.position;
-                let error = if delta.length() <= options.position_tolerance.value {
+                let error = if delta.length_squared() <= options.position_tolerance.value.powi(2) {
                     0.0
                 } else {
                     error_at(ozton_math::geometry::bearing(delta))
@@ -299,11 +323,10 @@ impl DifferentialFeedback {
                     self.pid.forward(0.0, forward_rate, maximum_speed.value, dt)
                 } else {
                     let alignment = heading.cos().max(0.0);
-                    self.pid.forward(
+                    forward(
+                        &mut self.pid,
                         sign * distance * alignment,
-                        forward_rate,
                         stopping_limit(distance, maximum_speed.value),
-                        dt,
                     )
                 };
                 let turn = angular(&mut self.pid, heading);
@@ -333,7 +356,7 @@ impl DifferentialFeedback {
                 let speed = if reached && facing && slow {
                     0.0
                 } else {
-                    self.pid.forward(translation_error, forward_rate, limit, dt)
+                    forward(&mut self.pid, translation_error, limit)
                 };
                 let turning = if facing && reached && slow {
                     0.0
@@ -372,12 +395,7 @@ impl DifferentialFeedback {
                 let speed = if reached && facing && slow {
                     0.0
                 } else {
-                    self.pid.forward(
-                        if reached { 0.0 } else { remaining },
-                        forward_rate,
-                        limit,
-                        dt,
-                    )
+                    forward(&mut self.pid, if reached { 0.0 } else { remaining }, limit)
                 };
                 let feedforward = speed * curvature;
                 let turning = if reached && facing && slow {
@@ -388,8 +406,22 @@ impl DifferentialFeedback {
                     } else {
                         config.arc_correction_limit.value
                     };
-                    self.pid
-                        .yaw(heading, yaw_rate, feedforward, correction_limit, dt)
+                    if reached && speed == 0.0 {
+                        let output = self.pid.yaw(heading, yaw_rate, 0.0, correction_limit, dt);
+                        compensate_breakaway(
+                            output,
+                            heading,
+                            yaw_rate,
+                            options.heading_tolerance.value,
+                            options.angular_speed_tolerance.value,
+                            config.minimum_angular_speed.value,
+                            correction_limit.min(config.tuning.angular.output_limit().unwrap_or(f64::INFINITY)),
+                            config.yaw_braking.unwrap_or(config.angular_deceleration).value.min(config.angular_deceleration.value),
+                            reaction,
+                        )
+                    } else {
+                        self.pid.yaw(heading, yaw_rate, feedforward, correction_limit, dt)
+                    }
                 };
                 (drive(speed, turning), reached && facing && slow)
             }
@@ -420,6 +452,7 @@ impl DifferentialFeedback {
         let current_w = (self.last_wheels[1] - self.last_wheels[0]) / width;
         let desired_v = (desired[0] + desired[1]) * 0.5;
         let desired_w = (desired[1] - desired[0]) / width;
+        let seconds = dt.as_secs_f64();
         let slew = |current: f64, target: f64, acceleration: f64, deceleration: f64| {
             let rate = if (current == 0.0 || current.signum() == target.signum())
                 && target.abs() > current.abs()
@@ -428,7 +461,7 @@ impl DifferentialFeedback {
             } else {
                 deceleration
             };
-            let step = rate * dt.as_secs_f64();
+            let step = rate * seconds;
             current + (target - current).clamp(-step, step)
         };
         let v = slew(
@@ -449,4 +482,35 @@ impl DifferentialFeedback {
         );
         (self.last_wheels, false)
     }
+}
+
+/// Raise only an error-reducing command while nearly stationary. The floor is
+/// subordinate to the controller's output limit, braking distance, slew limits
+/// and the downstream clearance governor. It never amplifies a brake command.
+#[allow(clippy::too_many_arguments)]
+fn compensate_breakaway(
+    output: f64,
+    error: f64,
+    measured: f64,
+    tolerance: f64,
+    rest_rate: f64,
+    minimum: f64,
+    limit: f64,
+    deceleration: f64,
+    reaction: f64,
+) -> f64 {
+    if minimum <= 0.0
+        || output == 0.0
+        || output.abs() >= minimum
+        || error.abs() <= tolerance
+        || measured.abs() > rest_rate
+        || output.signum() != error.signum()
+    {
+        return output;
+    }
+    // Invert d = v*T + v^2/(2*a) without subtracting nearly equal values.
+    let distance = error.abs() - tolerance;
+    let stoppable = 2.0 * distance
+        / (reaction + (reaction * reaction + 2.0 * distance / deceleration).sqrt());
+    output.signum() * output.abs().max(minimum.min(limit).min(stoppable))
 }

@@ -44,11 +44,9 @@ impl TerminalPose {
             changed = true;
         }
         if self.braking {
-            let slow = feedback
-                .forward_velocity
-                .value
-                .hypot(feedback.lateral_velocity.value)
-                <= options.speed_tolerance.value
+            let slow = feedback.forward_velocity.value.powi(2)
+                + feedback.lateral_velocity.value.powi(2)
+                <= options.speed_tolerance.value.powi(2)
                 && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
             self.stationary = if slow {
                 self.stationary.saturating_add(dt)

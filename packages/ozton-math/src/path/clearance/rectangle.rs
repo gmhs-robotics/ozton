@@ -94,31 +94,36 @@ impl RectangularClearance {
             return None;
         }
         let angle = yaw.value.abs().min(core::f64::consts::PI);
-        let (sin, cos) = (libm::sin(angle), libm::cos(angle));
-        let f = direction(pose.heading);
-        let l = direction(pose.heading - crate::qty!(90 deg));
+        let (sin, cos) = libm::sincos(angle);
+        let orientation = crate::geometry::rotation(pose.heading);
+        let f = orientation.perp();
+        let l = orientation;
+        let half = self.footprint.half_extents;
+        let corners = [
+            DVec2::new(-half.x, -half.y),
+            DVec2::new(-half.x, half.y),
+            DVec2::new(half.x, -half.y),
+            DVec2::new(half.x, half.y),
+        ]
+        .map(|corner| orientation.rotate(self.footprint.center_offset + corner));
+        let corners = corners.map(|corner| (corner, corner.length()));
+        let travel = [
+            f * forward[0],
+            f * forward[1],
+            l * lateral[0],
+            l * lateral[1],
+        ]
+        .map(|vector| (vector, vector.length()));
         let support = |axis: DVec2| {
-            let mut corner_max = f64::NEG_INFINITY;
-            for x in [
-                -self.footprint.half_extents.x,
-                self.footprint.half_extents.x,
-            ] {
-                for y in [
-                    -self.footprint.half_extents.y,
-                    self.footprint.half_extents.y,
-                ] {
-                    let corner = pose
-                        .transform_point(self.footprint.center_offset + DVec2::new(x, y))
-                        - pose.position;
-                    corner_max = corner_max.max(rotated_support(corner, axis, sin, cos));
-                }
-            }
-            let travel_support = |d: DVec2, interval: [f64; 2]| {
-                rotated_support(d * interval[0], axis, sin, cos)
-                    .max(rotated_support(d * interval[1], axis, sin, cos))
-                    .max(0.0)
-            };
-            corner_max + travel_support(f, forward) + travel_support(l, lateral)
+            let projected = |(vector, radius)| rotated_support(vector, radius, axis, sin, cos);
+            let corner_max = corners
+                .iter()
+                .copied()
+                .map(projected)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let forward = projected(travel[0]).max(projected(travel[1])).max(0.0);
+            let lateral = projected(travel[2]).max(projected(travel[3])).max(0.0);
+            corner_max + forward + lateral
         };
         let min = pose.position - DVec2::new(support(DVec2::NEG_X), support(DVec2::NEG_Y));
         let max = pose.position + DVec2::new(support(DVec2::X), support(DVec2::Y));
@@ -296,9 +301,8 @@ impl RectangularClearance {
 
 /// Maximum projection of a vector rotated through any angle in [-yaw, yaw].
 /// The maximum lies at the aligned direction or at one of the arc endpoints.
-fn rotated_support(vector: DVec2, axis: DVec2, sin: f64, cos: f64) -> f64 {
+fn rotated_support(vector: DVec2, radius: f64, axis: DVec2, sin: f64, cos: f64) -> f64 {
     let dot = vector.dot(axis);
-    let radius = vector.length();
     if dot >= radius * cos {
         radius
     } else {
