@@ -19,7 +19,7 @@ use ozton_math::uom::si::{
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_motion::{Basic, Seeking, seeking::Normalized};
+use ozton_motion::{Basic, Seeking, seeking::{Normalized, TravelDirection}};
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssists};
 use ozton_tracking::{
     TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
@@ -248,8 +248,8 @@ fn seeking_motion() -> Seeking<Normalized> {
 
     Seeking::normalized()
         .with_linear_controller(linear)
-        .with_lateral_controller(lateral)
-        .with_tolerances(point_tolerances())
+        .with_angular_controller(lateral)
+        .with_linear_tolerances(point_tolerances())
         .with_timeout(Duration::from_secs(3))
 }
 
@@ -335,8 +335,8 @@ fn reverse_seeking_drives_backward_to_target() {
 
     block_on(async {
         motion
+            .with_travel(TravelDirection::Backward)
             .move_to_point(&mut drivetrain, glam::DVec2::new(0.0, 1.0))
-            .reverse()
             .await
             .expect("motion output succeeds");
     });
@@ -357,9 +357,9 @@ fn reverse_seeking_corrects_an_oblique_approach() {
     let target = Vec2::new(0.45, -1.0);
     let outcome = block_on(
         motion
-            .move_to_point(&mut drivetrain, (target.x, target.y))
-            .reverse()
-            .with_timeout(Duration::from_secs(2)),
+            .with_travel(TravelDirection::Backward)
+            .with_timeout(Duration::from_secs(2))
+            .move_to_point(&mut drivetrain, (target.x, target.y)),
     )
     .expect("motion output succeeds");
     assert!(
@@ -386,12 +386,11 @@ fn default_motions_chain_to_a_route() {
         assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
 
         let outcome = Seeking::normalized()
-            .move_to_point(&mut drivetrain, (target.x, target.y))
-            .reverse()
+            .with_travel(TravelDirection::Backward)
             .with_angular_kp(0.4)
-            .without_timeout()
-            .with_linear_voltage_limit(vexide::smart::motor::Motor::V5_MAX_VOLTAGE * 0.75)
+            .with_linear_output_limit(0.75)
             .with_timeout(Duration::from_secs(5))
+            .move_to_point(&mut drivetrain, (target.x, target.y))
             .await
             .expect("seeking output succeeds");
         assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);

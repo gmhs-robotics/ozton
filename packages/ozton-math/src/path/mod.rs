@@ -12,7 +12,7 @@ pub mod planner;
 pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Waypoint {
     pub position: DVec2,
     pub speed_fraction: f64,

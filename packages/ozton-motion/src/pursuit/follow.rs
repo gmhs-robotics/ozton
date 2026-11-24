@@ -8,11 +8,12 @@ use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     localization::observation::{TracksHeading, TracksPosition},
-    uom::si::f64::{Angle, Length},
+    uom::si::f64::Angle,
 };
 use ozton_runtime::clock::{Sleep, sleep};
 
-use super::{PursuitTerminalConfig, Waypoint};
+use super::PursuitTerminalConfig;
+use ozton_math::path::Waypoint;
 use crate::Tank;
 
 pub struct State {
@@ -413,43 +414,6 @@ where
         state.sleep = sleep(this.terminal_config.period);
         cx.waker().wake_by_ref();
         Poll::Pending
-    }
-}
-
-// MARK: Modifiers
-
-impl<M, I> PurePursuitFuture<'_, M, I>
-where
-    M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
-    I: Iterator<Item = Waypoint> + Unpin,
-{
-    /// Set normalized-output endpoint PID gains and settling criteria.
-    pub fn with_terminal_config(&mut self, config: PursuitTerminalConfig) -> &mut Self {
-        self.terminal_config = config;
-        self
-    }
-
-    /// Modifies this motion's track width.
-    pub const fn with_track_width(&mut self, track_width: Length) -> &mut Self {
-        self.track_width = track_width.value;
-        self
-    }
-    /// Modifies this motion's timeout duration.
-    pub const fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    /// Removes this motion's timeout duration.
-    pub const fn without_timeout(&mut self) -> &mut Self {
-        self.timeout = None;
-        self
-    }
-
-    /// Modifies this motion's lookahead distance.
-    pub const fn with_lookahead_distance(&mut self, lookahead_distance: Length) -> &mut Self {
-        self.lookahead_distance = lookahead_distance.value;
-        self
     }
 }
 

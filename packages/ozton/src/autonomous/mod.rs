@@ -25,7 +25,7 @@ pub use ozton_motion::{
     assists::{AntiTipAssist, HeadingHoldAssist, MotorBalanceAssist, TiltAxis},
     basic::differential::{DriveOptions, DriveTuning},
     pursuit::profiled::Follower,
-    seeking::pose::TravelDirection,
+    seeking::TravelDirection,
 };
 pub use robot_motion::RobotMotion;
 pub use routine_error::RoutineError;

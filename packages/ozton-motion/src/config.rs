@@ -163,7 +163,7 @@ impl MotionConfig {
     }
 
     #[must_use]
-    pub const fn with_velocity_tolerance(mut self, value: Velocity) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: Velocity) -> Self {
         self.velocity_tolerance = value;
         self
     }
@@ -175,7 +175,7 @@ impl MotionConfig {
     }
 
     #[must_use]
-    pub const fn with_settle(mut self, value: Duration) -> Self {
+    pub const fn with_tolerance_duration(mut self, value: Duration) -> Self {
         self.settle = value;
         self
     }
@@ -199,7 +199,7 @@ impl MotionConfig {
     }
 
     #[must_use]
-    pub const fn with_stage_timeout(mut self, value: Duration) -> Self {
+    pub const fn with_timeout(mut self, value: Duration) -> Self {
         self.stage_timeout = value;
         self
     }
@@ -223,7 +223,7 @@ impl MotionConfig {
     }
 
     #[must_use]
-    pub const fn with_lookahead(mut self, value: Length) -> Self {
+    pub const fn with_lookahead_distance(mut self, value: Length) -> Self {
         self.lookahead = value;
         self
     }

@@ -47,8 +47,8 @@ fn seeking_templates_are_const() {
     use ozton_motion::{Seeking, seeking::Normalized};
     const NORMALIZED: Seeking<Normalized> = Seeking::normalized()
         .with_linear_controller(PID)
-        .with_lateral_gains(1.8, 0.0, 0.06)
-        .with_error_tolerance(length!(1 in));
+        .with_angular_gains(1.8, 0.0, 0.06)
+        .with_position_tolerance(length!(1 in));
     const SEEKING: Seeking = Seeking::new()
         .with_linear_gains(4.25, 0.0, 0.5)
         .with_angular_gains(3.0, 0.0, 0.22)

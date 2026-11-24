@@ -9,7 +9,7 @@ use glam::DVec2 as Vec2;
 use ozton_control::{
     Tolerances,
     axis::Linear,
-    loops::{Feedback, Pid},
+    loops::Feedback,
 };
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
@@ -50,7 +50,7 @@ where
     pub(crate) timeout: Option<Duration>,
     pub(crate) tolerances: Tolerances<Linear>,
     pub(crate) linear_controller: L,
-    pub(crate) lateral_controller: A,
+    pub(crate) angular_controller: A,
     pub(crate) drivetrain: &'a mut M,
     pub(crate) state: Option<State>,
 }
@@ -199,7 +199,7 @@ where
             let angle_error = wrap_heading(drive_heading - bearing(local_target));
             // Keep steering authority close to the goal and when facing away from it.
             let steering_error = angle_error.value * distance_error.max(0.5);
-            let angular = this.lateral_controller.update(-steering_error, 0.0, dt);
+            let angular = this.angular_controller.update(-steering_error, 0.0, dt);
             let direction = if this.reverse { -1.0 } else { 1.0 };
             let linear = this
                 .linear_controller
@@ -257,232 +257,4 @@ fn stop_with_error<M: Drive>(
 ) -> Result<crate::MotionOutcome, crate::MotionError<M::Error>> {
     drivetrain.stop_now().map_err(crate::MotionError::Stop)?;
     Err(error)
-}
-
-// MARK: Generic Modifiers
-
-impl<M, L, A> MoveToPointFuture<'_, M, L, A>
-where
-    M: Drive,
-    L: Feedback<State = f64, Signal = f64> + Unpin,
-    A: Feedback<State = f64, Signal = f64> + Unpin,
-    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
-{
-    /// Reverses this motion, moving to the point backwards rather than forwards.
-    pub fn reverse(&mut self) -> &mut Self {
-        self.reverse = true;
-        self
-    }
-
-    /// Modifies this motion's linear feedback controller.
-    pub fn with_linear_controller(&mut self, controller: L) -> &mut Self {
-        self.linear_controller = controller;
-        self
-    }
-
-    /// Modifies this motion's lateral feedback controller.
-    pub fn with_lateral_controller(&mut self, controller: A) -> &mut Self
-    where
-        A: Clone,
-    {
-        self.heading_controller = controller.clone();
-        self.lateral_controller = controller;
-        self
-    }
-
-    /// Modifies this motion's timeout duration.
-    pub const fn with_timeout(&mut self, timeout: Duration) -> &mut Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    /// Removes this motion's timeout duration.
-    pub const fn without_timeout(&mut self) -> &mut Self {
-        self.timeout = None;
-        self
-    }
-
-    /// Modifies this motion's tolerances.
-    pub const fn with_tolerances(&mut self, tolerances: Tolerances<Linear>) -> &mut Self {
-        self.tolerances = tolerances;
-        self
-    }
-
-    /// Modifies this motion's error tolerance.
-    pub const fn with_error_tolerance(&mut self, tolerance: Length) -> &mut Self {
-        self.tolerances.error_tolerance = Some(tolerance);
-        self
-    }
-
-    /// Removes this motion's error tolerance.
-    pub const fn without_error_tolerance(&mut self) -> &mut Self {
-        self.tolerances.error_tolerance = None;
-        self
-    }
-
-    /// Modifies this motion's velocity tolerance.
-    pub const fn with_velocity_tolerance(&mut self, tolerance: Velocity) -> &mut Self {
-        self.tolerances.velocity_tolerance = Some(tolerance);
-        self
-    }
-
-    /// Removes this motion's velocity tolerance.
-    pub const fn without_velocity_tolerance(&mut self) -> &mut Self {
-        self.tolerances.velocity_tolerance = None;
-        self
-    }
-
-    /// Modifies this motion's tolerance duration.
-    pub const fn with_tolerance_duration(&mut self, duration: Duration) -> &mut Self {
-        self.tolerances.duration = Some(duration);
-        self.angular_tolerances.duration = Some(duration);
-        self
-    }
-
-    /// Removes this motion's tolerance duration.
-    pub const fn without_tolerance_duration(&mut self) -> &mut Self {
-        self.tolerances.duration = None;
-        self.angular_tolerances.duration = None;
-        self
-    }
-}
-
-// MARK: Linear PID Modifiers
-
-impl<M, A> MoveToPointFuture<'_, M, Pid, A>
-where
-    M: Drive,
-    A: Feedback<State = f64, Signal = f64> + Unpin,
-    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
-{
-    /// Modifies this motion's linear PID gains.
-    pub const fn with_linear_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
-        self.linear_controller.set_gains(kp, ki, kd);
-        self
-    }
-
-    /// Modifies this motion's linear proportional gain (`kp`).
-    pub const fn with_linear_kp(&mut self, kp: f64) -> &mut Self {
-        self.linear_controller.set_kp(kp);
-        self
-    }
-
-    /// Modifies this motion's linear integral gain (`ki`).
-    pub const fn with_linear_ki(&mut self, ki: f64) -> &mut Self {
-        self.linear_controller.set_ki(ki);
-        self
-    }
-
-    /// Modifies this motion's linear derivative gain (`kd`).
-    pub const fn with_linear_kd(&mut self, kd: f64) -> &mut Self {
-        self.linear_controller.set_kd(kd);
-        self
-    }
-
-    /// Modifies this motion's linear integration range.
-    pub const fn with_linear_integration_range(&mut self, integration_range: Length) -> &mut Self {
-        self.linear_controller
-            .set_integration_range(Some(integration_range.value));
-        self
-    }
-
-    /// Removes this motion's linear integration range.
-    pub const fn without_linear_integration_range(&mut self) -> &mut Self {
-        self.linear_controller.set_integration_range(None);
-        self
-    }
-
-    /// Modifies this motion's linear output limit as a fraction of motor voltage.
-    pub const fn with_linear_output_limit(&mut self, limit: f64) -> &mut Self {
-        self.linear_controller.set_output_limit(Some(limit));
-        self
-    }
-
-    /// Sets the linear output limit in volts for V5 motors.
-    pub const fn with_linear_voltage_limit(&mut self, volts: f64) -> &mut Self {
-        self.with_linear_output_limit(volts / ozton_drivetrain::model::Differential::MAX_V5_VOLTAGE)
-    }
-
-    /// Removes this motion's linear output limit.
-    pub const fn without_linear_output_limit(&mut self) -> &mut Self {
-        self.linear_controller.set_output_limit(None);
-        self
-    }
-}
-
-// MARK: Angular PID Modifiers
-
-impl<M, L> MoveToPointFuture<'_, M, L, Pid>
-where
-    M: Drive,
-    L: Feedback<State = f64, Signal = f64> + Unpin,
-    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
-{
-    /// Modifies this motion's angular PID gains.
-    pub const fn with_angular_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
-        self.with_lateral_gains(kp, ki, kd)
-    }
-
-    /// Modifies this motion's angular proportional gain (`kp`).
-    pub const fn with_angular_kp(&mut self, kp: f64) -> &mut Self {
-        self.with_lateral_kp(kp)
-    }
-
-    /// Modifies this motion's lateral PID gains.
-    pub const fn with_lateral_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
-        self.lateral_controller.set_gains(kp, ki, kd);
-        self.heading_controller.set_gains(kp, ki, kd);
-        self
-    }
-
-    /// Modifies this motion's lateral proportional gain (`kp`).
-    pub const fn with_lateral_kp(&mut self, kp: f64) -> &mut Self {
-        self.lateral_controller.set_kp(kp);
-        self.heading_controller.set_kp(kp);
-        self
-    }
-
-    /// Modifies this motion's lateral integral gain (`ki`).
-    pub const fn with_lateral_ki(&mut self, ki: f64) -> &mut Self {
-        self.lateral_controller.set_ki(ki);
-        self.heading_controller.set_ki(ki);
-        self
-    }
-
-    /// Modifies this motion's lateral derivative gain (`kd`).
-    pub const fn with_lateral_kd(&mut self, kd: f64) -> &mut Self {
-        self.lateral_controller.set_kd(kd);
-        self.heading_controller.set_kd(kd);
-        self
-    }
-
-    /// Modifies this motion's lateral integration range.
-    pub const fn with_lateral_integration_range(&mut self, integration_range: Length) -> &mut Self {
-        self.lateral_controller
-            .set_integration_range(Some(integration_range.value));
-        self.heading_controller
-            .set_integration_range(Some(integration_range.value));
-        self
-    }
-
-    /// Modifies this motion's lateral output limit.
-    pub const fn with_lateral_output_limit(&mut self, limit: f64) -> &mut Self {
-        self.lateral_controller.set_output_limit(Some(limit));
-        self.heading_controller.set_output_limit(Some(limit));
-        self
-    }
-
-    /// Removes this motion's lateral integration range.
-    pub const fn without_lateral_integration_range(&mut self) -> &mut Self {
-        self.lateral_controller.set_integration_range(None);
-        self.heading_controller.set_integration_range(None);
-        self
-    }
-
-    /// Removes this motion's lateral output limit.
-    pub const fn without_lateral_output_limit(&mut self) -> &mut Self {
-        self.lateral_controller.set_output_limit(None);
-        self.heading_controller.set_output_limit(None);
-        self
-    }
 }

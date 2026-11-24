@@ -1,15 +1,12 @@
 //! Adaptive pure pursuit controller.
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use std::time::Duration;
 
 use glam::DVec2 as Vec2;
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
 #[cfg(feature = "vex")]
-use ozton_math::localization::observation::{TracksHeading, TracksPosition};
+use ozton_math::{localization::observation::{TracksHeading, TracksPosition}, path::Waypoint};
 use ozton_math::{control::Pid, uom::si::f64::Length};
 
 /// Normalized-output endpoint controller for the Evian-compatible pursuit API.
@@ -69,7 +66,7 @@ impl PursuitTerminalConfig {
     }
 
     #[must_use]
-    pub const fn with_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: f64) -> Self {
         self.velocity_tolerance = value;
         self
     }
@@ -119,31 +116,6 @@ impl PursuitTerminalConfig {
 mod follow;
 #[cfg(feature = "vex")]
 pub use follow::PurePursuitFuture;
-
-/// Parses a LemLib v0.5 path into positions in meters and normalized speed.
-pub fn parse_lemlib_path(
-    bytes: &[u8],
-) -> Result<Vec<Waypoint>, ozton_path_io::jerryio::ImportError> {
-    ozton_path_io::jerryio::parse(bytes).map(|points| {
-        points
-            .into_iter()
-            .map(|point| Waypoint {
-                position: point.position,
-                speed_fraction: point.speed_fraction,
-            })
-            .collect()
-    })
-}
-
-/// Pure pursuit path waypoint.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct Waypoint {
-    /// Position of the robot at this point along the path.
-    pub position: Vec2,
-
-    /// Normalized forward output at this point along the path, from zero to one.
-    pub speed_fraction: f64,
-}
 
 /// Adaptive pure pursuit controller.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -237,7 +209,7 @@ impl PurePursuit {
     }
 
     #[must_use]
-    pub const fn with_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: f64) -> Self {
         self.terminal_config.velocity_tolerance = value;
         self
     }

@@ -19,7 +19,7 @@ mod move_to_point;
 
 pub use move_to_point::MoveToPointFuture;
 
-pub mod pose;
+mod pose;
 pub use pose::{DriveMotionFault, PoseDrive, PoseMotionError, TravelDirection};
 
 /// One reusable seeking primitive. The default backend uses calibrated physical
@@ -41,17 +41,7 @@ impl<C> Seeking<C> {
     }
 
     #[must_use]
-    pub const fn reverse(self) -> Self {
-        self.with_travel(TravelDirection::Backward)
-    }
-
-    #[must_use]
-    pub const fn forward(self) -> Self {
-        self.with_travel(TravelDirection::Forward)
-    }
-
-    #[must_use]
-    pub const fn with_automatic_travel(mut self) -> Self {
+    pub const fn without_travel(mut self) -> Self {
         self.travel = None;
         self
     }
@@ -68,7 +58,7 @@ where
     pub linear_controller: L,
 
     /// Angular (cross-track) feedback controller.
-    pub lateral_controller: A,
+    pub angular_controller: A,
 
     /// Linear settling conditions.
     ///
@@ -145,59 +135,55 @@ impl Seeking<Normalized> {
     }
 
     #[must_use]
-    pub const fn with_lateral_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.config.lateral_controller.set_gains(kp, ki, kd);
+    pub const fn with_angular_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
+        self.config.angular_controller.set_gains(kp, ki, kd);
         self
     }
 
     #[must_use]
-    pub const fn with_lateral_kp(mut self, kp: f64) -> Self {
-        self.config.lateral_controller.set_kp(kp);
+    pub const fn with_angular_kp(mut self, kp: f64) -> Self {
+        self.config.angular_controller.set_kp(kp);
         self
     }
 
     #[must_use]
-    pub const fn with_lateral_ki(mut self, ki: f64) -> Self {
-        self.config.lateral_controller.set_ki(ki);
+    pub const fn with_angular_ki(mut self, ki: f64) -> Self {
+        self.config.angular_controller.set_ki(ki);
         self
     }
 
     #[must_use]
-    pub const fn with_lateral_kd(mut self, kd: f64) -> Self {
-        self.config.lateral_controller.set_kd(kd);
+    pub const fn with_angular_kd(mut self, kd: f64) -> Self {
+        self.config.angular_controller.set_kd(kd);
         self
     }
 
     #[must_use]
-    pub const fn with_lateral_output_limit(mut self, limit: f64) -> Self {
-        self.config.lateral_controller.set_output_limit(Some(limit));
+    pub const fn with_angular_output_limit(mut self, limit: f64) -> Self {
+        self.config.angular_controller.set_output_limit(Some(limit));
         self
     }
 
     #[must_use]
-    pub const fn with_lateral_integration_range(mut self, range: Length) -> Self {
+    pub const fn with_angular_integration_range(mut self, range: Length) -> Self {
         self.config
-            .lateral_controller
+            .angular_controller
             .set_integration_range(Some(range.value));
         self
     }
 
     #[must_use]
-    pub const fn without_lateral_output_limit(mut self) -> Self {
-        self.config.lateral_controller.set_output_limit(None);
+    pub const fn without_angular_output_limit(mut self) -> Self {
+        self.config.angular_controller.set_output_limit(None);
         self
     }
 
     #[must_use]
-    pub const fn without_lateral_integration_range(mut self) -> Self {
-        self.config.lateral_controller.set_integration_range(None);
+    pub const fn without_angular_integration_range(mut self) -> Self {
+        self.config.angular_controller.set_integration_range(None);
         self
     }
 
-    #[must_use]
-    pub const fn with_angular_gains(self, kp: f64, ki: f64, kd: f64) -> Self {
-        self.with_lateral_gains(kp, ki, kd)
-    }
 }
 
 impl<L, A> Seeking<Normalized<L, A>>
@@ -211,11 +197,11 @@ where
     }
 
     /// Construct a template from custom feedback controllers without requiring PID.
-    pub const fn from_controllers(linear_controller: L, lateral_controller: A) -> Self {
+    pub const fn from_controllers(linear_controller: L, angular_controller: A) -> Self {
         Self {
             config: Normalized {
                 linear_controller,
-                lateral_controller,
+                angular_controller,
                 tolerances: crate::LINEAR_SETTLING,
                 angular_tolerances: Tolerances::new()
                     .error(crate::defaults::AUTON_HEADING_TOLERANCE)
@@ -240,31 +226,31 @@ where
     }
 
     #[must_use]
-    pub const fn with_tolerances(mut self, tolerances: Tolerances<Linear>) -> Self {
+    pub const fn with_linear_tolerances(mut self, tolerances: Tolerances<Linear>) -> Self {
         self.config.tolerances = tolerances;
         self
     }
 
     #[must_use]
-    pub const fn with_error_tolerance(mut self, value: Length) -> Self {
+    pub const fn with_position_tolerance(mut self, value: Length) -> Self {
         self.config.tolerances.error_tolerance = Some(value);
         self
     }
 
     #[must_use]
-    pub const fn without_error_tolerance(mut self) -> Self {
+    pub const fn without_position_tolerance(mut self) -> Self {
         self.config.tolerances.error_tolerance = None;
         self
     }
 
     #[must_use]
-    pub const fn with_velocity_tolerance(mut self, value: Velocity) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: Velocity) -> Self {
         self.config.tolerances.velocity_tolerance = Some(value);
         self
     }
 
     #[must_use]
-    pub const fn without_velocity_tolerance(mut self) -> Self {
+    pub const fn without_linear_velocity_tolerance(mut self) -> Self {
         self.config.tolerances.velocity_tolerance = None;
         self
     }
@@ -311,7 +297,7 @@ where
         Seeking {
             config: Normalized {
                 linear_controller: controller,
-                lateral_controller: self.config.lateral_controller,
+                angular_controller: self.config.angular_controller,
                 tolerances: self.config.tolerances,
                 angular_tolerances: self.config.angular_tolerances,
                 timeout: self.config.timeout,
@@ -321,7 +307,7 @@ where
     }
 
     #[must_use]
-    pub const fn with_lateral_controller<C>(self, controller: C) -> Seeking<Normalized<L, C>>
+    pub const fn with_angular_controller<C>(self, controller: C) -> Seeking<Normalized<L, C>>
     where
         L: Copy,
         A: Copy,
@@ -329,7 +315,7 @@ where
     {
         Seeking {
             config: Normalized {
-                lateral_controller: controller,
+                angular_controller: controller,
                 linear_controller: self.config.linear_controller,
                 tolerances: self.config.tolerances,
                 angular_tolerances: self.config.angular_tolerances,
@@ -362,28 +348,13 @@ where
             target_point: point.into(),
             final_heading: None,
             angular_tolerances: self.config.angular_tolerances,
-            heading_controller: self.config.lateral_controller.clone(),
+            heading_controller: self.config.angular_controller.clone(),
             timeout: self.config.timeout,
             tolerances: self.config.tolerances,
             linear_controller: self.config.linear_controller.clone(),
-            lateral_controller: self.config.lateral_controller.clone(),
+            angular_controller: self.config.angular_controller.clone(),
             state: None,
         }
-    }
-
-    /// Move to a point and then settle at the specified absolute heading.
-    pub fn move_to_point_at_heading<
-        'a,
-        M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
-    >(
-        &self,
-        drivetrain: &'a mut M,
-        point: impl Into<Vec2>,
-        heading: Angle,
-    ) -> MoveToPointFuture<'a, M, L, A> {
-        let mut future = self.move_to_point(drivetrain, point);
-        future.final_heading = Some(heading);
-        future
     }
 
     /// Move to a complete pose with normalized motor-output feedback.
@@ -395,6 +366,8 @@ where
         drivetrain: &'a mut M,
         target: Pose,
     ) -> MoveToPointFuture<'a, M, L, A> {
-        self.move_to_point_at_heading(drivetrain, target.position, target.heading)
+        let mut future = self.move_to_point(drivetrain, target.position);
+        future.final_heading = Some(target.heading);
+        future
     }
 }

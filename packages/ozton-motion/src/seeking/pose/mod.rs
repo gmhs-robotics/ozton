@@ -38,15 +38,7 @@ impl Default for Seeking {
 
 impl Seeking {
     pub const fn new() -> Self {
-        Self::from_config(crate::MotionConfig::DEFAULT)
-    }
-
-    /// Declare a reusable motion primitive directly from physical motion settings.
-    pub const fn from_config(config: crate::MotionConfig) -> Self {
-        Self {
-            config,
-            travel: None,
-        }
+        Self { config: crate::MotionConfig::DEFAULT, travel: None }
     }
 
     /// Effective settings, including changes made through individual modifiers.
@@ -165,7 +157,7 @@ impl Seeking {
     }
 
     #[must_use]
-    pub const fn with_lookahead(mut self, value: Length) -> Self {
+    pub const fn with_lookahead_distance(mut self, value: Length) -> Self {
         self.config.lookahead = value;
         self
     }
@@ -346,16 +338,6 @@ impl Seeking {
         self
     }
 
-    /// Alias for the position tolerance of a point or pose.
-    pub const fn with_error_tolerance(self, tolerance: Length) -> Self {
-        self.with_position_tolerance(tolerance)
-    }
-
-    /// Alias for the linear velocity tolerance.
-    pub const fn with_velocity_tolerance(self, tolerance: Velocity) -> Self {
-        self.with_linear_velocity_tolerance(tolerance)
-    }
-
     pub const fn with_position_tolerance(mut self, tolerance: Length) -> Self {
         self.config.position_tolerance = tolerance;
         self
@@ -395,24 +377,13 @@ impl Seeking {
         approach::drive_to_target(drive, point.into(), None, *self).await
     }
 
-    /// Move to a field point and finish at an explicit absolute heading.
-    pub async fn move_to_point_at_heading<D: PoseDrive>(
-        &self,
-        drive: &mut D,
-        point: impl Into<DVec2>,
-        heading: Angle,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        approach::drive_to_target(drive, point.into(), Some(heading), *self).await
-    }
-
     /// Move to a field pose and settle at its heading.
     pub async fn move_to_pose<D: PoseDrive>(
         &self,
         drive: &mut D,
         target: Pose,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.move_to_point_at_heading(drive, target.position, target.heading)
-            .await
+        approach::drive_to_target(drive, target.position, Some(target.heading), *self).await
     }
     /// Drive a signed distance while preserving the starting heading.
     pub async fn drive_distance<D: PoseDrive>(
