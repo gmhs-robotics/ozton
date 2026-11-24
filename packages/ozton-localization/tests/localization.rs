@@ -751,7 +751,9 @@ fn sensors_above_every_face_are_excluded_from_pose_corrections() {
         .unwrap();
     assert!(update.ranges[0].is_none());
     assert_eq!(update.pose, update.predicted);
-    assert!(sensors[0]
-        .relative_distance(reading(20, false).unwrap(), Duration::from_millis(20))
-        .is_ok());
+    assert!(
+        sensors[0]
+            .relative_distance(reading(20, false).unwrap(), Duration::from_millis(20))
+            .is_ok()
+    );
 }
