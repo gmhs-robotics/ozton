@@ -10,7 +10,58 @@ use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drive, HasLocalization};
 #[cfg(feature = "vex")]
 use ozton_math::localization::observation::{TracksHeading, TracksPosition};
-use ozton_math::uom::si::f64::Length;
+use ozton_math::{control::Pid, uom::si::f64::Length};
+
+/// Normalized-output endpoint controller for the Evian-compatible pursuit API.
+/// Gains output motor fractions, not physical wheel velocities.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PursuitTerminalConfig {
+    pub linear: Pid,
+    pub angular: Pid,
+    pub position_tolerance: Length,
+    pub velocity_tolerance: f64,
+    pub angular_velocity_tolerance: f64,
+    pub settle: Duration,
+    pub rate_filter: Duration,
+    pub period: Duration,
+}
+
+impl Default for PursuitTerminalConfig {
+    fn default() -> Self {
+        let mut linear = Pid::new(2.0, 0.0, 0.10, None);
+        let mut angular = Pid::new(1.5, 0.0, 0.06, None);
+        linear.set_output_limit(Some(0.35));
+        angular.set_output_limit(Some(0.40));
+        Self {
+            linear,
+            angular,
+            position_tolerance: crate::defaults::AUTON_POSITION_TOLERANCE,
+            velocity_tolerance: 0.04,
+            angular_velocity_tolerance: 0.12,
+            settle: Duration::from_millis(120),
+            rate_filter: Duration::from_millis(40),
+            period: Duration::from_millis(10),
+        }
+    }
+}
+
+impl PursuitTerminalConfig {
+    pub fn valid(self) -> bool {
+        crate::DriveTuning {
+            linear: self.linear,
+            angular: self.angular,
+        }
+        .valid()
+            && [
+                self.position_tolerance.value,
+                self.velocity_tolerance,
+                self.angular_velocity_tolerance,
+            ]
+            .into_iter()
+            .all(|value| value.is_finite() && value > 0.0)
+            && !self.period.is_zero()
+    }
+}
 
 #[cfg(feature = "vex")]
 mod follow;
@@ -74,6 +125,7 @@ impl PurePursuit {
             lookahead_distance: self.lookahead_distance.value,
             track_width: self.track_width.value,
             timeout: self.timeout,
+            terminal_config: PursuitTerminalConfig::default(),
         }
     }
 }

@@ -168,6 +168,11 @@ where
             ));
         }
 
+        ozton_runtime::log_row!(
+            Trace, "LEGACY_MOTION_TICK",
+            "command=seek,dt_us={},error_m={distance_error:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={velocity:.5},throttle={linear_output:.5},turn={angular_output:.5}",
+            dt.as_micros(), position.x, position.y, heading.value
+        );
         if let Err(output) = Arcade::drive(this.drivetrain, linear_output, angular_output) {
             this.state = None;
             return Poll::Ready(Err(crate::motion_output_error(

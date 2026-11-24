@@ -12,7 +12,7 @@ use ozton_math::{
 };
 use ozton_runtime::clock::{Sleep, sleep};
 
-use super::Waypoint;
+use super::{PursuitTerminalConfig, Waypoint};
 use crate::Tank;
 
 pub struct State {
@@ -23,6 +23,7 @@ pub struct State {
     sleep: Sleep,
     terminal: bool,
     previous_position: Vec2,
+    previous_heading: Angle,
     previous_time: Instant,
     settled_since: Option<Instant>,
     terminal_reverse: Option<bool>,
@@ -44,6 +45,7 @@ where
     pub(crate) lookahead_distance: f64,
     pub(crate) track_width: f64,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) terminal_config: PursuitTerminalConfig,
 }
 
 // MARK: Future Poll
@@ -73,7 +75,12 @@ where
         let state = if let Some(state) = &mut this.state {
             state
         } else {
-            if !this.lookahead_distance.is_finite() || this.lookahead_distance <= 0.0 {
+            if !this.lookahead_distance.is_finite()
+                || this.lookahead_distance <= 0.0
+                || !this.track_width.is_finite()
+                || this.track_width <= 0.0
+                || !this.terminal_config.valid()
+            {
                 return Poll::Ready(
                     this.drivetrain
                         .stop_now()
@@ -84,6 +91,7 @@ where
             let now = Instant::now();
             let mut terminal = false;
             let position = this.drivetrain.localization().position();
+            let heading = this.drivetrain.localization().heading();
 
             let Some(mut next) = this.waypoints.next() else {
                 return Poll::Ready(
@@ -93,6 +101,13 @@ where
                         .and(Err(crate::MotionError::InvalidPath)),
                 );
             };
+
+            if !valid_waypoint(next) || !position.is_finite() || !heading.value.is_finite() {
+                return Poll::Ready(
+                    this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
+                        .and(Err(crate::MotionError::InvalidPath)),
+                );
+            }
 
             // We want an initial intersection to handle the case where the robot
             // starts entirely off the path, so add a "fake waypoint" to the path at
@@ -109,6 +124,10 @@ where
             while position.distance(next.position) < this.lookahead_distance {
                 current = next;
                 next = if let Some(next_waypoint) = this.waypoints.next() {
+                    if !valid_waypoint(next_waypoint) {
+                        return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
+                            .and(Err(crate::MotionError::InvalidPath)));
+                    }
                     next_waypoint
                 } else {
                     terminal = true;
@@ -150,13 +169,14 @@ where
             };
 
             this.state.insert(State {
-                sleep: sleep(Duration::from_millis(10)),
+                sleep: sleep(this.terminal_config.period),
                 start_time: now,
                 lookahead_point,
                 current,
                 next,
                 terminal,
                 previous_position: position,
+                previous_heading: heading,
                 previous_time: now,
                 settled_since: None,
                 terminal_reverse: None,
@@ -186,8 +206,17 @@ where
         let dt = now
             .saturating_duration_since(state.previous_time)
             .as_secs_f64();
-        let speed = position.distance(state.previous_position) / dt.max(1e-6);
+        let displacement = position - state.previous_position;
+        let speed = displacement.length() / dt.max(1e-6);
+        let forward_rate = displacement.dot(ozton_math::geometry::direction(heading)) / dt.max(1e-6);
+        let yaw_rate = ozton_math::geometry::wrap_heading(heading - state.previous_heading).value / dt.max(1e-6);
+        state.previous_heading = heading;
         state.previous_position = position;
+        if !position.is_finite() || !heading.value.is_finite() || !speed.is_finite() || !yaw_rate.is_finite() {
+            this.state = None;
+            return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
+                .and(Err(crate::MotionError::InvalidFeedback)));
+        }
         state.previous_time = now;
 
         // If the lookahead circle envelops the end of the current waypoint segment,
@@ -198,6 +227,11 @@ where
         while !state.terminal && position.distance(state.next.position) < this.lookahead_distance {
             state.current = state.next;
             state.next = if let Some(next_waypoint) = this.waypoints.next() {
+                if !valid_waypoint(next_waypoint) {
+                    this.state = None;
+                    return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
+                        .and(Err(crate::MotionError::InvalidPath)));
+                }
                 next_waypoint
             } else {
                 state.terminal = true;
@@ -217,55 +251,51 @@ where
                         .and(Err(crate::MotionError::InvalidFeedback)),
                 );
             }
-            if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value && speed <= 0.04 {
+            let config = &mut this.terminal_config;
+            let reached = distance <= config.position_tolerance.value;
+            let slow = speed <= config.velocity_tolerance
+                && yaw_rate.abs() <= config.angular_velocity_tolerance;
+            if reached && slow {
                 let since = *state.settled_since.get_or_insert(now);
-                if now.saturating_duration_since(since) >= Duration::from_millis(120) {
+                if now.saturating_duration_since(since) >= config.settle {
                     this.state = None;
-                    return Poll::Ready(crate::finish_motion(
-                        this.drivetrain.stop_now(),
-                        crate::MotionOutcome::Settled,
-                    ));
+                    return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), crate::MotionOutcome::Settled));
                 }
             } else {
                 state.settled_since = None;
             }
-            let error =
-                ozton_math::geometry::wrap_heading(ozton_math::geometry::bearing(delta) - heading)
-                    .value;
-            let reverse = *state
-                .terminal_reverse
-                .get_or_insert(error.abs() > core::f64::consts::FRAC_PI_2);
-            if error.abs() > 2.3 && speed < 0.04 {
-                state.terminal_reverse = Some(!reverse);
+            let bearing = ozton_math::geometry::wrap_heading(ozton_math::geometry::bearing(delta) - heading).value;
+            let reverse = state.terminal_reverse.get_or_insert(bearing.abs() > core::f64::consts::FRAC_PI_2);
+            let travel_error = |reverse: bool| ozton_math::geometry::wrap_heading(
+                ozton_math::angle!(bearing + if reverse { core::f64::consts::PI } else { 0.0 }, rad)
+            ).value;
+            let mut error = travel_error(*reverse);
+            if error.abs() > 2.3 && slow && !reached {
+                *reverse = !*reverse;
+                error = travel_error(*reverse);
+                config.linear.reset();
+                config.angular.reset();
             }
-            let reverse = state.terminal_reverse.unwrap_or(reverse);
-            let error = if reverse {
-                ozton_math::geometry::wrap_heading(ozton_math::angle!(
-                    error + core::f64::consts::PI,
-                    rad
-                ))
-                .value
-            } else {
-                error
+            let dt = Duration::from_secs_f64(dt);
+            let linear_error = if reached { 0.0 } else {
+                distance * error.cos().max(0.0) * if *reverse { -1.0 } else { 1.0 }
             };
-            let linear = (2.0
-                * (distance - crate::defaults::AUTON_POSITION_TOLERANCE.value * 0.5).max(0.0))
-            .min(0.35)
-                * error.cos().max(0.0)
-                * if reverse { -1.0 } else { 1.0 };
-            let (linear, turn) = if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value {
-                (0.0, 0.0)
-            } else {
-                (linear, (1.5 * error).clamp(-0.4, 0.4))
-            };
-            if let Err(output) = Tank::drive(this.drivetrain, linear - turn, linear + turn) {
+            let linear = config.linear.update_with_rate(linear_error, -forward_rate, dt, config.rate_filter, 0.0);
+            let turn = config.angular.update_with_rate(if reached { 0.0 } else { error }, -yaw_rate, dt, config.rate_filter, 0.0);
+            let [left, right] = ozton_math::desaturate([linear - turn, linear + turn], 1.0);
+            ozton_runtime::log_row!(
+                Trace, "LEGACY_PURSUIT_TICK",
+                "terminal=true,x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={error:.5},forward_mps={forward_rate:.5},yaw_radps={yaw_rate:.5},left={left:.5},right={right:.5}",
+                position.x, position.y, heading.value
+            );
+            if let Err(output) = Tank::drive(this.drivetrain, left, right) {
                 this.state = None;
                 return Poll::Ready(Err(crate::motion_output_error(
                     output,
                     this.drivetrain.stop_now(),
                 )));
             }
-            state.sleep = sleep(Duration::from_millis(10));
+            state.sleep = sleep(this.terminal_config.period);
             cx.waker().wake_by_ref();
             return Poll::Pending;
         }
@@ -307,11 +337,16 @@ where
 
         let curvature = signed_arc_curvature(position, heading, state.lookahead_point);
 
-        if let Err(output) = Tank::drive(
-            this.drivetrain,
+        let [left, right] = ozton_math::desaturate([
             velocity * (2.0 + curvature * this.track_width) / 2.0,
             velocity * (2.0 - curvature * this.track_width) / 2.0,
-        ) {
+        ], 1.0);
+        ozton_runtime::log_row!(
+            Trace, "LEGACY_PURSUIT_TICK",
+            "terminal=false,x_m={:.5},y_m={:.5},heading_rad={:.5},lookahead_x_m={:.5},lookahead_y_m={:.5},forward_mps={forward_rate:.5},yaw_radps={yaw_rate:.5},left={left:.5},right={right:.5}",
+            position.x, position.y, heading.value, state.lookahead_point.x, state.lookahead_point.y
+        );
+        if let Err(output) = Tank::drive(this.drivetrain, left, right) {
             this.state = None;
             return Poll::Ready(Err(crate::motion_output_error(
                 output,
@@ -319,7 +354,7 @@ where
             )));
         }
 
-        state.sleep = sleep(Duration::from_millis(10));
+        state.sleep = sleep(this.terminal_config.period);
         cx.waker().wake_by_ref();
         Poll::Pending
     }
@@ -332,6 +367,12 @@ where
     M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
     I: Iterator<Item = Waypoint> + Unpin,
 {
+    /// Set normalized-output endpoint PID gains and settling criteria.
+    pub fn with_terminal_config(&mut self, config: PursuitTerminalConfig) -> &mut Self {
+        self.terminal_config = config;
+        self
+    }
+
     /// Modifies this motion's track width.
     pub const fn with_track_width(&mut self, track_width: Length) -> &mut Self {
         self.track_width = track_width.value;
@@ -357,6 +398,11 @@ where
 }
 
 // MARK: Math Functions
+
+fn valid_waypoint(waypoint: Waypoint) -> bool {
+    waypoint.position.is_finite()
+        && (0.0..=1.0).contains(&waypoint.speed_fraction)
+}
 
 fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
     use ozton_math::geometry::{Pose, pursuit_curvature};
