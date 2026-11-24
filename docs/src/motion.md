@@ -30,7 +30,26 @@ The robot must have room for these moves and a correct starting pose. The destin
 
 ## Configure once
 
-Use MotionConfig with PoseSeeking::with_config to choose wheel-speed limits, acceleration, deceleration, PID gains, settling criteria, clearance and timeouts. Declare each controller with the gains and limits it uses. For example, `const BASIC: Basic<Pid, AngularPid> = Basic { /* controllers, tolerances and timeout */ };` creates a reusable primitive whose commands clone their own feedback state. Both PID types support `Pid::new(...).with_output_limit(limit)` in constants. `PoseSeeking::from_config(MotionConfig { ... })` is also const; use `..MotionConfig::DEFAULT` for settings you do not need to change. Avoid an application-wide tuning aggregate. Library defaults are starting points, not calibration results. The generic programmed Runner also accepts MotionConfig.
+Declare a reusable controller with a const builder. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
+
+```rust,ignore
+use ozton::{
+    angle, length, motion::Basic,
+    math::units::{velocity, angular_velocity},
+};
+use std::time::Duration;
+
+const BASIC: Basic = Basic::new()
+    .with_linear_gains(1.2, 0.0, 0.06)
+    .with_angular_gains(1.6, 0.0, 0.08)
+    .with_linear_error_tolerance(length!(0.75 in))
+    .with_angular_error_tolerance(angle!(2 deg))
+    .with_linear_velocity_tolerance(velocity!(0.04, meter_per_second))
+    .with_angular_velocity_tolerance(angular_velocity!(0.12, radian_per_second))
+    .with_timeout(Duration::from_secs(6));
+```
+
+Seeking, PurePursuit and PoseSeeking have the same construction style. Supply the actual track width to PurePursuit with `with_track_width`. PoseSeeking offers physical speed, acceleration, PID, settling and clearance modifiers directly; MotionConfig remains available for the generic Runner. PID controllers also support const gain, integration range and output-limit modifiers. Library defaults are starting points, not calibration results.
 
 A command finishes when its applicable error and velocity tolerances remain satisfied for the required settle duration. PoseSeeking returns an error on timeout, loss of feedback or insufficient clearance. Generic motion commands return MotionOutcome::Settled or MotionOutcome::TimedOut; check the outcome rather than assuming an Ok means the target was reached.
 

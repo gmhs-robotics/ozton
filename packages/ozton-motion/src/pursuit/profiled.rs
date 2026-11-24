@@ -21,6 +21,15 @@ pub enum Follower {
 }
 
 impl Follower {
+    pub const fn pure_pursuit(lookahead: Length) -> Self {
+        Self::PurePursuit { lookahead }
+    }
+
+    pub const fn ramsete(b: f64, zeta: f64) -> Self {
+        Self::Ramsete { b, zeta }
+    }
+
+
     pub fn is_valid(self) -> bool {
         match self {
             Self::PurePursuit { lookahead } => lookahead.value.is_finite() && lookahead.value > 0.0,

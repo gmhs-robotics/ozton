@@ -313,6 +313,42 @@ impl PoseSeeking {
         self
     }
 
+    #[must_use]
+    pub const fn with_linear_output_limit(mut self, limit: f64) -> Self {
+        self.tuning.linear.set_output_limit(Some(limit));
+        self
+    }
+
+    #[must_use]
+    pub const fn without_linear_output_limit(mut self) -> Self {
+        self.tuning.linear.set_output_limit(None);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_linear_integration_range(mut self) -> Self {
+        self.tuning.linear.set_integration_range(None);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_output_limit(mut self, limit: f64) -> Self {
+        self.tuning.angular.set_output_limit(Some(limit));
+        self
+    }
+
+    #[must_use]
+    pub const fn without_angular_output_limit(mut self) -> Self {
+        self.tuning.angular.set_output_limit(None);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_angular_integration_range(mut self) -> Self {
+        self.tuning.angular.set_integration_range(None);
+        self
+    }
+
     pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
         self.tuning = tuning;
         self
