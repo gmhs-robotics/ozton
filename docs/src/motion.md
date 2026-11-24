@@ -53,3 +53,32 @@ A command finishes when its applicable error and velocity tolerances remain sati
 ## Following a prepared path
 
 Create a Path from waypoints and physical limits in ozton::math::path. Use Seeking::follow_path with a profiled Follower (RAMSETE or PurePursuit). The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+
+
+## Predictive stopping and wall approach
+
+The hard boundary is checked against the entire chassis and its reachable
+braking sweep. For a signed rate v, a minimum measured braking deceleration
+a and maximum reaction interval T, the signed stopping displacement is
+d = v T + v |v| / (2 a). The reaction interval combines the maximum control
+gap and configured actuator brake latency. The command governor adds a
+configurable preview interval; its scalar bisection scales both wheels
+together, preserving their differential curvature.
+
+The velocity estimate's covariance defines an interval v ± k sigma for
+each axis. Propagate the endpoints through the monotone stopping equation,
+including zero; forward and lateral displacement bounds are combined
+independently, so lateral motion cannot cancel a potential forward wall
+crossing. For a yaw excursion theta, each corner and each translational
+increment may rotate through a chord bounded by min(2, |theta|) times its
+length. Inflate the swept AABB by that bound, then test the wall rectangle
+and any hard obstacle bounds separately. Loose landmarks are not hard
+obstacles.
+
+The braking model is conditional on its physical assumptions: the reaction
+interval, minimum forward/lateral/angular braking rates, estimation error
+and localization margin must cover the actual robot. Covariance is a model
+uncertainty, not a deterministic guarantee against slip or bad sensors.
+The default latency and lateral braking values are initial estimates.
+Characterize them with measured stopping distances before increasing speed.
+Configure with MotionConfig::with_braking_model or Seeking::with_braking_model.

@@ -167,6 +167,10 @@ impl DifferentialLocalization {
         self.drive.is_some()
     }
 
+    pub fn velocity_uncertainty(&self) -> [f64; 3] {
+        self.localizer.velocity_uncertainty()
+    }
+
     pub fn feedback(&self) -> Result<Option<Feedback>, Fault> {
         self.feedback
     }

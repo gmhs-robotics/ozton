@@ -256,6 +256,11 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.config.odometry
     }
 
+    /// Model standard deviations in chassis-right, forward and yaw order (SI).
+    pub fn velocity_uncertainty(&self) -> [f64; 3] {
+        self.velocity.standard_deviation()
+    }
+
     /// Configure the shared velocity estimator and reset its covariance.
     pub fn set_velocity_config(&mut self, config: VelocityConfig) -> bool {
         self.velocity.set_config(config)

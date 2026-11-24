@@ -72,6 +72,58 @@ impl RectangularClearance {
             && (max.max(max + translation) + pad).cmple(self.usable).all()
     }
 
+    /// Bound a complete braking sweep with independent signed travel intervals
+    /// in the initial chassis axes. Intervals contain zero to include every
+    /// intermediate position. Any heading excursion up to yaw rotates each
+    /// traveled increment and each chassis corner by at most
+    /// min(2, |yaw|) times its length (chord-length inequality).
+    pub fn braking_bounds(
+        self,
+        pose: Pose,
+        forward: [f64; 2],
+        lateral: [f64; 2],
+        yaw: Angle,
+    ) -> Option<(DVec2, DVec2)> {
+        if !pose.is_finite()
+            || !yaw.value.is_finite()
+            || !forward.into_iter().chain(lateral).all(f64::is_finite)
+            || forward[0] > forward[1]
+            || lateral[0] > lateral[1]
+        {
+            return None;
+        }
+        let f = direction(pose.heading);
+        let l = direction(pose.heading - crate::qty!(90 deg));
+        let mut low = DVec2::ZERO;
+        let mut high = DVec2::ZERO;
+        for d in forward.map(|d| f * d) {
+            low = low.min(d);
+            high = high.max(d);
+        }
+        let mut lateral_low = DVec2::ZERO;
+        let mut lateral_high = DVec2::ZERO;
+        for d in lateral.map(|d| l * d) {
+            lateral_low = lateral_low.min(d);
+            lateral_high = lateral_high.max(d);
+        }
+        let travel = forward[0].abs().max(forward[1].abs())
+            + lateral[0].abs().max(lateral[1].abs());
+        let pad = DVec2::splat(
+            (self.footprint.turn_radius() + travel) * yaw.value.abs().min(2.0),
+        );
+        let (min, max) = self.footprint.bounds(pose);
+        Some((min + low + lateral_low - pad, max + high + lateral_high + pad))
+    }
+
+    /// Check the perimeter independently of fixed obstacles.
+    pub fn wall_contains_aabb(self, min: DVec2, max: DVec2) -> bool {
+        min.is_finite()
+            && max.is_finite()
+            && min.cmple(max).all()
+            && min.cmpge(-self.usable).all()
+            && max.cmple(self.usable).all()
+    }
+
     /// Conservative obstacle-only braking envelope using measured travel and yaw.
     pub fn obstacle_stop_clear(self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
         if self.obstacles.iter().all(Option::is_none) {

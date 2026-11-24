@@ -32,6 +32,14 @@ pub struct MotionConfig {
     pub progress_timeout: Duration,
     pub stage_timeout: Duration,
     pub clearance: Length,
+    /// Maximum actuator delay after a brake request, measured on hardware.
+    pub brake_latency: Duration,
+    /// Additional preview interval used by the command governor.
+    pub wall_preview: Duration,
+    /// Minimum passive lateral braking deceleration (m/s²).
+    pub lateral_braking: Acceleration,
+    /// Number of estimated standard deviations in the stopping-rate interval.
+    pub braking_sigma: f64,
     pub departure_reserve: Length,
     pub departure_speed: Velocity,
     pub lookahead: Length,
@@ -74,6 +82,10 @@ impl MotionConfig {
         progress_timeout: Duration::from_millis(2500),
         stage_timeout: Duration::from_secs(8),
         clearance: ozton_math::qty!(0.5 in),
+        brake_latency: Duration::from_millis(100),
+        wall_preview: Duration::from_millis(150),
+        lateral_braking: ozton_math::qty!(0.35 m/s^2),
+        braking_sigma: 2.0,
         departure_reserve: ozton_math::qty!(0.25 in),
         departure_speed: ozton_math::units::qty!(0.30 m/s),
         lookahead: ozton_math::qty!(0.16 m),
@@ -212,6 +224,22 @@ impl MotionConfig {
         self
     }
 
+    /// Physical braking and prediction allowances; characterize on the robot.
+    #[must_use]
+    pub const fn with_braking_model(
+        mut self,
+        latency: Duration,
+        preview: Duration,
+        lateral_braking: Acceleration,
+        sigma: f64,
+    ) -> Self {
+        self.brake_latency = latency;
+        self.wall_preview = preview;
+        self.lateral_braking = lateral_braking;
+        self.braking_sigma = sigma;
+        self
+    }
+
     #[must_use]
     pub const fn with_departure_reserve(mut self, value: Length) -> Self {
         self.departure_reserve = value;
@@ -291,6 +319,7 @@ impl MotionConfig {
                 self.acceleration.value,
                 self.deceleration.value,
                 self.lateral_acceleration.value,
+                self.lateral_braking.value,
                 self.angular_speed.value,
                 self.angular_acceleration.value,
                 self.angular_deceleration.value,
@@ -315,6 +344,8 @@ impl MotionConfig {
             && [self.clearance.value, self.departure_reserve.value]
                 .into_iter()
                 .all(|v| v.is_finite() && v >= 0.0)
+            && self.braking_sigma.is_finite()
+            && self.braking_sigma >= 0.0
             && self.ramsete_zeta <= 1.0
             && self.realign_exit < self.realign_enter
             && self.realign_enter.value < core::f64::consts::FRAC_PI_2

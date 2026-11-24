@@ -12,6 +12,7 @@ use crate::basic::differential::{DriveOptions, DriveTuning};
 mod approach;
 mod drive;
 mod error;
+mod safety;
 mod session;
 pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
@@ -70,6 +71,17 @@ impl Seeking {
 
     pub const fn with_clearance(mut self, clearance: Length) -> Self {
         self.config.clearance = clearance;
+        self
+    }
+
+    pub const fn with_braking_model(
+        mut self,
+        latency: Duration,
+        preview: Duration,
+        lateral_braking: Acceleration,
+        sigma: f64,
+    ) -> Self {
+        self.config = self.config.with_braking_model(latency, preview, lateral_braking, sigma);
         self
     }
 

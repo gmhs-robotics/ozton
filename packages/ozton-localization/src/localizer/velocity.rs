@@ -142,6 +142,10 @@ impl VelocityEstimator {
         true
     }
 
+    pub(super) fn standard_deviation(&self) -> [f64; 3] {
+        self.axes.map(|axis| axis.p00.max(0.0).sqrt())
+    }
+
     pub(super) fn reset(&mut self) {
         self.axes = [Axis::default(); 3];
     }

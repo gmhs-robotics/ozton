@@ -60,6 +60,10 @@ pub trait PoseDrive: DriveEncoders {
     }
     fn pose_trusted(&self) -> bool;
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
+    /// Rate standard deviations in right, forward, yaw order (SI).
+    fn velocity_uncertainty(&self) -> [f64; 3] {
+        [0.0; 3]
+    }
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error>;
     fn brake(&mut self) -> Result<(), Self::Error>;
     fn request_distance_reset(&mut self);
@@ -91,6 +95,10 @@ impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
         self.localization()
             .feedback()
             .map_err(DriveMotionFault::Tracking)
+    }
+
+    fn velocity_uncertainty(&self) -> [f64; 3] {
+        self.localization().velocity_uncertainty()
     }
 
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {
@@ -149,6 +157,10 @@ where
 
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
         self.drivetrain().pose_feedback()
+    }
+
+    fn velocity_uncertainty(&self) -> [f64; 3] {
+        self.drivetrain().velocity_uncertainty()
     }
 
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {

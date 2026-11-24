@@ -7,7 +7,7 @@ use ozton_math::{
 };
 use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_row};
 
-use super::{PoseDrive, PoseMotionError};
+use super::{PoseDrive, PoseMotionError, safety::{limit_wall_command, safe_feedback}};
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
@@ -148,11 +148,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::UntrustedPose);
             }
             let clearance = super::approach::clearance(self.drive, self.config.clearance)?;
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config)) {
+            let uncertainty = self.drive.velocity_uncertainty();
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty)) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
-            let wheels = limit_wall_command(clearance, feedback, wheels, self.options, self.config);
+            let wheels = limit_wall_command(clearance, feedback, wheels, self.options, self.config, uncertainty);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
             if complete {
@@ -261,7 +262,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !self.drive.pose_trusted() {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config)) {
+            let uncertainty = self.drive.velocity_uncertainty();
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty)) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(
@@ -319,7 +321,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - progress.distance(), false)
             };
-            let wheels = limit_wall_command(clearance, feedback, wheels, options, self.config);
+            let wheels = limit_wall_command(clearance, feedback, wheels, options, self.config, uncertainty);
             if phase_changed {
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;
@@ -413,93 +415,6 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     }
 }
 
-// The feedback already contains the shared timestamp-aware velocity estimate.
-// These are stopping-model latency allowances, not velocity filter constants.
-const STOP_REACTION: f64 = 0.20;
-const COMMAND_REACTION: f64 = 0.35;
-
-fn stopping_envelope(
-    feedback: Feedback,
-    v: f64,
-    w: f64,
-    reaction: f64,
-    config: crate::MotionConfig,
-) -> (ozton_math::geometry::DVec2, ozton_math::uom::si::f64::Angle) {
-    let travel = v.signum() * (v * v / (2.0 * config.deceleration.value) + v.abs() * reaction);
-    let yaw = w * reaction + w.signum() * w * w / (2.0 * config.angular_deceleration.value);
-    let translation = ozton_math::geometry::direction(feedback.pose.heading) * travel
-        + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
-            * feedback.lateral_velocity.value
-            * reaction;
-    (translation, ozton_math::qty!((yaw) rad))
-}
-
-/// Govern commanded speed before reaching the emergency stopping envelope.
-/// Scale both wheel targets together to retain their curvature.
-fn limit_wall_command(
-    field: Option<ozton_math::path::clearance::RectangularClearance>,
-    feedback: Feedback,
-    wheels: [f64; 2],
-    options: DriveOptions,
-    config: crate::MotionConfig,
-) -> [f64; 2] {
-    let Some(field) = field else {
-        return wheels;
-    };
-    let v = (wheels[0] + wheels[1]) * 0.5;
-    let w = (wheels[1] - wheels[0]) / options.track_width.value;
-    let clear = |scale| {
-        let (translation, yaw) =
-            stopping_envelope(feedback, v * scale, w * scale, COMMAND_REACTION, config);
-        field.wall_stop_clear(feedback.pose, translation, yaw)
-    };
-    if clear(1.0) {
-        return wheels;
-    }
-    let mut low = 0.0;
-    let mut high = 1.0;
-    for _ in 0..10 {
-        let middle = (low + high) * 0.5;
-        if clear(middle) {
-            low = middle;
-        } else {
-            high = middle;
-        }
-    }
-    wheels.map(|speed| speed * low)
-}
-
-fn safe_feedback(
-    field: ozton_math::path::clearance::RectangularClearance,
-    feedback: Feedback,
-    config: crate::MotionConfig,
-) -> bool {
-    let v = feedback.forward_velocity.value;
-    let w = feedback.angular_velocity.value;
-    let (translation, rotation) = stopping_envelope(feedback, v, w, STOP_REACTION, config);
-    let yaw = rotation.value;
-    let reason = if !field.contains_pose(feedback.pose) {
-        "current_footprint"
-    } else if !field.wall_stop_clear(feedback.pose, translation, rotation) {
-        "wall_stopping_envelope"
-    } else if !field.obstacle_stop_clear(feedback.pose, translation, rotation) {
-        "obstacle_stopping_envelope"
-    } else {
-        return true;
-    };
-    log_row!(
-        Warn,
-        "CLEARANCE_FAULT",
-        "reason={reason},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={v:.5},yaw_radps={w:.5},stop_x_m={:.5},stop_y_m={:.5},stop_yaw_rad={yaw:.5}",
-        feedback.pose.position.x,
-        feedback.pose.position.y,
-        feedback.pose.heading.value,
-        translation.x,
-        translation.y
-    );
-    false
-}
-
 fn valid_feedback(feedback: Feedback) -> bool {
     feedback.pose.is_finite()
         && [
@@ -571,51 +486,5 @@ impl Progress {
             self.elapsed += dt;
         }
         self.elapsed >= timeout
-    }
-}
-
-#[cfg(test)]
-mod safety_tests {
-    use ozton_math::{
-        geometry::{DVec2, Pose},
-        path::clearance::{Footprint, RectangularClearance},
-        qty,
-    };
-
-    use super::*;
-
-    fn sample(ms: u64, travel: f64, raw: f64) -> Feedback {
-        Feedback {
-            time: Duration::from_millis(ms),
-            pose: Pose::new(DVec2::new(0.20411, -0.01730), qty!(-1.54347 rad)),
-            forward_travel: qty!((travel) m),
-            forward_velocity: qty!((raw) m/s),
-            lateral_velocity: qty!(0 m/s),
-            angular_velocity: qty!(0.10613 rad/s),
-            ranges: [None; _],
-            reset_accepted: false,
-        }
-    }
-
-    #[test]
-    fn shared_velocity_drives_wall_safety_and_speed_governor() {
-        let field = RectangularClearance::new(
-            Footprint::new(qty!(15.1 in), qty!(15 in)).unwrap(),
-            DVec2::new(0.93345, 1.3843),
-            qty!(1 in),
-        )
-        .unwrap();
-        let config = crate::MotionConfig {
-            deceleration: qty!(0.55 m/s^2),
-            ..crate::MotionConfig::DEFAULT
-        };
-        assert!(!safe_feedback(field, sample(60, 0.03294, 0.88620), config));
-        assert!(safe_feedback(field, sample(60, 0.03294, 0.549), config));
-        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
-        let mut near = sample(60, 0.03294, 0.549);
-        near.pose.position.x = 0.55;
-        let limited = limit_wall_command(Some(field), near, [0.55; 2], options, config);
-        assert!(limited[0] > 0.0 && limited[0] < 0.55);
-        assert_eq!(limited[0], limited[1]);
     }
 }

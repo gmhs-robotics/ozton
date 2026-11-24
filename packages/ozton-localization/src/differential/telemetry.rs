@@ -42,6 +42,12 @@ impl Telemetry {
             update.correction, update.distance_reset_axes, localizer.range_count(),
             update.forward_velocity, update.lateral_velocity, update.angular_velocity,
         ));
+        let [lateral, forward, yaw] = localizer.velocity_uncertainty();
+        frame.record(
+            Level::Trace,
+            "VELOCITY_UNCERTAINTY",
+            format_args!("lateral_sigma_mps={lateral:.4},forward_sigma_mps={forward:.4},yaw_sigma_radps={yaw:.4}"),
+        );
         for (source, pose) in [
             ("odometry", Some(update.odometry)),
             ("prediction", Some(update.predicted)),
