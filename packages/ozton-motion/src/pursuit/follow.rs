@@ -295,10 +295,7 @@ where
                 .terminal_reverse
                 .get_or_insert(bearing.abs() > core::f64::consts::FRAC_PI_2);
             let travel_error = |reverse: bool| {
-                ozton_math::geometry::wrap_heading(ozton_math::angle!(
-                    bearing + if reverse { core::f64::consts::PI } else { 0.0 },
-                    rad
-                ))
+                ozton_math::geometry::wrap_heading(ozton_math::qty!((bearing + if reverse { core::f64::consts::PI } else { 0.0 }) rad))
                 .value
             };
             let mut error = travel_error(*reverse);
@@ -442,7 +439,7 @@ fn line_segment_circle_intersections(
 ) -> (Option<Vec2>, Option<Vec2>) {
     let [first, last] = ozton_math::geometry::circle_segment_fractions(
         center,
-        ozton_math::length!(radius, m),
+        ozton_math::qty!((radius) m),
         start,
         end,
     )

@@ -107,7 +107,7 @@ impl RectangularClearance {
         // The straight segment lies inside a convex rectangle. Its two ends suffice.
         let displacement = enter * forward;
         (enter <= leave && self.contains_bounds(min + displacement, max + displacement))
-            .then_some(crate::length!(enter, m))
+            .then_some(crate::qty!((enter) m))
     }
 
     /// Try successively wider arcs in both directions, including a straight continuation.
@@ -141,13 +141,13 @@ impl RectangularClearance {
         let first_radius = minimum_radius.value.max(0.05);
         let radius_step = self.usable.max_element() / 10.0;
         (0..=40)
-            .map(move |step| crate::length!(first_radius + radius_step * f64::from(step), m))
+            .map(move |step| crate::qty!((first_radius + radius_step * f64::from(step)) m))
             .flat_map(|radius| {
                 (-18..=18)
                     .filter(|step| *step != 0)
                     .map(move |step| DepartureArc {
                         radius,
-                        sweep: crate::angle!(5.0 * f64::from(step), deg),
+                        sweep: crate::qty!((5.0 * f64::from(step)) deg),
                     })
             })
     }
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn corner_departure_needs_space_and_reaches_a_turning_area() {
-        let inches = |value| crate::length!(value, in);
+        let inches = |value| crate::qty!((value) in);
         let chassis = Footprint::from_extents(
             inches(7.55),
             inches(7.55),

@@ -38,7 +38,7 @@ impl RangeSensorConfig {
             mount_height: Length::ZERO,
             gate: RangeGate::DEFAULT,
             bias: Length::ZERO,
-            sigma: crate::length!(0.025, m),
+            sigma: crate::qty!(0.025 m),
             surface: None,
             surface_mask: u128::MAX,
         }

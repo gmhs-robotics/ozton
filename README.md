@@ -17,13 +17,14 @@ This is the development API. Pin a tested commit for competition firmware. The r
 Driver control needs only a drive model. Add calibrated wheel travel and an IMU when you want reliable autonomous movement. For position-based movement, register a known starting pose before issuing commands:
 
 ```rust
-use ozton::{length, angle, position_xyh, motion::Seeking};
+use ozton::position_xyh;
+use ozton::motion::Seeking;
 
 // drivetrain is an assembled, localized differential drive.
 // Run inside an enabled autonomous route.
 let motion = Seeking::new()
-    .with_position_tolerance(length!(0.75 in))
-    .with_heading_tolerance(angle!(2 deg));
+    .with_position_tolerance(ozton::qty!(0.75 in))
+    .with_heading_tolerance(ozton::qty!(2 deg));
 
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 ```

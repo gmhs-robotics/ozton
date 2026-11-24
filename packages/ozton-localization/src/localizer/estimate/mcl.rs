@@ -87,8 +87,8 @@ impl PoseEstimator for Mcl {
                 position: DVec2::ZERO,
                 heading: Angle::default(),
             },
-            distance: ozton_math::length!(0.0 m),
-            max_range: ozton_math::length!(0.0 m),
+            distance: ozton_math::qty!(0.0 m),
+            max_range: ozton_math::qty!(0.0 m),
             surface_mask: u128::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
@@ -103,7 +103,7 @@ impl PoseEstimator for Mcl {
             noise = noise.min(sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
-                distance: ozton_math::length!(distance, m),
+                distance: ozton_math::qty!((distance) m),
                 max_range: sensor.gate.max_range,
                 surface_mask: sensor.surface_mask,
             };

@@ -1,19 +1,14 @@
-use ozton_math::{
-    angle,
-    geometry::Pose,
-    length,
-    units::{angular_velocity, velocity},
-};
+use ozton_math::geometry::Pose;
 
 use super::*;
 
 #[test]
 fn match_turn_settles_with_delayed_angular_response() {
     let mut options =
-        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
-    options.heading_tolerance = angle!(2 deg);
+        DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
+    options.heading_tolerance = ozton_math::qty!(2 deg);
     let target = DifferentialTarget::Turn {
-        heading: angle!(1.18 rad),
+        heading: ozton_math::qty!(1.18 rad),
     };
     let mut controller = DifferentialFeedback::new(DriveTuning::STANDARD);
     let mut heading = 0.0;
@@ -27,11 +22,11 @@ fn match_turn_settles_with_delayed_angular_response() {
             target,
             Feedback {
                 time: tick * sample,
-                pose: Pose::new(DVec2::ZERO, angle!(heading, rad)),
+                pose: Pose::new(DVec2::ZERO, ozton_math::qty!((heading) rad)),
                 forward_travel: Length::ZERO,
                 forward_velocity: Velocity::ZERO,
                 lateral_velocity: Velocity::ZERO,
-                angular_velocity: angular_velocity!(yaw_rate, radian_per_second),
+                angular_velocity: ozton_math::qty!((yaw_rate) rad/s),
                 ranges: [None; _],
                 reset_accepted: false,
             },
@@ -59,7 +54,7 @@ fn match_turn_settles_with_delayed_angular_response() {
 #[test]
 fn point_approach_turns_before_driving_at_the_logged_heading_error() {
     let options =
-        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
+        DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
     let tick = Duration::from_millis(10);
     let (wheels, ready) = DifferentialFeedback::default().step(
         DifferentialTarget::DriveToPoint {
@@ -69,7 +64,7 @@ fn point_approach_turns_before_driving_at_the_logged_heading_error() {
         },
         Feedback {
             time: tick,
-            pose: Pose::new(DVec2::new(0.07375, 0.10689), angle!(0.08910 rad)),
+            pose: Pose::new(DVec2::new(0.07375, 0.10689), ozton_math::qty!(0.08910 rad)),
             forward_travel: Length::ZERO,
             forward_velocity: Velocity::ZERO,
             lateral_velocity: Velocity::ZERO,
@@ -88,7 +83,7 @@ fn point_approach_turns_before_driving_at_the_logged_heading_error() {
 #[test]
 fn point_brakes_inside_arrival_band_instead_of_coasting() {
     let options =
-        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
+        DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
     let mut controller = DifferentialFeedback::new(DriveTuning {
         linear: ozton_math::control::Pid::new(4.25, 0.0, 0.50, None),
         angular: ozton_math::control::Pid::new(3.0, 0.0, 0.22, None),
@@ -101,9 +96,9 @@ fn point_brakes_inside_arrival_band_instead_of_coasting() {
         },
         Feedback {
             time: Duration::from_millis(10),
-            pose: Pose::new(DVec2::new(0.0, -0.01), angle!(0 rad)),
+            pose: Pose::new(DVec2::new(0.0, -0.01), ozton_math::qty!(0 rad)),
             forward_travel: Length::ZERO,
-            forward_velocity: velocity!(0.20, meter_per_second),
+            forward_velocity: ozton_math::qty!(0.20 m/s),
             lateral_velocity: Velocity::ZERO,
             angular_velocity: AngularVelocity::ZERO,
             ranges: [None; _],
@@ -119,8 +114,8 @@ fn point_brakes_inside_arrival_band_instead_of_coasting() {
 #[test]
 fn point_approach_converges_with_motor_lag_and_small_overshoot() {
     let mut options =
-        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
-    options.position_tolerance = length!(0.75 in);
+        DriveOptions::differential(ozton_math::qty!(0.3292677692 m), ozton_math::qty!(0.50 m/s));
+    options.position_tolerance = ozton_math::qty!(0.75 in);
     let tuning = DriveTuning {
         linear: ozton_math::control::Pid::new(4.25, 0.0, 0.50, None),
         angular: ozton_math::control::Pid::new(3.0, 0.0, 0.22, None),
@@ -129,11 +124,11 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
     let dt = tick.as_secs_f64();
     for (initial, reverse) in [
         (
-            Pose::new(DVec2::new(0.07375, 0.10689), angle!(0.08910 rad)),
+            Pose::new(DVec2::new(0.07375, 0.10689), ozton_math::qty!(0.08910 rad)),
             true,
         ),
-        (Pose::new(DVec2::new(0.0, -0.24), angle!(0.0 rad)), false),
-        (Pose::new(DVec2::new(0.0, 0.03), angle!(0.0 rad)), false),
+        (Pose::new(DVec2::new(0.0, -0.24), ozton_math::qty!(0.0 rad)), false),
+        (Pose::new(DVec2::new(0.0, 0.03), ozton_math::qty!(0.0 rad)), false),
     ] {
         let mut controller = DifferentialFeedback::new(tuning);
         let mut pose = initial;
@@ -151,9 +146,9 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
                     time: tick * sample,
                     pose,
                     forward_travel: Length::ZERO,
-                    forward_velocity: velocity!(velocity, meter_per_second),
+                    forward_velocity: ozton_math::qty!((velocity) m/s),
                     lateral_velocity: Velocity::ZERO,
-                    angular_velocity: angular_velocity!(yaw_rate, radian_per_second),
+                    angular_velocity: ozton_math::qty!((yaw_rate) rad/s),
                     ranges: [None; _],
                     reset_accepted: false,
                 },
@@ -171,7 +166,7 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
             velocity += ((wheels[0] + wheels[1]) * 0.5 - velocity) * dt / 0.18;
             yaw_rate +=
                 ((wheels[1] - wheels[0]) / options.track_width.value - yaw_rate) * dt / 0.15;
-            pose.heading += angle!(yaw_rate * dt, rad);
+            pose.heading += ozton_math::qty!((yaw_rate * dt) rad);
             pose.position += ozton_math::geometry::direction(pose.heading) * velocity * dt;
         }
         assert!(

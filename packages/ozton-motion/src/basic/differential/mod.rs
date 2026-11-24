@@ -68,8 +68,8 @@ impl DriveOptions {
         Self {
             track_width,
             maximum_wheel_speed,
-            position_tolerance: ozton_math::length!(0.025, m),
-            heading_tolerance: ozton_math::angle!(0.06, rad),
+            position_tolerance: ozton_math::qty!(0.025 m),
+            heading_tolerance: ozton_math::qty!(0.06 rad),
             speed_tolerance: Velocity {
                 value: 0.04,
                 ..Velocity::ZERO
@@ -263,7 +263,7 @@ impl DifferentialFeedback {
                     return self.limit_step(wheels, slow, dt, options);
                 }
                 let bearing = ozton_math::geometry::bearing(delta);
-                let opposite = ozton_math::angle!(180 deg);
+                let opposite = ozton_math::qty!(180 deg);
                 let backing = self.point_backing.get_or_insert(*reverse);
                 let mut heading = error_at(if *backing {
                     bearing + opposite
@@ -359,7 +359,7 @@ impl DifferentialFeedback {
                         + if reached {
                             *sweep
                         } else {
-                            ozton_math::angle!(travel.clamp(0.0, arc_length) * curvature, rad)
+                            ozton_math::qty!((travel.clamp(0.0, arc_length) * curvature) rad)
                         },
                 );
                 let facing = heading.abs() <= options.heading_tolerance.value;

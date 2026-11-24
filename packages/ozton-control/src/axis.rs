@@ -298,13 +298,13 @@ mod tests {
 
     const TICK: Duration = Duration::from_millis(10);
     const SAMPLE: AxisSample = AxisSample {
-        position: ozton_math::angle!(0.5, rad),
+        position: ozton_math::qty!(0.5 rad),
         velocity: AngularVelocity::ZERO,
     };
 
     fn target(position: f64) -> Target {
         Target::Position {
-            position: ozton_math::angle!(position, rad),
+            position: ozton_math::qty!((position) rad),
             velocity: AngularVelocity::new::<radian_per_second>(0.0),
             acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         }
@@ -314,10 +314,10 @@ mod tests {
         AxisConfig::new()
             .with_pid(Pid::new(10.0, 0.0, 0.0, None))
             .with_maximum_voltage(ElectricPotential::new::<volt>(4.0))
-            .with_position_limits(ozton_math::angle!(0.0 rad), ozton_math::angle!(1.0 rad))
+            .with_position_limits(ozton_math::qty!(0.0 rad), ozton_math::qty!(1.0 rad))
             .build()
             .unwrap()
-            .with_position_tolerance(ozton_math::angle!(0.01 rad))
+            .with_position_tolerance(ozton_math::qty!(0.01 rad))
             .with_maximum_gap(Duration::from_millis(100))
     }
 
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(
             axis.update(
                 AxisSample {
-                    position: ozton_math::angle!(1.5 rad),
+                    position: ozton_math::qty!(1.5 rad),
                     velocity: AngularVelocity::new::<radian_per_second>(0.0)
                 },
                 target(1.0),
@@ -365,7 +365,7 @@ mod tests {
             assert!(
                 axis.update(
                     AxisSample {
-                        position: ozton_math::angle!(invalid, rad),
+                        position: ozton_math::qty!((invalid) rad),
                         velocity: AngularVelocity::new::<radian_per_second>(0.0)
                     },
                     target(1.0),
@@ -382,13 +382,13 @@ mod tests {
         );
         assert!(
             AxisConfig::new()
-                .with_position_limits(ozton_math::angle!(1.0 rad), ozton_math::angle!(0.0 rad))
+                .with_position_limits(ozton_math::qty!(1.0 rad), ozton_math::qty!(0.0 rad))
                 .build()
                 .is_none()
         );
         assert!(
             controller()
-                .with_position_tolerance(ozton_math::angle!(-1.0 rad))
+                .with_position_tolerance(ozton_math::qty!(-1.0 rad))
                 .update(SAMPLE, target(0.5), TICK)
                 .is_none()
         );

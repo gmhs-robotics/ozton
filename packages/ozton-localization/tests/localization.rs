@@ -631,10 +631,10 @@ fn range_usage_selects_filter_and_reset_observations_independently() {
 #[test]
 fn setting_field_zero_rebaselines_imu_heading() {
     use ozton_localization::differential::LocalizationBuilder;
-    use ozton_math::{
-        angle,
-        localization::observation::{HeadingObservation, Measurement, Observation, SensorSample},
-    };
+    use ozton_math::localization::observation::HeadingObservation;
+    use ozton_math::localization::observation::Measurement;
+    use ozton_math::localization::observation::Observation;
+    use ozton_math::localization::observation::SensorSample;
 
     let mut localization = LocalizationBuilder::default()
         .build(Default::default())
@@ -650,9 +650,7 @@ fn setting_field_zero_rebaselines_imu_heading() {
                     observations: &[Observation {
                         source: 0,
                         time,
-                        measurement: Measurement::Heading(HeadingObservation::Compass(angle!(
-                            degrees, deg
-                        ))),
+                        measurement: Measurement::Heading(HeadingObservation::Compass(ozton_math::qty!((degrees) deg))),
                     }],
                 },
                 None,
@@ -668,17 +666,17 @@ fn setting_field_zero_rebaselines_imu_heading() {
     let stationary = sample(&mut localization, 30, 83.0).unwrap();
     assert!(stationary.pose.heading.value.abs() < 1e-12);
     let turned = sample(&mut localization, 40, 73.0).unwrap();
-    assert!((turned.pose.heading - angle!(10 deg)).value.abs() < 1e-12);
+    assert!((turned.pose.heading - ozton_math::qty!(10 deg)).value.abs() < 1e-12);
 }
 
 #[test]
 fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
-    use ozton_math::{angle, length, units::angular_velocity};
+
 
     let mut localization = localizer(
         Estimator::Mcl(ParticleConfig {
-            max_range_residual: Some(length!(0.05 m)),
-            max_correction_yaw_rate: Some(angular_velocity!(0.35, radian_per_second)),
+            max_range_residual: Some(ozton_math::qty!(0.05 m)),
+            max_correction_yaw_rate: Some(ozton_math::qty!(0.35 rad/s)),
             ..ParticleConfig::default()
         }),
         false,
@@ -691,7 +689,7 @@ fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
 
     let wall = |millis, meters| {
         Some(RangeObservation {
-            distance: length!(meters, m),
+            distance: ozton_math::qty!((meters) m),
             ..reading(millis, false).unwrap()
         })
     };
@@ -701,7 +699,7 @@ fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
     assert_eq!(outlier.pose, outlier.predicted);
 
     let turning = Snapshot {
-        imu: Some(angle!(0.03 rad)),
+        imu: Some(ozton_math::qty!(0.03 rad)),
         ..snapshot(30)
     };
     let distance = 1.0 / 0.03_f64.cos() - 0.03;

@@ -38,7 +38,7 @@ impl Ramsete {
     /// Desired forward velocity (m/s) and angular velocity (rad/s) for this pose and path sample.
     pub fn twist(self, pose: Pose, reference: PathSample, reverse: bool) -> (f64, f64) {
         let sign = if reverse { -1.0 } else { 1.0 };
-        let facing = ozton_math::angle!(if reverse { core::f64::consts::PI } else { 0.0 }, rad);
+        let facing = ozton_math::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
         let error = pose.to_local(reference.pose.position);
         let heading_error = wrap_heading(reference.pose.heading + facing - pose.heading).value;
         let velocity = sign * reference.speed;

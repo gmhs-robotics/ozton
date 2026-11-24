@@ -119,7 +119,7 @@ where
 
         let linear_settled = this.linear_tolerances.check_with(
             &mut state.linear_settling,
-            ozton_math::length!(linear_error, m),
+            ozton_math::qty!((linear_error) m),
             Velocity::new::<meter_per_second>(this.drivetrain.localization().linear_velocity()),
             now,
         );

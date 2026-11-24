@@ -28,7 +28,7 @@ impl AngularPid {
 
     pub const fn integration_range(&self) -> Option<Angle> {
         match self.0.integration_range() {
-            Some(range) => Some(ozton_math::angle!(range, rad)),
+            Some(range) => Some(ozton_math::qty!((range) rad)),
             None => None,
         }
     }

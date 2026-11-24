@@ -125,7 +125,7 @@ async fn approach<D: PoseDrive>(
         };
         if displacement.length() > tolerance {
             let heading =
-                bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
+                bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
             // A point-only target does not require enough space to rotate at
             // the destination; only the actual approach orientation must fit.
             if clearance

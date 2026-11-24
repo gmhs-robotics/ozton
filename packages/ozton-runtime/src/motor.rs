@@ -162,7 +162,7 @@ mod tests {
 
     impl MotorDevice for FakeMotor {
         fn position(&self) -> Result<Angle, PortError> {
-            Ok(ozton_math::angle!(self.position, rad))
+            Ok(ozton_math::qty!((self.position) rad))
         }
         fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
             self.position = position.value;
@@ -212,7 +212,7 @@ mod tests {
             .unwrap();
         let dt = Duration::from_millis(10);
         let position = Target::Position {
-            position: ozton_math::angle!(2.0 rad),
+            position: ozton_math::qty!(2.0 rad),
             velocity: AngularVelocity::new::<radian_per_second>(0.0),
             acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         };
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(
             axis.apply(
                 AxisSample {
-                    position: ozton_math::angle!(0.0 rad),
+                    position: ozton_math::qty!(0.0 rad),
                     velocity: AngularVelocity::new::<radian_per_second>(0.0)
                 },
                 Target::Velocity {

@@ -12,7 +12,7 @@ pub struct Maneuver {
 
 /// Validate the oriented footprint over each interpolated segment, including reverse travel.
 pub fn clear(path: &Path, reverse: bool, field: RectangularClearance) -> bool {
-    let facing = crate::angle!(if reverse { core::f64::consts::PI } else { 0.0 }, rad);
+    let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
     let pose =
         |sample: &super::PathSample| Pose::new(sample.pose.position, sample.pose.heading + facing);
     path.samples()
@@ -73,7 +73,7 @@ pub fn plan(
                 let Ok(path) = Path::new(&points, limits) else {
                     continue;
                 };
-                let facing = crate::angle!(if reverse { core::f64::consts::PI } else { 0.0 }, rad);
+                let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
                 if wrap_heading(path.start().pose.heading + facing - start.heading)
                     .value
                     .abs()

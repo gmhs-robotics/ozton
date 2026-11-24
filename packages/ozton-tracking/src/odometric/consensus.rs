@@ -67,7 +67,7 @@ impl EncoderConsensus {
             self.position += delta;
         }
         Some(WheelFeedback {
-            position: ozton_math::length!(self.position, m),
+            position: ozton_math::qty!((self.position) m),
             velocity: Velocity::new::<meter_per_second>(velocity),
         })
     }
@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     fn sample(position: f64) -> Option<WheelFeedback> {
         Some(WheelFeedback {
-            position: ozton_math::length!(position, m),
+            position: ozton_math::qty!((position) m),
             velocity: Velocity::new::<meter_per_second>(0.1),
         })
     }

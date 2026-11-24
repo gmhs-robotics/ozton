@@ -7,10 +7,12 @@ A field pose describes where the robot's chosen origin is on the field. A sensor
 ## Write quantities with units
 
 ```rust
-use ozton::{angle, length, position_xy, position_xyh, position_xyzh};
+use ozton::position_xy;
+use ozton::position_xyh;
+use ozton::position_xyzh;
 
-let distance = length!(24 in);
-let heading = angle!(90 deg);
+let distance = ozton::qty!(24 in);
+let heading = ozton::qty!(90 deg);
 let point = position_xy!(12 in, 24 in);
 let pose = position_xyh!(12 in, 24 in, 90 deg);
 let mount = position_xyzh!(0 in, 6 in, 4 in, 0 deg);

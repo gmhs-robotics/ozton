@@ -291,7 +291,7 @@ impl DistanceDevice {
             .zip(object)
             .map(|(timestamp, (millimeters, confidence))| RangeObservation {
                 timestamp,
-                distance: ozton_math::length!(f64::from(millimeters), mm),
+                distance: ozton_math::qty!((f64::from(millimeters)) mm),
                 confidence,
                 occluded,
             }))

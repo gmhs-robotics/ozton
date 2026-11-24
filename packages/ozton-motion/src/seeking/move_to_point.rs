@@ -130,7 +130,7 @@ where
 
         let position_settled = this.tolerances.check_with(
             &mut state.settling,
-            ozton_math::length!(distance_error, m),
+            ozton_math::qty!((distance_error) m),
             Velocity::new::<meter_per_second>(velocity),
             now,
         );
@@ -188,7 +188,7 @@ where
             (0.0, angular)
         } else {
             let drive_heading = if this.reverse {
-                heading + ozton_math::angle!(std::f64::consts::PI, rad)
+                heading + ozton_math::qty!((std::f64::consts::PI) rad)
             } else {
                 heading
             };

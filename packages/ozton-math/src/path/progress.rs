@@ -33,7 +33,7 @@ impl<'path> Progress<'path> {
         let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
         let mut best_error = position.distance_squared(
-            path.at_distance(crate::length!(self.distance, m))
+            path.at_distance(crate::qty!((self.distance) m))
                 .pose
                 .position,
         );
@@ -71,7 +71,7 @@ impl<'path> Progress<'path> {
             let (a, b) = (pair[0], pair[1]);
             let [_, exit] = circle_segment_fractions(
                 position,
-                crate::length!(radius, m),
+                crate::qty!((radius) m),
                 a.pose.position,
                 b.pose.position,
             );
@@ -81,7 +81,7 @@ impl<'path> Progress<'path> {
                 return a.pose.position.lerp(b.pose.position, exit);
             }
         }
-        path.at_distance(crate::length!(self.distance + radius, m))
+        path.at_distance(crate::qty!((self.distance + radius) m))
             .pose
             .position
     }

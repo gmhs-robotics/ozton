@@ -189,7 +189,7 @@ impl FieldMap {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::{length, position_xyzh};
+    use ozton_math::position_xyzh;
 
     use super::*;
 
@@ -201,18 +201,18 @@ mod tests {
         for offset in 0..4 {
             assert!(field.add_octagon(
                 DVec2::new(0.5, 0.15 * f64::from(offset)),
-                length!(0.05 m),
-                length!(0.01 m),
-                length!(0 m),
-                length!(0.15 m)
+                ozton_math::qty!(0.05 m),
+                ozton_math::qty!(0.01 m),
+                ozton_math::qty!(0 m),
+                ozton_math::qty!(0.15 m)
             ));
         }
         assert!(field.add_octagon(
             DVec2::new(0.0, 0.8),
-            length!(0.1 m),
-            length!(0.02 m),
-            length!(0 m),
-            length!(0.15 m)
+            ozton_math::qty!(0.1 m),
+            ozton_math::qty!(0.02 m),
+            ozton_math::qty!(0 m),
+            ozton_math::qty!(0.15 m)
         ));
         let surfaces: Vec<_> = field.surfaces().collect();
         let pose = Pose::default();
@@ -226,7 +226,7 @@ mod tests {
         });
         assert!(hits[0].surface >= 32);
         assert!((hits[0].distance - 0.7).abs() < 1e-12);
-        assert!((hits[1].distance - length!(70.2 in).value).abs() < 1e-12);
+        assert!((hits[1].distance - ozton_math::qty!(70.2 in).value).abs() < 1e-12);
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 11.52 in, 0 deg));
         for (field, width, mask) in [(Field::PORTABLE, 140.40, 0b1111), (Field::METAL, 140.50, 0)] {
             let wall = field.surfaces()[0];
-            assert!(((wall.end - wall.start).length() - length!(width, in).value).abs() < 1e-12);
+            assert!(((wall.end - wall.start).length() - ozton_math::qty!((width) in).value).abs() < 1e-12);
             assert_eq!(field.range_config(mount).surface_mask, mask);
         }
     }

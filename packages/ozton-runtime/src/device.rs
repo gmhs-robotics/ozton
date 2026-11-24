@@ -23,7 +23,7 @@ pub trait MotorDevice {
 
 impl MotorDevice for Motor {
     fn position(&self) -> Result<Angle, PortError> {
-        Motor::position(self).map(|position| ozton_math::angle!(position.as_radians(), rad))
+        Motor::position(self).map(|position| ozton_math::qty!((position.as_radians()) rad))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         Motor::set_position(self, VexAngle::from_radians(position.value))
@@ -48,7 +48,7 @@ pub trait PositionSensor {
 impl PositionSensor for RotationSensor {
     fn position(&self) -> Result<Angle, PortError> {
         RotationSensor::position(self)
-            .map(|position| ozton_math::angle!(position.as_radians(), rad))
+            .map(|position| ozton_math::qty!((position.as_radians()) rad))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         RotationSensor::set_position(self, VexAngle::from_radians(position.value))

@@ -44,7 +44,7 @@ pub fn fit_wheel_motion(
         let result = normal.inverse() * rhs;
         return Some(BodyDelta {
             translation: result.truncate(),
-            heading: crate::angle!(result.z / yaw_scale, rad),
+            heading: crate::qty!((result.z / yaw_scale) rad),
         });
     }
 
@@ -85,6 +85,6 @@ pub fn fit_wheel_motion(
     };
     (planar.is_finite() && heading.is_finite()).then_some(BodyDelta {
         translation: planar,
-        heading: crate::angle!(heading, rad),
+        heading: crate::qty!((heading) rad),
     })
 }

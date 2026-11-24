@@ -405,11 +405,8 @@ fn default_motions_chain_to_a_route() {
 fn unified_normalized_seeking_handles_point_and_pose_targets() {
     let mut drivetrain = new_drivetrain();
     let seeking = seeking_motion()
-        .with_heading_tolerance(ozton_math::angle!(4 deg))
-        .with_angular_velocity_tolerance(ozton_math::units::angular_velocity!(
-            0.12,
-            radian_per_second
-        ))
+        .with_heading_tolerance(ozton_math::qty!(4 deg))
+        .with_angular_velocity_tolerance(ozton_math::units::qty!(0.12 rad/s))
         .with_timeout(Duration::from_secs(4));
     let target = ozton_math::position_xyh!(0 m, 0.6 m, 90 deg);
     block_on(async {

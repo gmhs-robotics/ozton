@@ -178,10 +178,7 @@ impl Wheels {
                 samples[index] = (|| {
                     let distance = self.meters_per_turn(group, index, motor).ok()?;
                     Some(WheelFeedback {
-                        position: ozton_math::length!(
-                            motor.position().ok()?.as_turns() * distance,
-                            m
-                        ),
+                        position: ozton_math::qty!((motor.position().ok()?.as_turns() * distance) m),
                         velocity: Velocity::new::<meter_per_second>(
                             motor.velocity().ok()? * distance / 60.0,
                         ),

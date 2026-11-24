@@ -45,7 +45,7 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
             return Err(ImportError::InvalidRow(line_number));
         }
         points.push(Waypoint::new(
-            ozton_math::geometry::point(ozton_math::length!(x, in), ozton_math::length!(y, in)),
+            ozton_math::geometry::point(ozton_math::qty!((x) in), ozton_math::qty!((y) in)),
             speed / 127.0,
         ));
     }
@@ -55,8 +55,8 @@ pub fn parse(bytes: &[u8]) -> Result<Vec<Waypoint>, ImportError> {
     if let [.., previous, end, ghost] = points.as_slice() {
         let ghost_distance = ghost.position.distance(end.position);
         if ghost.speed_fraction == 0.0
-            && (ghost_distance - ozton_math::length!(20.0 in).value).abs()
-                <= ozton_math::length!(0.002 in).value
+            && (ghost_distance - ozton_math::qty!(20.0 in).value).abs()
+                <= ozton_math::qty!(0.002 in).value
             && (previous.position == end.position
                 || (end.speed_fraction == 0.0
                     && (end.position - previous.position)

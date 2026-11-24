@@ -90,7 +90,7 @@ pub fn command(
         position_tolerance.value,
     );
     let sign = if reverse { -1.0 } else { 1.0 };
-    let facing = ozton_math::angle!(if reverse { PI } else { 0.0 }, rad);
+    let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
     let end = path.end();
     let limits = path.limits();
     let (linear, angular) = match follower {
@@ -100,7 +100,7 @@ pub fn command(
                 ..pose
             };
             let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-            let reference = path.at_distance(ozton_math::length!(progress.distance(), m));
+            let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
             let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
             if target.y < 0.0 {
                 (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
@@ -123,7 +123,7 @@ pub fn command(
             let travel_heading = ozton_math::geometry::bearing(error);
             let backward = travel_heading.value.abs() > PI / 2.0;
             let bearing = wrap_heading(
-                travel_heading + ozton_math::angle!(if backward { PI } else { 0.0 }, rad),
+                travel_heading + ozton_math::qty!((if backward { PI } else { 0.0 }) rad),
             )
             .value;
             let terminal_speed = (2.0 * distance).min(limits.linear_speed.value * 0.4);

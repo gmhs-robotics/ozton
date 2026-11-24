@@ -221,7 +221,7 @@ impl<S: TrackingSources> Tracking<S> {
 #[cfg(test)]
 mod tests {
     use futures_util::FutureExt;
-    use ozton_math::{angle, length};
+
 
     use super::*;
     use crate::{
@@ -240,13 +240,13 @@ mod tests {
                 assert_eq!(index, 0);
                 sink.push(Measurement::Range(RangeObservation {
                     timestamp: sink.time.saturating_sub(Duration::from_millis(1)),
-                    distance: length!(1 m),
+                    distance: ozton_math::qty!(1 m),
                     confidence: 1.0,
                     occluded: sink.range_occluded,
                 }));
             } else {
                 sink.push(Measurement::Heading(HeadingObservation::Counterclockwise(
-                    angle!(15 deg),
+                    ozton_math::qty!(15 deg),
                 )));
             }
         }

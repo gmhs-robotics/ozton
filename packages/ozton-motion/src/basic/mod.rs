@@ -380,7 +380,7 @@ where
         drivetrain: &'a mut M,
         heading: Angle,
     ) -> DriveFuture<'a, M, L, A> {
-        self.drive_distance_at_heading(drivetrain, ozton_math::length!(0.0 m), heading)
+        self.drive_distance_at_heading(drivetrain, ozton_math::qty!(0.0 m), heading)
     }
 
     /// Turns the robot in place to face a 2D point.

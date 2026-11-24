@@ -141,46 +141,46 @@ mod tests {
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            ozton_math::angle!(0.01 rad),
+            ozton_math::qty!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         let tick = Duration::from_millis(10);
         for _ in 0..9 {
-            assert!(guard.update(ozton_math::angle!(0.0 rad), 1.0, tick).is_ok());
+            assert!(guard.update(ozton_math::qty!(0.0 rad), 1.0, tick).is_ok());
         }
         assert_eq!(
-            guard.update(ozton_math::angle!(0.0 rad), 1.0, tick),
+            guard.update(ozton_math::qty!(0.0 rad), 1.0, tick),
             Err(ProgressFault::NoProgress)
         );
-        assert!(guard.update(ozton_math::angle!(0.0 rad), 0.0, tick).is_ok());
+        assert!(guard.update(ozton_math::qty!(0.0 rad), 0.0, tick).is_ok());
         assert!(
             guard
-                .update(ozton_math::angle!(0.01 rad), 1.0, tick)
+                .update(ozton_math::qty!(0.01 rad), 1.0, tick)
                 .is_ok()
         );
         assert_eq!(
-            guard.update(ozton_math::angle!(1.0 rad), 1.0, tick),
+            guard.update(ozton_math::qty!(1.0 rad), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
         assert!(
             guard
-                .update(ozton_math::angle!(1.0 rad), 0.0, tick)
+                .update(ozton_math::qty!(1.0 rad), 0.0, tick)
                 .is_err()
         );
         guard.reset();
-        assert!(guard.update(ozton_math::angle!(1.0 rad), 0.0, tick).is_ok());
+        assert!(guard.update(ozton_math::qty!(1.0 rad), 0.0, tick).is_ok());
     }
     #[test]
     fn wrong_direction_does_not_count_as_progress() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            ozton_math::angle!(0.01 rad),
+            ozton_math::qty!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         for i in 0..10 {
             let _ = guard.update(
-                ozton_math::angle!(-0.01 * f64::from(i), rad),
+                ozton_math::qty!((-0.01 * f64::from(i)) rad),
                 1.0,
                 Duration::from_millis(10),
             );

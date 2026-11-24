@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn turn_requires_clearance_from_the_wall() {
-        let m = |value| crate::length!(value, m);
+        let m = |value| crate::qty!((value) m);
         let chassis = Footprint::new(m(0.4), m(0.5)).unwrap();
         let wall = Surface::new(
             crate::geometry::point(m(0.2), m(-1.0)),
@@ -151,9 +151,9 @@ mod tests {
 
     #[test]
     fn forward_arc_sweeps_into_the_wall_when_starting_flush() {
-        let inches = |value| crate::length!(value, in);
+        let inches = |value| crate::qty!((value) in);
         let chassis = Footprint::new(inches(15.1), inches(15.0)).unwrap();
-        let sweep = crate::angle!(25.0 deg);
+        let sweep = crate::qty!(25.0 deg);
         let radius = inches(50.0);
         let left = inches(-19.0).value;
         let flush = Pose::new(
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn offset_footprint_rotates_and_sweeps_about_the_center_of_rotation() {
-        let inches = |value| crate::length!(value, in);
+        let inches = |value| crate::qty!((value) in);
         let chassis = Footprint::from_extents(
             inches(7.55),
             inches(7.55),
@@ -189,7 +189,7 @@ mod tests {
             inches(7.238196),
         )
         .unwrap();
-        let quarter_turn = crate::angle!(90.0 deg);
+        let quarter_turn = crate::qty!(90.0 deg);
         let (min, max) = chassis.bounds(Pose::new(DVec2::ZERO, quarter_turn));
         assert!((min - crate::geometry::point(inches(-7.238196), inches(-7.55))).length() < 1e-12);
         assert!((max - crate::geometry::point(inches(7.761804), inches(7.55))).length() < 1e-12);

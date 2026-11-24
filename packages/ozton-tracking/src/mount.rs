@@ -57,14 +57,8 @@ impl MountAxes {
         let (x_right, x_forward) = self.x.right_forward();
         let (y_right, y_forward) = self.y.right_forward();
         Vec3 {
-            right: ozton_math::length!(
-                survey.right.value * x_right + survey.forward.value * y_right,
-                m
-            ),
-            forward: ozton_math::length!(
-                survey.right.value * x_forward + survey.forward.value * y_forward,
-                m
-            ),
+            right: ozton_math::qty!((survey.right.value * x_right + survey.forward.value * y_right) m),
+            forward: ozton_math::qty!((survey.right.value * x_forward + survey.forward.value * y_forward) m),
             up: survey.up,
         }
     }
@@ -102,17 +96,17 @@ mod tests {
                 position_xyz!(0 m, 0 m, 0 m)
             );
             let point = axes.point(Vec3::new(
-                ozton_math::length!(x, m),
-                ozton_math::length!(y, m),
-                ozton_math::length!(0.3 m),
+                ozton_math::qty!((x) m),
+                ozton_math::qty!((y) m),
+                ozton_math::qty!(0.3 m),
             ));
             assert_eq!(point, position_xyz!(-0.1 m, 0.2 m, 0.3 m));
 
             let yaw = 0.4;
             let delta = ozton_math::localization::odometry::body_delta(
-                (ozton_math::length!(-0.1 * yaw, m), point.right),
-                Some((ozton_math::length!(-0.2 * yaw, m), point.forward)),
-                ozton_math::angle!(yaw, rad),
+                (ozton_math::qty!((-0.1 * yaw) m), point.right),
+                Some((ozton_math::qty!((-0.2 * yaw) m), point.forward)),
+                ozton_math::qty!((yaw) rad),
             );
             assert_eq!(delta.translation.length(), 0.0);
         }
@@ -140,7 +134,7 @@ mod tests {
     fn invalid_coordinates_are_rejected_on_each_axis() {
         assert!(position_xyz!(0 m, 0 m, 0 m).is_finite());
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let invalid = ozton_math::length!(invalid, m);
+            let invalid = ozton_math::qty!((invalid) m);
             for point in [
                 Vec3::new(invalid, Length::ZERO, Length::ZERO),
                 Vec3::new(Length::ZERO, invalid, Length::ZERO),

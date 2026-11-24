@@ -144,8 +144,8 @@ impl PurePursuit {
     /// Set the actual drivetrain track width with `with_track_width` before following.
     pub const fn new() -> Self {
         Self {
-            lookahead_distance: ozton_math::length!(0.16 m),
-            track_width: ozton_math::length!(0 m),
+            lookahead_distance: ozton_math::qty!(0.16 m),
+            track_width: ozton_math::qty!(0 m),
             timeout: Some(crate::defaults::AUTON_STAGE_TIMEOUT),
             terminal_config: PursuitTerminalConfig::new(),
         }

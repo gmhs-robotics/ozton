@@ -298,7 +298,7 @@ impl Default for Pid {
 impl Pid {
     /// PID on the shortest arc between two radian angles.
     pub fn update_angular(&mut self, measurement: f64, setpoint: f64, dt: Duration) -> f64 {
-        let wrap = |error| wrap_heading(crate::angle!(error, rad)).value;
+        let wrap = |error| wrap_heading(crate::qty!((error) rad)).value;
         self.update_error(wrap(setpoint - measurement), dt, wrap)
     }
 

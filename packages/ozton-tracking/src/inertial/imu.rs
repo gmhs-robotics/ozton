@@ -98,7 +98,7 @@ impl InertialSensorTracking {
             let radians = angle.as_radians();
             radians
                 .is_finite()
-                .then(|| ozton_math::angle!(radians, rad))
+                .then(|| ozton_math::qty!((radians) rad))
         };
         let euler = include_tilt.then(|| imu.euler().ok()).flatten();
         let tilt = euler.and_then(|value| {
@@ -194,8 +194,8 @@ fn chassis_tilt(pitch: Angle, roll: Angle, bearing: Angle) -> (Angle, Angle) {
     let robot_forward = forward * cos_bearing + right * sin_bearing;
     let robot_right = right * cos_bearing - forward * sin_bearing;
     (
-        ozton_math::angle!((-robot_forward).atan2(robot_right.hypot(down)), rad),
-        ozton_math::angle!(robot_right.atan2(down), rad),
+        ozton_math::qty!(((-robot_forward).atan2(robot_right.hypot(down))) rad),
+        ozton_math::qty!((robot_right.atan2(down)) rad),
     )
 }
 
@@ -205,11 +205,11 @@ mod tests {
 
     #[test]
     fn quarter_turn_mount_swaps_sensor_pitch_into_chassis_roll() {
-        let pitch = ozton_math::angle!(0.2 rad);
+        let pitch = ozton_math::qty!(0.2 rad);
         let (chassis_pitch, chassis_roll) = chassis_tilt(
             pitch,
             Angle::default(),
-            ozton_math::angle!(std::f64::consts::FRAC_PI_2, rad),
+            ozton_math::qty!((std::f64::consts::FRAC_PI_2) rad),
         );
         assert!(chassis_pitch.value.abs() < 1e-12);
         assert!((chassis_roll.value - pitch.value).abs() < 1e-12);

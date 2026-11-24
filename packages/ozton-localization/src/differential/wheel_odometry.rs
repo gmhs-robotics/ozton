@@ -126,7 +126,7 @@ mod tests {
     use super::*;
 
     fn length(value: f64) -> Length {
-        ozton_math::length!(value, m)
+        ozton_math::qty!((value) m)
     }
 
     #[test]
@@ -136,7 +136,7 @@ mod tests {
         layout.observe(&[Some(length(0.05)), Some(length(0.02))]);
         let before = Snapshot {
             drive: [Some(length(0.0)); 2],
-            imu: Some(ozton_math::angle!(0.0 rad)),
+            imu: Some(ozton_math::qty!(0.0 rad)),
             ..Snapshot::default()
         };
         let after = Snapshot {
@@ -156,7 +156,7 @@ mod tests {
         let layout = WheelOdometry::new([]);
         let before = Snapshot {
             drive: [Some(length(5.0)), Some(length(3.0))],
-            imu: Some(ozton_math::angle!(0.0 rad)),
+            imu: Some(ozton_math::qty!(0.0 rad)),
             ..Snapshot::default()
         };
         let after = Snapshot {
@@ -165,7 +165,7 @@ mod tests {
         };
         for (imu, heading) in [(None, 0.2), (Some(2.0), 2.0)] {
             let after = Snapshot {
-                imu: imu.map(|value| ozton_math::angle!(value, rad)),
+                imu: imu.map(|value| ozton_math::qty!((value) rad)),
                 ..after
             };
             let motion = layout.delta(
@@ -184,7 +184,7 @@ mod tests {
     fn skew_wheels_resolve_translation_and_yaw_without_an_imu() {
         let mounts = [(0.1, 0.0, 0.0), (0.2, 0.0, -35.0), (0.0, 0.2, 60.0)];
         let mut layout = WheelOdometry::new(mounts.map(|(x, y, angle)| {
-            let axis = direction(ozton_math::angle!(angle, deg));
+            let axis = direction(ozton_math::qty!((angle) deg));
             axis.extend(axis.y * x - axis.x * y)
         }));
         let baseline = [0.0, 2.5, -1.0];
@@ -193,7 +193,7 @@ mod tests {
         let yaw = -0.2;
         let positions = std::array::from_fn::<_, 3, _>(|index| {
             let (x, y, bearing) = mounts[index];
-            let angle = ozton_math::angle!(bearing, deg).value;
+            let angle = ozton_math::qty!((bearing) deg).value;
             Some(length(
                 baseline[index] + (travel.y + x * yaw) * angle.cos()
                     - (travel.x - y * yaw) * angle.sin(),
@@ -219,12 +219,12 @@ mod tests {
         layout.observe(&[Some(length(0.03))]);
         let before = Snapshot {
             drive: [Some(length(0.0)); 2],
-            imu: Some(ozton_math::angle!(0.0 rad)),
+            imu: Some(ozton_math::qty!(0.0 rad)),
             ..Snapshot::default()
         };
         let after = Snapshot {
             drive: [Some(length(0.06)), None],
-            imu: Some(ozton_math::angle!(0.2 rad)),
+            imu: Some(ozton_math::qty!(0.2 rad)),
             ..before
         };
         let motion = layout.delta(

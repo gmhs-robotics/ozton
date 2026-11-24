@@ -488,7 +488,7 @@ impl Seeking {
     ) -> Result<(), PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let field = approach::clearance(drive, self.config.clearance)?;
-        let facing = ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
+        let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let start = path.start().pose;
         let actual = drive.pose();
         if !follower.is_valid()

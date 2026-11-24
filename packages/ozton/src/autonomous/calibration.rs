@@ -334,19 +334,19 @@ mod tests {
     #[test]
     fn travel_trials_use_signed_references_and_write_pod_offsets() {
         let start = Snapshot {
-            drive: [Some(ozton_math::length!(0.0 m)); 2],
-            forward: Some(ozton_math::length!(0.0 m)),
-            lateral: Some(ozton_math::length!(0.0 m)),
+            drive: [Some(ozton_math::qty!(0.0 m)); 2],
+            forward: Some(ozton_math::qty!(0.0 m)),
+            lateral: Some(ozton_math::qty!(0.0 m)),
             ..Snapshot::default()
         };
         let end = Snapshot {
             time: Duration::from_millis(100),
             drive: [
-                Some(ozton_math::length!(0.5 m)),
-                Some(ozton_math::length!(-0.5 m)),
+                Some(ozton_math::qty!(0.5 m)),
+                Some(ozton_math::qty!(-0.5 m)),
             ],
-            forward: Some(ozton_math::length!(0.04 m)),
-            lateral: Some(ozton_math::length!(-0.03 m)),
+            forward: Some(ozton_math::qty!(0.04 m)),
+            lateral: Some(ozton_math::qty!(-0.03 m)),
             ..start
         };
         let mut run = CalibrationRun::new();

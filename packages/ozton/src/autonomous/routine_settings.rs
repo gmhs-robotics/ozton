@@ -12,7 +12,7 @@ pub const AUTON_SPEED: Velocity = Velocity {
 };
 
 pub const DSR_TIMEOUT: Duration = Duration::from_secs(1);
-pub const PATH_LOOKAHEAD: Length = ozton_math::length!(0.16, m);
+pub const PATH_LOOKAHEAD: Length = ozton_math::qty!(0.16 m);
 pub const PATH_ACCELERATION: Acceleration = Acceleration {
     value: 0.8,
     ..Acceleration::ZERO

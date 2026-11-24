@@ -264,12 +264,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             progress.update(
                 feedback.pose.position,
-                ozton_math::length!(
-                    options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
-                    m
-                ),
+                ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
             );
-            let geometric = path.at_distance(ozton_math::length!(progress.distance(), m));
+            let geometric = path.at_distance(ozton_math::qty!((progress.distance()) m));
             let cross = geometric.pose.position.distance(feedback.pose.position);
             if cross > 0.20 {
                 return Err(PoseMotionError::PositionUnsettled);

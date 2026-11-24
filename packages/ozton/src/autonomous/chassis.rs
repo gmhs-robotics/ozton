@@ -168,7 +168,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             pose: update.pose,
             forward_velocity: Velocity::new::<meter_per_second>(update.forward_velocity),
             lateral_velocity: Velocity::new::<meter_per_second>(update.lateral_velocity),
-            forward_travel: ozton_math::length!(self.drivetrain.localization().forward_travel(), m),
+            forward_travel: ozton_math::qty!((self.drivetrain.localization().forward_travel()) m),
             angular_velocity: AngularVelocity::new::<radian_per_second>(update.angular_velocity),
             ranges: self.range,
             reset_accepted: update.distance_reset,

@@ -31,7 +31,7 @@ impl DifferentialTracking {
     ///     let ratio = WheelGearing::new(1, 1);
     ///     DifferentialTracking::from_shared(
     ///         &shared_motors![left], &shared_motors![right],
-    ///         length!(12 in), length!(3 in), [ratio], [ratio, ratio],
+    ///         ozton_math::qty!(12 in), ozton_math::qty!(3 in), [ratio], [ratio, ratio],
     ///     ).unwrap();
     /// }
     /// ```

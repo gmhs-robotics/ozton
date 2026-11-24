@@ -120,18 +120,15 @@ impl<'path> State<'path> {
                 let progress = self.progress.get_or_insert_with(|| Progress::new(path));
                 progress.update(
                     feedback.pose.position,
-                    ozton_math::length!(
-                        options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
-                        m
-                    ),
+                    ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
                 );
                 let end = path.end();
-                let geometric = path.at_distance(ozton_math::length!(progress.distance(), m));
+                let geometric = path.at_distance(ozton_math::qty!((progress.distance()) m));
                 let reference = geometric.pose;
                 let tracking_error = reference.position.distance(feedback.pose.position);
                 lost = tracking_error > 0.35;
                 let heading = end.pose.heading
-                    + ozton_math::angle!(if *reverse { core::f64::consts::PI } else { 0.0 }, rad);
+                    + ozton_math::qty!((if *reverse { core::f64::consts::PI } else { 0.0 }) rad);
                 let distance = feedback.pose.position.distance(end.pose.position);
                 let heading_error = error_at(heading).abs();
                 let ready = distance <= options.position_tolerance.value
@@ -447,14 +444,14 @@ mod settling_tests {
             stable: Duration::from_millis(30),
         };
         let options = DriveOptions::differential(
-            ozton_math::length!(0.3 m),
+            ozton_math::qty!(0.3 m),
             Velocity::new::<meter_per_second>(1.0),
         );
         let mut state = State::default();
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: ozton_math::length!(0.0 m),
+            forward_travel: ozton_math::qty!(0.0 m),
             forward_velocity: Velocity::new::<meter_per_second>(0.0),
             lateral_velocity: Velocity::new::<meter_per_second>(0.0),
             angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),
@@ -490,7 +487,7 @@ mod settling_tests {
     fn sideways_motion_prevents_arrival_even_with_correct_position_and_heading() {
         let mut state = State::default();
         let options = DriveOptions::differential(
-            ozton_math::length!(0.3 m),
+            ozton_math::qty!(0.3 m),
             Velocity::new::<meter_per_second>(1.0),
         );
         let mut ready = |_: &()| true;
@@ -501,7 +498,7 @@ mod settling_tests {
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: ozton_math::length!(0.0 m),
+            forward_travel: ozton_math::qty!(0.0 m),
             forward_velocity: Velocity::new::<meter_per_second>(0.0),
             lateral_velocity: Velocity::new::<meter_per_second>(0.2),
             angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),

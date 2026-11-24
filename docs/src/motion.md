@@ -15,13 +15,14 @@ Basic and PurePursuit use normalized motor fractions. Seeking's default outer lo
 Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
-use ozton::{length, angle, position_xyh, motion::Seeking};
+use ozton::position_xyh;
+use ozton::motion::Seeking;
 let motion = Seeking::new()
-    .with_position_tolerance(length!(0.75 in))
-    .with_heading_tolerance(angle!(2 deg));
+    .with_position_tolerance(ozton::qty!(0.75 in))
+    .with_heading_tolerance(ozton::qty!(2 deg));
 
-motion.drive_distance(&mut drivetrain, length!(12 in)).await?;
-motion.turn_to_heading(&mut drivetrain, angle!(90 deg)).await?;
+motion.drive_distance(&mut drivetrain, ozton::qty!(12 in)).await?;
+motion.turn_to_heading(&mut drivetrain, ozton::qty!(90 deg)).await?;
 motion.move_to_point(&mut drivetrain, ozton::position_xy!(8 in, 12 in)).await?;
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
@@ -33,19 +34,16 @@ Both point and pose targets use the same controller configuration. `move_to_poin
 Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
 
 ```rust,ignore
-use ozton::{
-    angle, length, motion::Basic,
-    math::units::{velocity, angular_velocity},
-};
+use ozton::motion::Basic;
 use std::time::Duration;
 
 const BASIC: Basic = Basic::new()
     .with_linear_gains(1.2, 0.0, 0.06)
     .with_angular_gains(1.6, 0.0, 0.08)
-    .with_linear_error_tolerance(length!(0.75 in))
-    .with_angular_error_tolerance(angle!(2 deg))
-    .with_linear_velocity_tolerance(velocity!(0.04, meter_per_second))
-    .with_angular_velocity_tolerance(angular_velocity!(0.12, radian_per_second))
+    .with_linear_error_tolerance(ozton::qty!(0.75 in))
+    .with_angular_error_tolerance(ozton::qty!(2 deg))
+    .with_linear_velocity_tolerance(ozton::qty!(0.04 m/s))
+    .with_angular_velocity_tolerance(ozton::qty!(0.12 rad/s))
     .with_timeout(Duration::from_secs(6));
 ```
 
