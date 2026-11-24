@@ -1,0 +1,42 @@
+# Tracking and localization
+
+Tracking reads devices. Localization interprets the readings and estimates the robot's field pose. Keeping these separate means a different estimator does not require rewiring your robot.
+
+## Assemble a tracked drivetrain
+
+Create the motor groups once with shared_motors!, then use Differential::from_shared and DifferentialTracking::from_shared (or its calibrated constructors) so motor commands and encoders refer to the same devices. Give DifferentialTracking the actual wheel diameter, track width and gear ratios in motor order. An IMU and a lateral tracking wheel can improve the estimate.
+
+Register a flat tuple of sources with Tracking::new. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
+
+```rust
+use ozton::{
+    drivetrain::Drivetrain,
+    localization::{Estimator, differential::{LocalizationBuilder, DriveEncoderUse}},
+    tracking::Tracking,
+};
+
+let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range)).await?;
+let localization = LocalizationBuilder::new(field)
+    .with_estimator(Estimator::Odometry)
+    .with_imu_heading(true)
+    .with_drive_encoders(DriveEncoderUse::ForwardAndHeading)
+    .build(tracking.observation_layout())
+    .expect("check tracking geometry");
+let drivetrain = Drivetrain::new(model, tracking, localization);
+```
+
+The fragment is not a complete robot; field, model and sensor objects are your measured hardware. See the [programmed example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/programmed.rs) for full setup.
+
+## Choose an estimator
+
+Odometry integrates measured motion. It is a good starting point and needs no walls. EKF combines observations with modeled uncertainty. MCL maintains a bounded set of particles and uses associated range observations to correct translation; it relies on an accurate surveyed map and correctly mounted sensors. DSR is an explicit stationary distance reset, not a continuous motion controller.
+
+Only model real, fixed surfaces. A moving game object is not a reliable wall. Distance samples are timestamped and may be rejected when stale, occluded or inconsistent. Range corrections can be suspended without stopping raw sensor logging.
+
+## Start and stop localization
+
+Application-owned robots can return LocalizationWorker::start from OztonCompete::start_localization. Choose LocalizationSchedule::Autonomous to run only during autonomous, or Always to also update while driving and disabled. The builder has with_localization_schedule for the same purpose.
+
+Register the actual starting pose with drivetrain.localization_mut().set_pose(pose), and check its boolean result. The worker needs fresh samples before feedback becomes available. Pausing invalidates the old baseline. Do not use an unregistered or stale pose for field motion.
+
+In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
