@@ -333,7 +333,8 @@ mod tests {
         .unwrap();
         assert!(hit.distance > 1.0);
         let ranges = [(0, mount)];
-        let localization = crate::differential::LocalizationBuilder::new().with_field(field)
+        let localization = crate::differential::LocalizationBuilder::new()
+            .with_field(field)
             .build(ObservationLayout {
                 wheels: &[],
                 ranges: &ranges,

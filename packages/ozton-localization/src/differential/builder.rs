@@ -26,7 +26,11 @@ impl Default for RangeUsage {
 
 impl RangeUsage {
     pub const fn new() -> Self {
-        Self { dsr: u8::MAX, ekf: u8::MAX, mcl: u8::MAX }
+        Self {
+            dsr: u8::MAX,
+            ekf: u8::MAX,
+            mcl: u8::MAX,
+        }
     }
 
     pub(super) fn apply(self, localizer: &mut Localizer<'_>) {
@@ -56,7 +60,6 @@ impl RangeUsage {
         }
         self
     }
-
 }
 
 /// Which available observations contribute to the odometry prediction.
@@ -186,9 +189,7 @@ impl LocalizationBuilder {
             map,
             mounts,
         )?;
-        if !localizer.set_dsr_config(self.dsr)
-            || !localizer.set_velocity_config(self.velocity)
-        {
+        if !localizer.set_dsr_config(self.dsr) || !localizer.set_velocity_config(self.velocity) {
             return None;
         }
         self.ranges.apply(&mut localizer);

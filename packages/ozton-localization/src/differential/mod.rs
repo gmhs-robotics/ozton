@@ -30,7 +30,6 @@ mod builder;
 mod observations;
 #[cfg(feature = "logging")]
 mod telemetry;
-use builder::RangeUsage;
 pub use builder::{LocalizationBuilder, OdometrySettings, RangeUsage, RangeUse};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
