@@ -3,7 +3,7 @@
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use vexide::{
@@ -12,7 +12,11 @@ use vexide::{
     time::sleep,
 };
 
-use super::{Frame, SD_SAMPLE_INTERVAL, Sample, Sampler};
+use super::{Frame, Sample, Sampler};
+
+// Hardware packets update less often than the 10 ms motion loop. Sampling
+// them separately reduces SD write volume without decimating control traces.
+const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_millis(25);
 
 type Source = dyn Fn(Frame);
 
@@ -42,11 +46,11 @@ fn sample_sources(frame: Frame) {
 /// Sample connected hardware once per frame. No application reporters required.
 pub(crate) fn start_diagnostics() -> Task<()> {
     spawn(async move {
-        let mut sampler = Sampler::<()>::new(SD_SAMPLE_INTERVAL);
+        let mut sampler = Sampler::<()>::new(HARDWARE_SAMPLE_INTERVAL);
         sampler.report_control_ticks = false;
         let mut previous = Instant::now();
         loop {
-            sleep(SD_SAMPLE_INTERVAL).await;
+            sleep(HARDWARE_SAMPLE_INTERVAL).await;
             let now = Instant::now();
             let dt = now.saturating_duration_since(previous);
             previous = now;
