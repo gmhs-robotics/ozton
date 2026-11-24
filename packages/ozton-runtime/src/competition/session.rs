@@ -29,10 +29,10 @@ pub(crate) async fn compete<R: CompetitionRobot + Compete + 'static>(robot: R) -
     CompeteExt::compete(robot).await
 }
 
-struct CompetitionSession<'a, R>(&'a mut R);
+pub(super) struct CompetitionSession<'a, R>(pub(super) &'a mut R);
 
 impl<R: CompetitionRobot> CompetitionSession<'_, R> {
-    fn stop(&mut self) {
+    pub(super) fn stop(&mut self) {
         self.0.set_autonomous_start(None);
         if let Err(error) = self.0.stop() {
             crate::log_event!(
@@ -50,7 +50,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
         self.0.mode_changed(mode);
     }
 
-    async fn ticks(&mut self, mode: CompetitionMode) {
+    pub(super) async fn ticks(&mut self, mode: CompetitionMode) {
         let disabled = mode == CompetitionMode::Disabled;
         let mut previous = None;
         while competition::mode() == mode {
@@ -82,25 +82,29 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             self.0.after_tick(mode, tick);
             sleep(control_sleep(R::CONTROL_PERIOD, tick.work())).await;
         }
-        self.stop();
     }
 }
 
 impl<R: CompetitionRobot> CompetitionSession<'_, R> {
-    async fn disabled(&mut self) {
+    pub(super) async fn disabled(&mut self) {
         self.enter(CompetitionMode::Disabled);
         let _localization = self.0.start_localization(CompetitionMode::Disabled);
         self.ticks(CompetitionMode::Disabled).await;
+        self.stop();
     }
 
-    async fn driver(&mut self) {
+    pub(super) async fn driver(&mut self) {
         self.enter(CompetitionMode::Driver);
         self.0.menu().status(DRIVER_STATUS);
         let _localization = self.0.start_localization(CompetitionMode::Driver);
-        self.ticks(CompetitionMode::Driver).await;
+        let result = self.0.driver_mode().await;
+        self.stop();
+        if let Err(error) = result {
+            self.0.driver_failed(error);
+        }
     }
 
-    async fn autonomous(&mut self) {
+    pub(super) async fn autonomous(&mut self) {
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
         let _localization = self.0.start_localization(mode);
@@ -150,6 +154,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             robot.menu().status("Autonomous disabled");
         }
         self.ticks(mode).await;
+        self.stop();
     }
 }
 

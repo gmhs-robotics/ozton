@@ -33,19 +33,18 @@ impl<E, F: Into<E>> IntoRouteResult<E> for Result<(), F> {
     }
 }
 
-type RouteHandler<L, E> = for<'a> fn(
-    &'a mut crate::CompetitionBot<L>,
-) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>;
+type RouteHandler<R, E> =
+    for<'a> fn(&'a mut R) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>;
 
-/// One named async routine registered with the robot builder.
-pub struct RegisteredRoute<L: crate::RobotLayout, E> {
+/// One named async routine on an application robot.
+pub struct RobotRoute<R, E> {
     label: &'static str,
-    handler: Option<RouteHandler<L, E>>,
+    handler: Option<RouteHandler<R, E>>,
 }
 
-impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
+impl<R, E> RobotRoute<R, E> {
     #[doc(hidden)]
-    pub const fn new(label: &'static str, handler: RouteHandler<L, E>) -> Self {
+    pub const fn new(label: &'static str, handler: RouteHandler<R, E>) -> Self {
         Self {
             label,
             handler: Some(handler),
@@ -61,23 +60,21 @@ impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
     }
 }
 
-impl<L: crate::RobotLayout, E> Copy for RegisteredRoute<L, E> {}
-impl<L: crate::RobotLayout, E> Clone for RegisteredRoute<L, E> {
+impl<R, E> Copy for RobotRoute<R, E> {}
+impl<R, E> Clone for RobotRoute<R, E> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<L: crate::RobotLayout + 'static, E: 'static> RouteSet for RegisteredRoute<L, E> {
+impl<R: 'static, E: 'static> RouteSet for RobotRoute<R, E> {
     fn label(self) -> &'static str {
         self.label
     }
 }
 
-impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L>, E>
-    for RegisteredRoute<L, E>
-{
-    async fn run(self, robot: &mut crate::CompetitionBot<L>) -> Result<(), E> {
+impl<R: 'static, E: 'static> Routes<R, E> for RobotRoute<R, E> {
+    async fn run(self, robot: &mut R) -> Result<(), E> {
         if let Some(handler) = self.handler {
             handler(robot).await
         } else {
@@ -90,11 +87,61 @@ impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L
     }
 }
 
-/// Name an async robot function for autonomous selection or driver dispatch.
+/// A registered route on the robot assembled by the builder.
+pub struct RegisteredRoute<L: crate::RobotLayout, E>(RobotRoute<crate::CompetitionBot<L>, E>);
+
+impl<L: crate::RobotLayout, E> RegisteredRoute<L, E> {
+    #[doc(hidden)]
+    pub const fn new(
+        label: &'static str,
+        handler: RouteHandler<crate::CompetitionBot<L>, E>,
+    ) -> Self {
+        Self(RobotRoute::new(label, handler))
+    }
+
+    /// Add a driver-only choice to the selector.
+    pub const fn driver_only(label: &'static str) -> Self {
+        Self(RobotRoute::driver_only(label))
+    }
+}
+
+impl<L: crate::RobotLayout, E> Copy for RegisteredRoute<L, E> {}
+impl<L: crate::RobotLayout, E> Clone for RegisteredRoute<L, E> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> RouteSet for RegisteredRoute<L, E> {
+    fn label(self) -> &'static str {
+        self.0.label
+    }
+}
+
+impl<L: crate::RobotLayout + 'static, E: 'static> Routes<crate::CompetitionBot<L>, E>
+    for RegisteredRoute<L, E>
+{
+    async fn run(self, robot: &mut crate::CompetitionBot<L>) -> Result<(), E> {
+        self.0.run(robot).await
+    }
+
+    fn allows_autonomous(self) -> bool {
+        self.0.handler.is_some()
+    }
+}
+
+/// Name an async routine. Use `route!(for RobotType, "Label", RobotType::method)`
+/// for an application-owned robot and `route!("Label", function)` with the builder.
 #[macro_export]
 macro_rules! route {
+    (for $robot:ty, $label:expr, $handler:path $(,)?) => {
+        $crate::route!(@register RobotRoute::<$robot, _>, $label, $handler)
+    };
     ($label:expr, $handler:path $(,)?) => {
-        $crate::competition::RegisteredRoute::new($label, |robot| {
+        $crate::route!(@register RegisteredRoute, $label, $handler)
+    };
+    (@register $route:ident $(::<$robot:ty, _>)?, $label:expr, $handler:path) => {
+        $crate::competition::$route$(::<$robot, _>)?::new($label, |robot| {
             ::std::boxed::Box::pin(async move {
                 $crate::competition::IntoRouteResult::into_route_result($handler(robot).await)
             })

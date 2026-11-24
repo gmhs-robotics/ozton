@@ -11,6 +11,8 @@ use vexide::{
 };
 
 use crate::clock::sleep;
+mod worker;
+pub use worker::LocalizationWorker;
 
 /// Modes in which the runtime should sample tracking and update the estimate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,7 +130,7 @@ mod tests {
 
     use super::*;
 
-    struct TestDrive;
+    pub(super) struct TestDrive;
 
     impl Drive for TestDrive {
         type Error = Infallible;
@@ -139,9 +141,9 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Counts {
-        samples: usize,
-        pauses: usize,
+    pub(super) struct Counts {
+        pub(super) samples: usize,
+        pub(super) pauses: usize,
     }
 
     impl LocalizationInput<()> for Counts {

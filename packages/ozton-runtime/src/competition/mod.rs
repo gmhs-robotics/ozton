@@ -15,13 +15,17 @@ use crate::{
 
 mod dispatch;
 mod drive;
+mod driver;
 pub use drive::ProgramDrive;
 mod policy;
 mod routes;
+mod runtime;
 mod session;
 
+pub use driver::DriverLoop;
 pub use policy::{CompetitionLayout, Mechanism, Program};
 pub use routes::*;
+pub use runtime::{OztonCompete, Runtime};
 pub(crate) use session::compete;
 use session::while_in_mode;
 
@@ -63,6 +67,19 @@ pub trait CompetitionRobot: Sized {
         self.menu()
             .action()
             .filter(|route| route.allows_autonomous())
+    }
+
+    /// Run the driver session. The builder defaults to dispatching a callback each tick.
+    async fn driver_mode(&mut self) -> Result<(), Self::Error> {
+        session::CompetitionSession(self)
+            .ticks(CompetitionMode::Driver)
+            .await;
+        Ok(())
+    }
+
+    fn driver_failed(&mut self, error: Self::Error) {
+        crate::log_event!(Error, "driver", "Control fault ({error})");
+        self.menu().status(&error.to_string());
     }
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}

@@ -6,10 +6,10 @@ use super::{
     *,
 };
 
-struct FakeDrive {
-    writes: Vec<&'static str>,
-    fail_stop: bool,
-    direct_output: bool,
+pub(super) struct FakeDrive {
+    pub(super) writes: Vec<&'static str>,
+    pub(super) fail_stop: bool,
+    pub(super) direct_output: bool,
 }
 
 impl ProgramDrive for FakeDrive {

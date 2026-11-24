@@ -32,6 +32,7 @@ impl StartupReference {
     }
 }
 
+pub use competition::{OztonCompete, Runtime};
 pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout};
 
 pub mod localization;
