@@ -201,7 +201,7 @@ impl DifferentialFeedback {
                 .min(maximum)
         };
         let angular = |pid: &mut MotionPid, error: f64| {
-            let limit = (2.0 * config.angular_deceleration * error.abs())
+            let limit = (2.0 * config.angular_deceleration.value * error.abs())
                 .sqrt()
                 .max(options.angular_speed_tolerance.value * 4.0)
                 .min(yaw_limit);
@@ -432,8 +432,8 @@ impl DifferentialFeedback {
         let w = slew(
             current_w,
             desired_w,
-            self.config.angular_acceleration,
-            self.config.angular_deceleration,
+            self.config.angular_acceleration.value,
+            self.config.angular_deceleration.value,
         );
         self.last_wheels = desaturate(
             [v - w * width * 0.5, v + w * width * 0.5],

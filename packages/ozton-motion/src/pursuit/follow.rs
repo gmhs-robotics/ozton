@@ -274,8 +274,8 @@ where
             }
             let config = &mut this.terminal_config;
             let reached = distance <= config.position_tolerance.value;
-            let slow = speed <= config.velocity_tolerance
-                && yaw_rate.abs() <= config.angular_velocity_tolerance;
+            let slow = speed <= config.velocity_tolerance.value
+                && yaw_rate.abs() <= config.angular_velocity_tolerance.value;
             if reached && slow {
                 let since = *state.settled_since.get_or_insert(now);
                 if now.saturating_duration_since(since) >= config.settle {

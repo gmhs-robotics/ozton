@@ -4,7 +4,7 @@ use std::time::Duration;
 
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::{control::Pid, uom::si::f64::Length};
+use ozton_math::{control::Pid, uom::si::f64::{AngularVelocity, Length, Velocity}};
 #[cfg(feature = "vex")]
 use ozton_math::{
     localization::observation::{TracksHeading, TracksPosition},
@@ -18,8 +18,8 @@ pub struct PursuitTerminalConfig {
     pub linear: Pid,
     pub angular: Pid,
     pub position_tolerance: Length,
-    pub velocity_tolerance: f64,
-    pub angular_velocity_tolerance: f64,
+    pub velocity_tolerance: Velocity,
+    pub angular_velocity_tolerance: AngularVelocity,
     pub settle: Duration,
     pub rate_filter: Duration,
     pub period: Duration,
@@ -41,8 +41,8 @@ impl PursuitTerminalConfig {
             linear,
             angular,
             position_tolerance: crate::defaults::AUTON_POSITION_TOLERANCE,
-            velocity_tolerance: 0.04,
-            angular_velocity_tolerance: 0.12,
+            velocity_tolerance: ozton_math::qty!(0.04 m/s),
+            angular_velocity_tolerance: ozton_math::qty!(0.12 rad/s),
             settle: Duration::from_millis(120),
             rate_filter: Duration::from_millis(40),
             period: Duration::from_millis(10),
@@ -68,13 +68,13 @@ impl PursuitTerminalConfig {
     }
 
     #[must_use]
-    pub const fn with_linear_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: Velocity) -> Self {
         self.velocity_tolerance = value;
         self
     }
 
     #[must_use]
-    pub const fn with_angular_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_angular_velocity_tolerance(mut self, value: AngularVelocity) -> Self {
         self.angular_velocity_tolerance = value;
         self
     }
@@ -105,8 +105,8 @@ impl PursuitTerminalConfig {
         .valid()
             && [
                 self.position_tolerance.value,
-                self.velocity_tolerance,
-                self.angular_velocity_tolerance,
+                self.velocity_tolerance.value,
+                self.angular_velocity_tolerance.value,
             ]
             .into_iter()
             .all(|value| value.is_finite() && value > 0.0)
@@ -211,13 +211,13 @@ impl PurePursuit {
     }
 
     #[must_use]
-    pub const fn with_linear_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_linear_velocity_tolerance(mut self, value: Velocity) -> Self {
         self.terminal_config.velocity_tolerance = value;
         self
     }
 
     #[must_use]
-    pub const fn with_angular_velocity_tolerance(mut self, value: f64) -> Self {
+    pub const fn with_angular_velocity_tolerance(mut self, value: AngularVelocity) -> Self {
         self.terminal_config.angular_velocity_tolerance = value;
         self
     }

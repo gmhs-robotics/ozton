@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{DVec2, Pose},
-    uom::si::f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
+    uom::si::f64::{Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity},
 };
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
@@ -107,13 +107,13 @@ impl Seeking {
     }
 
     #[must_use]
-    pub const fn with_angular_acceleration(mut self, value: f64) -> Self {
+    pub const fn with_angular_acceleration(mut self, value: AngularAcceleration) -> Self {
         self.config.angular_acceleration = value;
         self
     }
 
     #[must_use]
-    pub const fn with_angular_deceleration(mut self, value: f64) -> Self {
+    pub const fn with_angular_deceleration(mut self, value: AngularAcceleration) -> Self {
         self.config.angular_deceleration = value;
         self
     }

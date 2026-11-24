@@ -1,7 +1,7 @@
 //! Robot-specific physical motion configuration. All scalar dynamics use SI units.
 use std::time::Duration;
 
-use ozton_math::uom::si::f64::{Acceleration, Angle, AngularVelocity, Length, Velocity};
+use ozton_math::uom::si::f64::{Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity};
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
 
@@ -15,9 +15,9 @@ pub struct MotionConfig {
     pub lateral_acceleration: Acceleration,
     pub angular_speed: AngularVelocity,
     /// rad/s²
-    pub angular_acceleration: f64,
+    pub angular_acceleration: AngularAcceleration,
     /// rad/s²
-    pub angular_deceleration: f64,
+    pub angular_deceleration: AngularAcceleration,
     pub linear_rate_filter: Duration,
     pub angular_rate_filter: Duration,
     pub position_tolerance: Length,
@@ -58,8 +58,8 @@ impl MotionConfig {
         deceleration: ozton_math::units::acceleration!(2.0, meter_per_second_squared),
         lateral_acceleration: ozton_math::units::acceleration!(0.8, meter_per_second_squared),
         angular_speed: ozton_math::units::angular_velocity!(5.0, radian_per_second),
-        angular_acceleration: 8.0,
-        angular_deceleration: 8.0,
+        angular_acceleration: ozton_math::qty!(8.0 rad/s^2),
+        angular_deceleration: ozton_math::qty!(8.0 rad/s^2),
         linear_rate_filter: Duration::from_millis(55),
         angular_rate_filter: Duration::from_millis(55),
         position_tolerance: ozton_math::length!(0.025 m),
@@ -127,13 +127,13 @@ impl MotionConfig {
     }
 
     #[must_use]
-    pub const fn with_angular_acceleration(mut self, value: f64) -> Self {
+    pub const fn with_angular_acceleration(mut self, value: AngularAcceleration) -> Self {
         self.angular_acceleration = value;
         self
     }
 
     #[must_use]
-    pub const fn with_angular_deceleration(mut self, value: f64) -> Self {
+    pub const fn with_angular_deceleration(mut self, value: AngularAcceleration) -> Self {
         self.angular_deceleration = value;
         self
     }
@@ -290,8 +290,8 @@ impl MotionConfig {
                 self.deceleration.value,
                 self.lateral_acceleration.value,
                 self.angular_speed.value,
-                self.angular_acceleration,
-                self.angular_deceleration,
+                self.angular_acceleration.value,
+                self.angular_deceleration.value,
                 self.position_tolerance.value,
                 self.heading_tolerance.value,
                 self.velocity_tolerance.value,
