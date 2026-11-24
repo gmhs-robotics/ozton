@@ -15,14 +15,13 @@ Basic and PurePursuit use normalized motor fractions. Seeking's default outer lo
 Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
-use ozton::position_xyh;
-use ozton::motion::Seeking;
+use ozton::{qty, position_xyh, motion::Seeking};
 let motion = Seeking::new()
-    .with_position_tolerance(ozton::qty!(0.75 in))
-    .with_heading_tolerance(ozton::qty!(2 deg));
+    .with_position_tolerance(qty!(0.75 in))
+    .with_heading_tolerance(qty!(2 deg));
 
-motion.drive_distance(&mut drivetrain, ozton::qty!(12 in)).await?;
-motion.turn_to_heading(&mut drivetrain, ozton::qty!(90 deg)).await?;
+motion.drive_distance(&mut drivetrain, qty!(12 in)).await?;
+motion.turn_to_heading(&mut drivetrain, qty!(90 deg)).await?;
 motion.move_to_point(&mut drivetrain, ozton::position_xy!(8 in, 12 in)).await?;
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
@@ -34,20 +33,20 @@ Both point and pose targets use the same controller configuration. `move_to_poin
 Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
 
 ```rust,ignore
-use ozton::motion::Basic;
+use ozton::{qty, motion::Basic};
 use std::time::Duration;
 
 const BASIC: Basic = Basic::new()
     .with_linear_gains(1.2, 0.0, 0.06)
     .with_angular_gains(1.6, 0.0, 0.08)
-    .with_linear_error_tolerance(ozton::qty!(0.75 in))
-    .with_angular_error_tolerance(ozton::qty!(2 deg))
-    .with_linear_velocity_tolerance(ozton::qty!(0.04 m/s))
-    .with_angular_velocity_tolerance(ozton::qty!(0.12 rad/s))
+    .with_linear_error_tolerance(qty!(0.75 in))
+    .with_angular_error_tolerance(qty!(2 deg))
+    .with_linear_velocity_tolerance(qty!(0.04 m/s))
+    .with_angular_velocity_tolerance(qty!(0.12 rad/s))
     .with_timeout(Duration::from_secs(6));
 ```
 
-Seeking and PurePursuit have the same construction style. Supply the actual track width to PurePursuit with `with_track_width`. Seeking offers physical speed, acceleration, PID, settling and clearance modifiers directly; MotionConfig remains available for the generic Runner. PID controllers also support const gain, integration range and output-limit modifiers. Library defaults are starting points, not calibration results.
+Seeking and PurePursuit have the same construction style. Physical settings require typed quantities, for example `Seeking::new().with_angular_acceleration(qty!(12 rad/s^2))`. Passing `12.0` alone will not compile. Supply the actual track width to PurePursuit with `with_track_width`. Seeking offers physical speed, acceleration, PID, settling and clearance modifiers directly; MotionConfig remains available for the generic Runner. PID controllers also support const gain, integration range and output-limit modifiers. Library defaults are starting points, not calibration results.
 
 A command finishes when its applicable error and velocity tolerances remain satisfied for the required settle duration. Seeking returns an error on timeout, loss of feedback or insufficient clearance. Basic, PurePursuit and normalized Seeking return MotionOutcome::Settled or MotionOutcome::TimedOut; check the outcome rather than assuming an Ok means the target was reached.
 

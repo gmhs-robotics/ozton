@@ -24,6 +24,7 @@ const PURSUIT: PurePursuit = PurePursuit::new()
     .with_terminal_config(PursuitTerminalConfig::new().with_linear_controller(PID));
 const MOTION: MotionConfig = MotionConfig::new()
     .with_acceleration(ozton_math::qty!(2.5 m/s^2))
+    .with_angular_acceleration(ozton_math::qty!(12 rad/s^2))
     .with_wheel_speed(ozton_math::qty!(1.2 m/s));
 const RAMSETE: Ramsete = Ramsete::new().with_b(2.5).with_zeta(0.8);
 
@@ -35,6 +36,7 @@ fn constant_templates_preserve_configuration() {
     assert_eq!(PURSUIT.track_width, ozton_math::qty!(13 in));
     assert_eq!(PURSUIT.terminal_config.linear, PID);
     assert_eq!(MOTION.acceleration.value, 2.5);
+    assert_eq!(MOTION.angular_acceleration.value, 12.0);
     assert_eq!(RAMSETE.zeta, 0.8);
 }
 
