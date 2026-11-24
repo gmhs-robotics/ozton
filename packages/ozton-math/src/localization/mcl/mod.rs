@@ -30,7 +30,12 @@ pub struct ParticleConfig {
 
 impl Default for ParticleConfig {
     fn default() -> Self {
-        Self {
+        Self::DEFAULT
+    }
+}
+
+impl ParticleConfig {
+    pub const DEFAULT: Self = Self {
             count: 64,
             seed: 1,
             initial_spread: DVec3::new(0.09, 0.09, 0.03),
@@ -39,8 +44,7 @@ impl Default for ParticleConfig {
             outlier_weight: 0.08,
             max_range_residual: None,
             max_correction_yaw_rate: None,
-        }
-    }
+    };
 }
 
 #[derive(Debug, Clone, Copy)]

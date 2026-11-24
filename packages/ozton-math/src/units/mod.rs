@@ -49,6 +49,18 @@ impl Vec3<Length> {
 /// For example, `quantity!(electric_potential::ElectricPotential, 9, volt)`.
 #[macro_export]
 macro_rules! quantity {
+    (velocity::Velocity, $value:expr, meter_per_second $(,)?) => {{
+        use $crate::uom::{ConstZero, si::f64::Velocity};
+        Velocity { value: $value as f64, ..Velocity::ZERO }
+    }};
+    (angular_velocity::AngularVelocity, $value:expr, radian_per_second $(,)?) => {{
+        use $crate::uom::{ConstZero, si::f64::AngularVelocity};
+        AngularVelocity { value: $value as f64, ..AngularVelocity::ZERO }
+    }};
+    (acceleration::Acceleration, $value:expr, meter_per_second_squared $(,)?) => {{
+        use $crate::uom::{ConstZero, si::f64::Acceleration};
+        Acceleration { value: $value as f64, ..Acceleration::ZERO }
+    }};
     ($module:ident :: $quantity:ident, $value:expr, $unit:ident $(,)?) => {
         $crate::uom::si::f64::$quantity::new::<$crate::uom::si::$module::$unit>($value as f64)
     };

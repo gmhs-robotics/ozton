@@ -40,6 +40,13 @@ impl AngularPid {
         });
     }
 
+    /// Set the normalized output limit when declaring a controller.
+    #[must_use]
+    pub const fn with_output_limit(mut self, limit: f64) -> Self {
+        self.set_output_limit(Some(limit));
+        self
+    }
+
     forward_setters!(
         set_gains(kp: f64, ki: f64, kd: f64),
         set_kp(kp: f64),

@@ -61,8 +61,26 @@ impl Default for PoseSeeking {
 }
 
 impl PoseSeeking {
+    /// Declare a reusable motion primitive directly from physical motion settings.
+    pub const fn from_config(config: crate::MotionConfig) -> Self {
+        Self {
+            tuning: config.tuning,
+            wheel_speed: config.wheel_speed,
+            position_tolerance: Some(config.position_tolerance),
+            heading_tolerance: Some(config.heading_tolerance),
+            travel: None,
+            stage_timeout: config.stage_timeout,
+            config,
+        }
+    }
+
+    /// Effective settings, including changes made through individual modifiers.
+    pub fn config(self) -> crate::MotionConfig {
+        self.effective_config()
+    }
+
     /// Apply a robot's physical constraints, PID gains and settling configuration.
-    pub fn with_config(mut self, config: crate::MotionConfig) -> Self {
+    pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
         self.tuning = config.tuning;
         self.wheel_speed = config.wheel_speed;
         self.position_tolerance = Some(config.position_tolerance);

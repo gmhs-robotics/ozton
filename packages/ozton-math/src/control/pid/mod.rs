@@ -238,6 +238,13 @@ impl Pid {
     pub const fn set_output_limit(&mut self, range: Option<f64>) {
         self.controller.output_limit = range;
     }
+
+    /// Set the output limit while constructing a controller, including in constants.
+    #[must_use]
+    pub const fn with_output_limit(mut self, limit: f64) -> Self {
+        self.set_output_limit(Some(limit));
+        self
+    }
 }
 
 impl Default for Pid {

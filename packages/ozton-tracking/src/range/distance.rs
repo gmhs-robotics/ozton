@@ -55,6 +55,27 @@ impl DistanceTracker {
         }
     }
 
+    /// Correct a measured systematic range offset (subtracted from readings).
+    #[must_use]
+    pub fn with_bias(mut self, bias: Length) -> Self {
+        self.config.bias = bias;
+        self
+    }
+
+    /// Set measurement standard deviation for this sensor.
+    #[must_use]
+    pub fn with_sigma(mut self, sigma: Length) -> Self {
+        self.config.sigma = sigma;
+        self
+    }
+
+    /// Override the measurement acceptance gate for this sensor.
+    #[must_use]
+    pub fn with_gate(mut self, gate: ozton_math::localization::range::RangeGate) -> Self {
+        self.config.gate = gate;
+        self
+    }
+
     /// Change measurement tuning without replacing the surveyed mount.
     pub fn with_tuning(
         mut self,

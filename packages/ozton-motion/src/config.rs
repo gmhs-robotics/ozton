@@ -46,18 +46,17 @@ pub struct MotionConfig {
 
 impl Default for MotionConfig {
     fn default() -> Self {
-        Self {
+        Self::DEFAULT
+    }
+}
+
+impl MotionConfig {
+    pub const DEFAULT: Self = Self {
             tuning: DriveTuning::STANDARD,
             wheel_speed: ozton_math::units::velocity!(0.50, meter_per_second),
-            acceleration: Acceleration::new::<
-                ozton_math::uom::si::acceleration::meter_per_second_squared,
-            >(0.8),
-            deceleration: Acceleration::new::<
-                ozton_math::uom::si::acceleration::meter_per_second_squared,
-            >(2.0),
-            lateral_acceleration: Acceleration::new::<
-                ozton_math::uom::si::acceleration::meter_per_second_squared,
-            >(0.8),
+            acceleration: ozton_math::units::acceleration!(0.8, meter_per_second_squared),
+            deceleration: ozton_math::units::acceleration!(2.0, meter_per_second_squared),
+            lateral_acceleration: ozton_math::units::acceleration!(0.8, meter_per_second_squared),
             angular_speed: ozton_math::units::angular_velocity!(5.0, radian_per_second),
             angular_acceleration: 8.0,
             angular_deceleration: 8.0,
@@ -91,11 +90,8 @@ impl Default for MotionConfig {
                 0.5,
                 radian_per_second
             ),
-        }
-    }
-}
+    };
 
-impl MotionConfig {
     pub fn valid(self) -> bool {
         self.tuning.valid()
             && [
