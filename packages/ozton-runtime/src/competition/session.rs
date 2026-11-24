@@ -44,7 +44,6 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     }
 
     fn enter(&mut self, mode: CompetitionMode) {
-        super::activation::advance();
         self.0.set_autonomous_start(None);
         // Enabled-mode handoff cancels execution, not latched device commands.
         // An actual disabled activation still explicitly clears outputs.
@@ -58,8 +57,9 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
 
     pub(super) async fn ticks(&mut self, mode: CompetitionMode) {
         let disabled = mode == CompetitionMode::Disabled;
+        let token = super::activation::Token::capture(mode);
         let mut previous = None;
-        while competition::mode() == mode {
+        while token.active() {
             let now = Instant::now();
             let tick = Tick {
                 started: now,
@@ -81,7 +81,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
             } else {
                 let _ = self.0.stop();
             }
-            if competition::mode() != mode {
+            if !token.active() {
                 break;
             }
             self.0.menu().poll(disabled);
@@ -93,26 +93,31 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
 
 impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     pub(super) async fn disabled(&mut self) {
+        let _activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Disabled);
         let _localization = self.0.start_localization(CompetitionMode::Disabled);
         self.0.idle_mode(CompetitionMode::Disabled).await;
     }
 
     pub(super) async fn driver(&mut self) {
+        let _activation = super::activation::Activation::enter();
         self.enter(CompetitionMode::Driver);
         self.0.menu().status(DRIVER_STATUS);
         let _localization = self.0.start_localization(CompetitionMode::Driver);
+        let token = super::activation::Token::capture(CompetitionMode::Driver);
         let result = self.0.driver_mode().await;
-        if competition::mode() != CompetitionMode::Driver {
+        if !token.active() {
             return;
         }
         if let Err(error) = result {
+            super::activation::advance();
             self.stop();
             self.0.driver_failed(error);
         }
     }
 
     pub(super) async fn autonomous(&mut self) {
+        let _activation = super::activation::Activation::enter();
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
         let _localization = self.0.start_localization(mode);
@@ -130,16 +135,15 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
                 // motor commands or update the next mode's status on exit.
                 return;
             }
+            super::activation::advance();
             match result {
-                Some(Ok(())) => {
-                    match robot.stop() {
+                Some(Ok(())) => match robot.stop() {
                         Ok(()) => {
                             robot.menu().status("Autonomous complete");
                             crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label());
                         }
                         Err(error) => robot.route_failed(route, error),
-                    }
-                }
+                },
                 Some(Err(error)) => {
                     let stopped = robot.stop();
                     robot.route_failed(route, error);
@@ -183,21 +187,21 @@ where
     }
 }
 
-pub(super) async fn while_in_mode<T>(
+pub(crate) async fn while_in_mode<T>(
     route: impl Future<Output = T>,
     mode: CompetitionMode,
     period: Duration,
 ) -> Option<T> {
-    let activation = super::activation::current();
+    let token = super::activation::Token::capture(mode);
     let mut route = pin!(route);
     let interval = period.clamp(Duration::from_millis(1), CONTROL_PERIOD);
     let mut mode_check = sleep(interval);
     poll_fn(|cx| {
-        if !super::activation::is_current(activation, mode) {
+        if !token.active() {
             return Poll::Ready(None);
         }
         if let Poll::Ready(result) = route.as_mut().poll(cx) {
-            return Poll::Ready(super::activation::is_current(activation, mode).then_some(result));
+            return Poll::Ready(token.active().then_some(result));
         }
         if Pin::new(&mut mode_check).poll(cx).is_ready() {
             mode_check = sleep(interval);

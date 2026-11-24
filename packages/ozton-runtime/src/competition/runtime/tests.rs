@@ -96,3 +96,22 @@ fn route_choice_is_read_once_at_autonomous_entry() {
         assert_eq!(reads.get(), 2);
     });
 }
+
+#[test]
+fn direct_enabled_handoff_does_not_stop_latched_outputs() {
+    vexide::runtime::block_on(async {
+        let mut runtime = Runtime::new(Application {
+            drive: FakeDrive {
+                writes: vec!["auton"],
+                fail_stop: false,
+                direct_output: false,
+            },
+            driver_entries: 0,
+        });
+
+        // Simulate an already-commanded motor and an enabled driver entry.
+        // The driver itself writes output, then faults; only the fault stops it.
+        Compete::driver(&mut runtime).await;
+        assert_eq!(runtime.robot.drive.writes, ["auton", "drive", "stop drive"]);
+    });
+}

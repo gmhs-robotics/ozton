@@ -2,8 +2,8 @@
 
 use std::{
     cell::RefCell,
-    future::{Future, poll_fn},
-    pin::{Pin, pin},
+    future::Future,
+    pin::Pin,
     rc::Weak,
     task::{Context, Poll, Waker},
     time::{Duration, Instant},
@@ -15,7 +15,7 @@ use vexide::{
     time::sleep,
 };
 
-use crate::competition::{Mechanism, activation};
+use crate::competition::{Mechanism, activation, while_in_mode};
 
 /// Owns one fallible background task. Check it from the owning component's tick
 /// so errors reach the competition runtime through the component's result.
@@ -23,13 +23,12 @@ pub struct TaskSlot<E>(Option<ScopedTask<E>>);
 
 struct ScopedTask<E> {
     task: Task<Result<(), E>>,
-    activation: u32,
-    mode: CompetitionMode,
+    token: activation::Token,
 }
 
 impl<E> ScopedTask<E> {
     fn active(&self) -> bool {
-        activation::is_current(self.activation, self.mode)
+        self.token.active()
     }
 }
 
@@ -54,19 +53,19 @@ impl<E> TaskSlot<E> {
             self.0 = None;
         }
         self.0.get_or_insert_with(|| {
-            let activation = activation::current();
             let mode = competition::mode();
+            let token = activation::Token::capture(mode);
             let task = spawn(async move {
-                let mut work = pin!(work);
-                poll_fn(|cx| {
-                    if !activation::is_current(activation, mode) {
-                        return Poll::Ready(Ok(()));
-                    }
-                    work.as_mut().poll(cx)
-                })
-                .await
+                // Check even before the first poll: a task may have been
+                // queued in the preceding activation of the same mode.
+                if !token.active() {
+                    return Ok(());
+                }
+                while_in_mode(work, mode, crate::clock::CONTROL_PERIOD)
+                    .await
+                    .unwrap_or(Ok(()))
             });
-            ScopedTask { task, activation, mode }
+            ScopedTask { task, token }
         });
     }
 
@@ -80,10 +79,13 @@ impl<E> TaskSlot<E> {
     ) where
         E: std::fmt::Display + 'static,
     {
+        if competition::mode() != mode {
+            return;
+        }
         self.start(async move {
             let mut previous = Instant::now();
             loop {
-                sleep(period).await;
+                sleep(period.max(Duration::from_millis(1))).await;
                 if competition::mode() != mode {
                     return Ok(());
                 }
@@ -141,6 +143,72 @@ mod tests {
     use vex_sdk_mock as _;
 
     use super::*;
+
+    #[test]
+    fn stale_tasks_cannot_write_after_reentering_the_same_mode() {
+        use std::{cell::Cell, rc::Rc};
+
+        vexide::runtime::block_on(async {
+            let writes = Rc::new(Cell::new(0));
+            let mut slot = TaskSlot::<&'static str>::default();
+            let first = activation::Token::capture(competition::mode());
+            slot.start({
+                let writes = Rc::clone(&writes);
+                async move {
+                    sleep(Duration::from_millis(10)).await;
+                    writes.set(writes.get() + 1);
+                    Err("stale fault")
+                }
+            });
+            sleep(Duration::from_millis(1)).await;
+            crate::competition::activation::advance();
+            assert!(!first.active());
+            assert!(!slot.is_occupied());
+            slot.start({
+                let writes = Rc::clone(&writes);
+                async move {
+                    writes.set(writes.get() + 10);
+                    Ok(())
+                }
+            });
+            sleep(Duration::from_millis(20)).await;
+            assert_eq!(writes.get(), 10);
+            assert_eq!(slot.check(), Ok(()));
+        });
+    }
+
+    #[test]
+    fn mechanism_worker_skips_conflicting_borrows() {
+        use std::rc::Rc;
+
+        #[derive(Default)]
+        struct Counter(usize);
+
+        impl Mechanism<&'static str> for Counter {
+            fn update(&mut self, _: CompetitionMode, _: Duration) -> Result<(), &'static str> {
+                self.0 += 1;
+                Ok(())
+            }
+        }
+
+        vexide::runtime::block_on(async {
+            let mechanism = Rc::new(RefCell::new(Counter::default()));
+            let mut slot = TaskSlot::default();
+            slot.start_mechanism(
+                Rc::downgrade(&mechanism),
+                competition::mode(),
+                Duration::from_millis(1),
+            );
+            {
+                let held = mechanism.borrow_mut();
+                sleep(Duration::from_millis(5)).await;
+                assert_eq!(held.0, 0);
+            }
+            sleep(Duration::from_millis(5)).await;
+            assert!(mechanism.borrow().0 > 0);
+            assert_eq!(slot.cancel(), Ok(()));
+        });
+    }
 
     #[test]
     fn completed_failure_is_collected_once_and_cancel_clears_pending_work() {

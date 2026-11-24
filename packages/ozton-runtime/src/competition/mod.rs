@@ -27,7 +27,7 @@ pub use policy::{CompetitionLayout, Mechanism, Program};
 pub use routes::*;
 pub use runtime::{OztonCompete, Runtime};
 pub(crate) use session::compete;
-use session::while_in_mode;
+pub(crate) use session::while_in_mode;
 
 /// Timing for the current control tick, including time spent in application hooks.
 #[derive(Clone, Copy)]

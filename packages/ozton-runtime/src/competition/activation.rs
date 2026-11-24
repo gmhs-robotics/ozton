@@ -1,20 +1,74 @@
 //! Distinguish separate activations of the same competition mode.
-//! Vexide owns the callback future; this token also invalidates Ozton-owned
-//! background futures that may otherwise miss a short intermediate mode.
+//! Dropping the callback invalidates its work even if a short intermediate
+//! mode never gets polled. No motor writes are performed by this guard.
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use vexide::competition::{self, CompetitionMode};
 
+#[cfg(target_os = "vexos")]
+use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(target_os = "vexos")]
 static ACTIVATION: AtomicU32 = AtomicU32::new(0);
 
+#[cfg(not(target_os = "vexos"))]
+std::thread_local! {
+    static ACTIVATION: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 pub(crate) fn current() -> u32 {
-    ACTIVATION.load(Ordering::Relaxed)
+    #[cfg(target_os = "vexos")]
+    {
+        ACTIVATION.load(Ordering::Relaxed)
+    }
+    #[cfg(not(target_os = "vexos"))]
+    {
+        ACTIVATION.get()
+    }
 }
 
-pub(super) fn advance() {
+pub(crate) fn advance() {
+    #[cfg(target_os = "vexos")]
     ACTIVATION.fetch_add(1, Ordering::Relaxed);
+    #[cfg(not(target_os = "vexos"))]
+    ACTIVATION.set(current().wrapping_add(1));
 }
 
-pub(crate) fn is_current(activation: u32, mode: CompetitionMode) -> bool {
-    current() == activation && competition::mode() == mode
+/// Invalidates work synchronously when vexide drops an active mode future.
+pub(super) struct Activation(u32);
+
+impl Activation {
+    pub(super) fn enter() -> Self {
+        advance();
+        Self(current())
+    }
+}
+
+impl Drop for Activation {
+    fn drop(&mut self) {
+        if current() == self.0 {
+            advance();
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Token {
+    activation: u32,
+    mode: CompetitionMode,
+    connected: bool,
+}
+
+impl Token {
+    pub(crate) fn capture(mode: CompetitionMode) -> Self {
+        Self {
+            activation: current(),
+            mode,
+            connected: competition::is_connected(),
+        }
+    }
+
+    pub(crate) fn active(self) -> bool {
+        current() == self.activation
+            && competition::mode() == self.mode
+            && competition::is_connected() == self.connected
+    }
 }
