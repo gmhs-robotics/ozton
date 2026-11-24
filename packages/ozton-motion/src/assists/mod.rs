@@ -1,9 +1,11 @@
 //! Stock drive assists.
 
-use ozton_drivetrain::Drive;
-use ozton_math::control::{Pid, drive::AntiTip, heading_corrector::HeadingCorrector};
-use ozton_drivetrain::assist::{AssistContext, DriveAssist};
 pub use ozton_drivetrain::assist::MotorBalanceAssist;
+use ozton_drivetrain::{
+    Drive,
+    assist::{AssistContext, DriveAssist},
+};
+use ozton_math::control::{Pid, drive::AntiTip, heading_corrector::HeadingCorrector};
 
 pub struct HeadingHoldAssist(HeadingCorrector);
 

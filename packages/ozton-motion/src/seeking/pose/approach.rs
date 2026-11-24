@@ -82,7 +82,8 @@ async fn approach<D: PoseDrive>(
         let direction = settings
             .travel
             .map(|d| matches!(d, TravelDirection::Backward));
-        let span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::Planner);
+        let span =
+            ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::Planner);
         let plan = if clearance.is_none() || preferred.is_some() {
             ozton_math::path::planner::plan(
                 start,

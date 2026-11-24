@@ -1,11 +1,11 @@
 use std::time::{Duration, Instant};
 
+use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
-use ozton_diagnostics::{log_event, log_row};
 
 use super::{
     PathActions, PoseDrive, PoseMotionError,
@@ -54,7 +54,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
 
     async fn tick(&mut self) -> Result<Duration, PoseMotionError<D::Error>> {
         let period = self.config.timing.period;
-        let deadline = self.previous_tick.checked_add(period).ok_or(PoseMotionError::Configuration)?;
+        let deadline = self
+            .previous_tick
+            .checked_add(period)
+            .ok_or(PoseMotionError::Configuration)?;
         self.drive.wait_until(deadline).await;
         let now = Instant::now();
         let dt = now.saturating_duration_since(self.previous_tick);
@@ -124,8 +127,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut feedback_at = Instant::now();
         loop {
             let dt = self.tick().await?;
-            let _span =
-                ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MotionTick);
+            let _span = ozton_diagnostics::profile::Span::new(
+                ozton_diagnostics::profile::Stage::MotionTick,
+            );
             if started.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }
@@ -281,8 +285,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         );
         loop {
             let tick = self.tick().await?;
-            let _span =
-                ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MotionTick);
+            let _span = ozton_diagnostics::profile::Span::new(
+                ozton_diagnostics::profile::Stage::MotionTick,
+            );
             if start.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }

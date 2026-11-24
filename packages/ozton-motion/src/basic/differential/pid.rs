@@ -2,9 +2,9 @@
 
 use std::time::Duration;
 
-use ozton_math::control::Pid;
 #[cfg(feature = "logging")]
 use ozton_diagnostics::log_row;
+use ozton_math::control::Pid;
 
 use super::DriveTuning;
 

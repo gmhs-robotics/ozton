@@ -15,8 +15,8 @@ mod error;
 mod safety;
 mod session;
 pub use actions::PathActions;
-pub use ozton_drivetrain::PoseDrive;
 pub use error::PoseMotionError;
+pub use ozton_drivetrain::PoseDrive;
 pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
 
@@ -277,7 +277,11 @@ impl Seeking {
         if approach::clearance(drive, self.config.safety.clearance)?
             .is_some_and(|f| !f.can_turn(drive.pose()))
         {
-            ozton_diagnostics::log_event!(Warn, "clearance", "Not enough room for an in-place turn");
+            ozton_diagnostics::log_event!(
+                Warn,
+                "clearance",
+                "Not enough room for an in-place turn"
+            );
             return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
@@ -323,7 +327,11 @@ impl Seeking {
             return Err(PoseMotionError::Configuration);
         }
         if field.is_some_and(|f| !ozton_math::path::planner::clear(path, reverse, f)) {
-            ozton_diagnostics::log_event!(Warn, "clearance", "Planned trajectory violates clearance");
+            ozton_diagnostics::log_event!(
+                Warn,
+                "clearance",
+                "Planned trajectory violates clearance"
+            );
             return Err(PoseMotionError::InsufficientClearance);
         }
         let end = path.end().pose;

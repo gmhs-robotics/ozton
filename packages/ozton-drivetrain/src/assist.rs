@@ -51,4 +51,3 @@ impl<M: Balancing, T, L> DriveAssist<M, T, L> for MotorBalanceAssist {
         context.model.balance(wheels)
     }
 }
-

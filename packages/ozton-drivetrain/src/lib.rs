@@ -3,13 +3,12 @@
 pub mod assist;
 pub mod model;
 mod pose;
-pub use pose::PoseDrive;
-#[cfg(feature = "vex")]
-pub use pose::DriveMotionFault;
-
 pub use model::{Drive, LateralDrive};
 pub use ozton_math::path::clearance::Footprint;
 pub use ozton_tracking::odometric::WheelFeedback;
+#[cfg(feature = "vex")]
+pub use pose::DriveMotionFault;
+pub use pose::PoseDrive;
 
 #[cfg(feature = "vex")]
 mod vex;

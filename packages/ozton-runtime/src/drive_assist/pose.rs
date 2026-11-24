@@ -1,7 +1,7 @@
 //! Adapt assisted VEX drives to generic pose motion.
-use std::time::Instant;
 #[cfg(feature = "logging")]
 use std::time::Duration;
+use std::time::Instant;
 
 use ozton_drivetrain::{Drive, DriveMotionFault, Footprint, PoseDrive, model::Differential};
 use ozton_localization::{Feedback, differential::DifferentialLocalization};

@@ -1,5 +1,8 @@
 //! Hardware-independent contract for a localized drivetrain.
-use std::{future::Future, time::{Duration, Instant}};
+use std::{
+    future::Future,
+    time::{Duration, Instant},
+};
 
 use ozton_localization::Feedback;
 use ozton_math::{
@@ -47,4 +50,3 @@ pub trait PoseDrive: DriveEncoders {
 
     fn log_step(&mut self, _elapsed: Duration, _dt: Duration) {}
 }
-

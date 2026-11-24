@@ -1,9 +1,9 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
+use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::DVec2, path::clearance::RectangularClearance, qty, uom::si::f64::Velocity,
 };
-use ozton_diagnostics::{log_event, log_row};
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
 

@@ -33,7 +33,10 @@ impl<'a> PathActions<'a> {
     }
 
     #[must_use]
-    pub fn on_start<E: std::error::Error + 'static>(self, action: impl FnOnce() -> Result<(), E> + 'a) -> Self {
+    pub fn on_start<E: std::error::Error + 'static>(
+        self,
+        action: impl FnOnce() -> Result<(), E> + 'a,
+    ) -> Self {
         self.at_distance(ozton_math::qty!(0 m), action)
     }
 
@@ -45,7 +48,9 @@ impl<'a> PathActions<'a> {
     ) -> Self {
         self.events.push(Event {
             trigger: Trigger::Distance(distance),
-            action: Some(Box::new(move || action().map_err(|error| Box::new(error) as ActionError))),
+            action: Some(Box::new(move || {
+                action().map_err(|error| Box::new(error) as ActionError)
+            })),
         });
         self
     }
@@ -60,16 +65,23 @@ impl<'a> PathActions<'a> {
     ) -> Self {
         self.events.push(Event {
             trigger: Trigger::Remaining(lead),
-            action: Some(Box::new(move || action().map_err(|error| Box::new(error) as ActionError))),
+            action: Some(Box::new(move || {
+                action().map_err(|error| Box::new(error) as ActionError)
+            })),
         });
         self
     }
 
     #[must_use]
-    pub fn on_arrival<E: std::error::Error + 'static>(mut self, action: impl FnOnce() -> Result<(), E> + 'a) -> Self {
+    pub fn on_arrival<E: std::error::Error + 'static>(
+        mut self,
+        action: impl FnOnce() -> Result<(), E> + 'a,
+    ) -> Self {
         self.events.push(Event {
             trigger: Trigger::Arrival,
-            action: Some(Box::new(move || action().map_err(|error| Box::new(error) as ActionError))),
+            action: Some(Box::new(move || {
+                action().map_err(|error| Box::new(error) as ActionError)
+            })),
         });
         self
     }
@@ -83,12 +95,7 @@ impl<'a> PathActions<'a> {
         })
     }
 
-    pub(super) fn advance(
-        &mut self,
-        distance: f64,
-        remaining: f64,
-        arrived: bool,
-    ) -> ActionResult {
+    pub(super) fn advance(&mut self, distance: f64, remaining: f64, arrived: bool) -> ActionResult {
         for event in &mut self.events {
             let ready = match event.trigger {
                 Trigger::Distance(target) => arrived || distance >= target.value,

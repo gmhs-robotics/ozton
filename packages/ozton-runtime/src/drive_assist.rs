@@ -22,8 +22,8 @@ use vexide::smart::PortError;
 
 mod collection;
 mod pose;
-pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssist};
 pub use collection::{DriveAssists, ResetDriveAssists};
+pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssist};
 
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
