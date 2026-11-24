@@ -94,21 +94,22 @@ impl RectangularClearance {
             return None;
         }
         let angle = yaw.value.abs().min(core::f64::consts::PI);
+        let (sin, cos) = (libm::sin(angle), libm::cos(angle));
         let f = direction(pose.heading);
         let l = direction(pose.heading - crate::qty!(90 deg));
         let support = |axis: DVec2| {
             let mut corner_max = f64::NEG_INFINITY;
             for x in [-self.footprint.half_extents.x, self.footprint.half_extents.x] {
                 for y in [-self.footprint.half_extents.y, self.footprint.half_extents.y] {
-                    let corner = pose.transform_point(
-                        self.footprint.center_offset + DVec2::new(x, y),
-                    ) - pose.position;
-                    corner_max = corner_max.max(rotated_support(corner, axis, angle));
+                    let corner = pose
+                        .transform_point(self.footprint.center_offset + DVec2::new(x, y))
+                        - pose.position;
+                    corner_max = corner_max.max(rotated_support(corner, axis, sin, cos));
                 }
             }
             let travel_support = |d: DVec2, interval: [f64; 2]| {
-                rotated_support(d * interval[0], axis, angle)
-                    .max(rotated_support(d * interval[1], axis, angle))
+                rotated_support(d * interval[0], axis, sin, cos)
+                    .max(rotated_support(d * interval[1], axis, sin, cos))
                     .max(0.0)
             };
             corner_max + travel_support(f, forward) + travel_support(l, lateral)
@@ -289,13 +290,13 @@ impl RectangularClearance {
 
 /// Maximum projection of a vector rotated through any angle in [-yaw, yaw].
 /// The maximum lies at the aligned direction or at one of the arc endpoints.
-fn rotated_support(vector: DVec2, axis: DVec2, yaw: f64) -> f64 {
+fn rotated_support(vector: DVec2, axis: DVec2, sin: f64, cos: f64) -> f64 {
     let dot = vector.dot(axis);
-    let cross = vector.perp_dot(axis).abs();
-    if libm::atan2(cross, dot) <= yaw {
-        vector.length()
+    let radius = vector.length();
+    if dot >= radius * cos {
+        radius
     } else {
-        dot * libm::cos(yaw) + cross * libm::sin(yaw)
+        dot * cos + vector.perp_dot(axis).abs() * sin
     }
 }
 
