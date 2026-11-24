@@ -10,7 +10,7 @@ use std::{
 mod levels;
 mod macros;
 #[cfg(feature = "logging")]
-pub use levels::{Level, enabled, field, message, now, row, sd_enabled};
+pub use levels::{Level, enabled, field, message, now, row, sd_enabled, set_clock};
 
 /// Stamp shared by every row in one diagnostic sample.
 #[derive(Clone, Copy, Debug)]

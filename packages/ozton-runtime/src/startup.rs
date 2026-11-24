@@ -54,6 +54,7 @@ impl Startup {
     pub(crate) fn begin() -> Self {
         #[cfg(feature = "logging")]
         {
+            ozton_diagnostics::serial::set_clock(vexide::time::user_uptime);
             // Keep the platform panic handler: diagnostics supplement it rather
             // than suppressing its normal display and backtrace behavior.
             static HOOK: std::sync::Once = std::sync::Once::new();

@@ -9,8 +9,5 @@ edition = "2024"
 [lints]
 workspace = true
 
-[dependencies]
-vexide = { workspace = true, optional = true }
-
 [features]
-logging = ["dep:vexide"]
+logging = []

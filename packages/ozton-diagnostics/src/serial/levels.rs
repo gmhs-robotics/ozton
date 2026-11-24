@@ -44,9 +44,22 @@ pub fn enabled(level: Level) -> bool {
     level.usb() || sd_enabled()
 }
 
+// Hardware runtimes can register their existing monotonic clock. Host users
+// do not need a hardware SDK to enable diagnostics.
+static CLOCK: std::sync::OnceLock<fn() -> Duration> = std::sync::OnceLock::new();
+
+/// Install a clock before emitting records; subsequent calls keep its epoch.
+pub fn set_clock(clock: fn() -> Duration) {
+    let _ = CLOCK.set(clock);
+}
+
 #[doc(hidden)]
 pub fn now() -> Duration {
-    vexide::time::user_uptime()
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    CLOCK.get().map_or_else(
+        || START.get_or_init(std::time::Instant::now).elapsed(),
+        |clock| clock(),
+    )
 }
 
 /// Encode one string field for a schema 2 row.

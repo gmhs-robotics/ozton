@@ -214,9 +214,6 @@ dependencies = [
 [[package]]
 name = "ozton-diagnostics"
 version = "0.4.0"
-dependencies = [
- "vexide",
-]
 
 [[package]]
 name = "ozton-drivetrain"
