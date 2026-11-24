@@ -74,7 +74,8 @@ The accelerometer channel accepts SI, gravity-compensated chassis-frame
 acceleration at the origin. The V5 flat-mount adapter is explicitly opt-in
 via InertialSensorTracking::with_planar_acceleration(true). Verify axes
 with a static tilt, forward/reverse acceleration and stationary drift test
-before enabling it; nonzero XY offsets require rotational acceleration
+before enabling it. VelocityConfig::acceleration_axes independently selects
+validated right and forward channels; nonzero mount offsets require rotational acceleration
 compensation and are not enabled by this adapter. VEX reports acceleration
 in g and gyro rate in degrees/s:
 https://vexide.dev/docs/inertial-sensor/ .

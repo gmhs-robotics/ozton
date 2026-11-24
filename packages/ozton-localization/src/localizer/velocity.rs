@@ -21,6 +21,8 @@ pub struct MotionObservations {
 /// Process noise and measurement standard deviations in SI units.
 #[derive(Debug, Clone, Copy)]
 pub struct VelocityConfig {
+    /// Calibrated acceleration channels in chassis-right, forward order.
+    pub acceleration_axes: [bool; 2],
     /// Velocity process variance per second, (m/s)²/s.
     pub linear_process: f64,
     /// Gyro-rate process variance per second, (rad/s)²/s.
@@ -40,6 +42,7 @@ pub struct VelocityConfig {
 impl Default for VelocityConfig {
     fn default() -> Self {
         Self {
+            acceleration_axes: [true; 2],
             linear_process: 0.50,
             angular_process: 2.0,
             bias_process: 0.01,
@@ -171,7 +174,7 @@ impl VelocityEstimator {
         [
             self.axes[0].update(
                 dt,
-                acceleration.map(|a| a.x),
+                acceleration.filter(|_| c.acceleration_axes[0]).map(|a| a.x),
                 movement.translation.x / dt,
                 travel_variance,
                 c.linear_process,
@@ -179,7 +182,7 @@ impl VelocityEstimator {
             ),
             self.axes[1].update(
                 dt,
-                acceleration.map(|a| a.y),
+                acceleration.filter(|_| c.acceleration_axes[1]).map(|a| a.y),
                 direct_forward.unwrap_or(movement.translation.y / dt),
                 if direct_forward.is_some() {
                     c.wheel_rate_sigma.powi(2)
