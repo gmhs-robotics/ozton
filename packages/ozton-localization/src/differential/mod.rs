@@ -185,12 +185,19 @@ impl DifferentialLocalization {
         sample: SensorSample<'_>,
         track_width: Option<Length>,
     ) -> Result<Option<Feedback>, Fault> {
-        let (snapshot, wheels, ranges) = self.observations.read(sample);
+        let (snapshot, wheels, ranges, mut rates) = self.observations.read(sample);
+        if self.drive.is_none() || self.wheels.has_forward_projection() {
+            rates.forward_rate = None;
+        }
+        if !self.use_imu {
+            rates.yaw_rate = None;
+            rates.acceleration = None;
+        }
         self.wheels.observe(wheels);
         let update =
             match self
                 .localizer
-                .update_with_odometry(snapshot, &ranges, |before, after, _, _| {
+                .update_with_motion(snapshot, &ranges, rates, |before, after, _, _| {
                     Ok(self
                         .wheels
                         .delta(before, after, self.drive, track_width, self.use_imu))

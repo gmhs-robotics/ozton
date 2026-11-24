@@ -15,6 +15,7 @@ pub struct InertialSensorTracking {
     position: Vec3<Length>,
     cached: Option<Option<Orientation>>,
     last: Option<Orientation>,
+    planar_acceleration: bool,
 }
 
 impl InertialSensorTracking {
@@ -26,7 +27,16 @@ impl InertialSensorTracking {
             position,
             cached: None,
             last: None,
+            planar_acceleration: false,
         }
+    }
+
+    /// Enable calibrated planar acceleration for a flat IMU mounted at the
+    /// robot origin. The caller must verify the sensor axes and gravity
+    /// compensation on the physical robot before enabling this input.
+    pub fn with_planar_acceleration(mut self, enabled: bool) -> Self {
+        self.planar_acceleration = enabled;
+        self
     }
 
     pub fn position(&self) -> Vec3<Length> {
@@ -151,6 +161,27 @@ impl crate::TrackingSource for InertialSensorTracking {
                 sink.push(Measurement::Heading(HeadingObservation::Compass(heading)));
             }
             sink.push(Measurement::Attitude(attitude));
+            if let Ok(rate) = self.sensor.gyro_rate() {
+                // VEX gyro Z is CCW for an upright sensor; heading is clockwise.
+                if rate.z.is_finite() {
+                    sink.push(Measurement::Rotation(glam::DVec3::Z * rate.z.to_radians()));
+                }
+            }
+            if self.planar_acceleration
+                && self.position.x.value.abs() < 1e-6
+                && self.position.y.value.abs() < 1e-6
+                && let (Ok(accel), Ok(tilt)) = (self.sensor.acceleration(), self.sensor.euler())
+            {
+                let planar = planar_acceleration(
+                    glam::DVec2::new(accel.x, accel.y),
+                    tilt.a.as_radians(),
+                    tilt.c.as_radians(),
+                    self.bearing.value,
+                );
+                if planar.is_finite() {
+                    sink.push(Measurement::Acceleration(planar.extend(0.0)));
+                }
+            }
         }
     }
 
@@ -178,6 +209,17 @@ impl InertialSensorTracking {
     }
 }
 
+// SDK attitude convention observed on V5: a=pitch, c=roll. The
+// accelerometer reports specific force including the static gravity projection.
+// Sensor X points right and Y forward for the zero-bearing flat mount.
+fn planar_acceleration(raw_g: glam::DVec2, pitch: f64, roll: f64, bearing: f64) -> glam::DVec2 {
+    const STANDARD_GRAVITY: f64 = 9.80665;
+    let gravity = glam::DVec2::new(pitch.sin(), roll.sin() * pitch.cos());
+    let a = (raw_g - gravity) * STANDARD_GRAVITY;
+    let (sin, cos) = bearing.sin_cos();
+    glam::DVec2::new(a.x * cos - a.y * sin, a.x * sin + a.y * cos)
+}
+
 // Express gravity in the chassis's forward/right/down frame, then recover tilt.
 fn chassis_tilt(pitch: Angle, roll: Angle, bearing: Angle) -> (Angle, Angle) {
     if bearing.value == 0.0 {
@@ -200,6 +242,16 @@ fn chassis_tilt(pitch: Angle, roll: Angle, bearing: Angle) -> (Angle, Angle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn planar_acceleration_removes_gravity_and_rotates_mount() {
+        let (pitch, roll) = (0.1_f64, -0.2_f64);
+        let static_g = glam::DVec2::new(pitch.sin(), roll.sin() * pitch.cos());
+        assert!(planar_acceleration(static_g, pitch, roll, 0.0).length() < 1e-12);
+        let forward = static_g + glam::DVec2::Y / 9.80665;
+        let rotated = planar_acceleration(forward, pitch, roll, std::f64::consts::FRAC_PI_2);
+        assert!(rotated.distance(-glam::DVec2::X) < 1e-12);
+    }
 
     #[test]
     fn quarter_turn_mount_swaps_sensor_pitch_into_chassis_roll() {

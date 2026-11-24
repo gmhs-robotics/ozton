@@ -44,3 +44,41 @@ Register the actual starting pose with drivetrain.localization_mut().set_pose(po
 In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
 
 A fixed wall is a single `Surface::new(start_xy, end_xy, height)` with a continuous vertical face from the floor to `height`. For an elevated fixture, use `.with_base_height(base)` on the same type. Sensor-height masks are resolved at localizer construction, so rays above or below the face cannot contribute to MCL or DSR. Planar ray-casting primitives still accept precomputed masks.
+
+
+## Velocity estimation
+
+Velocity is a separate state from absolute field pose. MCL and DSR corrections
+are never differentiated as if the chassis had physically moved. A single
+timestamp-aware linear Kalman estimator supplies forward, lateral and yaw
+rates to PID, stationary DSR gating, diagnostics and motion safety.
+
+Each linear axis maintains velocity v and accelerometer bias b. With a calibrated
+acceleration input a, the state prediction is v' = v + (a - b) dt, b' = b.
+The covariance prediction is F P F^T + Q, with F = [[1, -dt], [0, 1]].
+Without acceleration, velocity follows a random-walk process. The rate
+measurement update uses H = [1, 0], K = P H^T / (H P H^T + R), and the
+Joseph covariance update. For an encoder increment d, z = d/dt and
+R = 2 sigma_position²/dt². Direct motor velocity is preferred when drive
+encoders provide forward travel; it replaces, rather than double-counts,
+the correlated encoder delta. An independent forward-projected pod retains
+priority. Gyro yaw rate is preferred to differentiated heading. All angles
+and angular rates are CCW radians. A rotating chassis frame includes the
+transport term -omega cross v in its acceleration prediction.
+
+Use LocalizationBuilder::with_velocity_config to specify measured noise
+parameters. Default process/measurement noise is a conservative initial
+model, not a measured specification. Estimate encoder position and direct
+rate noise at rest and at steady speed, and gyro noise at rest, from logs.
+The accelerometer channel accepts SI, gravity-compensated chassis-frame
+acceleration at the origin. The V5 flat-mount adapter is explicitly opt-in
+via InertialSensorTracking::with_planar_acceleration(true). Verify axes
+with a static tilt, forward/reverse acceleration and stationary drift test
+before enabling it; nonzero XY offsets require rotational acceleration
+compensation and are not enabled by this adapter. VEX reports acceleration
+in g and gyro rate in degrees/s:
+https://vexide.dev/docs/inertial-sensor/ .
+
+The estimator resets on a new surveyed pose, invalidated tracking or a
+configuration change. Raw odometry displacement still drives pose integration.
+No motion session maintains a separate packet-spike workaround.

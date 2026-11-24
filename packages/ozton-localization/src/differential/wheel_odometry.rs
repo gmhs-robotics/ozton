@@ -32,6 +32,12 @@ impl WheelOdometry {
         }
     }
 
+    /// A projected pod with a forward component may be a better forward source
+    /// than drive-wheel velocity. Do not overwrite its fitted velocity.
+    pub fn has_forward_projection(&self) -> bool {
+        self.projections.iter().any(|row| row.y.abs() > 1e-6)
+    }
+
     pub fn observe(&mut self, positions: &[Option<Length>]) {
         for (index, (previous, travel)) in
             self.previous.iter_mut().zip(&mut self.travel).enumerate()

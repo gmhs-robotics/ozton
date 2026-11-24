@@ -16,6 +16,9 @@ mod estimate;
 mod ranges;
 mod reset;
 mod snapshot;
+mod velocity;
+pub use velocity::{MotionObservations, VelocityConfig};
+use velocity::VelocityEstimator;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 pub use ranges::RangeReport;
@@ -97,6 +100,7 @@ pub struct Localizer<'a, E = Filter> {
     previous: Option<Snapshot>,
     range_times: [Option<Duration>; MAX_RANGES],
     forward_travel: f64,
+    velocity: VelocityEstimator,
     forward_velocity: f64,
     angular_velocity: f64,
     reset: Option<ResetWindow>,
@@ -166,6 +170,7 @@ impl<'a> Localizer<'a> {
             previous: None,
             range_times: [None; MAX_RANGES],
             forward_travel: 0.0,
+            velocity: VelocityEstimator::default(),
             forward_velocity: 0.0,
             angular_velocity: 0.0,
             reset: None,
@@ -191,6 +196,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             previous,
             range_times,
             forward_travel,
+            velocity,
             forward_velocity,
             angular_velocity,
             dsr_config,
@@ -212,6 +218,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             previous,
             range_times,
             forward_travel,
+            velocity,
             forward_velocity,
             angular_velocity,
             reset: None,
@@ -249,6 +256,11 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.config.odometry
     }
 
+    /// Configure the shared velocity estimator and reset its covariance.
+    pub fn set_velocity_config(&mut self, config: VelocityConfig) -> bool {
+        self.velocity.set_config(config)
+    }
+
     /// Initial or currently selected pose estimator.
     pub fn estimator(&self) -> Estimator {
         self.config.estimator
@@ -277,6 +289,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.trust = PoseTrust::NeedsRelocalization;
         self.previous = None;
         self.reset = None;
+        self.velocity.reset();
         self.forward_velocity = 0.0;
         self.angular_velocity = 0.0;
     }
@@ -321,6 +334,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.filter_pose = pose;
         self.filter.reset(pose);
         self.previous = None;
+        self.velocity.reset();
         self.forward_velocity = 0.0;
         self.angular_velocity = 0.0;
         self.reset = None;
@@ -359,7 +373,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
     ) -> Result<Update, Fault> {
-        self.update_from(raw, observations, snapshot::delta)
+        self.update_from(raw, observations, MotionObservations::default(), snapshot::delta)
     }
 
     /// Apply a custom wheel layout while sharing the localizer's timing, pose
@@ -370,7 +384,18 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         observations: &[Option<RangeObservation>],
         motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig, Duration) -> Result<BodyDelta, Fault>,
     ) -> Result<Update, Fault> {
-        self.update_from(raw, observations, |previous, next, config| {
+        self.update_with_motion(raw, observations, MotionObservations::default(), motion)
+    }
+
+    /// Odometry and direct kinematic observations share one timestamp and estimator.
+    pub fn update_with_motion(
+        &mut self,
+        raw: Snapshot,
+        observations: &[Option<RangeObservation>],
+        rates: MotionObservations,
+        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig, Duration) -> Result<BodyDelta, Fault>,
+    ) -> Result<Update, Fault> {
+        self.update_from(raw, observations, rates, |previous, next, config| {
             let dt = snapshot::interval(previous, next, config)?;
             Ok((motion(previous, next, config, dt)?, dt))
         })
@@ -380,9 +405,10 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         &mut self,
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
+        rates: MotionObservations,
         motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
     ) -> Result<Update, Fault> {
-        let result = self.update_inner(raw, observations, motion);
+        let result = self.update_inner(raw, observations, rates, motion);
         if result
             .as_ref()
             .is_err_and(|fault| !matches!(fault, Fault::Initializing))
@@ -396,6 +422,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         &mut self,
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
+        rates: MotionObservations,
         motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
     ) -> Result<Update, Fault> {
         if self.previous.is_some_and(|last| raw.time <= last.time) {
@@ -432,8 +459,10 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             return Err(Fault::InvalidEstimate);
         }
         self.odometry = odometry;
-        self.forward_velocity = movement.translation.y / seconds;
-        self.angular_velocity = movement.heading.value / seconds;
+        let [lateral_velocity, forward_velocity, angular_velocity] =
+            self.velocity.update(movement, seconds, rates);
+        self.forward_velocity = forward_velocity;
+        self.angular_velocity = angular_velocity;
         self.forward_travel += movement.translation.y;
         let mut reports = [None; MAX_RANGES];
         let (checking_pose, active_ranges) = if self.reset.is_some() {
@@ -477,7 +506,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                     time: raw.time,
                     pose: predicted,
                     forward_velocity: self.forward_velocity,
-                    lateral_velocity: movement.translation.x / seconds,
+                    lateral_velocity,
                     angular_velocity: self.angular_velocity,
                 },
                 &self.map,
@@ -536,7 +565,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             distance_reset_axes,
             reset: reset_status,
             forward_velocity: self.forward_velocity,
-            lateral_velocity: movement.translation.x / seconds,
+            lateral_velocity,
             angular_velocity: self.angular_velocity,
             ranges: reports,
         })

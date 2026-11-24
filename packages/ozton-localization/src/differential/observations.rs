@@ -1,3 +1,4 @@
+use crate::MotionObservations;
 use ozton_math::{
     geometry::compass_heading,
     localization::observation::{
@@ -29,6 +30,7 @@ impl Observations {
         Snapshot,
         &[Option<Length>],
         [Option<RangeObservation>; MAX_RANGES],
+        MotionObservations,
     ) {
         let mut snapshot = Snapshot {
             time: sample.time,
@@ -36,6 +38,10 @@ impl Observations {
         };
         self.wheel_travel.fill(None);
         let mut ranges = [None; MAX_RANGES];
+        let mut rates = MotionObservations::default();
+        let imu_source = sample.observations.iter().find_map(|observation| {
+            matches!(observation.measurement, Measurement::Heading(_)).then_some(observation.source)
+        });
         for observation in sample.observations {
             match observation.measurement {
                 Measurement::Displacement(DisplacementObservation::Differential(positions)) => {
@@ -57,6 +63,17 @@ impl Observations {
                     };
                     snapshot.imu = heading.value.is_finite().then_some(heading);
                 }
+                Measurement::Velocity(velocity) if velocity.is_finite() => {
+                    rates.forward_rate = Some(velocity.y);
+                }
+                Measurement::Rotation(rate) if rate.is_finite() => {
+                    if Some(observation.source) == imu_source || rates.yaw_rate.is_none() {
+                        rates.yaw_rate = Some(rate.z);
+                    }
+                }
+                Measurement::Acceleration(acceleration) if acceleration.is_finite() => {
+                    rates.acceleration = Some(acceleration.truncate());
+                }
                 Measurement::Range(range) => {
                     if let Some(index) = self
                         .range_sources
@@ -69,6 +86,6 @@ impl Observations {
                 _ => {}
             }
         }
-        (snapshot, &self.wheel_travel, ranges)
+        (snapshot, &self.wheel_travel, ranges, rates)
     }
 }

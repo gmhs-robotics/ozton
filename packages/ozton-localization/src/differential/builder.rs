@@ -49,6 +49,7 @@ pub struct LocalizationBuilder {
     dsr_config: DsrConfig,
     maximum_odometry_gap: Duration,
     mcl_correction_gain: f64,
+    velocity_config: crate::VelocityConfig,
 }
 
 impl Default for LocalizationBuilder {
@@ -62,6 +63,7 @@ impl Default for LocalizationBuilder {
             dsr_config: DsrConfig::default(),
             maximum_odometry_gap: Duration::from_millis(100),
             mcl_correction_gain: 0.4,
+            velocity_config: crate::VelocityConfig::default(),
         }
     }
 }
@@ -91,6 +93,11 @@ impl LocalizationBuilder {
 
     pub fn with_mcl_correction_gain(mut self, gain: f64) -> Self {
         self.mcl_correction_gain = gain;
+        self
+    }
+
+    pub fn with_velocity_config(mut self, config: crate::VelocityConfig) -> Self {
+        self.velocity_config = config;
         self
     }
 
@@ -149,6 +156,7 @@ impl LocalizationBuilder {
         )?;
         if !localizer.set_dsr_config(self.dsr_config)
             || !localizer.set_mcl_correction_gain(self.mcl_correction_gain)
+            || !localizer.set_velocity_config(self.velocity_config)
         {
             return None;
         }
