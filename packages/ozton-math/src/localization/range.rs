@@ -3,10 +3,7 @@
 use glam::DVec2;
 use uom::{
     ConstZero,
-    si::{
-        angle::radian,
-        f64::{Angle, Length, Time},
-    },
+    si::f64::{Length, Time},
 };
 
 use crate::geometry::{Pose, direction, rotation};
@@ -140,24 +137,15 @@ impl Default for RangeGate {
 
 impl RangeGate {
     pub const DEFAULT: Self = Self {
-        min_range: Length {
-            value: 0.05,
-            ..Length::ZERO
-        },
-        max_range: Length {
-            value: 2.0,
-            ..Length::ZERO
-        },
+        min_range: crate::length!(0.05, m),
+        max_range: crate::length!(2.0, m),
         min_confidence: 0.5,
         max_age: Time {
             value: 0.08,
             ..Time::ZERO
         },
         min_incidence: 0.6,
-        edge_margin: Length {
-            value: 0.1,
-            ..Length::ZERO
-        },
+        edge_margin: crate::length!(0.1, m),
     };
 
     pub fn is_valid(self) -> bool {
@@ -332,7 +320,7 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
     } else {
         // Principal direction of the symmetric normal matrix; sign does not matter.
         let angle = 0.5 * libm::atan2(2.0 * xy, xx - yy);
-        let n = rotation(Angle::new::<radian>(angle));
+        let n = rotation(crate::angle!(angle, rad));
         let eigenvalue = xx * n.x * n.x + 2.0 * xy * n.x * n.y + yy * n.y * n.y;
         (n * (rhs.dot(n) / eigenvalue), 1)
     };
@@ -348,7 +336,7 @@ pub fn fit_translation(constraints: &[(Constraint, f64)]) -> Option<(DVec2, u8)>
 
 #[cfg(test)]
 mod tests {
-    use uom::si::{length::meter, time::second as time_second};
+    use uom::si::time::second as time_second;
 
     use super::*;
 
@@ -359,20 +347,20 @@ mod tests {
             end: DVec2::new(1.0, 1.0),
         };
         let pose = Pose::new(
-            crate::geometry::point(Length::new::<meter>(0.1), Length::new::<meter>(0.1)),
-            Angle::new::<radian>(0.3),
+            crate::geometry::point(crate::length!(0.1 m), crate::length!(0.1 m)),
+            crate::angle!(0.3 rad),
         );
         let mount = Pose {
             position: DVec2::new(0.1, 0.0),
-            heading: Angle::new::<radian>(-core::f64::consts::FRAC_PI_2),
+            heading: crate::angle!(-core::f64::consts::FRAC_PI_2, rad),
         };
         let true_pose = Pose::new(
-            crate::geometry::point(Length::new::<meter>(0.0), Length::new::<meter>(0.1)),
-            Angle::new::<radian>(0.3),
+            crate::geometry::point(crate::length!(0.0 m), crate::length!(0.1 m)),
+            crate::angle!(0.3 rad),
         );
         let distance = cast(true_pose, mount, &[surface]).unwrap().distance;
         let reading = RangeReading {
-            distance: Length::new::<meter>(distance),
+            distance: crate::length!(distance, m),
             confidence: 1.0,
             age: Time::new::<time_second>(0.0),
             occluded: false,

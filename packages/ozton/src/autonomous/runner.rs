@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 use ozton_math::{
     geometry::{Pose, wrap_heading},
     uom::si::{
-        angle::radian,
-        f64::{Angle, Length, Velocity},
+        f64::{Length, Velocity},
         velocity::meter_per_second,
     },
 };
@@ -457,11 +456,11 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     if let Some((path, reverse)) = command.path_start() {
                         let start = path.start().pose;
                         let heading = start.heading
-                            + Angle::new::<radian>(if reverse {
+                            + ozton_math::angle!(if reverse {
                                 core::f64::consts::PI
                             } else {
                                 0.0
-                            });
+                            }, rad);
                         if feedback.pose.position.distance(start.position) > 0.15
                             || wrap_heading(feedback.pose.heading - heading).value.abs() > 1.05
                         {
@@ -563,7 +562,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 active.robot.log_step(
                     self.started.elapsed(),
                     dt,
-                    Length::new::<ozton_math::uom::si::length::meter>(step.progress),
+                    ozton_math::length!(step.progress, m),
                     step.wheels.map(Velocity::new::<meter_per_second>),
                 );
                 if step.complete {

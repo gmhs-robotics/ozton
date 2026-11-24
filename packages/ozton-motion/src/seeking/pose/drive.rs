@@ -5,22 +5,19 @@ use ozton_drivetrain::{
     Drive, Drivetrain, Footprint,
     model::{Differential, DriveEncoders, WheelSpeedError},
 };
-use ozton_localization::{
-    Fault, Feedback,
-    differential::{DifferentialLocalization, update_localization},
-};
+use ozton_localization::{Fault, Feedback, differential::DifferentialLocalization};
 use ozton_math::{
     geometry::{DVec2, Pose},
     uom::si::f64::Velocity,
 };
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssist};
-use ozton_tracking::{Tracking, sampling::LocalizationMode};
+use ozton_tracking::{Tracking, TrackingSources};
 
 type DriveOutputError = <Differential as Drive>::Error;
 
-type TrackedDrive = Drivetrain<Differential, Tracking, DifferentialLocalization>;
-type AssistedTrackedDrive<'a, A> =
-    AssistedDrivetrain<'a, Differential, Tracking, DifferentialLocalization, A>;
+type TrackedDrive<S> = Drivetrain<Differential, Tracking<S>, DifferentialLocalization>;
+type AssistedTrackedDrive<'a, S, A> =
+    AssistedDrivetrain<'a, Differential, Tracking<S>, DifferentialLocalization, A>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
@@ -59,7 +56,7 @@ pub trait PoseDrive: DriveEncoders {
     fn footprint(&self) -> Option<Footprint>;
     fn rectangular_half_extents(&self) -> Option<DVec2>;
     fn pose_trusted(&self) -> bool;
-    fn sample(&mut self) -> Result<Option<Feedback>, Self::Error>;
+    fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error>;
     fn brake(&mut self) -> Result<(), Self::Error>;
     fn request_distance_reset(&mut self);
@@ -68,11 +65,11 @@ pub trait PoseDrive: DriveEncoders {
     fn log_step(&mut self, _elapsed: Duration, _dt: Duration) {}
 }
 
-impl PoseDrive for TrackedDrive {
+impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
     type Error = DriveMotionFault;
 
     fn pose(&self) -> Pose {
-        self.localization.pose()
+        self.localization().pose()
     }
 
     fn footprint(&self) -> Option<Footprint> {
@@ -80,13 +77,12 @@ impl PoseDrive for TrackedDrive {
     }
 
     fn rectangular_half_extents(&self) -> Option<DVec2> {
-        self.localization.rectangular_half_extents()
+        self.localization().rectangular_half_extents()
     }
 
-    fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
-        self.localization
-            .set_competition_mode(LocalizationMode::Autonomous);
-        update_localization(&mut self.localization, &mut self.tracking)
+    fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
+        self.localization()
+            .feedback()
             .map_err(DriveMotionFault::Tracking)
     }
 
@@ -99,7 +95,7 @@ impl PoseDrive for TrackedDrive {
     }
 
     fn pose_trusted(&self) -> bool {
-        self.localization.pose_trusted()
+        self.localization().pose_trusted()
     }
 
     #[cfg(feature = "logging")]
@@ -113,16 +109,18 @@ impl PoseDrive for TrackedDrive {
     }
 
     fn request_distance_reset(&mut self) {
-        self.localization.request_distance_reset();
+        self.localization_mut().request_distance_reset();
     }
 
     fn cancel_distance_reset(&mut self) {
-        self.localization.cancel_distance_reset();
+        self.localization_mut().cancel_distance_reset();
     }
 }
 
-impl<A: DriveAssist<Differential, Tracking, DifferentialLocalization>> PoseDrive
-    for AssistedTrackedDrive<'_, A>
+impl<S, A> PoseDrive for AssistedTrackedDrive<'_, S, A>
+where
+    S: TrackingSources,
+    A: DriveAssist<Differential, Tracking<S>, DifferentialLocalization>,
 {
     type Error = DriveMotionFault;
 
@@ -138,8 +136,8 @@ impl<A: DriveAssist<Differential, Tracking, DifferentialLocalization>> PoseDrive
         self.drivetrain().rectangular_half_extents()
     }
 
-    fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
-        self.drivetrain_mut().sample()
+    fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
+        self.drivetrain().pose_feedback()
     }
 
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {
@@ -173,22 +171,22 @@ pub trait ResetStartPose {
     fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault>;
 }
 
-impl ResetStartPose for TrackedDrive {
+impl<S: TrackingSources> ResetStartPose for TrackedDrive<S> {
     fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault> {
         let heading = self
-            .tracking
+            .tracking_mut()
             .refresh_heading()
             .and_then(|sample| sample.heading);
-        self.localization
+        self.localization_mut()
             .register_start(starting_pose, heading)
             .then_some(())
             .ok_or(DriveMotionFault::InvalidCommand)
     }
 }
 
-impl<A> ResetStartPose for AssistedTrackedDrive<'_, A>
+impl<S: TrackingSources, A> ResetStartPose for AssistedTrackedDrive<'_, S, A>
 where
-    A: DriveAssist<Differential, Tracking, DifferentialLocalization>,
+    A: DriveAssist<Differential, Tracking<S>, DifferentialLocalization>,
 {
     fn reset(&mut self, starting_pose: Pose) -> Result<(), DriveMotionFault> {
         self.stop_now().map_err(DriveMotionFault::Brake)?;

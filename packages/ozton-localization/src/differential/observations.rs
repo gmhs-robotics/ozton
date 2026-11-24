@@ -1,9 +1,10 @@
-use ozton_math::{geometry::compass_heading, uom::si::f64::Length};
-use ozton_tracking::{
-    DisplacementObservation, HeadingObservation, Measurement, Tracking,
-    range::{MAX_RANGES, RangeObservation},
-    sampling::SensorSample,
-    snapshot::Snapshot,
+use ozton_math::{
+    geometry::compass_heading,
+    localization::observation::{
+        DisplacementObservation, HeadingObservation, MAX_RANGES, Measurement, ObservationLayout,
+        RangeObservation, SensorSample, Snapshot,
+    },
+    uom::si::f64::Length,
 };
 
 pub(super) struct Observations {
@@ -13,15 +14,11 @@ pub(super) struct Observations {
 }
 
 impl Observations {
-    pub(super) fn new(tracking: &Tracking) -> Self {
+    pub(super) fn new(layout: ObservationLayout<'_>) -> Self {
         Self {
-            wheel_sources: tracking
-                .wheel_mounts()
-                .iter()
-                .map(|&(source, _)| source)
-                .collect(),
-            range_sources: tracking.range_sources().to_vec(),
-            wheel_travel: vec![None; tracking.wheel_mounts().len()],
+            wheel_sources: layout.wheels.iter().map(|&(source, _)| source).collect(),
+            range_sources: layout.ranges.iter().map(|&(source, _)| source).collect(),
+            wheel_travel: vec![None; layout.wheels.len()],
         }
     }
 

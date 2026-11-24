@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use futures_util::future::join_all;
 use glam::DVec3;
-use ozton_math::uom::si::f64::Length;
+pub use ozton_math::localization::observation::SensorSample;
+use ozton_math::{localization::observation::ObservationLayout, uom::si::f64::Length};
 #[cfg(feature = "vex")]
 use vexide::time::LowResolutionTime;
 
 use crate::{
-    MeasurementSink, Observation, TrackingSource, TrackingSystem,
+    Observation, TrackingSystem,
     range::{MAX_RANGES, RangeSensorConfig},
 };
 #[cfg(feature = "vex")]
@@ -67,85 +68,49 @@ impl std::fmt::Display for TrackingBuildError {
 
 impl std::error::Error for TrackingBuildError {}
 
-/// A heterogeneous tuple or a list of boxed sources, in registration order.
-pub trait TrackingSources {
-    fn into_sources(self) -> Vec<Box<dyn TrackingSource>>;
-}
-
-impl TrackingSources for Vec<Box<dyn TrackingSource>> {
-    fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
-        self
-    }
-}
-
-impl TrackingSources for () {
-    fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
-        Vec::new()
-    }
-}
-
-macro_rules! tracking_tuples {
-    () => {};
-    ($first:ident $(, $rest:ident)*) => {
-        impl<$first: TrackingSource + 'static, $($rest: TrackingSource + 'static),*> TrackingSources
-            for ($first, $($rest,)*)
-        {
-            #[allow(non_snake_case)]
-            fn into_sources(self) -> Vec<Box<dyn TrackingSource>> {
-                let ($first, $($rest,)*) = self;
-                vec![Box::new($first), $(Box::new($rest)),*]
-            }
-        }
-
-        tracking_tuples!($($rest),*);
-    };
-}
-
-tracking_tuples!(A, B, C, D, E, F, G, H, I, J, K, L);
+mod sources;
+use sources::Capture;
+pub use sources::TrackingSources;
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
-pub struct Tracking {
-    sources: Vec<Box<dyn TrackingSource>>,
+pub struct Tracking<S> {
+    sources: S,
     #[cfg(feature = "vex")]
     differential: Option<usize>,
     #[cfg(feature = "vex")]
     imu: Option<usize>,
-    range_mounts: Vec<RangeSensorConfig>,
-    range_sources: Vec<usize>,
+    range_layout: arrayvec::ArrayVec<(usize, RangeSensorConfig), MAX_RANGES>,
     wheel_mounts: Vec<(usize, DVec3)>,
     observations: Vec<Observation>,
 }
 
-/// Observations captured on the same sampling tick, in source order.
-pub struct SensorSample<'a> {
-    pub time: Duration,
-    pub observations: &'a [Observation],
-}
-
-impl TrackingSystem for Tracking {
+impl<S: TrackingSources> TrackingSystem for Tracking<S> {
     #[cfg(feature = "vex")]
     fn drive_wheels(&self) -> Option<&DifferentialTracking> {
-        self.sources.get(self.differential?)?.differential()
+        self.sources.source(self.differential?)?.differential()
     }
 
     #[cfg(feature = "vex")]
     fn drive_wheels_mut(&mut self) -> Option<&mut DifferentialTracking> {
-        self.sources.get_mut(self.differential?)?.differential_mut()
+        self.sources
+            .source_mut(self.differential?)?
+            .differential_mut()
     }
 }
 
-impl Tracking {
+impl<S: TrackingSources> Tracking<S> {
     /// Initialize the tuple or list of sources concurrently before the first sample.
-    pub async fn new(sources: impl TrackingSources) -> Result<Self, TrackingBuildError> {
-        let mut sources = sources.into_sources();
+    pub async fn new(mut sources: S) -> Result<Self, TrackingBuildError> {
         #[cfg(feature = "vex")]
         let mut differential = None;
         #[cfg(feature = "vex")]
         let mut imu = None;
-        let mut range_mounts = Vec::new();
-        let mut range_sources = Vec::new();
+        let mut range_layout = arrayvec::ArrayVec::new();
         let mut wheel_mounts = Vec::new();
-        for (index, source) in sources.iter().enumerate() {
+        for index in 0..S::SOURCE_COUNT {
+            let Some(source) = sources.source(index) else {
+                continue;
+            };
             #[cfg(feature = "vex")]
             {
                 if source.differential().is_some() && differential.replace(index).is_some() {
@@ -156,8 +121,9 @@ impl Tracking {
                 }
             }
             if let Some(mount) = source.range_mount() {
-                range_mounts.push(mount);
-                range_sources.push(index);
+                range_layout
+                    .try_push((index, mount))
+                    .map_err(|_| TrackingBuildError::RangeLayout)?;
             }
             if let Some(projection) = source.wheel_projection() {
                 if !projection.is_finite() {
@@ -166,42 +132,41 @@ impl Tracking {
                 wheel_mounts.push((index, projection));
             }
         }
-        if range_mounts.len() > MAX_RANGES {
-            return Err(TrackingBuildError::RangeLayout);
-        }
-        for result in join_all(sources.iter_mut().filter_map(|source| source.initialize())).await {
+        for result in join_all(sources.initialization()).await {
             result?;
         }
         Ok(Self {
-            observations: Vec::with_capacity(sources.len()),
+            observations: Vec::with_capacity(S::SOURCE_COUNT),
+            range_layout,
             sources,
             #[cfg(feature = "vex")]
             differential,
             #[cfg(feature = "vex")]
             imu,
-            range_mounts,
-            range_sources,
             wheel_mounts,
         })
+    }
+
+    pub fn sources(&self) -> &S {
+        &self.sources
+    }
+
+    pub fn observation_layout(&self) -> ObservationLayout<'_> {
+        ObservationLayout {
+            wheels: &self.wheel_mounts,
+            ranges: &self.range_layout,
+        }
     }
 
     pub fn wheel_mounts(&self) -> &[(usize, DVec3)] {
         &self.wheel_mounts
     }
 
-    pub fn range_sources(&self) -> &[usize] {
-        &self.range_sources
-    }
-
-    pub fn range_mounts(&self) -> &[RangeSensorConfig] {
-        &self.range_mounts
-    }
-
     #[cfg(feature = "vex")]
     /// Read orientation for driver assists and reuse it on the next sampling tick.
     pub fn refresh_orientation(&mut self) -> Option<Orientation> {
         self.sources
-            .get_mut(self.imu?)?
+            .source_mut(self.imu?)?
             .inertial_mut()?
             .refresh(true)
     }
@@ -209,14 +174,14 @@ impl Tracking {
     #[cfg(feature = "vex")]
     pub fn refresh_heading(&mut self) -> Option<Orientation> {
         self.sources
-            .get_mut(self.imu?)?
+            .source_mut(self.imu?)?
             .inertial_mut()?
             .refresh(false)
     }
 
     #[cfg(feature = "vex")]
     fn imu(&self) -> Option<&InertialSensorTracking> {
-        self.sources.get(self.imu?)?.inertial()
+        self.sources.source(self.imu?)?.inertial()
     }
 
     #[cfg(feature = "vex")]
@@ -240,21 +205,12 @@ impl Tracking {
     /// Sample all sources at a timestamp from the caller's monotonic clock.
     pub fn sample_at(&mut self, time: Duration, occluded_ranges: u8) -> SensorSample<'_> {
         self.observations.clear();
-        let mut range_sources = self.range_sources.iter().copied().enumerate().peekable();
-        for (index, source) in self.sources.iter_mut().enumerate() {
-            let range_index = range_sources
-                .next_if(|&(_, source)| source == index)
-                .map(|(range, _)| range);
-            let range_occluded =
-                range_index.is_some_and(|range| occluded_ranges & (1 << range) != 0);
-            source.sample(&mut MeasurementSink {
-                time,
-                source: index,
-                range_occluded,
-                range_index,
-                observations: &mut self.observations,
-            });
-        }
+        self.sources.capture(&mut Capture::new(
+            time,
+            occluded_ranges,
+            &self.range_layout,
+            &mut self.observations,
+        ));
         SensorSample {
             time,
             observations: &self.observations,
@@ -262,34 +218,15 @@ impl Tracking {
     }
 }
 
-/// Operating mode supplied by the competition runtime.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LocalizationMode {
-    Disabled,
-    Driver,
-    Autonomous,
-}
-
-/// Localization lifecycle for a drivetrain in a programmed competition.
-pub trait LocalizationLifecycle<T> {
-    fn mode_changed(&mut self, _mode: LocalizationMode) {}
-    fn cancel_pending(&mut self) {}
-    fn poll(&mut self, _tracking: &mut T) {}
-}
-
-impl<T> LocalizationLifecycle<T> for () {}
-
-#[cfg(feature = "vex")]
-// WheeledTracking publishes its estimate from its own sampling task.
-impl<T> LocalizationLifecycle<T> for crate::WheeledTracking {}
-
 #[cfg(test)]
 mod tests {
     use futures_util::FutureExt;
     use ozton_math::{angle, length};
 
     use super::*;
-    use crate::{HeadingObservation, Measurement, range::RangeObservation};
+    use crate::{
+        HeadingObservation, Measurement, MeasurementSink, TrackingSource, range::RangeObservation,
+    };
 
     struct Source(bool);
 

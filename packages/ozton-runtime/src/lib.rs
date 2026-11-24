@@ -33,3 +33,6 @@ impl StartupReference {
 }
 
 pub use robot::{CompetitionBot, Robot, RobotBuilder, RobotLayout};
+
+pub mod localization;
+pub use localization::LocalizationSchedule;

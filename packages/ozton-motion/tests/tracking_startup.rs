@@ -73,8 +73,8 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
     );
     let mut tracking = block_on(Tracking::new((encoders, range, FieldFix))).unwrap();
 
-    assert_eq!(tracking.range_mounts().len(), 1);
-    assert_eq!(tracking.range_sources(), &[1]);
+    assert_eq!(tracking.observation_layout().ranges.len(), 1);
+    assert_eq!(tracking.observation_layout().ranges[0].0, 1);
     let sample = tracking.sample(0);
     assert_eq!(sample.observations.len(), 3);
     assert_eq!(sample.observations[0].source, 0);

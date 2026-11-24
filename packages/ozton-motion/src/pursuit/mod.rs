@@ -8,9 +8,9 @@ use std::time::Duration;
 use glam::DVec2 as Vec2;
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::f64::Length;
 #[cfg(feature = "vex")]
-use ozton_tracking::{TracksHeading, TracksPosition};
+use ozton_math::localization::observation::{TracksHeading, TracksPosition};
+use ozton_math::uom::si::f64::Length;
 
 #[cfg(feature = "vex")]
 mod follow;

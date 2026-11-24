@@ -1,9 +1,13 @@
 //! VEX drivetrain actuation and tracking integration.
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    rc::Rc,
+};
+
 use ozton_math::uom::si::f64::{ElectricPotential, Length, Velocity};
 use ozton_tracking::{
     TrackingSystem,
     odometric::{DifferentialTracking, DriveEncoders, SharedMotors, WheelFeedback},
-    sampling::LocalizationLifecycle,
 };
 use vexide::{
     prelude::Motor,
@@ -18,25 +22,25 @@ use crate::model::Differential;
 pub trait MotorGroups {
     /// Physical wheel-speed commands, one entry per group in model order.
     type WheelSpeeds: AsRef<[Velocity]>;
+    /// Voltage commands in the same model order.
+    type WheelVoltages: AsRef<[ElectricPotential]>;
 
     fn motor_groups(&self) -> &[SharedMotors];
     fn motor_groups_mut(&mut self) -> &mut [SharedMotors];
 }
 
 /// A drivetrain owns geometry and feedback calibration independently of how it mixes motor outputs.
-pub struct Drivetrain<M: Drive, T: TrackingSystem, L> {
+pub struct Drivetrain<M: Drive, T = (), L = ()> {
     pub model: M,
-    pub tracking: T,
-    pub localization: L,
+    state: Rc<RefCell<(T, L)>>,
     driver_output: bool,
 }
 
-impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
+impl<M: Drive, T, L> Drivetrain<M, T, L> {
     pub fn new(model: M, tracking: T, localization: L) -> Self {
         Self {
             model,
-            tracking,
-            localization,
+            state: Rc::new(RefCell::new((tracking, localization))),
             driver_output: false,
         }
     }
@@ -46,14 +50,38 @@ impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
         std::mem::take(&mut self.driver_output)
     }
 
+    pub fn tracking(&self) -> Ref<'_, T> {
+        Ref::map(self.state.borrow(), |(tracking, _)| tracking)
+    }
+
+    pub fn tracking_mut(&mut self) -> RefMut<'_, T> {
+        RefMut::map(self.state.borrow_mut(), |(tracking, _)| tracking)
+    }
+
+    pub fn localization(&self) -> Ref<'_, L> {
+        Ref::map(self.state.borrow(), |(_, localization)| localization)
+    }
+
+    pub fn localization_mut(&mut self) -> RefMut<'_, L> {
+        RefMut::map(self.state.borrow_mut(), |(_, localization)| localization)
+    }
+
+    /// Share the observation sources and estimator with a runtime sampling task.
+    #[doc(hidden)]
+    pub fn localization_state(&self) -> std::rc::Weak<RefCell<(T, L)>> {
+        Rc::downgrade(&self.state)
+    }
+}
+
+impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
     pub fn track_width(&self) -> Option<Length> {
-        self.tracking
+        self.tracking()
             .drive_wheels()
             .map(DifferentialTracking::track_width)
     }
 
     pub fn wheel_diameter(&self) -> Option<Length> {
-        self.tracking
+        self.tracking()
             .drive_wheels()
             .map(|source| source.wheels().diameter())
     }
@@ -62,22 +90,16 @@ impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
 impl<M: Drive + MotorGroups, T: TrackingSystem, L> Drivetrain<M, T, L> {
     /// Apply physical wheel velocity targets in model group order.
     /// Conversion to motor RPM uses the same geometry as odometry.
-    pub fn drive_wheel_speeds<const N: usize>(
-        &mut self,
-        speeds: [Velocity; N],
-    ) -> Result<(), WheelSpeedError> {
-        self.set_wheel_speeds(&speeds)
-    }
-
-    /// Apply a slice of physical wheel speeds in model group order.
-    pub fn set_wheel_speeds(&mut self, speeds: &[Velocity]) -> Result<(), WheelSpeedError> {
+    pub fn drive_wheel_speeds(&mut self, speeds: M::WheelSpeeds) -> Result<(), WheelSpeedError> {
         let groups = self.model.motor_groups_mut();
         let result = self
-            .tracking
+            .state
+            .borrow()
+            .0
             .drive_wheels()
             .map(DifferentialTracking::wheels)
             .ok_or(WheelSpeedError::MissingWheelGeometry)
-            .and_then(|wheels| wheels::drive_speed(wheels, groups, speeds));
+            .and_then(|wheels| wheels::drive_speed(wheels, groups, speeds.as_ref()));
         if matches!(
             result,
             Err(WheelSpeedError::InvalidCommand | WheelSpeedError::MissingWheelGeometry)
@@ -88,34 +110,35 @@ impl<M: Drive + MotorGroups, T: TrackingSystem, L> Drivetrain<M, T, L> {
     }
 
     /// Apply absolute volts to each motor in groups, within their hardware limits.
-    pub fn drive_volts<const N: usize>(
-        &mut self,
-        volts: [ElectricPotential; N],
-    ) -> Result<(), PortError> {
+    pub fn drive_volts(&mut self, volts: M::WheelVoltages) -> Result<(), PortError> {
         let groups = self.model.motor_groups_mut();
-        if N != groups.len() || volts.iter().any(|voltage| !voltage.value.is_finite()) {
+        let volts = volts.as_ref();
+        if volts.len() != groups.len() || volts.iter().any(|voltage| !voltage.value.is_finite()) {
             return coast(groups);
         }
-        command_groups(groups.iter_mut().zip(volts), |motor, voltage| {
-            if voltage.value == 0.0 {
-                return motor.brake(BrakeMode::Coast);
-            }
-            let limit = motor.max_voltage();
-            motor.set_voltage(voltage.value.clamp(-limit, limit))
-        })
+        command_groups(
+            groups.iter_mut().zip(volts.iter().copied()),
+            |motor, voltage| {
+                if voltage.value == 0.0 {
+                    return motor.brake(BrakeMode::Coast);
+                }
+                let limit = motor.max_voltage();
+                motor.set_voltage(voltage.value.clamp(-limit, limit))
+            },
+        )
     }
 }
 
 impl<M: Drive + MotorGroups, T: TrackingSystem, L> Drivetrain<M, T, L> {
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
-        self.tracking
+        self.tracking_mut()
             .drive_wheels_mut()
             .map_or([None; 2], DifferentialTracking::read_wheels)
     }
 
     /// Read the last measured translation and velocity without advancing odometry.
     pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
-        self.tracking
+        self.tracking()
             .drive_wheels()
             .map_or([None; 2], DifferentialTracking::feedback)
     }
@@ -148,21 +171,15 @@ impl<T: TrackingSystem, L> DriveEncoders for Drivetrain<Differential, T, L> {
     }
 }
 
-impl<M: Drive + MotorGroups, T: TrackingSystem, L: LocalizationLifecycle<T>> HasLocalization
-    for Drivetrain<M, T, L>
-{
+impl<M: Drive, T, L> HasLocalization for Drivetrain<M, T, L> {
     type Localization = L;
 
-    fn localization(&self) -> &L {
-        &self.localization
-    }
-
-    fn refresh_localization(&mut self) {
-        self.localization.poll(&mut self.tracking);
+    fn localization(&self) -> impl std::ops::Deref<Target = L> {
+        Drivetrain::localization(self)
     }
 }
 
-impl<M: Drive, T: TrackingSystem, L> Drive for Drivetrain<M, T, L> {
+impl<M: Drive, T, L> Drive for Drivetrain<M, T, L> {
     type Error = M::Error;
 
     fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
@@ -175,7 +192,7 @@ impl<M: Drive, T: TrackingSystem, L> Drive for Drivetrain<M, T, L> {
     }
 }
 
-impl<M: LateralDrive, T: TrackingSystem, L> LateralDrive for Drivetrain<M, T, L> {}
+impl<M: LateralDrive, T, L> LateralDrive for Drivetrain<M, T, L> {}
 
 pub(crate) fn normalized_voltage<const N: usize>(
     groups: &mut [SharedMotors; N],

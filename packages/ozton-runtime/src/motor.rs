@@ -144,7 +144,6 @@ impl<M: MotorDevice> PidMotorBuilder<M> {
 mod tests {
     use ozton_control::{axis::AxisConfig, loops::Pid};
     use ozton_math::uom::si::{
-        angle::radian,
         angular_acceleration::radian_per_second_squared,
         angular_velocity::radian_per_second,
         f64::{Angle, AngularAcceleration, AngularVelocity},
@@ -163,7 +162,7 @@ mod tests {
 
     impl MotorDevice for FakeMotor {
         fn position(&self) -> Result<Angle, PortError> {
-            Ok(Angle::new::<radian>(self.position))
+            Ok(ozton_math::angle!(self.position, rad))
         }
         fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
             self.position = position.value;
@@ -213,7 +212,7 @@ mod tests {
             .unwrap();
         let dt = Duration::from_millis(10);
         let position = Target::Position {
-            position: Angle::new::<radian>(2.0),
+            position: ozton_math::angle!(2.0 rad),
             velocity: AngularVelocity::new::<radian_per_second>(0.0),
             acceleration: AngularAcceleration::new::<radian_per_second_squared>(0.0),
         };
@@ -229,7 +228,7 @@ mod tests {
         assert_eq!(
             axis.apply(
                 AxisSample {
-                    position: Angle::new::<radian>(0.0),
+                    position: ozton_math::angle!(0.0 rad),
                     velocity: AngularVelocity::new::<radian_per_second>(0.0)
                 },
                 Target::Velocity {

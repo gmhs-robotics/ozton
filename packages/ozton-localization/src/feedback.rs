@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::Pose,
+    localization::observation::MAX_RANGES,
     uom::si::f64::{AngularVelocity, Length, Velocity},
 };
-use ozton_tracking::range::MAX_RANGES;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeFeedback {

@@ -9,7 +9,6 @@ use ozton_math::{
     uom::{
         ConstZero,
         si::{
-            angle::radian,
             angular_velocity::radian_per_second,
             f64::{Angle, AngularVelocity, Length, Velocity},
             velocity::meter_per_second,
@@ -18,6 +17,8 @@ use ozton_math::{
 };
 
 mod pid;
+#[cfg(test)]
+mod tests;
 mod tuning;
 pub use pid::MotionPid;
 pub use tuning::DriveTuning;
@@ -67,14 +68,8 @@ impl DriveOptions {
         Self {
             track_width,
             maximum_wheel_speed,
-            position_tolerance: Length {
-                value: 0.025,
-                ..Length::ZERO
-            },
-            heading_tolerance: Angle {
-                value: 0.06,
-                ..Angle::ZERO
-            },
+            position_tolerance: ozton_math::length!(0.025, m),
+            heading_tolerance: ozton_math::angle!(0.06, rad),
             speed_tolerance: Velocity {
                 value: 0.04,
                 ..Velocity::ZERO
@@ -220,7 +215,10 @@ impl DifferentialFeedback {
                 let reached = distance <= options.position_tolerance.value;
                 let heading = error_at(
                     ozton_math::geometry::bearing(delta)
-                        + Angle::new::<radian>(if *reverse { core::f64::consts::PI } else { 0.0 }),
+                        + ozton_math::angle!(
+                            if *reverse { core::f64::consts::PI } else { 0.0 },
+                            rad
+                        ),
                 );
                 let sign = if *reverse { -1.0 } else { 1.0 };
                 let limit = if reached || heading.abs() > 0.9 {
@@ -283,7 +281,7 @@ impl DifferentialFeedback {
                         + if reached {
                             *sweep
                         } else {
-                            Angle::new::<radian>(travel.clamp(0.0, arc_length) * curvature)
+                            ozton_math::angle!(travel.clamp(0.0, arc_length) * curvature, rad)
                         },
                 );
                 let facing = heading.abs() <= options.heading_tolerance.value;

@@ -9,7 +9,7 @@ use ozton_control::{
     loops::{Feedback, Pid},
 };
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
+use ozton_math::localization::observation::{TracksHeading, TracksPosition, TracksVelocity};
 
 mod move_to_point;
 

@@ -15,15 +15,15 @@ fn orthogonal_beams_reduce_seeded_initial_error() {
     let beams = [0.0, core::f64::consts::FRAC_PI_2].map(|heading| Beam {
         mount: Pose {
             position: DVec2::ZERO,
-            heading: Angle::new::<radian>(heading),
+            heading: crate::angle!(heading, rad),
         },
-        distance: Length::new::<meter>(1.0),
-        max_range: Length::new::<meter>(2.0),
+        distance: crate::length!(1.0 m),
+        max_range: crate::length!(2.0 m),
         surface_mask: u128::MAX,
     });
     let start = Pose::new(
-        crate::geometry::point(Length::new::<meter>(0.09), Length::new::<meter>(0.08)),
-        Angle::new::<radian>(0.0),
+        crate::geometry::point(crate::length!(0.09 m), crate::length!(0.08 m)),
+        crate::angle!(0.0 rad),
     );
     let mut filter = ParticleFilter::new(start, ParticleConfig::default()).unwrap();
     let estimate = filter.observe(&beams, &map).unwrap();

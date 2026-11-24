@@ -30,6 +30,7 @@ impl Mecanum {
 
 impl MotorGroups for Mecanum {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 4];
+    type WheelVoltages = [ozton_math::uom::si::f64::ElectricPotential; 4];
 
     fn motor_groups(&self) -> &[SharedMotors] {
         &self.motors

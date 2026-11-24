@@ -135,48 +135,52 @@ impl<D: AxisDimension> ProgressGuard<D> {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::{
-        angle::radian,
-        angular_velocity::radian_per_second,
-        f64::{Angle, AngularVelocity},
-    };
+    use ozton_math::uom::si::{angular_velocity::radian_per_second, f64::AngularVelocity};
 
     use super::*;
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            Angle::new::<radian>(0.01),
+            ozton_math::angle!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         let tick = Duration::from_millis(10);
         for _ in 0..9 {
-            assert!(guard.update(Angle::new::<radian>(0.0), 1.0, tick).is_ok());
+            assert!(guard.update(ozton_math::angle!(0.0 rad), 1.0, tick).is_ok());
         }
         assert_eq!(
-            guard.update(Angle::new::<radian>(0.0), 1.0, tick),
+            guard.update(ozton_math::angle!(0.0 rad), 1.0, tick),
             Err(ProgressFault::NoProgress)
         );
-        assert!(guard.update(Angle::new::<radian>(0.0), 0.0, tick).is_ok());
-        assert!(guard.update(Angle::new::<radian>(0.01), 1.0, tick).is_ok());
+        assert!(guard.update(ozton_math::angle!(0.0 rad), 0.0, tick).is_ok());
+        assert!(
+            guard
+                .update(ozton_math::angle!(0.01 rad), 1.0, tick)
+                .is_ok()
+        );
         assert_eq!(
-            guard.update(Angle::new::<radian>(1.0), 1.0, tick),
+            guard.update(ozton_math::angle!(1.0 rad), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
-        assert!(guard.update(Angle::new::<radian>(1.0), 0.0, tick).is_err());
+        assert!(
+            guard
+                .update(ozton_math::angle!(1.0 rad), 0.0, tick)
+                .is_err()
+        );
         guard.reset();
-        assert!(guard.update(Angle::new::<radian>(1.0), 0.0, tick).is_ok());
+        assert!(guard.update(ozton_math::angle!(1.0 rad), 0.0, tick).is_ok());
     }
     #[test]
     fn wrong_direction_does_not_count_as_progress() {
         let mut guard = ProgressGuard::<Rotary>::new(
-            Angle::new::<radian>(0.01),
+            ozton_math::angle!(0.01 rad),
             AngularVelocity::new::<radian_per_second>(2.0),
             Duration::from_millis(100),
         );
         for i in 0..10 {
             let _ = guard.update(
-                Angle::new::<radian>(-0.01 * f64::from(i)),
+                ozton_math::angle!(-0.01 * f64::from(i), rad),
                 1.0,
                 Duration::from_millis(10),
             );

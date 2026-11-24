@@ -25,7 +25,6 @@ pub fn body_delta(
 
 #[cfg(test)]
 mod tests {
-    use uom::si::{angle::radian, length::meter};
 
     use super::*;
     #[test]
@@ -35,26 +34,26 @@ mod tests {
                 for lateral_y in [-0.08, 0.08] {
                     let stationary = body_delta(
                         (
-                            Length::new::<meter>(forward_x * yaw),
-                            Length::new::<meter>(forward_x),
+                            crate::length!(forward_x * yaw, m),
+                            crate::length!(forward_x, m),
                         ),
                         Some((
-                            Length::new::<meter>(-lateral_y * yaw),
-                            Length::new::<meter>(lateral_y),
+                            crate::length!(-lateral_y * yaw, m),
+                            crate::length!(lateral_y, m),
                         )),
-                        Angle::new::<radian>(yaw),
+                        crate::angle!(yaw, rad),
                     );
                     assert!(stationary.translation.length() < 1e-12);
                     let moving = body_delta(
                         (
-                            Length::new::<meter>(0.3 + forward_x * yaw),
-                            Length::new::<meter>(forward_x),
+                            crate::length!(0.3 + forward_x * yaw, m),
+                            crate::length!(forward_x, m),
                         ),
                         Some((
-                            Length::new::<meter>(0.2 - lateral_y * yaw),
-                            Length::new::<meter>(lateral_y),
+                            crate::length!(0.2 - lateral_y * yaw, m),
+                            crate::length!(lateral_y, m),
                         )),
-                        Angle::new::<radian>(yaw),
+                        crate::angle!(yaw, rad),
                     );
                     assert!(moving.translation.distance(DVec2::new(0.2, 0.3)) < 1e-12);
                 }

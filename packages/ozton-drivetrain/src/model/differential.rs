@@ -51,6 +51,7 @@ impl Differential {
 
 impl MotorGroups for Differential {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 2];
+    type WheelVoltages = [ozton_math::uom::si::f64::ElectricPotential; 2];
 
     fn motor_groups(&self) -> &[SharedMotors] {
         &self.sides

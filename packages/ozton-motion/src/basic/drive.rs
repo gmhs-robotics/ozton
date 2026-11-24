@@ -13,15 +13,14 @@ use ozton_control::{
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     geometry::wrap_heading,
+    localization::observation::{TracksForwardTravel, TracksHeading, TracksVelocity},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
-        length::meter,
         velocity::meter_per_second,
     },
 };
 use ozton_runtime::clock::{Sleep, sleep};
-use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksVelocity};
 
 use crate::Arcade;
 
@@ -84,7 +83,6 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let state = this.state.get_or_insert_with(|| {
-            this.drivetrain.refresh_localization();
             let now = Instant::now();
             DriveState {
                 sleep: sleep(Duration::from_millis(5)),
@@ -100,8 +98,6 @@ where
             return Poll::Pending;
         }
 
-        this.drivetrain.refresh_localization();
-
         let now = Instant::now();
         let dt = now.saturating_duration_since(state.prev_time);
 
@@ -115,7 +111,7 @@ where
 
         let linear_settled = this.linear_tolerances.check_with(
             &mut state.linear_settling,
-            Length::new::<meter>(linear_error),
+            ozton_math::length!(linear_error, m),
             Velocity::new::<meter_per_second>(this.drivetrain.localization().linear_velocity()),
             now,
         );

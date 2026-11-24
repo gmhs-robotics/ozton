@@ -11,11 +11,13 @@ use ozton_control::{
 };
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
+#[cfg(feature = "vex")]
+use ozton_math::localization::observation::{
+    TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+};
 use ozton_math::uom::si::f64::Angle;
 #[cfg(feature = "vex")]
-use ozton_math::uom::si::{f64::Length, length::meter};
-#[cfg(feature = "vex")]
-use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
+use ozton_math::uom::si::f64::Length;
 
 use crate::defaults::{
     AUTON_ANGULAR_SPEED_TOLERANCE, AUTON_HEADING_TOLERANCE, AUTON_SETTLE_TIME, AUTON_STAGE_TIMEOUT,
@@ -115,7 +117,6 @@ where
         drivetrain: &'a mut M,
         distance: Length,
     ) -> DriveFuture<'a, M, L, A> {
-        drivetrain.refresh_localization();
         let heading = drivetrain.localization().heading();
         self.drive_distance_at_heading(drivetrain, distance, heading)
     }
@@ -129,7 +130,7 @@ where
         drivetrain: &'a mut M,
         heading: Angle,
     ) -> DriveFuture<'a, M, L, A> {
-        self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
+        self.drive_distance_at_heading(drivetrain, ozton_math::length!(0.0 m), heading)
     }
 
     /// Turns the robot in place to face a 2D point.

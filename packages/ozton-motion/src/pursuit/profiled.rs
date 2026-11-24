@@ -7,10 +7,8 @@ use ozton_math::{
     desaturate,
     geometry::{Pose, pursuit_curvature, wheel_speeds, wrap_heading},
     uom::si::{
-        angle::radian,
         angular_velocity::radian_per_second,
-        f64::{Angle, AngularVelocity, Length, Time, Velocity},
-        length::meter,
+        f64::{AngularVelocity, Length, Time, Velocity},
         time::second,
         velocity::meter_per_second,
     },
@@ -73,7 +71,7 @@ pub fn command(
         position_tolerance.value,
     );
     let sign = if reverse { -1.0 } else { 1.0 };
-    let facing = Angle::new::<radian>(if reverse { PI } else { 0.0 });
+    let facing = ozton_math::angle!(if reverse { PI } else { 0.0 }, rad);
     let end = path.end();
     let limits = path.limits();
     let (linear, angular) = match follower {
@@ -83,7 +81,7 @@ pub fn command(
                 ..pose
             };
             let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-            let reference = path.at_distance(Length::new::<meter>(progress.distance()));
+            let reference = path.at_distance(ozton_math::length!(progress.distance(), m));
             let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
             if target.y < 0.0 {
                 (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
@@ -106,7 +104,7 @@ pub fn command(
             let travel_heading = ozton_math::geometry::bearing(error);
             let backward = travel_heading.value.abs() > PI / 2.0;
             let bearing = wrap_heading(
-                travel_heading + Angle::new::<radian>(if backward { PI } else { 0.0 }),
+                travel_heading + ozton_math::angle!(if backward { PI } else { 0.0 }, rad),
             )
             .value;
             let terminal_speed = (2.0 * distance).min(limits.linear_speed.value * 0.4);

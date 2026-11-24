@@ -8,10 +8,7 @@ use ozton_math::{
         mcl::{Beam, ParticleConfig, ParticleFilter},
         range::{Constraint, fit_translation},
     },
-    uom::si::{
-        f64::{Angle, Length},
-        length::meter,
-    },
+    uom::si::f64::Angle,
 };
 
 use super::{MAX_RANGES, Observations, PoseEstimator};
@@ -52,8 +49,8 @@ impl PoseEstimator for Mcl {
                 position: DVec2::ZERO,
                 heading: Angle::default(),
             },
-            distance: Length::new::<meter>(0.0),
-            max_range: Length::new::<meter>(0.0),
+            distance: ozton_math::length!(0.0 m),
+            max_range: ozton_math::length!(0.0 m),
             surface_mask: u128::MAX,
         };
         let mut beams = [empty; MAX_RANGES];
@@ -67,7 +64,7 @@ impl PoseEstimator for Mcl {
             noise = noise.min(sigma);
             beams[count] = Beam {
                 mount: sensor.mount,
-                distance: Length::new::<meter>(distance),
+                distance: ozton_math::length!(distance, m),
                 max_range: sensor.gate.max_range,
                 surface_mask: sensor.surface_mask,
             };

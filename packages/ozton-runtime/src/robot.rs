@@ -38,6 +38,7 @@ pub struct Robot<D = (), C = (), X = (), P = (), A = (), S = ()> {
     pub assists: S,
     pub(crate) driver_elapsed: std::time::Duration,
     pub(crate) driver_wrote: bool,
+    pub(crate) localization: Option<crate::localization::Schedule<D>>,
 }
 
 impl<D, C, X, P, A, S> Robot<D, C, X, P, A, S>
@@ -91,6 +92,7 @@ pub struct RobotBuilder<D = (), C = (), X = (), P = (), A = (), S = ()> {
     program: P,
     autonomous: A,
     assists: S,
+    localization: Option<crate::localization::Schedule<D>>,
 }
 
 impl RobotBuilder {
@@ -102,6 +104,7 @@ impl RobotBuilder {
             program: (),
             autonomous: (),
             assists: (),
+            localization: None,
         }
     }
 }
@@ -141,6 +144,7 @@ impl<D, C, X, P, A, S> RobotBuilder<D, C, X, P, A, S> {
             program,
             autonomous,
             assists,
+            localization,
         } = self;
         Robot {
             drivetrain,
@@ -149,16 +153,45 @@ impl<D, C, X, P, A, S> RobotBuilder<D, C, X, P, A, S> {
             program,
             autonomous,
             assists,
+            localization,
             driver_elapsed: std::time::Duration::ZERO,
             driver_wrote: false,
         }
     }
 
-    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, X, P, A, S>, controller, mechanisms, program, autonomous, assists);
-    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, X, P, A, S>, drivetrain, mechanisms, program, autonomous, assists);
-    with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, X, N, A, S>, drivetrain, controller, mechanisms, autonomous, assists);
+    /// Install the owned drivetrain. Schedule localization after installing it.
+    pub fn with_drivetrain<N>(self, drivetrain: N) -> RobotBuilder<N, C, X, P, A, S> {
+        let Self {
+            controller,
+            mechanisms,
+            program,
+            autonomous,
+            assists,
+            ..
+        } = self;
+        RobotBuilder {
+            drivetrain,
+            controller,
+            mechanisms,
+            program,
+            autonomous,
+            assists,
+            localization: None,
+        }
+    }
 
-    with_component!("Install the owned drive assist stack.", with_drive_assists, assists, RobotBuilder<D, C, X, P, A, N>, drivetrain, controller, mechanisms, program, autonomous);
+    /// Let the runtime sample the installed drivetrain during the selected modes.
+    pub fn with_localization_schedule(mut self, schedule: crate::LocalizationSchedule) -> Self
+    where
+        D: crate::localization::ScheduledLocalization,
+    {
+        self.localization = Some(crate::localization::Schedule::new(schedule));
+        self
+    }
+    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, X, P, A, S>, drivetrain, mechanisms, program, autonomous, assists, localization);
+    with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, X, N, A, S>, drivetrain, controller, mechanisms, autonomous, assists, localization);
+
+    with_component!("Install the owned drive assist stack.", with_drive_assists, assists, RobotBuilder<D, C, X, P, A, N>, drivetrain, controller, mechanisms, program, autonomous, localization);
 
     /// Register the selectable routes in menu order.
     pub fn with_auton<R: RouteSet>(
@@ -171,6 +204,7 @@ impl<D, C, X, P, A, S> RobotBuilder<D, C, X, P, A, S> {
             mechanisms,
             program,
             assists,
+            localization,
             ..
         } = self;
         RobotBuilder {
@@ -179,11 +213,12 @@ impl<D, C, X, P, A, S> RobotBuilder<D, C, X, P, A, S> {
             mechanisms,
             program,
             assists,
+            localization,
             autonomous: AutonSelection(routes.into_iter().collect()),
         }
     }
 
-    with_component!("Install the application's named mechanism aggregate.", with_mechanisms, mechanisms, RobotBuilder<D, C, N, P, A, S>, drivetrain, controller, program, autonomous, assists);
+    with_component!("Install the application's named mechanism aggregate.", with_mechanisms, mechanisms, RobotBuilder<D, C, N, P, A, S>, drivetrain, controller, program, autonomous, assists, localization);
 }
 
 /// The selectable routes before a competition UI is installed.
@@ -199,6 +234,7 @@ impl<D, C, X, P, R: RouteSet, S> RobotBuilder<D, C, X, P, AutonSelection<R>, S> 
             program,
             autonomous,
             assists,
+            localization,
         } = self;
         RobotBuilder {
             drivetrain,
@@ -206,6 +242,7 @@ impl<D, C, X, P, R: RouteSet, S> RobotBuilder<D, C, X, P, AutonSelection<R>, S> 
             mechanisms,
             program,
             assists,
+            localization,
             autonomous: crate::competition::autonomous_ui(ui, autonomous.0),
         }
     }
@@ -243,6 +280,7 @@ impl<D, C, X, P, R: crate::competition::RouteSet, S, B>
             program,
             autonomous,
             assists,
+            localization,
         } = self;
         RobotBuilder {
             drivetrain,
@@ -250,6 +288,7 @@ impl<D, C, X, P, R: crate::competition::RouteSet, S, B>
             mechanisms,
             program,
             assists,
+            localization,
             autonomous: autonomous.with_diagnostics(interval),
         }
     }

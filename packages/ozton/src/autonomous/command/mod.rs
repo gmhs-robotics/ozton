@@ -8,10 +8,8 @@ use ozton_math::{
     geometry::{DVec2, Pose, wheel_speeds, wrap_heading},
     path::Path,
     uom::si::{
-        angle::radian,
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Time, Velocity},
-        length::meter,
         time::second,
         velocity::meter_per_second,
     },

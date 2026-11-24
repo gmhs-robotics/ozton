@@ -3,10 +3,7 @@
 use ozton_math::{
     geometry::{BodyDelta, bearing},
     path::clearance::{Footprint, RectangularClearance, approach_heading},
-    uom::{
-        ConstZero,
-        si::{angle::degree, length::inch},
-    },
+    uom::ConstZero,
 };
 
 use super::*;
@@ -33,22 +30,22 @@ fn match_turn_settles_with_delayed_motor_response() {
     // The logged turn began at -0.347 rad and targeted 0.836 rad. The
     // measured yaw lagged the wheel request and reached about 1.5x its rate.
     let options = DriveOptions::differential(
-        Length::new::<meter>(0.3292677692),
+        ozton_math::length!(0.3292677692 m),
         Velocity::new::<meter_per_second>(0.50),
     )
     .with_settling(
-        Length::new::<inch>(0.25),
-        Angle::new::<degree>(1.0),
+        ozton_math::length!(0.25 in),
+        ozton_math::angle!(1.0 deg),
         Velocity::new::<meter_per_second>(0.04),
         AngularVelocity::new::<radian_per_second>(0.07),
         Duration::from_millis(90),
     );
-    let heading = Angle::new::<radian>(0.836);
+    let heading = ozton_math::angle!(0.836 rad);
     let mut command = Command::Turn { heading };
     let mut state = State::default();
     let mut feedback = Feedback {
         time: Duration::ZERO,
-        pose: Pose::new(DVec2::ZERO, Angle::new::<radian>(-0.347)),
+        pose: Pose::new(DVec2::ZERO, ozton_math::angle!(-0.347 rad)),
         angular_velocity: AngularVelocity::ZERO,
         forward_travel: Length::ZERO,
         forward_velocity: Velocity::ZERO,
@@ -122,9 +119,9 @@ impl Plant {
             let travel = speed * TICK.as_secs_f64();
             self.sample.pose = self.sample.pose.integrate(BodyDelta {
                 translation: DVec2::new(0.0, travel),
-                heading: Angle::new::<radian>(yaw * TICK.as_secs_f64()),
+                heading: ozton_math::angle!(yaw * TICK.as_secs_f64(), rad),
             });
-            self.sample.forward_travel += Length::new::<meter>(travel);
+            self.sample.forward_travel += ozton_math::length!(travel, m);
             self.sample.forward_velocity = Velocity::new::<meter_per_second>(speed);
             self.sample.angular_velocity = AngularVelocity::new::<radian_per_second>(yaw);
             self.sample.time += TICK;
@@ -136,7 +133,7 @@ impl Plant {
 
 #[test]
 fn match_corner_reaches_center_with_position_and_heading_settled() {
-    let inches = Length::new::<inch>;
+    let inches = |value| ozton_math::length!(value, in);
     let footprint = Footprint::from_extents(
         inches(7.55),
         inches(7.55),
@@ -154,9 +151,9 @@ fn match_corner_reaches_center_with_position_and_heading_settled() {
     let target = Pose::default();
     let max_speed = Velocity::new::<meter_per_second>(0.50);
     let departure_speed = Velocity::new::<meter_per_second>(0.30);
-    let mut options = DriveOptions::differential(Length::new::<meter>(0.3292677692), max_speed);
+    let mut options = DriveOptions::differential(ozton_math::length!(0.3292677692 m), max_speed);
     options.position_tolerance = inches(0.75);
-    options.heading_tolerance = Angle::new::<degree>(2.0);
+    options.heading_tolerance = ozton_math::angle!(2.0 deg);
     let mut plant = Plant {
         sample: Feedback {
             time: Duration::ZERO,
@@ -202,7 +199,8 @@ fn match_corner_reaches_center_with_position_and_heading_settled() {
     assert!(field.can_turn(plant.sample.pose));
     let displacement = target.position - plant.sample.pose.position;
     let (reverse, _) = approach_heading(plant.sample.pose.heading, target.heading, displacement);
-    let heading = bearing(displacement) + Angle::new::<degree>(if reverse { 180.0 } else { 0.0 });
+    let heading =
+        bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
     plant.run(Command::Turn { heading }, options);
     plant.run(
         Command::drive_to_point(target.position, max_speed, reverse),

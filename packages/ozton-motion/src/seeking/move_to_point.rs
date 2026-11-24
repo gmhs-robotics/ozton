@@ -14,15 +14,13 @@ use ozton_control::{
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
     geometry::{bearing, wrap_heading},
+    localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
     uom::si::{
-        angle::radian,
-        f64::{Angle, Length, Velocity},
-        length::meter,
+        f64::{Length, Velocity},
         velocity::meter_per_second,
     },
 };
 use ozton_runtime::clock::{Sleep, sleep};
-use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
 
 use crate::Arcade;
 
@@ -97,8 +95,6 @@ where
             return Poll::Pending;
         }
 
-        this.drivetrain.refresh_localization();
-
         let now = Instant::now();
         let dt = now.saturating_duration_since(state.prev_time);
 
@@ -122,7 +118,7 @@ where
 
         let settled = this.tolerances.check_with(
             &mut state.settling,
-            Length::new::<meter>(distance_error),
+            ozton_math::length!(distance_error, m),
             Velocity::new::<meter_per_second>(velocity),
             now,
         );
@@ -148,7 +144,7 @@ where
             (0.0, 0.0)
         } else {
             let drive_heading = if this.reverse {
-                heading + Angle::new::<radian>(std::f64::consts::PI)
+                heading + ozton_math::angle!(std::f64::consts::PI, rad)
             } else {
                 heading
             };

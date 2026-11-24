@@ -6,12 +6,11 @@ use std::{
 
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{
-    f64::{Angle, Length},
-    length::meter,
+use ozton_math::{
+    localization::observation::{TracksHeading, TracksPosition},
+    uom::si::f64::{Angle, Length},
 };
 use ozton_runtime::clock::{Sleep, sleep};
-use ozton_tracking::{TracksHeading, TracksPosition};
 
 use super::Waypoint;
 use crate::Tank;
@@ -78,7 +77,6 @@ where
                 );
             }
             let now = Instant::now();
-            this.drivetrain.refresh_localization();
             let position = this.drivetrain.localization().position();
 
             let Some(mut next) = this.waypoints.next() else {
@@ -155,8 +153,6 @@ where
         if Pin::new(&mut state.sleep).poll(cx).is_pending() {
             return Poll::Pending;
         }
-
-        this.drivetrain.refresh_localization();
 
         // Cancel movement if timeout has elapsed.
         if this
@@ -298,7 +294,7 @@ fn line_segment_circle_intersections(
 ) -> (Option<Vec2>, Option<Vec2>) {
     let [first, last] = ozton_math::geometry::circle_segment_fractions(
         center,
-        Length::new::<meter>(radius),
+        ozton_math::length!(radius, m),
         start,
         end,
     )

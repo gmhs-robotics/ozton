@@ -11,17 +11,22 @@ Use a flat tuple to register sensors in sampling order.
 
 ```rust
 let tracking = Tracking::new((drive_encoders, tracking_wheel, imu, front_range)).await?;
-let localization = LocalizationBuilder::default().build(&tracking);
+let localization = LocalizationBuilder::default().build(tracking.observation_layout());
 ```
 
 Use `shared_motors!` to create the motor groups, pass them to
-`Differential::from_shared`, and give `model.shared_motors()` to
-`DifferentialTracking::new`. The drive and encoders share the same motors.
+`Differential::from_shared` and `DifferentialTracking::from_shared`.
+The gear-ratio arrays have one entry per motor, checked at compile time.
 
 Custom devices implement `TrackingSource::sample` and can emit any combination
 of timestamped `Measurement` values. The differential estimator uses wheel
 travel, heading, and range observations. Absolute pose measurements are
 available to custom estimators.
+
+Assemble the drive with `Drivetrain::new(model, tracking, localization)`, then
+call `RobotBuilder::with_localization_schedule(LocalizationSchedule::Autonomous)`
+after installing it. `Always` also updates during driver control and while
+disabled. A drivetrain can use `()` for either component it does not need.
 
 ## Autonomous motion
 
@@ -59,9 +64,10 @@ chassis. The outer loops command metres per second and radians per second.
 and `with_budget` limits the full departure, approach and final turn.
 
 `Seeking`, `Basic`, and `PurePursuit` work with a bare or assisted drive
-that provides the localization feedback each motion needs. Ozton provides `ozton::tracking::WheeledTracking` for
-wheeled odometry. Point coordinates are right and forward in metres. Use
-`position_xy!` for unit-bearing point literals.
+that provides the feedback each motion needs. `ozton::tracking::WheeledTracking`
+is a standalone wheeled odometry adapter with its own update task. Point
+coordinates are right and forward in metres. Use `position_xy!` for
+unit-bearing point literals and `position_xyzh!` for sensor mounts.
 
 ```rust
 let seeking = Seeking::default();
@@ -96,9 +102,10 @@ position macros match the data expected by motion and mounting APIs.
 | `position_xyzh!(2 in, -4 cm, 25 mm, 90 deg)` | Three typed lengths and a heading |
 
 `ozton-math` and `ozton-control` have no VEX dependency. Standalone
-`ozton-localization` consumes observations sampled with `Tracking::sample_at`,
-using timestamps supplied by the caller. Its optional `vex` feature enables
-the VEX polling adapter. `ozton-motion` with `default-features = false` exposes
+`ozton-localization` consumes the hardware-independent observations from
+`ozton_math::localization::observation`. Hosts can supply timestamps with
+`Tracking::sample_at` or construct their own samples. `ozton-motion` with
+`default-features = false` exposes
 the differential controller, profiled pursuit, RAMSETE, and drive mixers.
 The default `vex` feature enables async motion execution with VEX timers and
 competition state. The `ozton` facade enables the VEX adapters for firmware.

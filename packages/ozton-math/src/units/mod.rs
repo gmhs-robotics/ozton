@@ -58,7 +58,6 @@ macro_rules! quantity {
 /// Use a uom unit name such as `nautical_mile` for other units.
 #[macro_export]
 macro_rules! length {
-    ($value:literal $unit:ident) => { $crate::length!($value, $unit) };
     ($value:expr, mm $(,)?) => { $crate::length!(@meters $value, 0.001) };
     ($value:expr, cm $(,)?) => { $crate::length!(@meters $value, 0.01) };
     ($value:expr, m $(,)?) => { $crate::length!(@meters $value, 1.0) };
@@ -67,6 +66,7 @@ macro_rules! length {
     ($value:expr, ft $(,)?) => { $crate::length!(@meters $value, 0.3048) };
     ($value:expr, yd $(,)?) => { $crate::length!(@meters $value, 0.9144) };
     ($value:expr, $unit:ident $(,)?) => { $crate::quantity!(length::Length, $value, $unit) };
+    ($value:literal $unit:ident) => { $crate::length!($value, $unit) };
     (@meters $value:expr, $scale:literal) => {{
         use $crate::uom::{ConstZero, si::f64::Length};
         Length { value: ($value as f64) * $scale, ..Length::ZERO }
@@ -76,12 +76,12 @@ macro_rules! length {
 /// Creates an angle. The units `rad`, `deg`, `rev`, and `turn` work in constants.
 #[macro_export]
 macro_rules! angle {
-    ($value:literal $unit:ident) => { $crate::angle!($value, $unit) };
     ($value:expr, rad $(,)?) => { $crate::angle!(@radians $value, 1.0) };
     ($value:expr, deg $(,)?) => { $crate::angle!(@radians $value, ::core::f64::consts::PI / 180.0) };
     ($value:expr, rev $(,)?) => { $crate::angle!(@radians $value, ::core::f64::consts::TAU) };
     ($value:expr, turn $(,)?) => { $crate::angle!($value, rev) };
     ($value:expr, $unit:ident $(,)?) => { $crate::quantity!(angle::Angle, $value, $unit) };
+    ($value:literal $unit:ident) => { $crate::angle!($value, $unit) };
     (@radians $value:expr, $scale:expr) => {{
         use $crate::uom::{ConstZero, si::f64::Angle};
         Angle { value: ($value as f64) * $scale, ..Angle::ZERO }

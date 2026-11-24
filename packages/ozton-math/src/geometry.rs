@@ -4,7 +4,6 @@ use core::f64::consts::{PI, TAU};
 
 pub use glam::DVec2;
 use uom::si::{
-    angle::radian,
     f64::{Angle, AngularVelocity, Length, Velocity},
     velocity::meter_per_second,
 };
@@ -16,11 +15,14 @@ pub fn wrap_heading(angle: Angle) -> Angle {
         return angle;
     }
     let wrapped = (radians + PI) % TAU;
-    Angle::new::<radian>(if wrapped < 0.0 {
-        wrapped + PI
-    } else {
-        wrapped - PI
-    })
+    crate::angle!(
+        if wrapped < 0.0 {
+            wrapped + PI
+        } else {
+            wrapped - PI
+        },
+        rad
+    )
 }
 
 /// Converts clockwise compass degrees from field +Y to a mathematical heading.
@@ -36,7 +38,7 @@ pub fn direction(heading: Angle) -> DVec2 {
 
 /// Heading toward a right/forward displacement. Zero displacement yields zero.
 pub fn bearing(displacement: DVec2) -> Angle {
-    Angle::new::<radian>(libm::atan2(-displacement.x, displacement.y))
+    crate::angle!(libm::atan2(-displacement.x, displacement.y), rad)
 }
 
 /// Converts unit-bearing right/forward coordinates into a position in meters.
@@ -172,27 +174,26 @@ pub fn pursuit_curvature(target: DVec2) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use uom::si::{angle::degree, length::meter};
 
     use super::*;
 
     #[test]
     fn field_pose_registration_uses_initial_origin_right_forward_axes() {
         let origin = Pose::new(
-            crate::geometry::point(Length::new::<meter>(2.0), Length::new::<meter>(3.0)),
-            Angle::new::<radian>(PI / 2.0),
+            crate::geometry::point(crate::length!(2.0 m), crate::length!(3.0 m)),
+            crate::angle!(PI / 2.0, rad),
         );
         assert!(origin.in_frame(origin).position.length() < 1e-12);
         assert_eq!(origin.in_frame(origin).heading.value, 0.0);
         let right = Pose::new(
-            crate::geometry::point(Length::new::<meter>(2.0), Length::new::<meter>(4.0)),
-            Angle::new::<radian>(PI / 2.0),
+            crate::geometry::point(crate::length!(2.0 m), crate::length!(4.0 m)),
+            crate::angle!(PI / 2.0, rad),
         )
         .in_frame(origin);
         assert!(right.position.distance(DVec2::X) < 1e-12);
         let forward = Pose::new(
-            crate::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(3.0)),
-            Angle::new::<radian>(PI),
+            crate::geometry::point(crate::length!(1.0 m), crate::length!(3.0 m)),
+            crate::angle!(PI, rad),
         )
         .in_frame(origin);
         assert!(forward.position.distance(DVec2::Y) < 1e-12);
@@ -202,36 +203,36 @@ mod tests {
     fn canonical_axes_rotation_and_compass() {
         assert_eq!(Pose::default().transform_point(DVec2::X), DVec2::X);
         assert_eq!(Pose::default().transform_point(DVec2::Y), DVec2::Y);
-        assert!(direction(Angle::new::<radian>(0.0)).distance(DVec2::Y) < 1e-12);
-        assert!(direction(Angle::new::<radian>(PI / 2.0)).distance(-DVec2::X) < 1e-12);
-        assert!(direction(Angle::new::<radian>(-PI / 2.0)).distance(DVec2::X) < 1e-12);
+        assert!(direction(crate::angle!(0.0 rad)).distance(DVec2::Y) < 1e-12);
+        assert!(direction(crate::angle!(PI / 2.0, rad)).distance(-DVec2::X) < 1e-12);
+        assert!(direction(crate::angle!(-PI / 2.0, rad)).distance(DVec2::X) < 1e-12);
         let pose = Pose::default().integrate(BodyDelta {
             translation: DVec2::new(0.0, PI / 2.0),
-            heading: Angle::new::<radian>(PI / 2.0),
+            heading: crate::angle!(PI / 2.0, rad),
         });
         assert!(pose.position.distance(DVec2::new(-1.0, 1.0)) < 1e-10);
         assert_eq!(
-            compass_heading(Angle::new::<radian>(0.0)),
-            Angle::new::<radian>(0.0)
+            compass_heading(crate::angle!(0.0 rad)),
+            crate::angle!(0.0 rad)
         );
         assert_eq!(
-            compass_heading(Angle::new::<degree>(90.0)),
-            Angle::new::<radian>(-PI / 2.0)
+            compass_heading(crate::angle!(90.0 deg)),
+            crate::angle!(-PI / 2.0, rad)
         );
         for heading in [0.0, PI / 2.0, -PI / 2.0, 2.1] {
             assert!(
-                wrap_heading(Angle::new::<radian>(
-                    (bearing(direction(Angle::new::<radian>(heading)))
-                        - Angle::new::<radian>(heading))
-                    .value
+                wrap_heading(crate::angle!(
+                    (bearing(direction(crate::angle!(heading, rad))) - crate::angle!(heading, rad))
+                        .value,
+                    rad
                 ))
                 .value
                 .abs()
                     < 1e-12
             );
             let pose = Pose::new(
-                crate::geometry::point(Length::new::<meter>(0.2), Length::new::<meter>(-0.4)),
-                Angle::new::<radian>(heading),
+                crate::geometry::point(crate::length!(0.2 m), crate::length!(-0.4 m)),
+                crate::angle!(heading, rad),
             );
             let local = DVec2::new(0.3, 0.7);
             assert!(pose.to_local(pose.transform_point(local)).distance(local) < 1e-12);
@@ -240,10 +241,8 @@ mod tests {
 }
 #[test]
 fn pose_interpolation_crosses_the_heading_wrap_by_the_shortest_arc() {
-    use uom::si::angle::degree;
-
-    let start = Pose::new(DVec2::ZERO, Angle::new::<degree>(170.0));
-    let end = Pose::new(DVec2::new(2.0, 4.0), Angle::new::<degree>(-170.0));
+    let start = Pose::new(DVec2::ZERO, crate::angle!(170.0 deg));
+    let end = Pose::new(DVec2::new(2.0, 4.0), crate::angle!(-170.0 deg));
     let middle = start.interpolate(end, 0.5);
     assert_eq!(middle.position, DVec2::new(1.0, 2.0));
     assert!((middle.heading.value.abs() - PI).abs() < 1e-12);

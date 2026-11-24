@@ -1,7 +1,6 @@
 //! Three-state planar EKF with scalar measurement updates.
 
 use glam::{DMat3, DVec2, DVec3};
-use uom::si::{angle::radian, f64::Angle};
 
 use crate::geometry::{BodyDelta, Pose, wrap_heading};
 
@@ -101,7 +100,7 @@ impl PoseEkf {
             residual * self.covariance * residual.transpose() + outer(gain, gain) * variance;
         let pose = Pose {
             position: self.pose.position + DVec2::new(correction.x, correction.y),
-            heading: wrap_heading(self.pose.heading + Angle::new::<radian>(correction.z)),
+            heading: wrap_heading(self.pose.heading + crate::angle!(correction.z, rad)),
         };
         if !pose.is_finite() || !covariance.is_finite() {
             return false;
@@ -118,7 +117,6 @@ fn outer(left: DVec3, right: DVec3) -> DMat3 {
 
 #[cfg(test)]
 mod tests {
-    use uom::si::{f64::Length, length::meter};
 
     use super::*;
 
@@ -126,8 +124,8 @@ mod tests {
     fn correction_reduces_error_and_rejects_outlier() {
         let mut filter = PoseEkf::new(
             Pose::new(
-                crate::geometry::point(Length::new::<meter>(0.12), Length::new::<meter>(0.2)),
-                Angle::new::<radian>(0.0),
+                crate::geometry::point(crate::length!(0.12 m), crate::length!(0.2 m)),
+                crate::angle!(0.0 rad),
             ),
             DVec3::splat(0.01),
         )

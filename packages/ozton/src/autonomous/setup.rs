@@ -16,7 +16,6 @@ use ozton_math::{
         si::{
             electric_potential::volt,
             f64::{Acceleration, AngularVelocity, ElectricPotential, Length, Velocity},
-            length::meter,
         },
     },
 };
@@ -204,8 +203,8 @@ impl Default for TrackingSetup {
             sensors: Sensors::default(),
             estimator: Estimator::Odometry,
             shadow: false,
-            forward_offset: Length::new::<meter>(0.0),
-            lateral_offset: Length::new::<meter>(0.0),
+            forward_offset: ozton_math::length!(0.0 m),
+            lateral_offset: ozton_math::length!(0.0 m),
             imu: None,
             map: Vec::new(),
             ranges: Vec::new(),
@@ -264,7 +263,7 @@ impl ConfiguredChassis {
     }
 
     pub fn range_count(&self) -> usize {
-        self.chassis.drivetrain.localization.range_count()
+        self.chassis.drivetrain.localization().range_count()
     }
 
     pub fn drive_options(&self) -> DriveOptions {
@@ -298,7 +297,7 @@ impl ozton_runtime::diagnostics::ComponentReport for ConfiguredChassis {
     fn report(&self, frame: ozton_runtime::diagnostics::Frame) {
         ozton_runtime::diagnostics::report_pose(
             frame,
-            self.chassis.drivetrain.localization.pose(),
+            self.chassis.drivetrain.localization().pose(),
             self.chassis.pose_trusted(),
         );
     }

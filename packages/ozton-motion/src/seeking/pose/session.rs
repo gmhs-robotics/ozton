@@ -109,12 +109,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut controller = DifferentialFeedback::new(self.tuning);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
+        let mut last_feedback = None;
+        let mut feedback_at = Instant::now();
         loop {
             let dt = self.tick().await?;
             if started.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }
-            let Some(feedback) = self.drive.sample().map_err(PoseMotionError::Drive)? else {
+            let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
                 log_row!(
                     Trace,
                     "MOTION_RETRY",
@@ -127,6 +129,21 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 progress = Progress::default();
                 continue;
             };
+            let dt = match last_feedback {
+                Some(previous) if feedback.time <= previous => {
+                    if feedback_at.elapsed() > MAX_CONTROL_GAP {
+                        return Err(PoseMotionError::ControlGap);
+                    }
+                    continue;
+                }
+                Some(previous) => feedback.time.saturating_sub(previous),
+                None => dt,
+            };
+            if dt > MAX_CONTROL_GAP {
+                return Err(PoseMotionError::ControlGap);
+            }
+            last_feedback = Some(feedback.time);
+            feedback_at = Instant::now();
             if !valid_feedback(feedback) {
                 return Err(PoseMotionError::InvalidFeedback);
             }
@@ -177,13 +194,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     ) -> Result<bool, PoseMotionError<D::Error>> {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
+        self.drive.request_distance_reset();
         loop {
             let dt = self.tick().await?;
             if started.elapsed() >= timeout {
                 return Ok(false);
             }
-            self.drive.request_distance_reset();
-            let feedback = self.drive.sample().map_err(PoseMotionError::Drive)?;
+            let feedback = self.drive.pose_feedback().map_err(PoseMotionError::Drive)?;
             self.drive.log_step(self.started.elapsed(), dt);
             if let Some(feedback) = feedback {
                 if !valid_feedback(feedback) {

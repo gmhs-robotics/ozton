@@ -2,7 +2,9 @@
 pub use ozton_math::units::Vec3;
 #[doc(hidden)]
 pub use ozton_math::uom;
-use uom::{ConstZero, si::f64::Length};
+#[cfg(test)]
+use uom::ConstZero;
+use uom::si::f64::Length;
 
 /// A chassis direction used to label a horizontal measurement axis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,14 +57,14 @@ impl MountAxes {
         let (x_right, x_forward) = self.x.right_forward();
         let (y_right, y_forward) = self.y.right_forward();
         Vec3 {
-            right: Length {
-                value: survey.right.value * x_right + survey.forward.value * y_right,
-                ..Length::ZERO
-            },
-            forward: Length {
-                value: survey.right.value * x_forward + survey.forward.value * y_forward,
-                ..Length::ZERO
-            },
+            right: ozton_math::length!(
+                survey.right.value * x_right + survey.forward.value * y_right,
+                m
+            ),
+            forward: ozton_math::length!(
+                survey.right.value * x_forward + survey.forward.value * y_forward,
+                m
+            ),
             up: survey.up,
         }
     }
@@ -70,7 +72,6 @@ impl MountAxes {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::{angle::radian, f64::Angle, length::meter};
 
     use super::*;
     use crate::position;
@@ -100,17 +101,17 @@ mod tests {
                 position!(0 m, 0 m, 0 m)
             );
             let point = axes.point(Vec3::new(
-                Length::new::<meter>(x),
-                Length::new::<meter>(y),
-                Length::new::<meter>(0.3),
+                ozton_math::length!(x, m),
+                ozton_math::length!(y, m),
+                ozton_math::length!(0.3 m),
             ));
             assert_eq!(point, position!(-0.1 m, 0.2 m, 0.3 m));
 
             let yaw = 0.4;
             let delta = ozton_math::localization::odometry::body_delta(
-                (Length::new::<meter>(-0.1 * yaw), point.right),
-                Some((Length::new::<meter>(-0.2 * yaw), point.forward)),
-                Angle::new::<radian>(yaw),
+                (ozton_math::length!(-0.1 * yaw, m), point.right),
+                Some((ozton_math::length!(-0.2 * yaw, m), point.forward)),
+                ozton_math::angle!(yaw, rad),
             );
             assert_eq!(delta.translation.length(), 0.0);
         }
@@ -126,13 +127,8 @@ mod tests {
     fn range_mount_preserves_coordinates_and_bearing() {
         use crate::range::RangeSensorConfig;
 
-        const MOUNT: RangeSensorConfig = RangeSensorConfig::at_mount(
-            position!(-2 in, 0.2 m, 30 cm),
-            Angle {
-                value: -core::f64::consts::FRAC_PI_2,
-                ..Angle::ZERO
-            },
-        );
+        const MOUNT: RangeSensorConfig =
+            RangeSensorConfig::at_mount(ozton_math::position_xyzh!(-2 in, 0.2 m, 30 cm, -90 deg));
         assert_eq!(MOUNT.mount.position.x, -0.0508);
         assert_eq!(MOUNT.mount.position.y, 0.2);
         assert_eq!(MOUNT.mount_height.value, 0.3);
@@ -143,7 +139,7 @@ mod tests {
     fn invalid_coordinates_are_rejected_on_each_axis() {
         assert!(position!(0 m, 0 m, 0 m).is_finite());
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let invalid = Length::new::<meter>(invalid);
+            let invalid = ozton_math::length!(invalid, m);
             for point in [
                 Vec3::new(invalid, Length::ZERO, Length::ZERO),
                 Vec3::new(Length::ZERO, invalid, Length::ZERO),

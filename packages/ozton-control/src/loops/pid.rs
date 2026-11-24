@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::ops::{Deref, DerefMut};
 
-use ozton_math::uom::{ConstZero, si::f64::Angle};
+use ozton_math::uom::si::f64::Angle;
 
 use super::{Feedback, Pid};
 
@@ -28,10 +28,7 @@ impl AngularPid {
 
     pub const fn integration_range(&self) -> Option<Angle> {
         match self.0.integration_range() {
-            Some(range) => Some(Angle {
-                value: range,
-                ..Angle::ZERO
-            }),
+            Some(range) => Some(ozton_math::angle!(range, rad)),
             None => None,
         }
     }

@@ -89,18 +89,21 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
 impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     async fn disabled(&mut self) {
         self.enter(CompetitionMode::Disabled);
+        let _localization = self.0.start_localization(CompetitionMode::Disabled);
         self.ticks(CompetitionMode::Disabled).await;
     }
 
     async fn driver(&mut self) {
         self.enter(CompetitionMode::Driver);
         self.0.menu().status(DRIVER_STATUS);
+        let _localization = self.0.start_localization(CompetitionMode::Driver);
         self.ticks(CompetitionMode::Driver).await;
     }
 
     async fn autonomous(&mut self) {
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
+        let _localization = self.0.start_localization(mode);
         let robot = &mut *self.0;
         if let Some(route) = robot.selected_autonomous() {
             robot

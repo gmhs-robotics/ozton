@@ -4,7 +4,7 @@ use core::f64::consts::PI;
 #[cfg(feature = "vex")]
 use ozton_math::uom::si::f64::Length;
 
-pub use super::projection::{DriveWheels, MountedWheel, WheelOdometry};
+pub use super::projection::MountedWheel;
 #[cfg(feature = "vex")]
 use crate::RotarySensor;
 
@@ -70,7 +70,7 @@ impl<T: RotarySensor> TrackingWheel<T> {
     }
 }
 
-impl crate::TrackingSource for MountedWheel {
+impl<W: crate::sampling::WheelSource> crate::TrackingSource for MountedWheel<W> {
     fn initialize(&mut self) -> crate::SourceInitialization<'_> {
         if self.is_valid() {
             None

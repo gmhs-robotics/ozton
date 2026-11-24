@@ -1,7 +1,7 @@
 //! Monotonic geometric progress along a path.
 
 use glam::DVec2;
-use uom::si::{f64::Length, length::meter};
+use uom::si::f64::Length;
 
 use super::Path;
 use crate::geometry::circle_segment_fractions;
@@ -33,7 +33,7 @@ impl<'path> Progress<'path> {
         let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
         let mut best_error = position.distance_squared(
-            path.at_distance(Length::new::<meter>(self.distance))
+            path.at_distance(crate::length!(self.distance, m))
                 .pose
                 .position,
         );
@@ -71,7 +71,7 @@ impl<'path> Progress<'path> {
             let (a, b) = (pair[0], pair[1]);
             let [_, exit] = circle_segment_fractions(
                 position,
-                Length::new::<meter>(radius),
+                crate::length!(radius, m),
                 a.pose.position,
                 b.pose.position,
             );
@@ -81,7 +81,7 @@ impl<'path> Progress<'path> {
                 return a.pose.position.lerp(b.pose.position, exit);
             }
         }
-        path.at_distance(Length::new::<meter>(self.distance + radius))
+        path.at_distance(crate::length!(self.distance + radius, m))
             .pose
             .position
     }

@@ -1,7 +1,6 @@
 //! Shared actuator and position feedback interfaces for mechanisms.
 
 use ozton_math::uom::si::{
-    angle::radian,
     angular_velocity::radian_per_second,
     electric_potential::volt,
     f64::{Angle, AngularVelocity, ElectricPotential, Torque},
@@ -24,7 +23,7 @@ pub trait MotorDevice {
 
 impl MotorDevice for Motor {
     fn position(&self) -> Result<Angle, PortError> {
-        Motor::position(self).map(|position| Angle::new::<radian>(position.as_radians()))
+        Motor::position(self).map(|position| ozton_math::angle!(position.as_radians(), rad))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         Motor::set_position(self, VexAngle::from_radians(position.value))
@@ -48,7 +47,8 @@ pub trait PositionSensor {
 
 impl PositionSensor for RotationSensor {
     fn position(&self) -> Result<Angle, PortError> {
-        RotationSensor::position(self).map(|position| Angle::new::<radian>(position.as_radians()))
+        RotationSensor::position(self)
+            .map(|position| ozton_math::angle!(position.as_radians(), rad))
     }
     fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
         RotationSensor::set_position(self, VexAngle::from_radians(position.value))

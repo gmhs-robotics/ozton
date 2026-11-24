@@ -1,3 +1,5 @@
+use ozton_math::localization::observation::ObservationLayout;
+
 use super::*;
 use crate::{Config, OdometryConfig, field::FieldMap};
 
@@ -107,13 +109,12 @@ impl LocalizationBuilder {
     }
 
     /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
-    pub fn build(self, tracking: &Tracking) -> Option<DifferentialLocalization> {
+    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization> {
         let map = self.field.surfaces().collect();
-        let mounts = tracking
-            .range_mounts()
+        let mounts = layout
+            .ranges
             .iter()
-            .copied()
-            .map(|mount| self.field.range_config(mount))
+            .map(|&(_, mount)| self.field.range_config(mount))
             .collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
@@ -129,19 +130,15 @@ impl LocalizationBuilder {
         Some(DifferentialLocalization {
             localizer,
             rectangular_half_extents: self.field.rectangular_half_extents(),
-            wheels: WheelOdometry::new(
-                tracking
-                    .wheel_mounts()
-                    .iter()
-                    .map(|&(_, projection)| projection),
-            ),
-            observations: super::observations::Observations::new(tracking),
+            wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),
+            observations: super::observations::Observations::new(layout),
             drive: self.drive,
             use_imu: self.use_imu,
             range_uses: self.ranges,
             imu_heading_offset: None,
             occluded: 0,
             last_reset: DistanceReset::Idle,
+            feedback: Ok(None),
             #[cfg(feature = "logging")]
             fault: None,
             #[cfg(feature = "logging")]

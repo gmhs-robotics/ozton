@@ -98,6 +98,7 @@ fn driver_dispatch_and_stop_use_the_installed_drive() {
         mechanisms: (),
         program: FakeProgram { direct: false },
         autonomous: NoTelemetry,
+        localization: None,
         assists: (),
         driver_elapsed: Duration::ZERO,
         driver_wrote: false,

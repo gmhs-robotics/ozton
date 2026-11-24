@@ -1,11 +1,7 @@
 //! Departures and turning clearance inside a centered rectangular perimeter.
 
 use glam::DVec2;
-use uom::si::{
-    angle::degree,
-    f64::{Angle, Length},
-    length::meter,
-};
+use uom::si::f64::{Angle, Length};
 
 use super::{Footprint, forward_arc_end};
 use crate::geometry::{Pose, direction};
@@ -82,7 +78,7 @@ impl RectangularClearance {
         // The straight segment lies inside a convex rectangle. Its two ends suffice.
         let displacement = enter * forward;
         (enter <= leave && self.contains_bounds(min + displacement, max + displacement))
-            .then_some(Length::new::<meter>(enter))
+            .then_some(crate::length!(enter, m))
     }
 
     /// Try successively wider arcs in both directions, including a straight continuation.
@@ -116,13 +112,13 @@ impl RectangularClearance {
         let first_radius = minimum_radius.value.max(0.05);
         let radius_step = self.usable.max_element() / 10.0;
         (0..=40)
-            .map(move |step| Length::new::<meter>(first_radius + radius_step * f64::from(step)))
+            .map(move |step| crate::length!(first_radius + radius_step * f64::from(step), m))
             .flat_map(|radius| {
                 (-18..=18)
                     .filter(|step| *step != 0)
                     .map(move |step| DepartureArc {
                         radius,
-                        sweep: Angle::new::<degree>(5.0 * f64::from(step)),
+                        sweep: crate::angle!(5.0 * f64::from(step), deg),
                     })
             })
     }
@@ -130,13 +126,12 @@ impl RectangularClearance {
 
 #[cfg(test)]
 mod tests {
-    use uom::si::length::inch;
 
     use super::*;
 
     #[test]
     fn corner_departure_needs_space_and_reaches_a_turning_area() {
-        let inches = Length::new::<inch>;
+        let inches = |value| crate::length!(value, in);
         let chassis = Footprint::from_extents(
             inches(7.55),
             inches(7.55),

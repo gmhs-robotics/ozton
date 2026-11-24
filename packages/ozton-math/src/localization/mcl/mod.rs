@@ -5,11 +5,7 @@ use alloc::vec::Vec;
 
 use glam::{DVec2, DVec3};
 use random::Random;
-use uom::si::{
-    angle::radian,
-    f64::{Angle, Length},
-    length::meter,
-};
+use uom::si::f64::{Angle, Length};
 
 use super::range::{Surface, ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
@@ -35,7 +31,7 @@ impl Default for ParticleConfig {
             seed: 1,
             initial_spread: DVec3::new(0.09, 0.09, 0.03),
             motion_noise: DVec3::new(0.04, 0.04, 0.03),
-            range_sigma: Length::new::<meter>(0.025),
+            range_sigma: crate::length!(0.025 m),
             outlier_weight: 0.08,
         }
     }
@@ -124,7 +120,7 @@ impl ParticleFilter {
             self.particles.push(Particle {
                 pose: Pose::new(
                     pose.position + noise.truncate(),
-                    wrap_heading(pose.heading + Angle::new::<radian>(noise.z)),
+                    wrap_heading(pose.heading + crate::angle!(noise.z, rad)),
                 ),
                 weight,
             });
@@ -144,7 +140,7 @@ impl ParticleFilter {
             let noise = self.random.normal3() * spread;
             particle.pose = particle.pose.integrate(BodyDelta {
                 translation: delta.translation + DVec2::new(noise.x, noise.y),
-                heading: delta.heading + Angle::new::<radian>(noise.z),
+                heading: delta.heading + crate::angle!(noise.z, rad),
             });
         }
     }

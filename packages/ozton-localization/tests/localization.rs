@@ -9,6 +9,7 @@ use ozton_math::{
     geometry::Pose,
     localization::{
         mcl::ParticleConfig,
+        observation::TracksForwardTravel,
         range::{RangeGate, Rejection, Surface},
     },
     uom::{
@@ -21,7 +22,6 @@ use ozton_math::{
         },
     },
 };
-use ozton_tracking::TracksForwardTravel;
 
 const CONFIG: OdometryConfig = OdometryConfig {
     track_width: Length {

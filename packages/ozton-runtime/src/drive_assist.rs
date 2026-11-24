@@ -15,7 +15,8 @@ use ozton_math::{
     },
 };
 use ozton_tracking::{
-    NoTracking, Tracking, TrackingSystem, inertial::Orientation, odometric::DriveEncoders,
+    NoTracking, Tracking, TrackingSources, TrackingSystem, inertial::Orientation,
+    odometric::DriveEncoders,
 };
 use vexide::smart::PortError;
 
@@ -81,7 +82,7 @@ pub trait AssistTracking: TrackingSystem {
 impl AssistTracking for () {}
 impl AssistTracking for NoTracking {}
 
-impl AssistTracking for Tracking {
+impl<S: TrackingSources> AssistTracking for Tracking<S> {
     fn assist_orientation(&mut self) -> Option<Orientation> {
         self.refresh_orientation()
     }
@@ -132,12 +133,14 @@ impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> AssistedDrivetrain
             .assists
             .items
             .needs_orientation()
-            .then(|| self.drivetrain.tracking.assist_orientation())
+            .then(|| self.drivetrain.tracking_mut().assist_orientation())
             .flatten();
+        let tracking = self.drivetrain.tracking();
+        let localization = self.drivetrain.localization();
         let context = AssistContext {
             model: &self.drivetrain.model,
-            tracking: &self.drivetrain.tracking,
-            localization: &self.drivetrain.localization,
+            tracking: &*tracking,
+            localization: &*localization,
             orientation,
             elapsed,
             wheel_velocity,
@@ -187,12 +190,8 @@ where
 {
     type Localization = L;
 
-    fn localization(&self) -> &L {
+    fn localization(&self) -> impl std::ops::Deref<Target = L> {
         self.drivetrain.localization()
-    }
-
-    fn refresh_localization(&mut self) {
-        self.drivetrain.refresh_localization();
     }
 }
 
@@ -209,8 +208,12 @@ where
     }
 }
 
-impl<M: Drive<Error = PortError> + MotorGroups, T: AssistTracking, L, A: DriveAssist<M, T, L>>
-    AssistedDrivetrain<'_, M, T, L, A>
+impl<
+    M: Drive<Error = PortError> + MotorGroups<WheelSpeeds = [Velocity; 2]>,
+    T: AssistTracking,
+    L,
+    A: DriveAssist<M, T, L>,
+> AssistedDrivetrain<'_, M, T, L, A>
 {
     /// Apply assists to a two-sided physical wheel velocity command.
     pub fn drive_wheel_speeds(&mut self, speeds: [Velocity; 2]) -> Result<(), WheelSpeedError> {

@@ -4,9 +4,11 @@ use std::time::Duration;
 use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{Pose, wrap_heading},
-    localization::range::{Constraint, Rejection, Surface, fit_translation},
+    localization::{
+        observation::{MAX_RANGES, RangeObservation, RangeSensorConfig},
+        range::{Constraint, Rejection, Surface, fit_translation},
+    },
 };
-use ozton_tracking::range::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 
 use super::ranges::{RangeReport, constrain_sample};
 

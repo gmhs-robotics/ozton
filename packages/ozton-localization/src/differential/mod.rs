@@ -6,22 +6,23 @@ use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{DVec2, Pose, compass_heading},
+    localization::observation::{
+        MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
+        TracksVelocity,
+    },
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
-        length::meter,
         velocity::meter_per_second,
     },
 };
-pub use ozton_tracking::odometric::wheel::DriveWheels as DriveEncoderUse;
-use ozton_tracking::{
-    Tracking, TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
-    sampling::SensorSample,
-};
+pub use wheel_odometry::DriveWheels as DriveEncoderUse;
+use wheel_odometry::WheelOdometry;
+mod wheel_odometry;
 
 use crate::{
     Feedback, RangeFeedback,
-    localizer::{DistanceReset, Estimator, Fault, Localizer, MAX_RANGES, PoseTrust},
+    localizer::{DistanceReset, Estimator, Fault, Localizer, PoseTrust},
 };
 
 mod builder;
@@ -43,6 +44,7 @@ pub struct DifferentialLocalization {
     imu_heading_offset: Option<Angle>,
     occluded: u8,
     last_reset: DistanceReset,
+    feedback: Result<Option<Feedback>, Fault>,
     #[cfg(feature = "logging")]
     fault: Option<Fault>,
     #[cfg(feature = "logging")]
@@ -55,17 +57,8 @@ impl DifferentialLocalization {
         self.rectangular_half_extents
     }
 
-    pub fn set_competition_mode(&mut self, mode: LocalizationMode) {
-        self.localizer.set_corrections_enabled(
-            mode == LocalizationMode::Autonomous
-                || !matches!(self.localizer.estimator(), Estimator::Mcl(_)),
-        );
-        if mode == LocalizationMode::Disabled {
-            self.pause_disabled_odometry();
-        }
-    }
-
-    pub fn pause_disabled_odometry(&mut self) {
+    pub fn pause(&mut self) {
+        self.feedback = Ok(None);
         self.localizer.invalidate_pose();
         self.wheels.observe(&[]);
     }
@@ -108,6 +101,7 @@ impl DifferentialLocalization {
             return false;
         }
         self.last_reset = DistanceReset::Idle;
+        self.feedback = Ok(None);
         self.wheels.observe(&[]);
         true
     }
@@ -122,6 +116,9 @@ impl DifferentialLocalization {
 
     pub fn request_distance_reset(&mut self) {
         self.last_reset = DistanceReset::Idle;
+        if let Ok(Some(feedback)) = &mut self.feedback {
+            feedback.reset_accepted = false;
+        }
         self.localizer.request_distance_reset();
     }
 
@@ -148,7 +145,20 @@ impl DifferentialLocalization {
         self.drive.is_some()
     }
 
+    pub fn feedback(&self) -> Result<Option<Feedback>, Fault> {
+        self.feedback
+    }
+
     pub fn update(
+        &mut self,
+        sample: SensorSample<'_>,
+        track_width: Option<Length>,
+    ) -> Result<Option<Feedback>, Fault> {
+        self.feedback = self.update_sample(sample, track_width);
+        self.feedback
+    }
+
+    fn update_sample(
         &mut self,
         sample: SensorSample<'_>,
         track_width: Option<Length>,
@@ -229,7 +239,7 @@ impl DifferentialLocalization {
         Ok(Some(Feedback {
             time: snapshot.time,
             pose: update.pose,
-            forward_travel: Length::new::<meter>(self.localizer.forward_travel()),
+            forward_travel: ozton_math::length!(self.localizer.forward_travel(), m),
             forward_velocity: Velocity::new::<meter_per_second>(update.forward_velocity),
             lateral_velocity: Velocity::new::<meter_per_second>(update.lateral_velocity),
             angular_velocity: AngularVelocity::new::<radian_per_second>(update.angular_velocity),
@@ -239,7 +249,6 @@ impl DifferentialLocalization {
     }
 }
 
-impl TrackingSystem for DifferentialLocalization {}
 impl TracksPosition for DifferentialLocalization {
     fn position(&self) -> glam::DVec2 {
         self.localizer.position()
@@ -262,34 +271,4 @@ impl TracksVelocity for DifferentialLocalization {
     fn angular_velocity(&self) -> f64 {
         self.localizer.angular_velocity()
     }
-}
-
-use ozton_tracking::{
-    odometric::wheel::WheelOdometry,
-    sampling::{LocalizationLifecycle, LocalizationMode},
-};
-
-impl LocalizationLifecycle<Tracking> for DifferentialLocalization {
-    fn mode_changed(&mut self, mode: LocalizationMode) {
-        self.set_competition_mode(mode);
-    }
-
-    fn cancel_pending(&mut self) {
-        self.cancel_distance_reset();
-    }
-
-    #[cfg(feature = "vex")]
-    fn poll(&mut self, tracking: &mut Tracking) {
-        let _ = update_localization(self, tracking);
-    }
-}
-
-#[cfg(feature = "vex")]
-pub fn update_localization(
-    localization: &mut DifferentialLocalization,
-    tracking: &mut Tracking,
-) -> Result<Option<Feedback>, Fault> {
-    let width = tracking.drive_wheels().map(|source| source.track_width());
-    let sample = tracking.sample(localization.occluded());
-    localization.update(sample, width)
 }

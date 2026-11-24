@@ -1,7 +1,5 @@
 //! Target-aware departures in an empty rectangular field.
 
-use uom::si::angle::radian;
-
 use super::*;
 use crate::geometry::{bearing, wrap_heading};
 
@@ -73,7 +71,7 @@ impl RectangularClearance {
 /// Select forward or reverse travel by the total heading change at both ends.
 pub fn approach_heading(start: Angle, finish: Angle, displacement: DVec2) -> (bool, f64) {
     let forward = bearing(displacement);
-    let reverse = forward + Angle::new::<radian>(core::f64::consts::PI);
+    let reverse = forward + crate::angle!(core::f64::consts::PI, rad);
     let cost = |heading| {
         wrap_heading(heading - start).value.abs() + wrap_heading(finish - heading).value.abs()
     };

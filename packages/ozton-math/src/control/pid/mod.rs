@@ -1,10 +1,7 @@
 use core::time::Duration;
 
 use super::Feedback;
-use crate::{
-    geometry::wrap_heading,
-    uom::si::{angle::radian, f64::Angle},
-};
+use crate::geometry::wrap_heading;
 
 mod scalar;
 use scalar::ScalarPid;
@@ -252,7 +249,7 @@ impl Default for Pid {
 impl Pid {
     /// PID on the shortest arc between two radian angles.
     pub fn update_angular(&mut self, measurement: f64, setpoint: f64, dt: Duration) -> f64 {
-        let wrap = |error| wrap_heading(Angle::new::<radian>(error)).value;
+        let wrap = |error| wrap_heading(crate::angle!(error, rad)).value;
         self.update_error(wrap(setpoint - measurement), dt, wrap)
     }
 

@@ -115,13 +115,14 @@ impl<'path> State<'path> {
                 let progress = self.progress.get_or_insert_with(|| Progress::new(path));
                 progress.update(
                     feedback.pose.position,
-                    Length::new::<meter>(
+                    ozton_math::length!(
                         options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0,
+                        m
                     ),
                 );
                 let end = path.end();
                 let reference = path
-                    .at_distance(Length::new::<meter>(progress.distance()))
+                    .at_distance(ozton_math::length!(progress.distance(), m))
                     .pose;
                 let tracking_error = reference.position.distance(feedback.pose.position);
                 lost = tracking_error > 0.35
@@ -129,7 +130,7 @@ impl<'path> State<'path> {
                         && elapsed.as_secs_f64() >= end.time
                         && progress.distance() < end.distance - 0.20);
                 let heading = end.pose.heading
-                    + Angle::new::<radian>(if *reverse { core::f64::consts::PI } else { 0.0 });
+                    + ozton_math::angle!(if *reverse { core::f64::consts::PI } else { 0.0 }, rad);
                 let ready = progress.distance() >= end.distance - options.position_tolerance.value
                     && feedback.pose.position.distance(end.pose.position)
                         <= options.position_tolerance.value
@@ -153,11 +154,14 @@ impl<'path> State<'path> {
                         let toward = ozton_math::geometry::bearing(delta);
                         let backwards = error_at(toward).abs() > core::f64::consts::FRAC_PI_2;
                         let heading = toward
-                            + Angle::new::<radian>(if backwards {
-                                core::f64::consts::PI
-                            } else {
-                                0.0
-                            });
+                            + ozton_math::angle!(
+                                if backwards {
+                                    core::f64::consts::PI
+                                } else {
+                                    0.0
+                                },
+                                rad
+                            );
                         let error = error_at(heading);
                         let limit = path.limits().linear_speed.value * 0.4 * error.cos().max(0.0);
                         (
@@ -416,14 +420,14 @@ mod settling_tests {
             stable: Duration::from_millis(30),
         };
         let options = DriveOptions::differential(
-            Length::new::<meter>(0.3),
+            ozton_math::length!(0.3 m),
             Velocity::new::<meter_per_second>(1.0),
         );
         let mut state = State::default();
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: Length::new::<meter>(0.0),
+            forward_travel: ozton_math::length!(0.0 m),
             forward_velocity: Velocity::new::<meter_per_second>(0.0),
             lateral_velocity: Velocity::new::<meter_per_second>(0.0),
             angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),
@@ -460,13 +464,13 @@ mod settling_tests {
         let mut state = State::default();
         let mut command = Command::WaitUntil(|_: &()| true);
         let options = DriveOptions::differential(
-            Length::new::<meter>(0.3),
+            ozton_math::length!(0.3 m),
             Velocity::new::<meter_per_second>(1.0),
         );
         let mut feedback = Feedback {
             time: Duration::ZERO,
             pose: Pose::default(),
-            forward_travel: Length::new::<meter>(0.0),
+            forward_travel: ozton_math::length!(0.0 m),
             forward_velocity: Velocity::new::<meter_per_second>(0.0),
             lateral_velocity: Velocity::new::<meter_per_second>(0.2),
             angular_velocity: AngularVelocity::new::<radian_per_second>(0.0),

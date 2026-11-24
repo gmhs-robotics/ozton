@@ -21,7 +21,6 @@ use ozton_math::{
         angular_velocity::radian_per_second,
         electric_potential::volt,
         f64::{Acceleration, AngularVelocity, ElectricPotential, Length, Velocity},
-        length::meter,
         velocity::meter_per_second,
     },
 };
@@ -87,7 +86,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         control: WheelControl,
         journal_capacity: usize,
     ) -> Option<Self> {
-        if drivetrain.tracking.distances.len() != drivetrain.localization.range_count() {
+        if drivetrain.tracking().distances.len() != drivetrain.localization().range_count() {
             return None;
         }
         Some(Self {
@@ -109,26 +108,32 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     }
 
     pub fn pose_trusted(&self) -> bool {
-        self.drivetrain.localization.pose_trust()
+        self.drivetrain.localization().pose_trust()
             == ozton_localization::localizer::PoseTrust::Trusted
     }
 
     pub fn cancel_distance_reset(&mut self) {
-        self.drivetrain.localization.cancel_distance_reset();
+        self.drivetrain.localization_mut().cancel_distance_reset();
     }
 
     /// Sample once per tick. Range bits mark mechanism-dependent occlusions.
     pub fn sample(&mut self, occluded: u8) -> Result<Option<Feedback>, ChassisError> {
         self.wheels = self.drivetrain.sample_feedback();
-        self.drivetrain.tracking.sensors.refresh_orientation();
-        let (snapshot, ranges) = self.drivetrain.tracking.sensors.capture_with_distances(
-            &mut self.drivetrain.tracking.distances,
-            self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),
-            occluded,
-        );
+        let (snapshot, ranges) = {
+            let mut tracking = self.drivetrain.tracking_mut();
+            let ChassisSensors {
+                sensors, distances, ..
+            } = &mut *tracking;
+            sensors.refresh_orientation();
+            sensors.capture_with_distances(
+                distances,
+                self.wheels.map(|wheel| wheel.map(|wheel| wheel.position)),
+                occluded,
+            )
+        };
         self.time = snapshot.time;
         self.last_snapshot = Some(snapshot);
-        let update = match self.drivetrain.localization.update(snapshot, &ranges) {
+        let update = match self.drivetrain.localization_mut().update(snapshot, &ranges) {
             Ok(update) => update,
             Err(Fault::Initializing) => return Ok(None),
             Err(fault) => {
@@ -140,11 +145,11 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
         self.tracking_status = if update.distance_reset {
             "Distance reset accepted"
         } else {
-            self.drivetrain.localization.estimator_name()
+            self.drivetrain.localization().estimator_name()
         };
         for (index, latest) in self.range.iter_mut().enumerate() {
             let candidate = ranges[index].and_then(|reading| {
-                let config = self.drivetrain.localization.range_config(index)?;
+                let config = self.drivetrain.localization().range_config(index)?;
                 let distance = config.relative_distance(reading, self.time).ok()?;
                 Some(RangeFeedback {
                     distance,
@@ -163,7 +168,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
             pose: update.pose,
             forward_velocity: Velocity::new::<meter_per_second>(update.forward_velocity),
             lateral_velocity: Velocity::new::<meter_per_second>(update.lateral_velocity),
-            forward_travel: Length::new::<meter>(self.drivetrain.localization.forward_travel()),
+            forward_travel: ozton_math::length!(self.drivetrain.localization().forward_travel(), m),
             angular_velocity: AngularVelocity::new::<radian_per_second>(update.angular_velocity),
             ranges: self.range,
             reset_accepted: update.distance_reset,
@@ -248,7 +253,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     pub fn set_pose(&mut self, pose: Pose) -> Result<(), ChassisError> {
         self.range.fill(None);
         self.drivetrain
-            .localization
+            .localization_mut()
             .set_pose(pose)
             .then_some(())
             .ok_or(ChassisError::InvalidCommand)
@@ -304,7 +309,7 @@ impl<'a, E: PoseEstimator> Chassis<'a, E> {
     }
 
     pub fn request_distance_reset(&mut self) {
-        self.drivetrain.localization.request_distance_reset();
+        self.drivetrain.localization_mut().request_distance_reset();
     }
 
     pub fn log_step(

@@ -1,10 +1,6 @@
 //! Continuous side odometry from all drive motors, with reconnect baselines.
 
-use ozton_math::uom::si::{
-    f64::{Length, Velocity},
-    length::meter,
-    velocity::meter_per_second,
-};
+use ozton_math::uom::si::{f64::Velocity, velocity::meter_per_second};
 
 use super::WheelFeedback;
 
@@ -71,7 +67,7 @@ impl EncoderConsensus {
             self.position += delta;
         }
         Some(WheelFeedback {
-            position: Length::new::<meter>(self.position),
+            position: ozton_math::length!(self.position, m),
             velocity: Velocity::new::<meter_per_second>(velocity),
         })
     }
@@ -89,7 +85,7 @@ mod tests {
     use super::*;
     fn sample(position: f64) -> Option<WheelFeedback> {
         Some(WheelFeedback {
-            position: Length::new::<meter>(position),
+            position: ozton_math::length!(position, m),
             velocity: Velocity::new::<meter_per_second>(0.1),
         })
     }

@@ -16,6 +16,7 @@ impl LateralDrive for Model {}
 
 impl MotorGroups for Model {
     type WheelSpeeds = [Velocity; 0];
+    type WheelVoltages = [ozton_math::uom::si::f64::ElectricPotential; 0];
 
     fn motor_groups(&self) -> &[ozton_tracking::odometric::SharedMotors] {
         &[]
@@ -27,8 +28,6 @@ impl MotorGroups for Model {
 }
 
 struct Estimate(f64);
-
-impl ozton_tracking::sampling::LocalizationLifecycle<()> for Estimate {}
 
 struct Limit;
 

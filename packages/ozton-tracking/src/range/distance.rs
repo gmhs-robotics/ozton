@@ -5,10 +5,7 @@ use std::{cell::Cell, time::Duration};
 use arrayvec::ArrayVec;
 use futures_util::future::join_all;
 use ozton_diagnostics::{log_event, log_row};
-use ozton_math::uom::si::{
-    f64::{Angle as UomAngle, Length},
-    length::millimeter,
-};
+use ozton_math::uom::si::f64::{Angle as UomAngle, Length};
 use vexide::{
     prelude::DistanceSensor,
     smart::{SmartDevice, SmartPort, distance::DistanceReadyError},
@@ -35,6 +32,11 @@ pub struct DistanceTracker {
 }
 
 impl DistanceTracker {
+    /// Mount the device at a surveyed XYZ position and beam heading.
+    pub fn at_mount(sensor: DistanceSensor, (position, bearing): (Vec3<Length>, UomAngle)) -> Self {
+        Self::from_sensor(sensor, bearing, position)
+    }
+
     /// Bearing is counterclockwise from forward.
     pub fn new(port: SmartPort, position: Vec3<Length>, bearing: UomAngle) -> Self {
         Self::from_sensor(DistanceSensor::new(port), bearing, position)
@@ -49,7 +51,7 @@ impl DistanceTracker {
                 last_poll: None,
                 cached: None,
             },
-            config: RangeSensorConfig::at_mount(position, bearing),
+            config: RangeSensorConfig::at_mount((position, bearing)),
         }
     }
 
@@ -290,7 +292,7 @@ impl DistanceDevice {
             .zip(object)
             .map(|(timestamp, (millimeters, confidence))| RangeObservation {
                 timestamp,
-                distance: Length::new::<millimeter>(f64::from(millimeters)),
+                distance: ozton_math::length!(f64::from(millimeters), mm),
                 confidence,
                 occluded,
             }))

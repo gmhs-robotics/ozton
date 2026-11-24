@@ -222,10 +222,11 @@ impl TracksHeading for WheeledTracking {
         let data = self.data.borrow();
 
         // Apply heading offset and wrap from [0, 2π]
-        Heading::new::<ozton_math::uom::si::angle::radian>(
+        ozton_math::angle!(
             (data.raw_heading + data.heading_offset)
                 .wrapped_full()
                 .as_radians(),
+            rad,
         )
     }
 }

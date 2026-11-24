@@ -2,7 +2,6 @@
 use ozton_math::uom::si::{
     angular_velocity::revolution_per_minute,
     f64::{AngularVelocity, Length, Velocity},
-    length::meter,
     velocity::meter_per_second,
 };
 use vexide::{prelude::Motor, smart::PortError};
@@ -179,8 +178,9 @@ impl Wheels {
                 samples[index] = (|| {
                     let distance = self.meters_per_turn(group, index, motor).ok()?;
                     Some(WheelFeedback {
-                        position: Length::new::<meter>(
+                        position: ozton_math::length!(
                             motor.position().ok()?.as_turns() * distance,
+                            m
                         ),
                         velocity: Velocity::new::<meter_per_second>(
                             motor.velocity().ok()? * distance / 60.0,

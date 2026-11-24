@@ -113,6 +113,7 @@ impl Drive for MockArcadeModel {
 
 impl ozton_drivetrain::MotorGroups for MockArcadeModel {
     type WheelSpeeds = [Velocity; 0];
+    type WheelVoltages = [ozton_math::uom::si::f64::ElectricPotential; 0];
 
     fn motor_groups(&self) -> &[ozton_tracking::odometric::SharedMotors] {
         &[]
@@ -122,8 +123,6 @@ impl ozton_drivetrain::MotorGroups for MockArcadeModel {
         &mut []
     }
 }
-
-impl ozton_tracking::sampling::LocalizationLifecycle<()> for MockTracking {}
 
 #[derive(Clone, Debug)]
 struct MockTracking {
@@ -273,9 +272,9 @@ fn basic_motion_reaches_distance_and_heading_goals() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.localization.position();
-    let final_heading = drivetrain.localization.heading().value;
-    let final_velocity = drivetrain.localization.linear_velocity();
+    let final_position = drivetrain.localization().position();
+    let final_heading = drivetrain.localization().heading().value;
+    let final_velocity = drivetrain.localization().linear_velocity();
 
     assert!(
         (final_position.y - 1.2).abs() < 0.08,
@@ -315,9 +314,9 @@ fn seeking_motion_reaches_multiple_waypoints() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.localization.position();
-    let final_heading = drivetrain.localization.heading().value;
-    let final_velocity = drivetrain.localization.linear_velocity();
+    let final_position = drivetrain.localization().position();
+    let final_heading = drivetrain.localization().heading().value;
+    let final_velocity = drivetrain.localization().linear_velocity();
 
     assert!(
         final_position.distance(Vec2::new(-1.4, 0.4)) < 0.09,
@@ -344,7 +343,7 @@ fn reverse_seeking_drives_backward_to_target() {
             .expect("motion output succeeds");
     });
 
-    let final_position = drivetrain.localization.position();
+    let final_position = drivetrain.localization().position();
     let drove_backward = drivetrain.model.state.borrow().drove_backward;
     assert!(
         final_position.distance(Vec2::new(0.0, 1.0)) < 0.1,
@@ -374,7 +373,7 @@ fn reverse_seeking_corrects_an_oblique_approach() {
             .is_some_and(|steer| steer < 0.0)
     );
     assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
-    assert!(drivetrain.localization.position().distance(target) < 0.05);
+    assert!(drivetrain.localization().position().distance(target) < 0.05);
 }
 
 #[test]
@@ -399,7 +398,7 @@ fn default_motions_chain_to_a_route() {
             .expect("seeking output succeeds");
         assert_eq!(outcome, ozton_motion::MotionOutcome::Settled);
     });
-    assert!(drivetrain.localization.position().distance(target) < 0.025);
+    assert!(drivetrain.localization().position().distance(target) < 0.025);
 }
 
 fn wrap_radians(angle: f64) -> f64 {

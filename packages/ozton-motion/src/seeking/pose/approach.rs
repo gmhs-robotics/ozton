@@ -5,11 +5,7 @@ use std::time::Duration;
 use ozton_math::{
     geometry::{DVec2, Pose, bearing},
     path::clearance::{RectangularClearance, approach_heading},
-    uom::si::{
-        angle::degree,
-        f64::{Angle, Length, Velocity},
-        length::meter,
-    },
+    uom::si::f64::{Angle, Velocity},
 };
 use ozton_runtime::clock::CONTROL_PERIOD;
 
@@ -93,7 +89,7 @@ async fn approach<D: PoseDrive>(
         };
         if displacement.length() > tolerance {
             let heading =
-                bearing(displacement) + Angle::new::<degree>(if reverse { 180.0 } else { 0.0 });
+                bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
             turn_checked(session, clearance, heading, settings.stage_timeout).await?;
         }
         session
@@ -135,7 +131,7 @@ async fn depart_wall<D: PoseDrive>(
     }
 
     let options = session.options;
-    let reserve = options.position_tolerance + Length::new::<meter>(0.00635);
+    let reserve = options.position_tolerance + ozton_math::length!(0.00635 m);
     let speed = DEPARTURE_SPEED.min(options.maximum_wheel_speed);
     let plan = field
         .point_departure(start, target, options.track_width / 2.0, reserve)
@@ -204,7 +200,7 @@ fn clearance<D: PoseDrive>(drive: &D) -> MotionResult<D, Option<RectangularClear
     let bounds = drive
         .rectangular_half_extents()
         .ok_or(PoseMotionError::Configuration)?;
-    RectangularClearance::new(footprint, bounds, Length::new::<meter>(0.0127))
+    RectangularClearance::new(footprint, bounds, ozton_math::length!(0.0127 m))
         .map(Some)
         .ok_or(PoseMotionError::Configuration)
 }

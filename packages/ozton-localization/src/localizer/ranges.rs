@@ -4,13 +4,15 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{BodyDelta, Pose},
-    localization::range::{Constraint, Rejection, Surface, constrain_masked},
+    localization::{
+        observation::{RangeObservation, RangeSensorConfig},
+        range::{Constraint, Rejection, Surface, constrain_masked},
+    },
     uom::si::{
         f64::{Length, Time},
         time::second,
     },
 };
-use ozton_tracking::range::{RangeObservation, RangeSensorConfig};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeReport {

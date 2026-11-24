@@ -172,12 +172,12 @@ impl LiftController {
 mod tests {
     use std::time::Duration;
 
-    use super::{Angle, LiftController, LiftProfile, degree};
+    use super::{LiftController, LiftProfile};
 
     fn controller() -> LiftController {
         LiftController::new(LiftProfile {
-            bottom: Angle::new::<degree>(30.0),
-            top: Angle::new::<degree>(600.0),
+            bottom: ozton_math::angle!(30.0 deg),
+            top: ozton_math::angle!(600.0 deg),
             up_maximum_command: 0.75,
             down_maximum_command: 0.33,
             up_rise_per_second: 1.5,
@@ -191,38 +191,38 @@ mod tests {
         let mut lift = controller();
         let step = Duration::from_millis(100);
         assert!(
-            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(ozton_math::angle!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
         assert!(
-            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.30).abs() < 1e-12
+            (lift.update(1, None, Some(ozton_math::angle!(100.0 deg)), step) - 0.30).abs() < 1e-12
         );
         assert_eq!(
             lift.update(
                 1,
                 None,
-                Some(Angle::new::<degree>(100.0)),
+                Some(ozton_math::angle!(100.0 deg)),
                 Duration::from_secs(1)
             ),
             0.75
         );
         assert_eq!(
-            lift.update(0, None, Some(Angle::new::<degree>(100.0)), step),
+            lift.update(0, None, Some(ozton_math::angle!(100.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(-1, None, Some(Angle::new::<degree>(100.0)), step) + 0.09).abs() < 1e-12
+            (lift.update(-1, None, Some(ozton_math::angle!(100.0 deg)), step) + 0.09).abs() < 1e-12
         );
         assert_eq!(
             lift.update(
                 -1,
                 None,
-                Some(Angle::new::<degree>(100.0)),
+                Some(ozton_math::angle!(100.0 deg)),
                 Duration::from_secs(1)
             ),
             -0.33
         );
         assert!(
-            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(ozton_math::angle!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
     }
 
@@ -231,22 +231,22 @@ mod tests {
         let mut lift = controller();
         let step = Duration::from_millis(100);
         assert_eq!(
-            lift.update(1, None, Some(Angle::new::<degree>(600.0)), step),
+            lift.update(1, None, Some(ozton_math::angle!(600.0 deg)), step),
             0.0
         );
         assert_eq!(
-            lift.update(-1, None, Some(Angle::new::<degree>(30.0)), step),
+            lift.update(-1, None, Some(ozton_math::angle!(30.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(1, None, Some(Angle::new::<degree>(100.0)), step) - 0.15).abs() < 1e-12
+            (lift.update(1, None, Some(ozton_math::angle!(100.0 deg)), step) - 0.15).abs() < 1e-12
         );
         assert_eq!(
-            lift.update(1, None, Some(Angle::new::<degree>(600.0)), step),
+            lift.update(1, None, Some(ozton_math::angle!(600.0 deg)), step),
             0.0
         );
         assert!(
-            (lift.update(-1, None, Some(Angle::new::<degree>(100.0)), step) + 0.09).abs() < 1e-12
+            (lift.update(-1, None, Some(ozton_math::angle!(100.0 deg)), step) + 0.09).abs() < 1e-12
         );
     }
 
@@ -257,8 +257,8 @@ mod tests {
         assert!(
             (lift.update(
                 1,
-                Some(Angle::new::<degree>(120.0)),
-                Some(Angle::new::<degree>(100.0)),
+                Some(ozton_math::angle!(120.0 deg)),
+                Some(ozton_math::angle!(100.0 deg)),
                 step
             ) - 0.15)
                 .abs()
@@ -267,8 +267,8 @@ mod tests {
         assert_eq!(
             lift.update(
                 1,
-                Some(Angle::new::<degree>(102.0)),
-                Some(Angle::new::<degree>(100.0)),
+                Some(ozton_math::angle!(102.0 deg)),
+                Some(ozton_math::angle!(100.0 deg)),
                 step
             ),
             0.0
@@ -276,8 +276,8 @@ mod tests {
         assert!(
             (lift.update(
                 -1,
-                Some(Angle::new::<degree>(80.0)),
-                Some(Angle::new::<degree>(100.0)),
+                Some(ozton_math::angle!(80.0 deg)),
+                Some(ozton_math::angle!(100.0 deg)),
                 step
             ) + 0.09)
                 .abs()

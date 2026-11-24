@@ -1,10 +1,11 @@
 //! Surveyed VEX V5 field perimeters in centered field coordinates.
 use ozton_math::{
     geometry::{DVec2, point},
-    localization::range::Surface,
+    localization::{observation::RangeSensorConfig, range::Surface},
+    position,
+    units::Vec3,
     uom::si::f64::Length,
 };
-use ozton_tracking::{mount::Vec3, position, range::RangeSensorConfig};
 
 /// A rectangular perimeter with vertical walls.
 #[derive(Clone, Copy, Debug)]
@@ -188,62 +189,52 @@ impl FieldMap {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::{angle::degree, f64::Angle, length::inch};
+    use ozton_math::{length, position_xyzh};
 
     use super::*;
 
     #[test]
     fn lower_beam_hits_fixed_goal_and_upper_beam_reaches_wall() {
-        use ozton_math::{
-            geometry::Pose, localization::range::cast_masked, uom::si::length::meter,
-        };
-
-        let meters = Length::new::<meter>;
+        use ozton_math::{geometry::Pose, localization::range::cast_masked};
         let mut field = FieldMap::from(Field::PORTABLE);
         // Exercise map entries above the former 32-surface limit.
         for offset in 0..4 {
             assert!(field.add_octagon(
                 DVec2::new(0.5, 0.15 * f64::from(offset)),
-                meters(0.05),
-                meters(0.01),
-                meters(0.0),
-                meters(0.15)
+                length!(0.05 m),
+                length!(0.01 m),
+                length!(0 m),
+                length!(0.15 m)
             ));
         }
         assert!(field.add_octagon(
             DVec2::new(0.0, 0.8),
-            meters(0.1),
-            meters(0.02),
-            meters(0.0),
-            meters(0.15)
+            length!(0.1 m),
+            length!(0.02 m),
+            length!(0 m),
+            length!(0.15 m)
         ));
         let surfaces: Vec<_> = field.surfaces().collect();
         let pose = Pose::default();
-        let hits = [4, 8].map(|height| {
-            let mount = field.range_config(RangeSensorConfig::at_mount(
-                Vec3::new(
-                    meters(0.0),
-                    meters(0.0),
-                    Length::new::<inch>(f64::from(height)),
-                ),
-                Angle::new::<degree>(0.0),
-            ));
+        let hits = [
+            position_xyzh!(0 in, 0 in, 4 in, 0 deg),
+            position_xyzh!(0 in, 0 in, 8 in, 0 deg),
+        ]
+        .map(|mount| {
+            let mount = field.range_config(RangeSensorConfig::at_mount(mount));
             cast_masked(pose, mount.mount, &surfaces, mount.surface_mask).unwrap()
         });
         assert!(hits[0].surface >= 32);
         assert!((hits[0].distance - 0.7).abs() < 1e-12);
-        assert!((hits[1].distance - Length::new::<inch>(70.2).value).abs() < 1e-12);
+        assert!((hits[1].distance - length!(70.2 in).value).abs() < 1e-12);
     }
 
     #[test]
     fn perimeter_models_supply_wall_spans_and_mount_height_masks() {
-        let mount =
-            RangeSensorConfig::at_mount(position!(0 in, 0 in, 11.52 in), Angle::new::<degree>(0.0));
+        let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 11.52 in, 0 deg));
         for (field, width, mask) in [(Field::PORTABLE, 140.40, 0b1111), (Field::METAL, 140.50, 0)] {
             let wall = field.surfaces()[0];
-            assert!(
-                ((wall.end - wall.start).length() - Length::new::<inch>(width).value).abs() < 1e-12
-            );
+            assert!(((wall.end - wall.start).length() - length!(width, in).value).abs() < 1e-12);
             assert_eq!(field.range_config(mount).surface_mask, mask);
         }
     }

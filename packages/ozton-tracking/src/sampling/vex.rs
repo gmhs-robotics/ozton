@@ -239,7 +239,7 @@ fn calibrated<T: RotarySensor>(wheel: &TrackingWheel<T>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::length::meter;
+
     use vexide::math::Angle;
 
     use super::*;
@@ -258,21 +258,21 @@ mod tests {
     fn concrete_wheels_sample_each_axis_without_callbacks() {
         let wheel = TrackingWheel::new(
             Encoder(-2.0),
-            Length::new::<meter>(0.1),
-            Length::new::<meter>(0.0),
+            ozton_math::length!(0.1 m),
+            ozton_math::length!(0.0 m),
             Some(0.5),
         );
         let sensors = Sensors::with_wheel_sources((), wheel).unwrap();
-        let sample = sensors.capture_odometry([Some(Length::new::<meter>(0.1)), None]);
-        assert_eq!(sample.drive, [Some(Length::new::<meter>(0.1)), None]);
+        let sample = sensors.capture_odometry([Some(ozton_math::length!(0.1 m)), None]);
+        assert_eq!(sample.drive, [Some(ozton_math::length!(0.1 m)), None]);
         assert_eq!(sample.forward, None);
         assert!((sample.lateral.unwrap().value + 0.1 * core::f64::consts::PI).abs() < 1e-12);
 
         for diameter in [0.0, -0.1, f64::NAN] {
             let wheel = TrackingWheel::new(
                 Encoder(1.0),
-                Length::new::<meter>(diameter),
-                Length::new::<meter>(0.0),
+                ozton_math::length!(diameter, m),
+                ozton_math::length!(0.0 m),
                 None,
             );
             assert!(Sensors::with_wheel_sources(wheel, ()).is_none());

@@ -23,8 +23,5 @@ pub use wheels::WheelSpeedError;
 pub trait HasLocalization {
     type Localization;
 
-    fn localization(&self) -> &Self::Localization;
-
-    /// Sample the drive before a control step. Externally updated estimates can use the default.
-    fn refresh_localization(&mut self) {}
+    fn localization(&self) -> impl std::ops::Deref<Target = Self::Localization>;
 }

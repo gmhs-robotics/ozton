@@ -1,6 +1,6 @@
 //! Least-squares body motion from projected wheel travel.
 use glam::{DMat2, DMat3, DVec2, DVec3};
-use uom::si::{angle::radian, f64::Angle};
+use uom::si::f64::Angle;
 
 use crate::geometry::BodyDelta;
 const RANK_TOLERANCE: f64 = 1e-9;
@@ -44,7 +44,7 @@ pub fn fit_wheel_motion(
         let result = normal.inverse() * rhs;
         return Some(BodyDelta {
             translation: result.truncate(),
-            heading: Angle::new::<radian>(result.z / yaw_scale),
+            heading: crate::angle!(result.z / yaw_scale, rad),
         });
     }
 
@@ -85,6 +85,6 @@ pub fn fit_wheel_motion(
     };
     (planar.is_finite() && heading.is_finite()).then_some(BodyDelta {
         translation: planar,
-        heading: Angle::new::<radian>(heading),
+        heading: crate::angle!(heading, rad),
     })
 }

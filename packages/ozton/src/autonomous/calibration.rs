@@ -216,12 +216,12 @@ impl CalibrationRun {
         let (forward, turn) = command.scaled_axes();
         let [left, right] = match case.trial {
             Trial::Range(index, reference) => {
-                if let Some(raw) = drive.chassis.drivetrain.tracking.distances.latest(index)
+                if let Some(raw) = drive.chassis.drivetrain.tracking().distances.latest(index)
                     && self.last_range.is_none_or(|last| raw.timestamp > last)
                     && drive
                         .chassis
                         .drivetrain
-                        .localization
+                        .localization()
                         .range_config(index)
                         .is_some_and(|config| config.relative_distance(raw, sample.time).is_ok())
                 {
@@ -328,26 +328,25 @@ impl CalibrationOutput {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::length::meter;
 
     use super::*;
 
     #[test]
     fn travel_trials_use_signed_references_and_write_pod_offsets() {
         let start = Snapshot {
-            drive: [Some(Length::new::<meter>(0.0)); 2],
-            forward: Some(Length::new::<meter>(0.0)),
-            lateral: Some(Length::new::<meter>(0.0)),
+            drive: [Some(ozton_math::length!(0.0 m)); 2],
+            forward: Some(ozton_math::length!(0.0 m)),
+            lateral: Some(ozton_math::length!(0.0 m)),
             ..Snapshot::default()
         };
         let end = Snapshot {
             time: Duration::from_millis(100),
             drive: [
-                Some(Length::new::<meter>(0.5)),
-                Some(Length::new::<meter>(-0.5)),
+                Some(ozton_math::length!(0.5 m)),
+                Some(ozton_math::length!(-0.5 m)),
             ],
-            forward: Some(Length::new::<meter>(0.04)),
-            lateral: Some(Length::new::<meter>(-0.03)),
+            forward: Some(ozton_math::length!(0.04 m)),
+            lateral: Some(ozton_math::length!(-0.03 m)),
             ..start
         };
         let mut run = CalibrationRun::new();

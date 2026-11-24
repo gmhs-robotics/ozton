@@ -70,13 +70,17 @@ where
 
     fn mode_changed(&mut self, mode: CompetitionMode) {
         self.autonomous.last_driver_fault = None;
-        self.drivetrain.competition_mode_changed(mode);
         P::mode_changed(self, mode);
+    }
+
+    fn start_localization(&self, mode: CompetitionMode) -> Option<vexide::task::Task<()>> {
+        self.localization
+            .as_ref()?
+            .start(&self.drivetrain, mode, Self::CONTROL_PERIOD)
     }
 
     fn after_tick(&mut self, mode: CompetitionMode, tick: Tick) {
         if tracking_poll_due(mode, tick.work(), Self::CONTROL_PERIOD) {
-            self.drivetrain.poll_competition_tracking(mode);
             P::poll_tracking(self, mode);
         }
         P::after_tick(self, mode, tick);

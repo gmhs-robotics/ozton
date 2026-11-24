@@ -2,16 +2,12 @@
 
 use std::time::Duration;
 
+pub use ozton_math::localization::observation::Snapshot;
 use ozton_math::{
     geometry::{BodyDelta, wrap_heading},
     localization::odometry::body_delta,
-    uom::si::{
-        angle::radian,
-        f64::{Angle, Length},
-        length::meter,
-    },
+    uom::si::f64::{Angle, Length},
 };
-pub use ozton_tracking::snapshot::Snapshot;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OdometryConfig {
@@ -93,8 +89,9 @@ pub(crate) fn delta(
         .or_else(|| {
             (config.track_width.value > 0.0)
                 .then(|| {
-                    Some(Angle::new::<radian>(
+                    Some(ozton_math::angle!(
                         (right? - left?) / config.track_width.value,
+                        rad
                     ))
                 })
                 .flatten()
@@ -121,7 +118,12 @@ pub(crate) fn delta(
     }
     let heading = heading.unwrap_or_default();
     let forward = forward.unwrap_or_default();
-    let lengths = |(travel, offset)| (Length::new::<meter>(travel), Length::new::<meter>(offset));
+    let lengths = |(travel, offset)| {
+        (
+            ozton_math::length!(travel, m),
+            ozton_math::length!(offset, m),
+        )
+    };
     Ok((
         body_delta(lengths(forward), lateral.map(lengths), heading),
         dt,

@@ -6,3 +6,5 @@ pub mod odometry;
 pub mod range;
 
 pub mod wheel_fit;
+
+pub mod observation;

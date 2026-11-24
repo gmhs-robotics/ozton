@@ -75,11 +75,10 @@ impl HeadingCorrector {
 
 #[cfg(test)]
 mod tests {
-    use ozton_math::uom::si::angle::{degree, radian};
 
     use super::*;
     fn angle(degrees: f64) -> Option<Angle> {
-        Some(Angle::new::<degree>(degrees))
+        Some(ozton_math::angle!(degrees, deg))
     }
     fn hold() -> HeadingCorrector {
         HeadingCorrector::new(1.5, 0.2)
@@ -107,7 +106,7 @@ mod tests {
         assert_eq!(hold.turn(0.6, 0.0, None), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(60.0)), 0.0);
         assert_eq!(
-            hold.turn(0.6, 0.0, Some(Angle::new::<radian>(f64::NAN))),
+            hold.turn(0.6, 0.0, Some(ozton_math::angle!(f64::NAN, rad))),
             0.0
         );
         assert_eq!(hold.turn(0.6, 0.0, angle(70.0)), 0.0);

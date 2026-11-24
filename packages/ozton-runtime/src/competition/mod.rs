@@ -66,6 +66,9 @@ pub trait CompetitionRobot: Sized {
     }
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
+    fn start_localization(&self, _mode: CompetitionMode) -> Option<vexide::task::Task<()>> {
+        None
+    }
     fn after_tick(&mut self, _mode: CompetitionMode, _tick: Tick) {}
     fn route_failed(&mut self, route: Self::Route, error: Self::Error) {
         crate::log_event!(

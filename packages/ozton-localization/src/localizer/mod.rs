@@ -5,11 +5,11 @@ use std::{borrow::Cow, time::Duration};
 use glam::DVec2;
 use ozton_math::{
     geometry::{BodyDelta, Pose, wrap_heading},
-    localization::range::Surface,
+    localization::{
+        observation::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity},
+        range::Surface,
+    },
     uom::si::f64::{Angle, Time},
-};
-use ozton_tracking::{
-    TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 
 mod estimate;
@@ -17,7 +17,7 @@ mod ranges;
 mod reset;
 mod snapshot;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
-pub use ozton_tracking::range::{MAX_RANGES, RangeObservation, RangeSensorConfig};
+pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 pub use ranges::RangeReport;
 use ranges::{RangeTick, inspect};
 use reset::{ResetResult, ResetTick, ResetWindow};
@@ -526,7 +526,6 @@ impl Localizer<'_> {
     }
 }
 
-impl<E: PoseEstimator> TrackingSystem for Localizer<'_, E> {}
 impl<E: PoseEstimator> TracksPosition for Localizer<'_, E> {
     fn position(&self) -> DVec2 {
         self.pose.position
