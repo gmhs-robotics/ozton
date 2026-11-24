@@ -117,33 +117,37 @@ where
             }
 
             // Compute initial lookahead point.
-            let lookahead_point = if terminal { next.position } else { match line_segment_circle_intersections(
-                position,
-                this.lookahead_distance,
-                current.position,
-                next.position,
-            ) {
-                (None, None) => {
-                    return Poll::Ready(
-                        this.drivetrain
-                            .stop_now()
-                            .map_err(crate::MotionError::Stop)
-                            .and(Err(crate::MotionError::InvalidPath)),
-                    );
-                }
+            let lookahead_point = if terminal {
+                next.position
+            } else {
+                match line_segment_circle_intersections(
+                    position,
+                    this.lookahead_distance,
+                    current.position,
+                    next.position,
+                ) {
+                    (None, None) => {
+                        return Poll::Ready(
+                            this.drivetrain
+                                .stop_now()
+                                .map_err(crate::MotionError::Stop)
+                                .and(Err(crate::MotionError::InvalidPath)),
+                        );
+                    }
 
-                // One intersection; use that.
-                (Some(solution), None) | (None, Some(solution)) => solution,
+                    // One intersection; use that.
+                    (Some(solution), None) | (None, Some(solution)) => solution,
 
-                // Two intersections, pick whichever one is closest to the next point on the path.
-                (Some(solution_1), Some(solution_2)) => {
-                    if solution_1.distance(next.position) < solution_2.distance(next.position) {
-                        solution_1
-                    } else {
-                        solution_2
+                    // Two intersections, pick whichever one is closest to the next point on the path.
+                    (Some(solution_1), Some(solution_2)) => {
+                        if solution_1.distance(next.position) < solution_2.distance(next.position) {
+                            solution_1
+                        } else {
+                            solution_2
+                        }
                     }
                 }
-            }};
+            };
 
             this.state.insert(State {
                 sleep: sleep(Duration::from_millis(10)),
@@ -179,7 +183,9 @@ where
         let position = this.drivetrain.localization().position();
         let heading = this.drivetrain.localization().heading();
         let now = Instant::now();
-        let dt = now.saturating_duration_since(state.previous_time).as_secs_f64();
+        let dt = now
+            .saturating_duration_since(state.previous_time)
+            .as_secs_f64();
         let speed = position.distance(state.previous_position) / dt.max(1e-6);
         state.previous_position = position;
         state.previous_time = now;
@@ -204,35 +210,60 @@ where
             let distance = delta.length();
             if !distance.is_finite() || !heading.value.is_finite() {
                 this.state = None;
-                return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
-                    .and(Err(crate::MotionError::InvalidFeedback)));
+                return Poll::Ready(
+                    this.drivetrain
+                        .stop_now()
+                        .map_err(crate::MotionError::Stop)
+                        .and(Err(crate::MotionError::InvalidFeedback)),
+                );
             }
             if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value && speed <= 0.04 {
                 let since = *state.settled_since.get_or_insert(now);
                 if now.saturating_duration_since(since) >= Duration::from_millis(120) {
                     this.state = None;
-                    return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), crate::MotionOutcome::Settled));
+                    return Poll::Ready(crate::finish_motion(
+                        this.drivetrain.stop_now(),
+                        crate::MotionOutcome::Settled,
+                    ));
                 }
             } else {
                 state.settled_since = None;
             }
-            let error = ozton_math::geometry::wrap_heading(
-                ozton_math::geometry::bearing(delta) - heading
-            ).value;
-            let reverse = *state.terminal_reverse.get_or_insert(error.abs() > core::f64::consts::FRAC_PI_2);
+            let error =
+                ozton_math::geometry::wrap_heading(ozton_math::geometry::bearing(delta) - heading)
+                    .value;
+            let reverse = *state
+                .terminal_reverse
+                .get_or_insert(error.abs() > core::f64::consts::FRAC_PI_2);
             if error.abs() > 2.3 && speed < 0.04 {
                 state.terminal_reverse = Some(!reverse);
             }
             let reverse = state.terminal_reverse.unwrap_or(reverse);
             let error = if reverse {
-                ozton_math::geometry::wrap_heading(ozton_math::angle!(error + core::f64::consts::PI, rad)).value
-            } else { error };
-            let linear = (2.0 * (distance - crate::defaults::AUTON_POSITION_TOLERANCE.value * 0.5).max(0.0)).min(0.35) * error.cos().max(0.0)
+                ozton_math::geometry::wrap_heading(ozton_math::angle!(
+                    error + core::f64::consts::PI,
+                    rad
+                ))
+                .value
+            } else {
+                error
+            };
+            let linear = (2.0
+                * (distance - crate::defaults::AUTON_POSITION_TOLERANCE.value * 0.5).max(0.0))
+            .min(0.35)
+                * error.cos().max(0.0)
                 * if reverse { -1.0 } else { 1.0 };
-            let (linear, turn) = if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value { (0.0, 0.0) } else { (linear, (1.5 * error).clamp(-0.4, 0.4)) };
+            let (linear, turn) = if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value {
+                (0.0, 0.0)
+            } else {
+                (linear, (1.5 * error).clamp(-0.4, 0.4))
+            };
             if let Err(output) = Tank::drive(this.drivetrain, linear - turn, linear + turn) {
                 this.state = None;
-                return Poll::Ready(Err(crate::motion_output_error(output, this.drivetrain.stop_now())));
+                return Poll::Ready(Err(crate::motion_output_error(
+                    output,
+                    this.drivetrain.stop_now(),
+                )));
             }
             state.sleep = sleep(Duration::from_millis(10));
             cx.waker().wake_by_ref();
@@ -247,7 +278,9 @@ where
             state.next.position,
         ) {
             // No intersections; the lookahead circle isn't intersecting the path.
-            (None, None) => { state.lookahead_point = state.next.position; }
+            (None, None) => {
+                state.lookahead_point = state.next.position;
+            }
 
             // One intersection; use that.
             (Some(solution), None) | (None, Some(solution)) => state.lookahead_point = solution,

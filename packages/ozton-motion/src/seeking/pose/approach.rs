@@ -71,15 +71,41 @@ async fn approach<D: PoseDrive>(
     // A planned trajectory failure is not silently retried as a different command.
     if let Some(heading) = final_heading {
         let target = Pose::new(target.position, heading);
-        let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
-        if let Some(plan) = ozton_math::path::planner::plan(start, target, config.path_limits(options.track_width), clearance, direction) {
-            return session.follow(&plan.path, config.follower(), plan.reverse, target, clearance, settings.stage_timeout).await;
+        let direction = settings
+            .travel
+            .map(|d| matches!(d, TravelDirection::Backward));
+        if let Some(plan) = ozton_math::path::planner::plan(
+            start,
+            target,
+            config.path_limits(options.track_width),
+            clearance,
+            direction,
+        ) {
+            return session
+                .follow(
+                    &plan.path,
+                    config.follower(),
+                    plan.reverse,
+                    target,
+                    clearance,
+                    settings.stage_timeout,
+                )
+                .await;
         }
     }
     // Fall back only when no feasible continuous candidate was generated.
     if let Some(field) = clearance {
-        if !field.can_turn(target) { return Err(PoseMotionError::InsufficientClearance); }
-        depart_wall(session, field, target, settings.stage_timeout, settings.effective_config()).await?;
+        if !field.can_turn(target) {
+            return Err(PoseMotionError::InsufficientClearance);
+        }
+        depart_wall(
+            session,
+            field,
+            target,
+            settings.stage_timeout,
+            settings.effective_config(),
+        )
+        .await?;
     }
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
@@ -203,7 +229,10 @@ async fn turn_checked<D: PoseDrive>(
         .await
 }
 
-pub(super) fn clearance<D: PoseDrive>(drive: &D, margin: ozton_math::uom::si::f64::Length) -> MotionResult<D, Option<RectangularClearance>> {
+pub(super) fn clearance<D: PoseDrive>(
+    drive: &D,
+    margin: ozton_math::uom::si::f64::Length,
+) -> MotionResult<D, Option<RectangularClearance>> {
     let Some(footprint) = drive.footprint() else {
         return Ok(None);
     };

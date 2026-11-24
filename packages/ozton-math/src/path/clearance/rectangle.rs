@@ -30,7 +30,9 @@ impl RectangularClearance {
 
     /// Check the oriented footprint, not the full turning disk.
     pub fn contains_pose(self, pose: Pose) -> bool {
-        if !pose.is_finite() { return false; }
+        if !pose.is_finite() {
+            return false;
+        }
         let (min, max) = self.footprint.bounds(pose);
         self.contains_bounds(min, max)
     }
@@ -39,12 +41,16 @@ impl RectangularClearance {
     /// Every corner moves at most center travel plus radius times heading change.
     pub fn contains_segment(self, a: Pose, b: Pose) -> bool {
         let travel = a.position.distance(b.position);
-        let turn = crate::geometry::wrap_heading(b.heading - a.heading).value.abs();
+        let turn = crate::geometry::wrap_heading(b.heading - a.heading)
+            .value
+            .abs();
         let pad = (travel + self.footprint.turn_radius() * turn) * 0.5;
         let (amin, amax) = self.footprint.bounds(a);
         let (bmin, bmax) = self.footprint.bounds(b);
-        self.contains_bounds(amin.min(bmin) - DVec2::splat(pad),
-            amax.max(bmax) + DVec2::splat(pad))
+        self.contains_bounds(
+            amin.min(bmin) - DVec2::splat(pad),
+            amax.max(bmax) + DVec2::splat(pad),
+        )
     }
 
     pub fn can_turn(self, pose: Pose) -> bool {

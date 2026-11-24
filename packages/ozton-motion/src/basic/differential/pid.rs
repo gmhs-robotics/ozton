@@ -53,9 +53,9 @@ impl MotionPid {
     pub fn forward(&mut self, error: f64, measured_rate: f64, limit: f64, dt: Duration) -> f64 {
         self.forward
             .set_output_limit(Some(limit.max(0.0).min(self.forward_limit)));
-        let output = self
-            .forward
-            .update_with_rate(error, -measured_rate, dt, self.linear_filter, 0.0);
+        let output =
+            self.forward
+                .update_with_rate(error, -measured_rate, dt, self.linear_filter, 0.0);
         #[cfg(feature = "logging")]
         log_row!(
             Trace,

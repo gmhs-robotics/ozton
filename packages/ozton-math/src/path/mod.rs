@@ -8,8 +8,8 @@ use uom::si::f64::{Acceleration, Length, Time, Velocity};
 use crate::geometry::Pose;
 
 pub mod clearance;
-pub mod progress;
 pub mod planner;
+pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,7 +210,9 @@ impl Path {
     }
 
     /// Samples of the prepared path in increasing arc length.
-    pub fn samples(&self) -> &[PathSample] { &self.samples }
+    pub fn samples(&self) -> &[PathSample] {
+        &self.samples
+    }
 
     pub fn limits(&self) -> Limits {
         self.limits

@@ -87,7 +87,8 @@ fn point_approach_turns_before_driving_at_the_logged_heading_error() {
 
 #[test]
 fn point_brakes_inside_arrival_band_instead_of_coasting() {
-    let options = DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
+    let options =
+        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
     let mut controller = DifferentialFeedback::new(DriveTuning {
         linear: ozton_math::control::Pid::new(4.25, 0.0, 0.50, None),
         angular: ozton_math::control::Pid::new(3.0, 0.0, 0.22, None),
@@ -117,7 +118,8 @@ fn point_brakes_inside_arrival_band_instead_of_coasting() {
 
 #[test]
 fn point_approach_converges_with_motor_lag_and_small_overshoot() {
-    let mut options = DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
+    let mut options =
+        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
     options.position_tolerance = length!(0.75 in);
     let tuning = DriveTuning {
         linear: ozton_math::control::Pid::new(4.25, 0.0, 0.50, None),
@@ -126,7 +128,10 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
     let tick = Duration::from_millis(10);
     let dt = tick.as_secs_f64();
     for (initial, reverse) in [
-        (Pose::new(DVec2::new(0.07375, 0.10689), angle!(0.08910 rad)), true),
+        (
+            Pose::new(DVec2::new(0.07375, 0.10689), angle!(0.08910 rad)),
+            true,
+        ),
         (Pose::new(DVec2::new(0.0, -0.24), angle!(0.0 rad)), false),
         (Pose::new(DVec2::new(0.0, 0.03), angle!(0.0 rad)), false),
     ] {
@@ -155,13 +160,23 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
                 tick,
                 options,
             );
-            settled = if ready { settled + tick } else { Duration::ZERO };
-            if settled >= options.settle { break; }
+            settled = if ready {
+                settled + tick
+            } else {
+                Duration::ZERO
+            };
+            if settled >= options.settle {
+                break;
+            }
             velocity += ((wheels[0] + wheels[1]) * 0.5 - velocity) * dt / 0.18;
-            yaw_rate += ((wheels[1] - wheels[0]) / options.track_width.value - yaw_rate) * dt / 0.15;
+            yaw_rate +=
+                ((wheels[1] - wheels[0]) / options.track_width.value - yaw_rate) * dt / 0.15;
             pose.heading += angle!(yaw_rate * dt, rad);
             pose.position += ozton_math::geometry::direction(pose.heading) * velocity * dt;
         }
-        assert!(settled >= options.settle, "failed from {initial:?}, at {pose:?}");
+        assert!(
+            settled >= options.settle,
+            "failed from {initial:?}, at {pose:?}"
+        );
     }
 }

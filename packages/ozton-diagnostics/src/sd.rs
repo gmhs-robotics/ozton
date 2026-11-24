@@ -111,20 +111,31 @@ impl Pending {
                 writeln!(BatchWriter(&mut self.bytes), "{text}")
             } else {
                 let mut schema = kind.to_owned();
-                for (key, _) in &fields { schema.push(','); schema.push_str(key); }
+                for (key, _) in &fields {
+                    schema.push(',');
+                    schema.push_str(key);
+                }
                 let id = self.schemas.iter().position(|old| *old == schema);
                 let index = id.unwrap_or(self.schemas.len());
                 let mut output = BatchWriter(&mut self.bytes);
                 let encoded = (|| -> fmt::Result {
-                    if id.is_none() { writeln!(output, "S,{index},{schema}")?; }
+                    if id.is_none() {
+                        writeln!(output, "S,{index},{schema}")?;
+                    }
                     write!(output, "R,{index}")?;
-                    for (_, value) in &fields { write!(output, ",{value}")?; }
+                    for (_, value) in &fields {
+                        write!(output, ",{value}")?;
+                    }
                     writeln!(output)
                 })();
-                if encoded.is_ok() && id.is_none() { self.schemas.push(schema); }
+                if encoded.is_ok() && id.is_none() {
+                    self.schemas.push(schema);
+                }
                 encoded
             }
-        } else { writeln!(BatchWriter(&mut self.bytes), "{text}") };
+        } else {
+            writeln!(BatchWriter(&mut self.bytes), "{text}")
+        };
         if result.is_err() {
             self.bytes.truncate(start);
             self.dropped_rows = self.dropped_rows.saturating_add(1);
