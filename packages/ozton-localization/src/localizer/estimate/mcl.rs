@@ -42,6 +42,9 @@ impl PoseEstimator for Mcl {
             "MCL"
         }
     }
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        Some(self.filter.position_covariance())
+    }
     fn reset(&mut self, pose: Pose) {
         self.filter.reset(pose);
         self.yaw_rate = 0.0;
@@ -108,14 +111,17 @@ impl PoseEstimator for Mcl {
                     continue;
                 }
             }
-            let range_sigma = sensor.range_sigma(distance).max(self.config.range_sigma.value);
+            let range_sigma = sensor
+                .range_sigma(distance)
+                .max(self.config.range_sigma.value);
             let gate = sensor.effective_gate();
             qualities[count] = BeamQuality {
                 min_range: gate.min_range,
                 sigma: ozton_math::qty!((range_sigma) m),
             };
             if let Ok(constraint) = report.constraint {
-                constraints[constraint_count] = (constraint, range_sigma * constraint.hit.incidence.abs());
+                constraints[constraint_count] =
+                    (constraint, range_sigma * constraint.hit.incidence.abs());
                 constraint_count += 1;
             }
             beams[count] = Beam {

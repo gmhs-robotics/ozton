@@ -2,13 +2,13 @@
 
 mod random;
 mod sensor;
-
-pub use sensor::BeamModel;
 use alloc::vec::Vec;
 
-use glam::{DVec2, DVec3};
+use glam::{DMat2, DVec2, DVec3};
 use random::Random;
 use uom::si::f64::{Angle, AngularVelocity, Length};
+
+pub use sensor::BeamModel;
 
 use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
@@ -373,6 +373,15 @@ impl ParticleFilter {
             self.resample();
         }
         Some(estimate)
+    }
+
+    /// Weighted posterior XY covariance in square metres.
+    pub fn position_covariance(&self) -> DMat2 {
+        let (mean, _) = self.position_moments();
+        self.particles.iter().fold(DMat2::ZERO, |sum, p| {
+            let d = p.pose.position - mean;
+            sum + DMat2::from_cols(d * d.x, d * d.y) * p.weight
+        })
     }
 
     fn position_moments(&self) -> (DVec2, DVec2) {

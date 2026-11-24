@@ -87,6 +87,10 @@ pub trait PoseEstimator {
     fn corrects_pose(&self) -> bool {
         true
     }
+    /// XY covariance in field coordinates, if this estimator tracks uncertainty.
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        None
+    }
     fn reset(&mut self, pose: Pose);
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool;
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose>;
@@ -146,6 +150,9 @@ impl PoseEstimator for Filter {
     }
     fn corrects_pose(&self) -> bool {
         !matches!(self, Self::Odometry(_))
+    }
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        dispatch!(self, position_covariance())
     }
     fn reset(&mut self, pose: Pose) {
         dispatch!(self, reset(pose));

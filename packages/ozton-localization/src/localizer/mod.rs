@@ -271,6 +271,14 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.config.odometry
     }
 
+    /// Covariance of the published position, if the active estimator provides it.
+    pub fn position_covariance(&self) -> Option<glam::DMat2> {
+        if self.config.shadow || !self.corrections_enabled {
+            return None;
+        }
+        self.filter.position_covariance()
+    }
+
     /// Model standard deviations in chassis-right, forward and yaw order (SI).
     pub fn velocity_uncertainty(&self) -> [f64; 3] {
         self.velocity.standard_deviation()

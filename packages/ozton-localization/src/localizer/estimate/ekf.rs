@@ -55,6 +55,13 @@ impl PoseEstimator for Ekf {
             "EKF"
         }
     }
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        let covariance = self.filter.covariance();
+        Some(glam::DMat2::from_cols(
+            covariance.x_axis.truncate(),
+            covariance.y_axis.truncate(),
+        ))
+    }
     fn reset(&mut self, pose: Pose) {
         if let Some(filter) = PoseEkf::new(pose, self.config.initial_variance) {
             self.filter = filter;

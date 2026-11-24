@@ -344,21 +344,21 @@ fn fit_details(constraints: &[(Constraint, f64)]) -> Option<TranslationFit> {
     if !change.is_finite() {
         return None;
     }
-    // Check both each innovation and the aggregate normalized residual.
-    // The latter accounts for the degrees of freedom spent fitting the pose:
-    // two opposing 3-sigma residuals are not a coherent one-axis measurement.
-    let mut squared_residual = 0.0;
-    for (c, sigma) in constraints {
-        let residual = (c.hit.normal.dot(change) - c.displacement).abs();
-        let limit = (3.0 * sigma).max(0.025);
-        if residual > limit {
-            return None;
-        }
-        let normalized = residual / limit;
-        squared_residual += normalized * normalized;
-    }
+    // Chi-square goodness of fit at 99% confidence, accounting for
+    // the degrees of freedom spent estimating the observable axes.
+    const CHI_SQUARE_99: [f64; 8] = [0.0, 6.635, 9.210, 11.345, 13.277, 15.086, 16.812, 18.475];
+    let chi_square: f64 = constraints
+        .iter()
+        .map(|(c, sigma)| {
+            let normalized = (c.hit.normal.dot(change) - c.displacement) / sigma;
+            normalized * normalized
+        })
+        .sum();
     let degrees_of_freedom = constraints.len().saturating_sub(axes as usize);
-    if degrees_of_freedom > 0 && squared_residual > degrees_of_freedom as f64 {
+    if degrees_of_freedom > 0
+        && (degrees_of_freedom >= CHI_SQUARE_99.len()
+            || chi_square > CHI_SQUARE_99[degrees_of_freedom])
+    {
         return None;
     }
     Some(TranslationFit {

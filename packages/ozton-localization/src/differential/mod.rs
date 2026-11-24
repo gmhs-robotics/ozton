@@ -161,6 +161,10 @@ impl DifferentialLocalization {
         self.drive.is_some()
     }
 
+    pub fn position_covariance(&self) -> Option<glam::DMat2> {
+        self.localizer.position_covariance()
+    }
+
     pub fn velocity_uncertainty(&self) -> [f64; 3] {
         self.localizer.velocity_uncertainty()
     }
