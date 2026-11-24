@@ -105,9 +105,7 @@ impl Axis {
         } else {
             0.0
         };
-        self.p00 += 2.0 * coupling * self.p01
-            + coupling * coupling * self.p11
-            + process * dt;
+        self.p00 += 2.0 * coupling * self.p01 + coupling * coupling * self.p11 + process * dt;
         self.p01 += coupling * self.p11;
         self.p11 += bias_process * dt;
 
@@ -162,9 +160,10 @@ impl VelocityEstimator {
         let heading_variance = 2.0 * (c.heading_sigma / dt).powi(2);
         let yaw = direct_yaw.unwrap_or(movement.heading.value / dt);
         // In rotating chassis coordinates, dv_body/dt = a_body - omega x v.
-        let acceleration = observations.acceleration.filter(|a| a.is_finite()).map(|a| {
-            a + DVec2::new(self.axes[1].rate * yaw, -self.axes[0].rate * yaw)
-        });
+        let acceleration = observations
+            .acceleration
+            .filter(|a| a.is_finite())
+            .map(|a| a + DVec2::new(self.axes[1].rate * yaw, -self.axes[0].rate * yaw));
         [
             self.axes[0].update(
                 dt,
@@ -204,8 +203,9 @@ impl VelocityEstimator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ozton_math::{geometry::BodyDelta, qty};
+
+    use super::*;
 
     fn delta(forward: f64) -> BodyDelta {
         BodyDelta {
@@ -248,6 +248,9 @@ mod tests {
         }
         assert!((filter.axes[1].bias - 0.2).abs() < 0.15);
         filter.reset();
-        assert_eq!(filter.update(delta(0.0), 0.01, MotionObservations::default()), [0.0; 3]);
+        assert_eq!(
+            filter.update(delta(0.0), 0.01, MotionObservations::default()),
+            [0.0; 3]
+        );
     }
 }

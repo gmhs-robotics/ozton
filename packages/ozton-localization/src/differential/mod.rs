@@ -194,57 +194,59 @@ impl DifferentialLocalization {
             rates.acceleration = None;
         }
         self.wheels.observe(wheels);
-        let update =
-            match self
-                .localizer
-                .update_with_motion(snapshot, &ranges, rates, |before, after, _, _| {
-                    Ok(self
-                        .wheels
-                        .delta(before, after, self.drive, track_width, self.use_imu))
-                }) {
-                Ok(update) => {
-                    #[cfg(feature = "logging")]
-                    if self.fault.take().is_some() {
-                        log_event!(Info, "tracking", "Localization feedback recovered");
-                    }
-                    update
+        let update = match self.localizer.update_with_motion(
+            snapshot,
+            &ranges,
+            rates,
+            |before, after, _, _| {
+                Ok(self
+                    .wheels
+                    .delta(before, after, self.drive, track_width, self.use_imu))
+            },
+        ) {
+            Ok(update) => {
+                #[cfg(feature = "logging")]
+                if self.fault.take().is_some() {
+                    log_event!(Info, "tracking", "Localization feedback recovered");
                 }
-                Err(Fault::Initializing) => {
-                    log_row!(
-                        Trace,
-                        "TRACKING_UPDATE",
-                        "status=initializing,snapshot_ms={}",
+                update
+            }
+            Err(Fault::Initializing) => {
+                log_row!(
+                    Trace,
+                    "TRACKING_UPDATE",
+                    "status=initializing,snapshot_ms={}",
+                    snapshot.time.as_millis()
+                );
+                return Ok(None);
+            }
+            Err(fault) => {
+                #[cfg(feature = "logging")]
+                if self.fault.replace(fault) != Some(fault) {
+                    let reason = match fault {
+                        Fault::Initializing => "Waiting for a second tracking observation",
+                        Fault::Time => "Tracking timestamp repeated or exceeded maximum gap",
+                        Fault::Forward => "Forward travel unavailable",
+                        Fault::Heading => "Heading unavailable",
+                        Fault::Lateral => "Lateral travel unavailable",
+                        Fault::InvalidEstimate => "Estimator produced an invalid pose",
+                    };
+                    log_event!(
+                        Warn,
+                        "tracking",
+                        "{reason} at sample {} ms",
                         snapshot.time.as_millis()
                     );
-                    return Ok(None);
                 }
-                Err(fault) => {
-                    #[cfg(feature = "logging")]
-                    if self.fault.replace(fault) != Some(fault) {
-                        let reason = match fault {
-                            Fault::Initializing => "Waiting for a second tracking observation",
-                            Fault::Time => "Tracking timestamp repeated or exceeded maximum gap",
-                            Fault::Forward => "Forward travel unavailable",
-                            Fault::Heading => "Heading unavailable",
-                            Fault::Lateral => "Lateral travel unavailable",
-                            Fault::InvalidEstimate => "Estimator produced an invalid pose",
-                        };
-                        log_event!(
-                            Warn,
-                            "tracking",
-                            "{reason} at sample {} ms",
-                            snapshot.time.as_millis()
-                        );
-                    }
-                    log_row!(
-                        Trace,
-                        "TRACKING_UPDATE",
-                        "status=fault,fault={fault:?},snapshot_ms={}",
-                        snapshot.time.as_millis()
-                    );
-                    return Err(fault);
-                }
-            };
+                log_row!(
+                    Trace,
+                    "TRACKING_UPDATE",
+                    "status=fault,fault={fault:?},snapshot_ms={}",
+                    snapshot.time.as_millis()
+                );
+                return Err(fault);
+            }
+        };
 
         #[cfg(feature = "logging")]
         {

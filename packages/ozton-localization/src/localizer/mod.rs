@@ -17,8 +17,6 @@ mod ranges;
 mod reset;
 mod snapshot;
 mod velocity;
-pub use velocity::{MotionObservations, VelocityConfig};
-use velocity::VelocityEstimator;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
 pub use ranges::RangeReport;
@@ -26,6 +24,8 @@ use ranges::{RangeTick, inspect};
 pub use reset::DsrConfig;
 use reset::{ResetResult, ResetTick, ResetWindow};
 pub use snapshot::{Fault, OdometryConfig, Snapshot};
+use velocity::VelocityEstimator;
+pub use velocity::{MotionObservations, VelocityConfig};
 
 /// Sensor recovery does not prove that the robot stayed at its old field position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,7 +373,12 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
     ) -> Result<Update, Fault> {
-        self.update_from(raw, observations, MotionObservations::default(), snapshot::delta)
+        self.update_from(
+            raw,
+            observations,
+            MotionObservations::default(),
+            snapshot::delta,
+        )
     }
 
     /// Apply a custom wheel layout while sharing the localizer's timing, pose

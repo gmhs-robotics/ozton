@@ -1,4 +1,3 @@
-use crate::MotionObservations;
 use ozton_math::{
     geometry::compass_heading,
     localization::observation::{
@@ -7,6 +6,8 @@ use ozton_math::{
     },
     uom::si::f64::Length,
 };
+
+use crate::MotionObservations;
 
 pub(super) struct Observations {
     wheel_sources: Vec<usize>,
