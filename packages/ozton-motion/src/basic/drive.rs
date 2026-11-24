@@ -11,18 +11,17 @@ use ozton_control::{
     loops::{AngularPid, Feedback, Pid},
 };
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{
-    angle::radian,
-    angular_velocity::radian_per_second,
-    f64::{Angle as UomAngle, AngularVelocity, Length, Velocity},
-    length::meter,
-    velocity::meter_per_second,
+use ozton_math::{
+    geometry::wrap_heading,
+    uom::si::{
+        angular_velocity::radian_per_second,
+        f64::{Angle, AngularVelocity, Length, Velocity},
+        length::meter,
+        velocity::meter_per_second,
+    },
 };
+use ozton_runtime::clock::{Sleep, sleep};
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksVelocity};
-use vexide::{
-    math::Angle,
-    time::{Sleep, sleep},
-};
 
 use crate::Arcade;
 
@@ -110,7 +109,7 @@ where
         let heading = this.drivetrain.localization().heading();
 
         let linear_error = (this.target_distance + state.initial_forward_travel) - forward_travel;
-        let angular_error = (this.target_heading - heading).wrapped_half();
+        let angular_error = wrap_heading(this.target_heading - heading);
 
         // println!("{}", linear_error);
 
@@ -122,7 +121,7 @@ where
         );
         let angular_settled = this.angular_tolerances.check_with(
             &mut state.angular_settling,
-            UomAngle::new::<radian>(angular_error.as_radians()),
+            angular_error,
             AngularVelocity::new::<radian_per_second>(
                 this.drivetrain.localization().angular_velocity(),
             ),
@@ -257,7 +256,7 @@ where
     }
 
     /// Modifies this motion's angular error tolerance.
-    pub const fn with_angular_error_tolerance(&mut self, tolerance: UomAngle) -> &mut Self {
+    pub const fn with_angular_error_tolerance(&mut self, tolerance: Angle) -> &mut Self {
         self.angular_tolerances.error_tolerance = Some(tolerance);
         self
     }

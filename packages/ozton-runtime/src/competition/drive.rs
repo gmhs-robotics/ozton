@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use ozton_drivetrain::{Drivetrain, HasLocalization, MotorGroups, WheelSpeedError, model::Drive};
-use ozton_tracking::{TrackingSystem, sampling::LocalizationLifecycle};
+use ozton_tracking::{
+    TrackingSystem,
+    sampling::{LocalizationLifecycle, LocalizationMode},
+};
 use vexide::{competition::CompetitionMode, smart::PortError};
 
 /// Commands consumed by a drivetrain during an Ozton competition.
@@ -63,7 +66,11 @@ where
     }
 
     fn competition_mode_changed(&mut self, mode: CompetitionMode) {
-        self.localization.mode_changed(mode);
+        self.localization.mode_changed(match mode {
+            CompetitionMode::Autonomous => LocalizationMode::Autonomous,
+            CompetitionMode::Disabled => LocalizationMode::Disabled,
+            CompetitionMode::Driver => LocalizationMode::Driver,
+        });
     }
 
     fn poll_competition_tracking(&mut self, mode: CompetitionMode) {

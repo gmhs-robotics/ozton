@@ -1,4 +1,5 @@
 //! Installation coordinates measured from the chassis center of rotation.
+pub use ozton_math::units::Vec3;
 #[doc(hidden)]
 pub use ozton_math::uom;
 use uom::{ConstZero, si::f64::Length};
@@ -67,91 +68,12 @@ impl MountAxes {
     }
 }
 
-/// Three coordinates in the right/forward/up chassis frame.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Vec3<T> {
-    pub right: T,
-    pub forward: T,
-    pub up: T,
-}
-
-impl<T> Vec3<T> {
-    pub const fn new(right: T, forward: T, up: T) -> Self {
-        Self { right, forward, up }
-    }
-}
-
-impl Vec3<Length> {
-    /// Validates coordinates before a static mount is used.
-    pub const fn is_finite(self) -> bool {
-        self.right.value.is_finite() && self.forward.value.is_finite() && self.up.value.is_finite()
-    }
-}
-
-/// Construct a compile-time `Vec3<Length>` in right, forward, up order.
-///
-/// Each coordinate is a signed numeric literal with its own unit. Supported
-/// units are `mm`, `cm`, `m`, `km`, `in`, `ft`, and `yd`.
-///
-/// ```
-/// use ozton_tracking::{mount::Vec3, position};
-/// use ozton_math::uom::si::f64::Length;
-///
-/// const SENSOR: Vec3<Length> = position!(-2 in, 0.1 m, 25 mm);
-/// assert_eq!(SENSOR.right.value, -0.0508);
-/// assert_eq!(SENSOR.forward.value, 0.1);
-/// assert_eq!(SENSOR.up.value, 0.025);
-/// ```
-#[macro_export]
-macro_rules! position {
-    ($right:literal $right_unit:ident, $forward:literal $forward_unit:ident, $up:literal $up_unit:ident $(,)?) => {
-        const {
-            $crate::mount::Vec3::new(
-                $crate::position!(@length $right $right_unit),
-                $crate::position!(@length $forward $forward_unit),
-                $crate::position!(@length $up $up_unit),
-            )
-        }
-    };
-    (@length $value:literal $unit:ident) => {{
-        use $crate::mount::uom::{ConstZero, si::f64::Length};
-        let meters_per_unit = $crate::position!(@meters $unit);
-        Length {
-            value: ($value as f64) * meters_per_unit,
-            ..Length::ZERO
-        }
-    }};
-    (@meters mm) => {
-        0.001
-    };
-    (@meters cm) => {
-        0.01
-    };
-    (@meters m) => {
-        1.0
-    };
-    (@meters km) => {
-        1000.0
-    };
-    (@meters in) => {
-        0.0254
-    };
-    (@meters ft) => {
-        0.3048
-    };
-    (@meters yd) => {
-        0.9144
-    };
-    (@meters $unit:ident) => {
-        compile_error!(concat!("unsupported position unit: ", stringify!($unit)))
-    };
-}
-
 #[cfg(test)]
 mod tests {
     use ozton_math::uom::si::{angle::radian, f64::Angle, length::meter};
 
     use super::*;
+    use crate::position;
 
     #[test]
     fn alternate_axes_use_the_same_origin_and_wheel_lever_arms() {

@@ -8,7 +8,7 @@ use ozton_math::uom::si::{
 use vexide::{prelude::Motor, smart::PortError};
 
 use super::{
-    SharedMotors,
+    SharedMotors, WheelFeedback,
     consensus::{EncoderConsensus, MAX_SIDE_MOTORS},
 };
 
@@ -191,13 +191,6 @@ impl Wheels {
             self.groups.get_mut(group)?.sample(&samples[..motors.len()])
         })
     }
-}
-
-/// Continuous group travel and velocity from all available motors.
-#[derive(Clone, Copy, Debug)]
-pub struct WheelFeedback {
-    pub position: Length,
-    pub velocity: Velocity,
 }
 
 #[cfg(test)]

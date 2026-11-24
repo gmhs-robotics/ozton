@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use vexide::time::sleep_until;
+pub use vexide::time::{Sleep, sleep};
 
 pub const CONTROL_PERIOD: Duration = Duration::from_millis(10);
 

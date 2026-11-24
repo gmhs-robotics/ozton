@@ -1,10 +1,14 @@
+#[cfg(feature = "vex")]
 use core::f64::consts::PI;
 
+#[cfg(feature = "vex")]
 use ozton_math::uom::si::f64::Length;
 
 pub use super::projection::{DriveWheels, MountedWheel, WheelOdometry};
+#[cfg(feature = "vex")]
 use crate::RotarySensor;
 
+#[cfg(feature = "vex")]
 /// A wheel attached to a rotary sensor for position tracking.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackingWheel<T: RotarySensor> {
@@ -27,6 +31,7 @@ pub struct TrackingWheel<T: RotarySensor> {
     pub gearing: Option<f64>,
 }
 
+#[cfg(feature = "vex")]
 impl<T: RotarySensor> TrackingWheel<T> {
     /// Creates a new tracking wheel with the given parameters.
     ///

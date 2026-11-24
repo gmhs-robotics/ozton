@@ -15,7 +15,7 @@ use ozton_drivetrain::{Drivetrain, model::Drive};
 use ozton_math::uom::si::{
     angle::radian,
     angular_velocity::radian_per_second,
-    f64::{Angle as UomAngle, AngularVelocity, Length, Velocity},
+    f64::{Angle, AngularVelocity, Length, Velocity},
     length::meter,
     velocity::meter_per_second,
 };
@@ -25,7 +25,7 @@ use ozton_tracking::{
     TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 use vex_sdk_mock as _;
-use vexide::{math::Angle, runtime::block_on};
+use vexide::runtime::block_on;
 
 #[derive(Debug)]
 struct SimState {
@@ -77,7 +77,7 @@ impl SimState {
 
         self.heading_radians = wrap_radians(self.heading_radians + self.angular_velocity * dt);
         let displacement =
-            ozton_math::geometry::direction(UomAngle::new::<radian>(self.heading_radians))
+            ozton_math::geometry::direction(Angle::new::<radian>(self.heading_radians))
                 * (self.linear_velocity * dt);
         self.position += displacement;
         self.forward_travel += self.linear_velocity * dt;
@@ -167,7 +167,11 @@ impl TracksPosition for MockTracking {
 
 impl TracksHeading for MockTracking {
     fn heading(&self) -> Angle {
-        Angle::from_radians(self.snapshot().heading_radians).wrapped_full()
+        Angle::new::<radian>(
+            self.snapshot()
+                .heading_radians
+                .rem_euclid(std::f64::consts::TAU),
+        )
     }
 }
 
@@ -206,7 +210,7 @@ fn linear_tolerances() -> Tolerances<Linear> {
 
 fn angular_tolerances() -> Tolerances {
     let mut tolerances = Tolerances::new();
-    tolerances.error_tolerance = Some(UomAngle::new::<radian>(0.05));
+    tolerances.error_tolerance = Some(Angle::new::<radian>(0.05));
     tolerances.velocity_tolerance = Some(AngularVelocity::new::<radian_per_second>(0.08));
     tolerances.duration = Some(Duration::from_millis(30));
     tolerances
@@ -270,7 +274,7 @@ fn basic_motion_reaches_distance_and_heading_goals() {
     });
 
     let final_position = drivetrain.localization.position();
-    let final_heading = drivetrain.localization.heading().as_radians();
+    let final_heading = drivetrain.localization.heading().value;
     let final_velocity = drivetrain.localization.linear_velocity();
 
     assert!(
@@ -312,7 +316,7 @@ fn seeking_motion_reaches_multiple_waypoints() {
     });
 
     let final_position = drivetrain.localization.position();
-    let final_heading = drivetrain.localization.heading().as_radians();
+    let final_heading = drivetrain.localization.heading().value;
     let final_velocity = drivetrain.localization.linear_velocity();
 
     assert!(

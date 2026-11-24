@@ -52,7 +52,8 @@ pub struct Observation {
 pub struct MeasurementSink<'a> {
     pub time: Duration,
     pub range_occluded: bool,
-    pub(crate) range_index: Option<usize>,
+    /// This source's index among registered range sources, if it has range geometry.
+    pub range_index: Option<usize>,
     pub(crate) source: usize,
     pub(crate) observations: &'a mut Vec<Observation>,
 }

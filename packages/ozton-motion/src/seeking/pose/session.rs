@@ -7,9 +7,9 @@ use ozton_math::{
 };
 use ozton_runtime::{
     clock::{CONTROL_PERIOD, CommandClock},
+    competition::autonomous_active,
     log_row,
 };
-use vexide::competition::{self, CompetitionMode};
 
 use super::{PoseDrive, PoseMotionError};
 use crate::basic::differential::{
@@ -52,7 +52,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
 
     async fn tick(&mut self) -> Result<Duration, PoseMotionError<D::Error>> {
         let dt = self.clock.tick().await;
-        if competition::mode() != CompetitionMode::Autonomous {
+        if !autonomous_active() {
             return Err(PoseMotionError::Cancelled);
         }
         if self.started.elapsed() >= self.budget {

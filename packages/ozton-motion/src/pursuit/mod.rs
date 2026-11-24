@@ -6,11 +6,15 @@ use alloc::vec::Vec;
 use std::time::Duration;
 
 use glam::DVec2 as Vec2;
+#[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::uom::si::f64::Length;
+#[cfg(feature = "vex")]
 use ozton_tracking::{TracksHeading, TracksPosition};
 
+#[cfg(feature = "vex")]
 mod follow;
+#[cfg(feature = "vex")]
 pub use follow::PurePursuitFuture;
 
 /// Parses a LemLib v0.5 path into positions in meters and normalized speed.
@@ -51,6 +55,7 @@ pub struct PurePursuit {
     pub timeout: Option<Duration>,
 }
 
+#[cfg(feature = "vex")]
 impl PurePursuit {
     /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
     pub fn follow<

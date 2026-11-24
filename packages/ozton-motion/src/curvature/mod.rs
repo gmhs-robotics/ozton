@@ -78,20 +78,16 @@ impl CurvatureDrive {
     ///
     /// # Examples
     /// ```no_run
-    /// use ozton_drivetrain::{Drivetrain, model::{Differential, Drive}};
+    /// use ozton_drivetrain::Drive;
     /// use ozton_motion::CurvatureDrive;
-    /// use ozton_tracking::NoTracking;
-    /// use vexide::{prelude::Controller, smart::PortError};
     ///
-    /// fn drive_tick(
+    /// fn drive_tick<M: Drive>(
     ///     curvature: &mut CurvatureDrive,
-    ///     drivetrain: &mut Drivetrain<Differential, NoTracking, ()>,
-    ///     controller: &Controller,
-    /// ) -> Result<(), PortError> {
-    ///     let Ok(state) = controller.state() else {
-    ///         return drivetrain.stop_now();
-    ///     };
-    ///     curvature.update(drivetrain, state.left_stick.y(), state.right_stick.x())
+    ///     drivetrain: &mut M,
+    ///     throttle: f64,
+    ///     turn: f64,
+    /// ) -> Result<(), M::Error> {
+    ///     curvature.update(drivetrain, throttle, turn)
     /// }
     /// ```
     pub fn update<M: Drive>(

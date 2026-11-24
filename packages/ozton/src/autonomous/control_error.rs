@@ -2,9 +2,9 @@
 
 use core::{error::Error, fmt};
 
-use ozton_control::mechanism::MechanismError;
 use ozton_drivetrain::model::WheelSpeedError;
 use ozton_motion::seeking::pose::{DriveMotionFault, PoseMotionError};
+use ozton_runtime::mechanism::MechanismError;
 use vexide::controller::ControllerError;
 
 use super::CommandError;

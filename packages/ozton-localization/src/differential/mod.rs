@@ -55,13 +55,12 @@ impl DifferentialLocalization {
         self.rectangular_half_extents
     }
 
-    pub fn set_competition_mode(&mut self, mode: vexide::competition::CompetitionMode) {
-        use vexide::competition::CompetitionMode;
+    pub fn set_competition_mode(&mut self, mode: LocalizationMode) {
         self.localizer.set_corrections_enabled(
-            mode == CompetitionMode::Autonomous
+            mode == LocalizationMode::Autonomous
                 || !matches!(self.localizer.estimator(), Estimator::Mcl(_)),
         );
-        if mode == CompetitionMode::Disabled {
+        if mode == LocalizationMode::Disabled {
             self.pause_disabled_odometry();
         }
     }
@@ -247,7 +246,7 @@ impl TracksPosition for DifferentialLocalization {
     }
 }
 impl TracksHeading for DifferentialLocalization {
-    fn heading(&self) -> vexide::math::Angle {
+    fn heading(&self) -> Angle {
         self.localizer.heading()
     }
 }
@@ -265,11 +264,13 @@ impl TracksVelocity for DifferentialLocalization {
     }
 }
 
-use ozton_tracking::{odometric::wheel::WheelOdometry, sampling::LocalizationLifecycle};
-use vexide::competition::CompetitionMode;
+use ozton_tracking::{
+    odometric::wheel::WheelOdometry,
+    sampling::{LocalizationLifecycle, LocalizationMode},
+};
 
 impl LocalizationLifecycle<Tracking> for DifferentialLocalization {
-    fn mode_changed(&mut self, mode: CompetitionMode) {
+    fn mode_changed(&mut self, mode: LocalizationMode) {
         self.set_competition_mode(mode);
     }
 
@@ -277,11 +278,13 @@ impl LocalizationLifecycle<Tracking> for DifferentialLocalization {
         self.cancel_distance_reset();
     }
 
+    #[cfg(feature = "vex")]
     fn poll(&mut self, tracking: &mut Tracking) {
         let _ = update_localization(self, tracking);
     }
 }
 
+#[cfg(feature = "vex")]
 pub fn update_localization(
     localization: &mut DifferentialLocalization,
     tracking: &mut Tracking,

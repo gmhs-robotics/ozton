@@ -7,17 +7,7 @@ use ozton_math::uom::si::{
 };
 use vexide::{prelude::InertialSensor, smart::SmartDevice};
 
-/// Orientation read once for a control tick. Heading follows the IMU's
-/// clockwise convention, while roll and pitch follow VEX body axes.
-#[derive(Debug, Clone, Copy)]
-pub struct Orientation {
-    pub port: u8,
-    pub heading: Option<Angle>,
-    pub pitch: Option<Angle>,
-    pub roll: Option<Angle>,
-    pub yaw: Option<Angle>,
-}
-
+pub use super::Orientation;
 use crate::mount::Vec3;
 
 /// An IMU mounted flat, with a counterclockwise bearing from chassis forward.

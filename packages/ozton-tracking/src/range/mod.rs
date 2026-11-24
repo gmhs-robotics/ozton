@@ -16,7 +16,9 @@ use ozton_math::{
 
 use crate::mount::Vec3;
 
+#[cfg(feature = "vex")]
 pub mod distance;
+#[cfg(feature = "vex")]
 pub use distance::{DistanceTracker, Distances};
 
 pub const MAX_RANGES: usize = 8;

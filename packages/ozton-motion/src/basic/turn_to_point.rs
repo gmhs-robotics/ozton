@@ -12,18 +12,20 @@ use ozton_control::{
     loops::{AngularPid, Feedback, Pid},
 };
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{
-    angle::radian,
-    angular_velocity::radian_per_second,
-    f64::{Angle as UomAngle, AngularVelocity, Length, Velocity},
-    length::meter,
-    velocity::meter_per_second,
+use ozton_math::{
+    geometry::wrap_heading,
+    uom::{
+        ConstZero,
+        si::{
+            angular_velocity::radian_per_second,
+            f64::{Angle, AngularVelocity, Length, Velocity},
+            length::meter,
+            velocity::meter_per_second,
+        },
+    },
 };
+use ozton_runtime::clock::{Sleep, sleep};
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
-use vexide::{
-    math::Angle,
-    time::{Sleep, sleep},
-};
 
 use crate::Arcade;
 
@@ -116,10 +118,10 @@ where
         let position = this.drivetrain.localization().position();
         let heading = this.drivetrain.localization().heading();
         let to_target = this.point - position;
-        let target_heading = Angle::from_radians(ozton_math::geometry::bearing(to_target).value);
+        let target_heading = ozton_math::geometry::bearing(to_target);
 
         let linear_error = state.initial_forward_travel - forward_travel;
-        let angular_error = (heading - target_heading).wrapped_half();
+        let angular_error = wrap_heading(heading - target_heading);
 
         let linear_settled = this.linear_tolerances.check_with(
             &mut state.linear_settling,
@@ -129,7 +131,7 @@ where
         );
         let angular_settled = this.angular_tolerances.check_with(
             &mut state.angular_settling,
-            UomAngle::new::<radian>(angular_error.as_radians()),
+            angular_error,
             AngularVelocity::new::<radian_per_second>(
                 this.drivetrain.localization().angular_velocity(),
             ),
@@ -257,7 +259,7 @@ where
     }
 
     /// Modifies this motion's angular error tolerance.
-    pub const fn with_angular_error_tolerance(&mut self, tolerance: UomAngle) -> &mut Self {
+    pub const fn with_angular_error_tolerance(&mut self, tolerance: Angle) -> &mut Self {
         self.angular_tolerances.error_tolerance = Some(tolerance);
         self
     }

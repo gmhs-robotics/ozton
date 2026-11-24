@@ -6,12 +6,12 @@ use std::{
 
 use glam::DVec2 as Vec2;
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{f64::Length, length::meter};
-use ozton_tracking::{TracksHeading, TracksPosition};
-use vexide::{
-    math::Angle,
-    time::{Sleep, sleep},
+use ozton_math::uom::si::{
+    f64::{Angle, Length},
+    length::meter,
 };
+use ozton_runtime::clock::{Sleep, sleep};
+use ozton_tracking::{TracksHeading, TracksPosition};
 
 use super::Waypoint;
 use crate::Tank;
@@ -284,9 +284,7 @@ fn signed_arc_curvature(start: Vec2, start_angle: Angle, end: Vec2) -> f64 {
 
     let pose = Pose {
         position: start,
-        heading: ozton_math::uom::si::f64::Angle::new::<ozton_math::uom::si::angle::radian>(
-            start_angle.as_radians(),
-        ),
+        heading: start_angle,
     };
     -pursuit_curvature(pose.to_local(end))
 }

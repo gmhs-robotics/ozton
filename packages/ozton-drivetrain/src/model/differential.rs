@@ -16,6 +16,8 @@ pub struct Differential {
 }
 
 impl Differential {
+    pub const MAX_V5_VOLTAGE: f64 = Motor::V5_MAX_VOLTAGE;
+
     pub fn new(
         left: impl IntoIterator<Item = Motor>,
         right: impl IntoIterator<Item = Motor>,

@@ -31,8 +31,7 @@ forward and turn commands, `Tank::drive` accepts left and right commands, and
 
 Install an ordered tuple of assists with
 `RobotBuilder::with_drive_assists(DriveAssists::new((assist_a, assist_b)))`.
-Borrow the drive and assists together to use the same stack in driver and
-autonomous code.
+Borrow the drive and assists together in driver control.
 
 ```rust
 let mut drive = AssistedDrivetrain::new(&mut robot.drivetrain, &mut robot.assists);
@@ -44,12 +43,14 @@ with Ozton's live field localization, `PoseSeeking` plans clearance from walls,
 settles with wheel and heading feedback, and stops on disable or timeout.
 
 ```rust
-let seeking = PoseSeeking::default()
-    .with_position_tolerance(Length::new::<inch>(0.75))
-    .with_heading_tolerance(Angle::new::<degree>(2.0));
+use ozton::{angle, length, position_xy, position_xyh};
 
-seeking.move_to_pose(&mut drivetrain, Pose::default()).await?;
-seeking.reverse().move_to_point(&mut drivetrain, (0.45, 0.60)).await?;
+let seeking = PoseSeeking::default()
+    .with_position_tolerance(length!(0.75 in))
+    .with_heading_tolerance(angle!(2 deg));
+
+seeking.move_to_pose(&mut drivetrain, position_xyh!(0 m, 0 m, 0 deg)).await?;
+seeking.reverse().move_to_point(&mut drivetrain, position_xy!(45 cm, 60 cm)).await?;
 ```
 
 Use `with_tuning(DriveTuning { linear, angular })` to supply both PIDs for a
@@ -60,26 +61,47 @@ and `with_budget` limits the full departure, approach and final turn.
 `Seeking`, `Basic`, and `PurePursuit` work with a bare or assisted drive
 that provides the localization feedback each motion needs. Ozton provides `ozton::tracking::WheeledTracking` for
 wheeled odometry. Point coordinates are right and forward in metres. Use
-`geometry::point(x, y)` to convert two unit-bearing lengths.
+`position_xy!` for unit-bearing point literals.
 
 ```rust
 let seeking = Seeking::default();
 let outcome = seeking
-    .move_to_point(&mut drivetrain, (0.61, 0.61))
+    .move_to_point(&mut drivetrain, ozton::position_xy!(24 in, 24 in))
     .reverse()
     .with_angular_kp(0.4)
     .without_timeout()
-    .with_linear_voltage_limit(Motor::V5_MAX_VOLTAGE * 0.75)
+    .with_linear_output_limit(0.75)
     .await?;
 
 let basic = Basic::default();
-let outcome = basic.drive_distance(&mut drivetrain, Length::new::<inch>(24.0)).await?;
+let outcome = basic.drive_distance(&mut drivetrain, ozton::length!(24 in)).await?;
 ```
 
 The generic motions return `MotionOutcome::Settled` or `MotionOutcome::TimedOut`.
 `with_linear_output_limit(0.75)` sets the same throttle cap as the voltage form.
 For a custom motion, write an async function that takes `&mut impl Drive`. Add
 `HasLocalization` and the relevant tracking bounds when it needs feedback.
+
+## Units and portable crates
+
+`ozton::units` provides `length!(24 in)`, `angle!(90 deg)`, and named constructors
+such as `velocity!(0.5, meter_per_second)` for the uom SI quantities. The four
+position macros match the data expected by motion and mounting APIs.
+
+| Macro | Result |
+| --- | --- |
+| `position_xy!(24 in, 60 cm)` | Point in metres |
+| `position_xyh!(24 in, 60 cm, 90 deg)` | Planar pose |
+| `position_xyz!(2 in, -4 cm, 25 mm)` | Three typed lengths |
+| `position_xyzh!(2 in, -4 cm, 25 mm, 90 deg)` | Three typed lengths and a heading |
+
+`ozton-math` and `ozton-control` have no VEX dependency. Standalone
+`ozton-localization` consumes observations sampled with `Tracking::sample_at`,
+using timestamps supplied by the caller. Its optional `vex` feature enables
+the VEX polling adapter. `ozton-motion` with `default-features = false` exposes
+the differential controller, profiled pursuit, RAMSETE, and drive mixers.
+The default `vex` feature enables async motion execution with VEX timers and
+competition state. The `ozton` facade enables the VEX adapters for firmware.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
 

@@ -14,9 +14,9 @@ ozton-diagnostics = { workspace = true }
 glam = { workspace = true }
 ozton-tracking = { workspace = true }
 ozton-math = { workspace = true }
-vexide = { workspace = true }
 
 [features]
+vex = ["ozton-tracking/vex"]
 logging = ["ozton-diagnostics/logging"]
 
 [[bench]]

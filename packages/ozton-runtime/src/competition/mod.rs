@@ -171,6 +171,11 @@ where
 /// Displayed during ordinary driver control.
 pub const DRIVER_STATUS: &str = "Driver control";
 
+/// Whether an autonomous motion may continue issuing commands.
+pub fn autonomous_active() -> bool {
+    vexide::competition::mode() == CompetitionMode::Autonomous
+}
+
 pub(crate) fn autonomous_ui<R: RouteSet>(
     ui: Ui<Option<R>>,
     routes: impl IntoIterator<Item = R>,

@@ -4,7 +4,7 @@ use futures_util::future::join;
 use ozton_math::{geometry::compass_heading, uom::si::f64::Length};
 use vexide::time::LowResolutionTime;
 
-use super::stamp;
+use super::{WheelSource, stamp};
 use crate::{
     RotarySensor,
     inertial::{InertialSensorTracking, Orientation},
@@ -12,22 +12,6 @@ use crate::{
     range::{DistanceTracker, Distances, MAX_RANGES, RangeObservation},
     snapshot::Snapshot,
 };
-
-/// A wheel-travel source in meters. A missing observation returns None.
-pub trait WheelSource {
-    fn read_travel(&self) -> Option<Length>;
-
-    /// Performs any configuration checks before the source is installed.
-    fn valid(&self) -> bool {
-        true
-    }
-}
-
-impl WheelSource for () {
-    fn read_travel(&self) -> Option<Length> {
-        None
-    }
-}
 
 impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
     fn read_travel(&self) -> Option<Length> {

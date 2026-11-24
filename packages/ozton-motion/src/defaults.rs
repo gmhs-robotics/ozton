@@ -8,6 +8,7 @@ use ozton_math::uom::{
 
 // Autonomous tuning
 pub const AUTON_STAGE_TIMEOUT: Duration = Duration::from_secs(8);
+#[cfg(feature = "vex")]
 pub const AUTON_TOTAL_TIMEOUT: Duration = Duration::from_secs(15);
 pub const AUTON_POSITION_TOLERANCE: Length = Length {
     value: 0.025,
@@ -27,6 +28,7 @@ pub const AUTON_ANGULAR_SPEED_TOLERANCE: AngularVelocity = AngularVelocity {
 };
 pub const AUTON_SETTLE_TIME: Duration = Duration::from_millis(150);
 
+#[cfg(feature = "vex")]
 pub const AUTON_SPEED: Velocity = Velocity {
     value: 0.40,
     ..Velocity::ZERO

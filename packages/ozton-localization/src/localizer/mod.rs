@@ -6,12 +6,11 @@ use glam::DVec2;
 use ozton_math::{
     geometry::{BodyDelta, Pose, wrap_heading},
     localization::range::Surface,
-    uom::si::f64::Time,
+    uom::si::f64::{Angle, Time},
 };
 use ozton_tracking::{
     TrackingSystem, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
-use vexide::math::Angle;
 
 mod estimate;
 mod ranges;
@@ -535,7 +534,7 @@ impl<E: PoseEstimator> TracksPosition for Localizer<'_, E> {
 }
 impl<E: PoseEstimator> TracksHeading for Localizer<'_, E> {
     fn heading(&self) -> Angle {
-        Angle::from_radians(self.pose.heading.value)
+        self.pose.heading
     }
 }
 impl<E: PoseEstimator> TracksForwardTravel for Localizer<'_, E> {

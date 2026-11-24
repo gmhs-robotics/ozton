@@ -41,20 +41,25 @@ pub use sampling::{Tracking, TrackingSources};
 pub mod odometric;
 pub mod range;
 pub mod sampling;
+#[cfg(feature = "vex")]
 mod sensor;
 pub mod snapshot;
 
 use glam::DVec2 as Vec2;
+#[cfg(feature = "vex")]
 pub use odometric::holonomic::WheeledTracking;
+use ozton_math::uom::si::f64::Angle;
+#[cfg(feature = "vex")]
 pub use sensor::{Gyro, RotarySensor};
-use vexide::math::Angle;
 
 /// A tracking system and its optional calibrated drive-wheel source.
 pub trait TrackingSystem {
+    #[cfg(feature = "vex")]
     fn drive_wheels(&self) -> Option<&odometric::DifferentialTracking> {
         None
     }
 
+    #[cfg(feature = "vex")]
     fn drive_wheels_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
         None
     }
@@ -136,6 +141,7 @@ pub trait TracksForwardTravel: TrackingSystem {
 }
 
 pub mod mount;
+pub use ozton_math::position;
 
 /// Define sensor IDs, ordered mounts and named device wiring from one layout.
 #[macro_export]
@@ -190,21 +196,25 @@ pub trait TrackingSource {
     }
 
     #[doc(hidden)]
+    #[cfg(feature = "vex")]
     fn differential(&self) -> Option<&odometric::DifferentialTracking> {
         None
     }
 
     #[doc(hidden)]
+    #[cfg(feature = "vex")]
     fn differential_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
         None
     }
 
     #[doc(hidden)]
+    #[cfg(feature = "vex")]
     fn inertial(&self) -> Option<&inertial::InertialSensorTracking> {
         None
     }
 
     #[doc(hidden)]
+    #[cfg(feature = "vex")]
     fn inertial_mut(&mut self) -> Option<&mut inertial::InertialSensorTracking> {
         None
     }

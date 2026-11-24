@@ -13,7 +13,6 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-vexide = { workspace = true }
 ozton-math = { workspace = true }
 
 [package.metadata.docs.rs]

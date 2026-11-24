@@ -14,9 +14,13 @@ workspace = true
 
 [dependencies]
 glam = { workspace = true }
-vexide = { workspace = true }
+vexide = { workspace = true, optional = true }
 ozton-math = { workspace = true }
 ozton-tracking = { workspace = true }
+
+[features]
+default = ["vex"]
+vex = ["dep:vexide", "ozton-tracking/vex"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

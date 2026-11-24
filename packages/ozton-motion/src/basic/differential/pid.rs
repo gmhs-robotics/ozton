@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use ozton_math::control::Pid;
+#[cfg(feature = "logging")]
 use ozton_runtime::log_row;
 
 use super::DriveTuning;
@@ -49,6 +50,7 @@ impl MotionPid {
         let output = self
             .forward
             .update_with_rate(error, -measured_rate, dt, RATE_FILTER, 0.0);
+        #[cfg(feature = "logging")]
         log_row!(
             Trace,
             "MOTION_PID",
@@ -75,6 +77,7 @@ impl MotionPid {
                 RATE_FILTER,
                 0.0,
             );
+        #[cfg(feature = "logging")]
         log_row!(
             Trace,
             "MOTION_PID",

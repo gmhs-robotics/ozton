@@ -218,11 +218,15 @@ impl TracksPosition for WheeledTracking {
 }
 
 impl TracksHeading for WheeledTracking {
-    fn heading(&self) -> Angle {
+    fn heading(&self) -> Heading {
         let data = self.data.borrow();
 
         // Apply heading offset and wrap from [0, 2π]
-        (data.raw_heading + data.heading_offset).wrapped_full()
+        Heading::new::<ozton_math::uom::si::angle::radian>(
+            (data.raw_heading + data.heading_offset)
+                .wrapped_full()
+                .as_radians(),
+        )
     }
 }
 

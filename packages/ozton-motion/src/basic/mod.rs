@@ -2,29 +2,33 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "vex")]
 use glam::DVec2 as Vec2;
 use ozton_control::{
     Tolerances,
     axis::Linear,
     loops::{AngularPid, Feedback, Pid},
 };
+#[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{
-    angle::radian,
-    f64::{Angle as UnitAngle, Length},
-    length::meter,
-};
+use ozton_math::uom::si::f64::Angle;
+#[cfg(feature = "vex")]
+use ozton_math::uom::si::{f64::Length, length::meter};
+#[cfg(feature = "vex")]
 use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
-use vexide::math::Angle;
 
 use crate::defaults::{
     AUTON_ANGULAR_SPEED_TOLERANCE, AUTON_HEADING_TOLERANCE, AUTON_SETTLE_TIME, AUTON_STAGE_TIMEOUT,
 };
 
+#[cfg(feature = "vex")]
 mod drive;
+#[cfg(feature = "vex")]
 mod turn_to_point;
 
+#[cfg(feature = "vex")]
 pub use drive::DriveFuture;
+#[cfg(feature = "vex")]
 pub use turn_to_point::TurnToPointFuture;
 
 /// Feedback-driven driving and turning.
@@ -69,6 +73,7 @@ impl Default for Basic<Pid, AngularPid> {
     }
 }
 
+#[cfg(feature = "vex")]
 impl<L, A> Basic<L, A>
 where
     L: Feedback<State = f64, Signal = f64> + Unpin + Clone,
@@ -84,11 +89,11 @@ where
         &self,
         drivetrain: &'a mut M,
         target_distance: Length,
-        target_heading: UnitAngle,
+        target_heading: Angle,
     ) -> DriveFuture<'a, M, L, A> {
         DriveFuture {
             target_distance: target_distance.value,
-            target_heading: Angle::from_radians(target_heading.value),
+            target_heading,
             timeout: self.timeout,
             linear_tolerances: self.linear_tolerances,
             angular_tolerances: self.angular_tolerances,
@@ -111,11 +116,8 @@ where
         distance: Length,
     ) -> DriveFuture<'a, M, L, A> {
         drivetrain.refresh_localization();
-        self.drive_distance_at_heading(
-            drivetrain,
-            distance,
-            UnitAngle::new::<radian>(drivetrain.localization().heading().as_radians()),
-        )
+        let heading = drivetrain.localization().heading();
+        self.drive_distance_at_heading(drivetrain, distance, heading)
     }
 
     /// Turns the robot in place to face a heading.
@@ -125,7 +127,7 @@ where
     >(
         &self,
         drivetrain: &'a mut M,
-        heading: UnitAngle,
+        heading: Angle,
     ) -> DriveFuture<'a, M, L, A> {
         self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
     }

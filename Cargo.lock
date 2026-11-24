@@ -218,7 +218,6 @@ name = "ozton-control"
 version = "0.4.0"
 dependencies = [
  "ozton-math",
- "vexide",
 ]
 
 [[package]]
@@ -246,7 +245,6 @@ dependencies = [
  "ozton-diagnostics",
  "ozton-math",
  "ozton-tracking",
- "vexide",
 ]
 
 [[package]]

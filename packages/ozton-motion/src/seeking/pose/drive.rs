@@ -14,8 +14,9 @@ use ozton_math::{
     uom::si::f64::Velocity,
 };
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssist};
-use ozton_tracking::Tracking;
-use vexide::{competition::CompetitionMode, smart::PortError};
+use ozton_tracking::{Tracking, sampling::LocalizationMode};
+
+type DriveOutputError = <Differential as Drive>::Error;
 
 type TrackedDrive = Drivetrain<Differential, Tracking, DifferentialLocalization>;
 type AssistedTrackedDrive<'a, A> =
@@ -23,8 +24,8 @@ type AssistedTrackedDrive<'a, A> =
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
-    Output(PortError),
-    Brake(PortError),
+    Output(DriveOutputError),
+    Brake(DriveOutputError),
     InvalidCommand,
 }
 
@@ -84,7 +85,7 @@ impl PoseDrive for TrackedDrive {
 
     fn sample(&mut self) -> Result<Option<Feedback>, Self::Error> {
         self.localization
-            .set_competition_mode(CompetitionMode::Autonomous);
+            .set_competition_mode(LocalizationMode::Autonomous);
         update_localization(&mut self.localization, &mut self.tracking)
             .map_err(DriveMotionFault::Tracking)
     }

@@ -5,21 +5,25 @@ pub mod curvature;
 pub mod holonomic;
 pub mod tank;
 
+#[cfg(feature = "vex")]
 pub mod assists;
 pub mod basic;
 pub mod pursuit;
+#[cfg(feature = "vex")]
 pub mod seeking;
 
 pub use arcade::Arcade;
 pub use basic::{Basic, differential::DriveTuning};
 use defaults::{AUTON_POSITION_TOLERANCE, AUTON_SETTLE_TIME, AUTON_SPEED_TOLERANCE};
 pub use holonomic::Holonomic;
+#[cfg(feature = "vex")]
 pub use seeking::pose::PoseSeeking;
 pub use tank::Tank;
 mod defaults;
 pub use curvature::CurvatureDrive;
 use ozton_control::{Tolerances, axis::Linear};
 pub use pursuit::PurePursuit;
+#[cfg(feature = "vex")]
 pub use seeking::Seeking;
 
 const LINEAR_SETTLING: Tolerances<Linear> = Tolerances::new()
@@ -45,6 +49,7 @@ pub enum MotionError<E> {
     OutputAndStop { output: E, stop: E },
 }
 
+#[cfg(feature = "vex")]
 fn finish_motion<E>(
     stopped: Result<(), E>,
     outcome: MotionOutcome,
@@ -52,6 +57,7 @@ fn finish_motion<E>(
     stopped.map(|()| outcome).map_err(MotionError::Stop)
 }
 
+#[cfg(feature = "vex")]
 fn motion_output_error<E>(output: E, stopped: Result<(), E>) -> MotionError<E> {
     match stopped {
         Ok(()) => MotionError::Output(output),

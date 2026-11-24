@@ -8,6 +8,7 @@ pub mod curve;
 pub mod geometry;
 pub mod localization;
 pub mod path;
+pub mod units;
 
 pub use uom;
 /// Scales down the values in an array so that none exceed a given maximum magnitude.

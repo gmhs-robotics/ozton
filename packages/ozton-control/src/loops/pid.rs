@@ -1,11 +1,11 @@
 use core::time::Duration;
 use std::ops::{Deref, DerefMut};
 
-use vexide::math::Angle;
+use ozton_math::uom::{ConstZero, si::f64::Angle};
 
 use super::{Feedback, Pid};
 
-/// Vexide angle adapter for the hardware-independent PID.
+/// Angle adapter for the hardware-independent PID.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AngularPid(Pid);
 
@@ -20,7 +20,7 @@ macro_rules! forward_setters {
 impl AngularPid {
     pub const fn new(kp: f64, ki: f64, kd: f64, integration_range: Option<Angle>) -> Self {
         let range = match integration_range {
-            Some(angle) => Some(angle.as_radians()),
+            Some(angle) => Some(angle.value),
             None => None,
         };
         Self(Pid::new(kp, ki, kd, range))
@@ -28,14 +28,17 @@ impl AngularPid {
 
     pub const fn integration_range(&self) -> Option<Angle> {
         match self.0.integration_range() {
-            Some(range) => Some(Angle::from_radians(range)),
+            Some(range) => Some(Angle {
+                value: range,
+                ..Angle::ZERO
+            }),
             None => None,
         }
     }
 
     pub const fn set_integration_range(&mut self, range: Option<Angle>) {
         self.0.set_integration_range(match range {
-            Some(angle) => Some(angle.as_radians()),
+            Some(angle) => Some(angle.value),
             None => None,
         });
     }
@@ -67,7 +70,6 @@ impl Feedback for AngularPid {
     type Signal = f64;
 
     fn update(&mut self, measurement: Angle, setpoint: Angle, dt: Duration) -> f64 {
-        self.0
-            .update_angular(measurement.as_radians(), setpoint.as_radians(), dt)
+        self.0.update_angular(measurement.value, setpoint.value, dt)
     }
 }

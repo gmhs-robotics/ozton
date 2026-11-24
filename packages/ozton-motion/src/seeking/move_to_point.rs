@@ -12,17 +12,17 @@ use ozton_control::{
     loops::{Feedback, Pid},
 };
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::uom::si::{
-    f64::{Length, Velocity},
-    length::meter,
-    velocity::meter_per_second,
+use ozton_math::{
+    geometry::{bearing, wrap_heading},
+    uom::si::{
+        angle::radian,
+        f64::{Angle, Length, Velocity},
+        length::meter,
+        velocity::meter_per_second,
+    },
 };
+use ozton_runtime::clock::{Sleep, sleep};
 use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
-use vexide::{
-    math::Angle,
-    smart::motor::Motor,
-    time::{Sleep, sleep},
-};
 
 use crate::Arcade;
 
@@ -109,9 +109,7 @@ where
         let distance_error = local_target.length();
         let feedback_error = if !this.target_point.is_finite() {
             Some(crate::MotionError::InvalidTarget)
-        } else if !distance_error.is_finite()
-            || !heading.as_radians().is_finite()
-            || !velocity.is_finite()
+        } else if !distance_error.is_finite() || !heading.value.is_finite() || !velocity.is_finite()
         {
             Some(crate::MotionError::InvalidFeedback)
         } else {
@@ -150,21 +148,19 @@ where
             (0.0, 0.0)
         } else {
             let drive_heading = if this.reverse {
-                heading + Angle::from_radians(std::f64::consts::PI)
+                heading + Angle::new::<radian>(std::f64::consts::PI)
             } else {
                 heading
             };
-            let angle_error = (drive_heading
-                - Angle::from_radians(ozton_math::geometry::bearing(local_target).value))
-            .wrapped_half();
+            let angle_error = wrap_heading(drive_heading - bearing(local_target));
             // Keep steering authority close to the goal and when facing away from it.
-            let steering_error = angle_error.as_radians() * distance_error.max(0.5);
+            let steering_error = angle_error.value * distance_error.max(0.5);
             let angular = this.lateral_controller.update(-steering_error, 0.0, dt);
             let direction = if this.reverse { -1.0 } else { 1.0 };
             let linear = this
                 .linear_controller
                 .update(-direction * distance_error, 0.0, dt);
-            let alignment = (2.0 * angle_error.cos() - 1.0).max(0.0);
+            let alignment = (2.0 * angle_error.value.cos() - 1.0).max(0.0);
             (linear * alignment * alignment, angular)
         };
 
@@ -335,7 +331,7 @@ where
 
     /// Sets the linear output limit in volts for V5 motors.
     pub const fn with_linear_voltage_limit(&mut self, volts: f64) -> &mut Self {
-        self.with_linear_output_limit(volts / Motor::V5_MAX_VOLTAGE)
+        self.with_linear_output_limit(volts / ozton_drivetrain::model::Differential::MAX_V5_VOLTAGE)
     }
 
     /// Removes this motion's linear output limit.

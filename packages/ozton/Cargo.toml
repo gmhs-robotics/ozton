@@ -27,10 +27,10 @@ ozton-localization = { workspace = true }
 ozton-control = { workspace = true }
 ozton-diagnostics = { workspace = true }
 ozton-runtime = { workspace = true }
-ozton-drivetrain = { workspace = true }
+ozton-drivetrain = { workspace = true, features = ["vex"] }
 ozton-math = { workspace = true }
-ozton-motion = { workspace = true }
-ozton-tracking = { workspace = true }
+ozton-motion = { workspace = true, features = ["vex"] }
+ozton-tracking = { workspace = true, features = ["vex"] }
 
 [features]
 logging = ["ozton-runtime/logging", "ozton-localization/logging", "ozton-motion/logging"]

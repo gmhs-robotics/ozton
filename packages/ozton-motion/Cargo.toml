@@ -16,18 +16,28 @@ workspace = true
 ozton-path-io = { workspace = true }
 ozton-localization = { workspace = true }
 glam = { workspace = true }
-vexide = { workspace = true }
 ozton-control = { workspace = true }
-ozton-runtime = { workspace = true }
+ozton-runtime = { workspace = true, optional = true }
 ozton-drivetrain = { workspace = true }
 ozton-math = { workspace = true }
 ozton-tracking = { workspace = true }
 
 [dev-dependencies]
+vexide = { workspace = true }
 vex-sdk-mock = "0.2.0"
 
 [features]
-logging = ["ozton-runtime/logging"]
+default = ["vex"]
+vex = ["dep:ozton-runtime", "ozton-drivetrain/vex", "ozton-localization/vex", "ozton-tracking/vex"]
+logging = ["vex", "ozton-runtime/logging"]
+
+[[test]]
+name = "mock_robot_e2e"
+required-features = ["vex"]
+
+[[test]]
+name = "tracking_startup"
+required-features = ["vex"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

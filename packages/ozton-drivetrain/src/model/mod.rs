@@ -6,13 +6,19 @@
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
+#[cfg(feature = "vex")]
 mod differential;
+#[cfg(feature = "vex")]
 mod mecanum;
 
+#[cfg(feature = "vex")]
 pub use differential::Differential;
+#[cfg(feature = "vex")]
 pub use mecanum::Mecanum;
 
-pub use crate::{DriveConfigError, WheelFeedback, WheelGearing, WheelSpeedError};
+pub use crate::WheelFeedback;
+#[cfg(feature = "vex")]
+pub use crate::{DriveConfigError, WheelGearing, WheelSpeedError};
 
 /// Normalized robot-relative actuation. Positive Y drives forward, positive X
 /// strafes right on holonomic drives, and positive turn rotates right.
