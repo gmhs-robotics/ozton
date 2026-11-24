@@ -37,6 +37,12 @@ impl<T: AsRef<[Motor]> + AsMut<[Motor]>> MotorStorage for RefCell<T> {
 pub struct SharedMotors(Rc<dyn MotorStorage>);
 
 impl SharedMotors {
+    fn from_storage(storage: Rc<dyn MotorStorage>) -> Self {
+        #[cfg(feature = "logging")]
+        register(&storage);
+        Self(storage)
+    }
+
     pub fn borrow(&self) -> Ref<'_, [Motor]> {
         self.0.borrow()
     }
@@ -57,13 +63,13 @@ impl SharedMotors {
 
 impl<const N: usize> From<Rc<RefCell<[Motor; N]>>> for SharedMotors {
     fn from(motors: Rc<RefCell<[Motor; N]>>) -> Self {
-        Self(motors)
+        Self::from_storage(motors)
     }
 }
 
 impl FromIterator<Motor> for SharedMotors {
     fn from_iter<I: IntoIterator<Item = Motor>>(motors: I) -> Self {
-        Self(Rc::new(RefCell::new(
+        Self::from_storage(Rc::new(RefCell::new(
             motors.into_iter().collect::<Box<[_]>>(),
         )))
     }
@@ -75,4 +81,44 @@ macro_rules! shared_motors {
     ($($motor:expr),* $(,)?) => {
         ::std::rc::Rc::new(::std::cell::RefCell::new([$($motor),*]))
     };
+}
+
+#[cfg(feature = "logging")]
+std::thread_local! {
+    static GROUPS: RefCell<Vec<std::rc::Weak<dyn MotorStorage>>> = RefCell::new(Vec::new());
+}
+
+#[cfg(feature = "logging")]
+fn register(storage: &Rc<dyn MotorStorage>) {
+    let weak = Rc::downgrade(storage);
+    GROUPS.with(|groups| {
+        let mut groups = groups.borrow_mut();
+        groups.retain(|entry| entry.strong_count() != 0);
+        if !groups.iter().any(|entry| entry.ptr_eq(&weak)) {
+            groups.push(weak);
+        }
+    });
+}
+
+/// Snapshot software command state without constructing another Motor or
+/// reading a borrowed group. The registry never keeps hardware alive.
+#[cfg(feature = "logging")]
+pub(crate) fn command_targets() -> [Option<vexide::smart::motor::MotorControl>; 21] {
+    use vexide::smart::SmartDevice;
+    let mut targets = [None; 21];
+    GROUPS.with(|groups| {
+        let mut groups = groups.borrow_mut();
+        groups.retain(|entry| {
+            let Some(storage) = entry.upgrade() else { return false };
+            if let Ok(motors) = storage.try_borrow() {
+                for motor in motors.iter() {
+                    if let Some(target) = targets.get_mut(usize::from(motor.port_number().saturating_sub(1))) {
+                        *target = Some(motor.target());
+                    }
+                }
+            }
+            true
+        });
+    });
+    targets
 }

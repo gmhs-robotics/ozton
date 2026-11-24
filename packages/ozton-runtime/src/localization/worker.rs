@@ -25,6 +25,8 @@ enum Sampling {
 /// Keeps the sampling task alive and synchronizes its gate before mode callbacks.
 pub struct LocalizationWorker {
     _task: Task<()>,
+    #[cfg(feature = "logging")]
+    _diagnostics: Rc<dyn Fn(crate::diagnostics::Frame)>,
     synchronize: Rc<dyn Fn(CompetitionMode, bool) -> bool>,
 }
 
@@ -40,6 +42,18 @@ impl LocalizationWorker {
         L: LocalizationInput<T> + 'static,
     {
         let state = drive.localization_state();
+        #[cfg(feature = "logging")]
+        let diagnostics = {
+            let state = state.clone();
+            let stamp = drive.diagnostic_stamp();
+            crate::diagnostics::register(move |frame| {
+                let Some(state) = state.upgrade() else { return };
+                let Ok(state) = state.try_borrow() else { return };
+                if crate::diagnostics::claim_drive_sample(&stamp, frame.time) {
+                    state.1.report(&state.0, frame);
+                }
+            })
+        };
         let sampling = Cell::new(Sampling::Running);
         let previous_activation = Cell::new(None);
         let synchronize = Rc::new(move |mode, sample| {
@@ -101,6 +115,8 @@ impl LocalizationWorker {
         });
         Self {
             _task: task,
+            #[cfg(feature = "logging")]
+            _diagnostics: diagnostics,
             synchronize,
         }
     }

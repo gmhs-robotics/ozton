@@ -10,7 +10,7 @@ pub mod motor;
 mod robot;
 pub mod task;
 mod startup;
-pub use startup::run;
+pub use startup::{Application, run};
 pub use ozton_diagnostics::{log_event, log_row, profile};
 pub use ozton_ui::{menu, selector};
 

@@ -1,6 +1,6 @@
 //! One periodic hardware sampling task, independent of competition mode.
 
-use std::time::Instant;
+use std::{cell::RefCell, rc::{Rc, Weak}, time::Instant};
 
 use vexide::{
     competition,
@@ -8,7 +8,30 @@ use vexide::{
     time::sleep,
 };
 
-use super::{SD_SAMPLE_INTERVAL, Sample, Sampler};
+use super::{Frame, SD_SAMPLE_INTERVAL, Sample, Sampler};
+
+type Source = dyn Fn(Frame);
+
+std::thread_local! {
+    static SOURCES: RefCell<Vec<Weak<Source>>> = RefCell::new(Vec::new());
+}
+
+/// The owner retains the returned handle. Registration never holds a robot alive.
+pub(crate) fn register(source: impl Fn(Frame) + 'static) -> Rc<Source> {
+    let source: Rc<Source> = Rc::new(source);
+    SOURCES.with(|sources| sources.borrow_mut().push(Rc::downgrade(&source)));
+    source
+}
+
+fn sample_sources(frame: Frame) {
+    SOURCES.with(|sources| {
+        sources.borrow_mut().retain(|source| {
+            let Some(source) = source.upgrade() else { return false };
+            source(frame);
+            true
+        });
+    });
+}
 
 /// Sample connected hardware once per frame. No application reporters required.
 pub(crate) fn start_diagnostics() -> Task<()> {
@@ -28,6 +51,7 @@ pub(crate) fn start_diagnostics() -> Task<()> {
             }) {
                 let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
                 ozton_tracking::hardware::sample(frame.stamp);
+                sample_sources(frame);
             }
         }
     })

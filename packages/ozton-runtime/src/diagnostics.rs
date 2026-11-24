@@ -11,15 +11,17 @@ use vexide::smart::SmartDevice;
 #[cfg(feature = "logging")]
 mod background;
 #[cfg(feature = "logging")]
-pub(crate) use background::start_diagnostics;
+pub(crate) use background::{register, start_diagnostics};
 
+#[cfg(feature = "logging")]
 mod sd;
+#[cfg(feature = "logging")]
 pub(crate) use sd::{flush_sd_logging, start_sd_logging};
 
 pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(feature = "logging")]
-fn claim_drive_sample(stamp: &std::cell::Cell<Option<Duration>>, now: Duration) -> bool {
+pub(crate) fn claim_drive_sample(stamp: &std::cell::Cell<Option<Duration>>, now: Duration) -> bool {
     if stamp
         .get()
         .is_some_and(|last| now.saturating_sub(last) < SD_SAMPLE_INTERVAL)
@@ -343,7 +345,7 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, L>(
 }
 
 #[cfg(feature = "logging")]
-fn report_drive_feedback(
+pub(crate) fn report_drive_feedback(
     frame: Frame,
     feedback: [Option<ozton_drivetrain::WheelFeedback>; 2],
     diameter: Option<Length>,

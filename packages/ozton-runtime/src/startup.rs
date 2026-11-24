@@ -5,12 +5,9 @@ use std::{fmt::Display, future::Future, process::ExitCode};
 /// Initialize an application and run its competition runtime. Device construction
 /// belongs inside the async block so startup telemetry includes sensor calibration.
 /// No application-level panic hook, SD writer, or diagnostic task is needed.
-pub async fn run<R, E>(
-    initialize: impl Future<Output = Result<crate::Runtime<R>, E>>,
+pub async fn run<A: Application, E: Display>(
+    initialize: impl Future<Output = Result<A, E>>,
 ) -> ExitCode
-where
-    R: crate::OztonCompete,
-    E: Display,
 {
     let _startup = Startup::begin();
     #[cfg(feature = "logging")]
@@ -30,6 +27,28 @@ where
             eprintln!("Could not initialize robot ({error})");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// A completed competition application returned by the initialization block.
+/// Both custom robots and the typed robot builder implement this trait.
+#[allow(async_fn_in_trait)]
+pub trait Application {
+    async fn compete(self) -> !;
+}
+
+impl<R: crate::OztonCompete> Application for crate::Runtime<R> {
+    async fn compete(self) -> ! {
+        crate::Runtime::compete(self).await
+    }
+}
+
+impl<D, C, X, P, A, S> Application for crate::Robot<D, C, X, P, A, S>
+where
+    Self: crate::competition::CompetitionRobot + 'static,
+{
+    async fn compete(self) -> ! {
+        crate::Robot::compete(self).await
     }
 }
 

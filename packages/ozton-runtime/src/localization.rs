@@ -46,6 +46,10 @@ pub trait ScheduledLocalization {
 pub trait LocalizationInput<T> {
     fn sample(&mut self, tracking: &mut T);
     fn pause(&mut self);
+
+    #[cfg(feature = "logging")]
+    #[doc(hidden)]
+    fn report(&self, _tracking: &T, _frame: crate::diagnostics::Frame) {}
 }
 
 impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocalization {
@@ -56,6 +60,16 @@ impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocaliza
         drop(span);
         let _span = crate::profile::Span::new(crate::profile::Stage::Localization);
         let _ = self.update(sample, width);
+    }
+
+    #[cfg(feature = "logging")]
+    fn report(&self, tracking: &Tracking<S>, frame: crate::diagnostics::Frame) {
+        use crate::diagnostics::ComponentReport;
+        if let Some(source) = tracking.drive_wheels() {
+            crate::diagnostics::report_drive_feedback(frame, source.feedback(), Some(source.wheels().diameter()));
+        }
+        ComponentReport::report(self, frame);
+        tracking.report(frame);
     }
 
     fn pause(&mut self) {
