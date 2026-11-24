@@ -242,12 +242,55 @@ mod tests {
                 crate::position_xy!(20 in, 0 in) * sign + crate::position_xy!(0 in, -32 in),
                 Angle::default(),
             );
-            assert!(
-                field.contains_translation(
-                    start,
-                    crate::position_xy!(20 in, 0 in) * sign + crate::position_xy!(0 in, 32 in),
-                )
-            );
+            assert!(field.contains_translation(
+                start,
+                crate::position_xy!(20 in, 0 in) * sign + crate::position_xy!(0 in, 32 in),
+            ));
+        }
+    }
+
+    #[test]
+    fn two_obstacle_gap_and_figure_eight_have_swept_clearance() {
+        let chassis = Footprint::from_extents(
+            crate::qty!(7.55 in),
+            crate::qty!(7.55 in),
+            crate::qty!(7.761804 in),
+            crate::qty!(7.238196 in),
+        )
+        .unwrap();
+        let field = RectangularClearance::new(
+            chassis,
+            crate::position_xy!(36.75 in, 54.5 in),
+            crate::qty!(1 in),
+        )
+        .unwrap()
+        .with_obstacle(
+            crate::position_xy!(-2.5 in, 16.25 in),
+            crate::position_xy!(1.5 in, 20.25 in),
+        )
+        .unwrap()
+        .with_obstacle(
+            crate::position_xy!(-1.5 in, -20.25 in),
+            crate::position_xy!(2.5 in, -16.25 in),
+        )
+        .unwrap();
+        let east = crate::qty!(-90 deg);
+        let left = Pose::new(crate::position_xy!(-20 in, 0 in), east);
+        assert!(field.contains_translation(left, crate::position_xy!(20 in, 0 in)));
+        let start = Pose::new(crate::position_xy!(14 in, 0 in), east);
+        let mut pose = start;
+        for sign in [1.0, -1.0] {
+            for distance in [20.0, 28.0, 20.0, 28.0] {
+                let radius = crate::qty!(8 in);
+                let sweep = crate::qty!((90.0 * sign) deg);
+                let (min, max) = chassis.forward_arc_bounds(pose, radius, sweep).unwrap();
+                assert!(field.contains_aabb(min, max), "{pose:?}");
+                pose = forward_arc_end(pose, radius, sweep);
+                let end = pose.position + direction(pose.heading) * crate::qty!((distance) in).value;
+                assert!(field.contains_translation(pose, end), "{pose:?}");
+                pose.position = end;
+            }
+            assert!(pose.position.distance(start.position) < 1e-9);
         }
     }
 
