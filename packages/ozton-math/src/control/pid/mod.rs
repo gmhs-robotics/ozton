@@ -88,7 +88,7 @@ pub struct Pid {
 }
 
 impl Pid {
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.controller.reset();
     }
 
@@ -237,6 +237,48 @@ impl Pid {
     /// limiting the maximum speed of a robot's motion).
     pub const fn set_output_limit(&mut self, range: Option<f64>) {
         self.controller.output_limit = range;
+    }
+
+    #[must_use]
+    pub const fn with_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
+        self.set_gains(kp, ki, kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kp(mut self, kp: f64) -> Self {
+        self.set_kp(kp);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ki(mut self, ki: f64) -> Self {
+        self.set_ki(ki);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kd(mut self, kd: f64) -> Self {
+        self.set_kd(kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_integration_range(mut self, range: f64) -> Self {
+        self.set_integration_range(Some(range));
+        self
+    }
+
+    #[must_use]
+    pub const fn without_output_limit(mut self) -> Self {
+        self.set_output_limit(None);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_integration_range(mut self) -> Self {
+        self.set_integration_range(None);
+        self
     }
 
     /// Set the output limit while constructing a controller, including in constants.

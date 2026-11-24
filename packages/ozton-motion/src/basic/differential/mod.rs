@@ -135,14 +135,19 @@ pub struct DifferentialFeedback {
 }
 
 impl DifferentialFeedback {
-    pub fn new(tuning: DriveTuning) -> Self {
+    pub const fn new(tuning: DriveTuning) -> Self {
         Self {
             pid: MotionPid::new(tuning),
-            ..Self::default()
+            start_travel: None,
+            start_heading: None,
+            point_backing: None,
+            point_aligning: false,
+            config: crate::MotionConfig::DEFAULT,
+            last_wheels: [0.0; 2],
         }
     }
 
-    pub fn with_config(mut self, config: crate::MotionConfig) -> Self {
+    pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
         self.pid = MotionPid::new(config.tuning)
             .with_rate_filters(config.linear_rate_filter, config.angular_rate_filter);
         self.config = config;

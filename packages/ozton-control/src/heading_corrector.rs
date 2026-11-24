@@ -13,11 +13,11 @@ pub struct HeadingCorrector {
 }
 
 impl HeadingCorrector {
-    pub fn new(gain: f64, maximum_turn: f64) -> Self {
+    pub const fn new(gain: f64, maximum_turn: f64) -> Self {
         Self::with_pid(Pid::new(gain, 0.0, 0.0, None), maximum_turn)
     }
 
-    pub fn with_pid(mut controller: Pid, maximum_turn: f64) -> Self {
+    pub const fn with_pid(mut controller: Pid, maximum_turn: f64) -> Self {
         controller.reset();
         Self {
             target: None,

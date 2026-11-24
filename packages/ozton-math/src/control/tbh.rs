@@ -13,7 +13,7 @@ pub struct TakeBackHalf {
 
 impl TakeBackHalf {
     /// Creates a new TBH controller.
-    pub fn new(kh: f64) -> Self {
+    pub const fn new(kh: f64) -> Self {
         Self {
             kh,
             tbh: 0.0,
@@ -23,13 +23,19 @@ impl TakeBackHalf {
     }
 
     /// Returns the controller's integral gain (`kh`).
-    pub fn kh(&self) -> f64 {
+    pub const fn kh(&self) -> f64 {
         self.kh
     }
 
     /// Sets the controller's integral gain (`kh`).
-    pub fn set_kh(&mut self, kh: f64) {
+    pub const fn set_kh(&mut self, kh: f64) {
         self.kh = kh;
+    }
+
+    #[must_use]
+    pub const fn with_kh(mut self, value: f64) -> Self {
+        self.kh = value;
+        self
     }
 }
 

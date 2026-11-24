@@ -40,6 +40,48 @@ impl AngularPid {
         });
     }
 
+    #[must_use]
+    pub const fn with_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
+        self.set_gains(kp, ki, kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kp(mut self, kp: f64) -> Self {
+        self.set_kp(kp);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ki(mut self, ki: f64) -> Self {
+        self.set_ki(ki);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kd(mut self, kd: f64) -> Self {
+        self.set_kd(kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_integration_range(mut self, range: Angle) -> Self {
+        self.set_integration_range(Some(range));
+        self
+    }
+
+    #[must_use]
+    pub const fn without_output_limit(mut self) -> Self {
+        self.set_output_limit(None);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_integration_range(mut self) -> Self {
+        self.set_integration_range(None);
+        self
+    }
+
     /// Set the normalized output limit when declaring a controller.
     #[must_use]
     pub const fn with_output_limit(mut self, limit: f64) -> Self {

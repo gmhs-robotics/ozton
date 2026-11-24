@@ -24,7 +24,7 @@ impl ScalarPid {
         }
     }
 
-    pub(super) fn reset(&mut self) {
+    pub(super) const fn reset(&mut self) {
         self.integral = 0.0;
         self.prev_error = None;
         self.prev_measurement = None;

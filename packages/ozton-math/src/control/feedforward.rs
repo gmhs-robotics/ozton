@@ -104,6 +104,24 @@ impl<D: AxisDimension> MotorFeedforward<D> {
     pub const fn set_ka(&mut self, ka: f64) {
         self.ka = ka;
     }
+
+    #[must_use]
+    pub const fn with_ks(mut self, value: ElectricPotential) -> Self {
+        self.ks = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kv(mut self, value: f64) -> Self {
+        self.kv = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ka(mut self, value: f64) -> Self {
+        self.ka = value;
+        self
+    }
 }
 
 impl<D: AxisDimension> Feedforward for MotorFeedforward<D> {
@@ -217,6 +235,30 @@ impl ArmFeedforward {
     pub const fn set_ka(&mut self, ka: f64) {
         self.ka = ka;
     }
+
+    #[must_use]
+    pub const fn with_ks(mut self, value: ElectricPotential) -> Self {
+        self.ks = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kg(mut self, value: ElectricPotential) -> Self {
+        self.kg = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kv(mut self, value: f64) -> Self {
+        self.kv = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ka(mut self, value: f64) -> Self {
+        self.ka = value;
+        self
+    }
 }
 
 impl Feedforward for ArmFeedforward {
@@ -323,6 +365,30 @@ impl ElevatorFeedforward {
     /// Sets the controller's acceleration constant (`ka`).
     pub const fn set_ka(&mut self, ka: f64) {
         self.ka = ka;
+    }
+
+    #[must_use]
+    pub const fn with_ks(mut self, value: ElectricPotential) -> Self {
+        self.ks = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kg(mut self, value: ElectricPotential) -> Self {
+        self.kg = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_kv(mut self, value: f64) -> Self {
+        self.kv = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ka(mut self, value: f64) -> Self {
+        self.ka = value;
+        self
     }
 }
 

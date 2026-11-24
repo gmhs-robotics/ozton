@@ -86,6 +86,202 @@ impl MotionConfig {
         terminal_arc_correction_limit: ozton_math::units::angular_velocity!(0.5, radian_per_second),
     };
 
+    pub const fn new() -> Self {
+        Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_tuning(mut self, value: DriveTuning) -> Self {
+        self.tuning = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_wheel_speed(mut self, value: Velocity) -> Self {
+        self.wheel_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_acceleration(mut self, value: Acceleration) -> Self {
+        self.acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_deceleration(mut self, value: Acceleration) -> Self {
+        self.deceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lateral_acceleration(mut self, value: Acceleration) -> Self {
+        self.lateral_acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_speed(mut self, value: AngularVelocity) -> Self {
+        self.angular_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_acceleration(mut self, value: f64) -> Self {
+        self.angular_acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_deceleration(mut self, value: f64) -> Self {
+        self.angular_deceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_rate_filter(mut self, value: Duration) -> Self {
+        self.linear_rate_filter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_rate_filter(mut self, value: Duration) -> Self {
+        self.angular_rate_filter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_position_tolerance(mut self, value: Length) -> Self {
+        self.position_tolerance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_heading_tolerance(mut self, value: Angle) -> Self {
+        self.heading_tolerance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_velocity_tolerance(mut self, value: Velocity) -> Self {
+        self.velocity_tolerance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_velocity_tolerance(mut self, value: AngularVelocity) -> Self {
+        self.angular_velocity_tolerance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_settle(mut self, value: Duration) -> Self {
+        self.settle = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_period(mut self, value: Duration) -> Self {
+        self.period = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_gap(mut self, value: Duration) -> Self {
+        self.maximum_gap = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_progress_timeout(mut self, value: Duration) -> Self {
+        self.progress_timeout = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_stage_timeout(mut self, value: Duration) -> Self {
+        self.stage_timeout = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_clearance(mut self, value: Length) -> Self {
+        self.clearance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_departure_reserve(mut self, value: Length) -> Self {
+        self.departure_reserve = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_departure_speed(mut self, value: Velocity) -> Self {
+        self.departure_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lookahead(mut self, value: Length) -> Self {
+        self.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ramsete_b(mut self, value: f64) -> Self {
+        self.ramsete_b = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ramsete_zeta(mut self, value: f64) -> Self {
+        self.ramsete_zeta = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_realign_enter(mut self, value: Angle) -> Self {
+        self.realign_enter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_realign_exit(mut self, value: Angle) -> Self {
+        self.realign_exit = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_heading(mut self, value: Angle) -> Self {
+        self.reversal_heading = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_distance_factor(mut self, value: f64) -> Self {
+        self.reversal_distance_factor = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_yaw_rate(mut self, value: AngularVelocity) -> Self {
+        self.reversal_yaw_rate = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
+        self.arc_correction_limit = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_terminal_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
+        self.terminal_arc_correction_limit = value;
+        self
+    }
+
     pub fn valid(self) -> bool {
         self.tuning.valid()
             && [
@@ -128,7 +324,7 @@ impl MotionConfig {
             && self.stage_timeout >= self.period
     }
 
-    pub fn options(self, track_width: Length) -> DriveOptions {
+    pub const fn options(self, track_width: Length) -> DriveOptions {
         DriveOptions::differential(track_width, self.wheel_speed).with_settling(
             self.position_tolerance,
             self.heading_tolerance,
@@ -149,7 +345,7 @@ impl MotionConfig {
         )
     }
 
-    pub fn follower(self) -> crate::pursuit::profiled::Follower {
+    pub const fn follower(self) -> crate::pursuit::profiled::Follower {
         crate::pursuit::profiled::Follower::Ramsete {
             b: self.ramsete_b,
             zeta: self.ramsete_zeta,

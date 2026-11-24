@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{DVec2, Pose},
-    uom::si::f64::{Angle, Length, Velocity},
+    uom::si::f64::{Acceleration, Angle, AngularVelocity, Length, Velocity},
 };
 
 use crate::{
     basic::differential::{DriveOptions, DriveTuning},
-    defaults::{AUTON_SPEED, AUTON_STAGE_TIMEOUT},
+    defaults::AUTON_STAGE_TIMEOUT,
 };
 
 mod approach;
@@ -45,22 +45,15 @@ pub struct PoseSeeking {
 
 impl Default for PoseSeeking {
     fn default() -> Self {
-        Self {
-            tuning: DriveTuning::STANDARD,
-            wheel_speed: Velocity {
-                value: 0.50,
-                ..AUTON_SPEED
-            },
-            position_tolerance: None,
-            heading_tolerance: None,
-            travel: None,
-            stage_timeout: AUTON_STAGE_TIMEOUT,
-            config: crate::MotionConfig::default(),
-        }
+        Self::new()
     }
 }
 
 impl PoseSeeking {
+    pub const fn new() -> Self {
+        Self::from_config(crate::MotionConfig::DEFAULT)
+    }
+
     /// Declare a reusable motion primitive directly from physical motion settings.
     pub const fn from_config(config: crate::MotionConfig) -> Self {
         Self {
@@ -75,7 +68,7 @@ impl PoseSeeking {
     }
 
     /// Effective settings, including changes made through individual modifiers.
-    pub fn config(self) -> crate::MotionConfig {
+    pub const fn config(self) -> crate::MotionConfig {
         self.effective_config()
     }
 
@@ -118,14 +111,206 @@ impl PoseSeeking {
         self
     }
 
-    pub(super) fn effective_config(self) -> crate::MotionConfig {
+    pub(super) const fn effective_config(self) -> crate::MotionConfig {
         let mut config = self.config;
         config.tuning = self.tuning;
         config.wheel_speed = self.wheel_speed;
-        config.position_tolerance = self.position_tolerance.unwrap_or(config.position_tolerance);
-        config.heading_tolerance = self.heading_tolerance.unwrap_or(config.heading_tolerance);
+        config.position_tolerance = match self.position_tolerance { Some(value) => value, None => config.position_tolerance };
+        config.heading_tolerance = match self.heading_tolerance { Some(value) => value, None => config.heading_tolerance };
         config.stage_timeout = self.stage_timeout;
         config
+    }
+
+    #[must_use]
+    pub const fn with_acceleration(mut self, value: Acceleration) -> Self {
+        self.config.acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_deceleration(mut self, value: Acceleration) -> Self {
+        self.config.deceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lateral_acceleration(mut self, value: Acceleration) -> Self {
+        self.config.lateral_acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_speed(mut self, value: AngularVelocity) -> Self {
+        self.config.angular_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_acceleration(mut self, value: f64) -> Self {
+        self.config.angular_acceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_deceleration(mut self, value: f64) -> Self {
+        self.config.angular_deceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_rate_filter(mut self, value: Duration) -> Self {
+        self.config.linear_rate_filter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_rate_filter(mut self, value: Duration) -> Self {
+        self.config.angular_rate_filter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_period(mut self, value: Duration) -> Self {
+        self.config.period = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_gap(mut self, value: Duration) -> Self {
+        self.config.maximum_gap = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_progress_timeout(mut self, value: Duration) -> Self {
+        self.config.progress_timeout = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_departure_reserve(mut self, value: Length) -> Self {
+        self.config.departure_reserve = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lookahead(mut self, value: Length) -> Self {
+        self.config.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ramsete_b(mut self, value: f64) -> Self {
+        self.config.ramsete_b = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_ramsete_zeta(mut self, value: f64) -> Self {
+        self.config.ramsete_zeta = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_realign_enter(mut self, value: Angle) -> Self {
+        self.config.realign_enter = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_realign_exit(mut self, value: Angle) -> Self {
+        self.config.realign_exit = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_heading(mut self, value: Angle) -> Self {
+        self.config.reversal_heading = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_distance_factor(mut self, value: f64) -> Self {
+        self.config.reversal_distance_factor = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reversal_yaw_rate(mut self, value: AngularVelocity) -> Self {
+        self.config.reversal_yaw_rate = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
+        self.config.arc_correction_limit = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_terminal_arc_correction_limit(mut self, value: AngularVelocity) -> Self {
+        self.config.terminal_arc_correction_limit = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_controller(mut self, controller: ozton_math::control::Pid) -> Self {
+        self.tuning.linear = controller;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
+        self.tuning.linear.set_gains(kp, ki, kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_ki(mut self, ki: f64) -> Self {
+        self.tuning.linear.set_ki(ki);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_kd(mut self, kd: f64) -> Self {
+        self.tuning.linear.set_kd(kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
+        self.tuning.linear.set_integration_range(Some(range.value));
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_controller(mut self, controller: ozton_math::control::Pid) -> Self {
+        self.tuning.angular = controller;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_gains(mut self, kp: f64, ki: f64, kd: f64) -> Self {
+        self.tuning.angular.set_gains(kp, ki, kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_ki(mut self, ki: f64) -> Self {
+        self.tuning.angular.set_ki(ki);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_kd(mut self, kd: f64) -> Self {
+        self.tuning.angular.set_kd(kd);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_integration_range(mut self, range: Angle) -> Self {
+        self.tuning.angular.set_integration_range(Some(range.value));
+        self
     }
 
     pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {

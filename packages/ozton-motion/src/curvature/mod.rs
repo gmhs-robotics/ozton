@@ -53,7 +53,7 @@ impl CurvatureDrive {
     ///   overshooting
     /// * `turn_sensitivity` - Affects sensitivity of turning power, can be used to slow down or
     ///   speed up turning.
-    pub fn new(
+    pub const fn new(
         turn_nonlinearity: f64,
         deadzone: f64,
         slew: f64,
@@ -72,6 +72,36 @@ impl CurvatureDrive {
             negative_inertia_accumulator: 0.0,
             quick_stop_accumulator: 0.0,
         }
+    }
+
+    #[must_use]
+    pub const fn with_turn_nonlinearity(mut self, value: f64) -> Self {
+        self.turn_nonlinearity = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_deadzone(mut self, value: f64) -> Self {
+        self.deadzone = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_slew(mut self, value: f64) -> Self {
+        self.slew = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_negative_inertia_scalar(mut self, value: f64) -> Self {
+        self.negative_inertia_scalar = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_turn_sensitivity(mut self, value: f64) -> Self {
+        self.turn_sensitivity = value;
+        self
     }
 
     /// Runs the Curvature Drive algorithm, updates the internal state, and powers the drivetrain.

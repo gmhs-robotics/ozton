@@ -10,14 +10,14 @@ pub use ozton_runtime::drive_assist::{
 pub struct HeadingHoldAssist(HeadingCorrector);
 
 impl HeadingHoldAssist {
-    pub fn new(gain: f64, maximum_turn: f64) -> Self {
+    pub const fn new(gain: f64, maximum_turn: f64) -> Self {
         Self::with_pid(
             Pid::new(gain, 0.12 * gain, 0.03 * gain, Some(0.15)),
             maximum_turn,
         )
     }
 
-    pub fn with_pid(pid: Pid, maximum_turn: f64) -> Self {
+    pub const fn with_pid(pid: Pid, maximum_turn: f64) -> Self {
         Self(HeadingCorrector::with_pid(pid, maximum_turn))
     }
 }
@@ -58,7 +58,7 @@ pub struct AntiTipAssist {
 }
 
 impl AntiTipAssist {
-    pub fn new(axis: TiltAxis, controller: AntiTip) -> Self {
+    pub const fn new(axis: TiltAxis, controller: AntiTip) -> Self {
         Self { axis, controller }
     }
 }

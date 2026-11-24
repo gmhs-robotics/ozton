@@ -12,7 +12,30 @@ pub struct Ramsete {
     pub zeta: f64,
 }
 
+impl Default for Ramsete {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Ramsete {
+    pub const fn new() -> Self {
+        Self { b: 2.0, zeta: 0.7 }
+    }
+
+    #[must_use]
+    pub const fn with_b(mut self, b: f64) -> Self {
+        self.b = b;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_zeta(mut self, zeta: f64) -> Self {
+        self.zeta = zeta;
+        self
+    }
+
+
     /// Desired forward velocity (m/s) and angular velocity (rad/s) for this pose and path sample.
     pub fn twist(self, pose: Pose, reference: PathSample, reverse: bool) -> (f64, f64) {
         let sign = if reverse { -1.0 } else { 1.0 };

@@ -17,6 +17,22 @@ impl DriveTuning {
         angular: Pid::new(2.2, 0.3, 0.12, Some(0.24)),
     };
 
+    pub const fn new() -> Self {
+        Self::STANDARD
+    }
+
+    #[must_use]
+    pub const fn with_linear_controller(mut self, controller: Pid) -> Self {
+        self.linear = controller;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_controller(mut self, controller: Pid) -> Self {
+        self.angular = controller;
+        self
+    }
+
     pub fn valid(self) -> bool {
         [self.linear, self.angular].into_iter().all(|pid| {
             let (kp, ki, kd) = pid.gains();
