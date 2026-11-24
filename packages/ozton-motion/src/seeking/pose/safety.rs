@@ -1,8 +1,6 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
 use ozton_localization::Feedback;
-use ozton_math::{
-    geometry::DVec2, path::clearance::RectangularClearance, qty,
-};
+use ozton_math::{geometry::DVec2, path::clearance::RectangularClearance, qty};
 use ozton_runtime::log_row;
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
@@ -65,8 +63,16 @@ pub(super) fn limit_wall_command(
     let w = (wheels[1] - wheels[0]) / options.track_width.value;
     let delay = reaction(config) + config.wall_preview.as_secs_f64();
     let clear = |scale| {
-        bounds(field, feedback, v * scale, w * scale, uncertainty, delay, config)
-            .is_some_and(|(min, max)| field.contains_aabb(min, max))
+        bounds(
+            field,
+            feedback,
+            v * scale,
+            w * scale,
+            uncertainty,
+            delay,
+            config,
+        )
+        .is_some_and(|(min, max)| field.contains_aabb(min, max))
     };
     if clear(1.0) {
         return wheels;
@@ -157,7 +163,12 @@ mod tests {
         };
         assert!(!safe_feedback(field, sample(0.88620), config, [0.0; 3]));
         assert!(safe_feedback(field, sample(0.549), config, [0.0; 3]));
-        assert!(!safe_feedback(field, sample(0.549), config, [0.0, 0.2, 0.0]));
+        assert!(!safe_feedback(
+            field,
+            sample(0.549),
+            config,
+            [0.0, 0.2, 0.0]
+        ));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
         let mut near = sample(0.549);
         near.pose.position.x = 0.55;
@@ -170,7 +181,9 @@ mod tests {
     fn diagonal_lateral_and_angular_sweep_cannot_cancel() {
         let f = field();
         let pose = Pose::new(DVec2::new(0.5, 0.0), qty!(-45 deg));
-        let (min, max) = f.braking_bounds(pose, [0.0, 0.4], [-0.4, 0.0], qty!(30 deg)).unwrap();
+        let (min, max) = f
+            .braking_bounds(pose, [0.0, 0.4], [-0.4, 0.0], qty!(30 deg))
+            .unwrap();
         assert!(!f.wall_contains_aabb(min, max));
     }
 }

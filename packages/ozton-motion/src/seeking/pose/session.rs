@@ -7,7 +7,10 @@ use ozton_math::{
 };
 use ozton_runtime::{clock::CommandClock, competition::autonomous_active, log_row};
 
-use super::{PoseDrive, PoseMotionError, safety::{limit_wall_command, safe_feedback}};
+use super::{
+    PoseDrive, PoseMotionError,
+    safety::{limit_wall_command, safe_feedback},
+};
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
@@ -149,11 +152,20 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let clearance = super::approach::clearance(self.drive, self.config.clearance)?;
             let uncertainty = self.drive.velocity_uncertainty();
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty)) {
+            if clearance
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
+            {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
-            let wheels = limit_wall_command(clearance, feedback, wheels, self.options, self.config, uncertainty);
+            let wheels = limit_wall_command(
+                clearance,
+                feedback,
+                wheels,
+                self.options,
+                self.config,
+                uncertainty,
+            );
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
             if complete {
@@ -263,7 +275,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::UntrustedPose);
             }
             let uncertainty = self.drive.velocity_uncertainty();
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty)) {
+            if clearance
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
+            {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(
@@ -321,7 +335,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - progress.distance(), false)
             };
-            let wheels = limit_wall_command(clearance, feedback, wheels, options, self.config, uncertainty);
+            let wheels = limit_wall_command(
+                clearance,
+                feedback,
+                wheels,
+                options,
+                self.config,
+                uncertainty,
+            );
             if phase_changed {
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;

@@ -81,7 +81,9 @@ impl Seeking {
         lateral_braking: Acceleration,
         sigma: f64,
     ) -> Self {
-        self.config = self.config.with_braking_model(latency, preview, lateral_braking, sigma);
+        self.config = self
+            .config
+            .with_braking_model(latency, preview, lateral_braking, sigma);
         self
     }
 

@@ -106,13 +106,14 @@ impl RectangularClearance {
             lateral_low = lateral_low.min(d);
             lateral_high = lateral_high.max(d);
         }
-        let travel = forward[0].abs().max(forward[1].abs())
-            + lateral[0].abs().max(lateral[1].abs());
-        let pad = DVec2::splat(
-            (self.footprint.turn_radius() + travel) * yaw.value.abs().min(2.0),
-        );
+        let travel =
+            forward[0].abs().max(forward[1].abs()) + lateral[0].abs().max(lateral[1].abs());
+        let pad = DVec2::splat((self.footprint.turn_radius() + travel) * yaw.value.abs().min(2.0));
         let (min, max) = self.footprint.bounds(pose);
-        Some((min + low + lateral_low - pad, max + high + lateral_high + pad))
+        Some((
+            min + low + lateral_low - pad,
+            max + high + lateral_high + pad,
+        ))
     }
 
     /// Check the perimeter independently of fixed obstacles.
