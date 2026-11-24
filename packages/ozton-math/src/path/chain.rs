@@ -1,6 +1,7 @@
 //! Continuous quintic Hermite paths with one velocity profile across all knots.
 
 use alloc::vec::Vec;
+
 use uom::si::f64::Length;
 
 use super::{Limits, MAX_POINTS, Path, PathError, Waypoint};
@@ -110,9 +111,8 @@ impl PathChain {
 
 #[cfg(test)]
 mod tests {
-    use crate::{position_xyh, qty};
-
     use super::*;
+    use crate::{position_xyh, qty};
 
     #[test]
     fn chain_passes_middle_knot_with_nonzero_speed() {

@@ -101,7 +101,9 @@ impl PoseEstimator for Mcl {
         let mut constraint_count = 0;
         for (sensor, report) in observations.sensors.iter().zip(observations.reports) {
             let Some(report) = report else { continue };
-            let Some(distance) = report.calibrated_distance else { continue };
+            let Some(distance) = report.calibrated_distance else {
+                continue;
+            };
             let hit = match report.constraint {
                 Ok(constraint) => constraint.hit,
                 // Edge and incidence gates protect the linearized wall fit, not
@@ -115,9 +117,11 @@ impl PoseEstimator for Mcl {
                 }
                 Err(_) => continue,
             };
-            if self.config.max_range_residual.is_some_and(|limit| {
-                (distance.value - hit.distance).abs() > limit.value
-            }) {
+            if self
+                .config
+                .max_range_residual
+                .is_some_and(|limit| (distance.value - hit.distance).abs() > limit.value)
+            {
                 continue;
             }
             let range = ozton_math::qty!((distance.value.max(hit.distance)) m);
@@ -128,8 +132,7 @@ impl PoseEstimator for Mcl {
                 sigma: ozton_math::qty!((range_sigma) m),
             };
             if let Ok(constraint) = report.constraint {
-                constraints[constraint_count] =
-                    (constraint, range_sigma * hit.incidence.abs());
+                constraints[constraint_count] = (constraint, range_sigma * hit.incidence.abs());
                 constraint_count += 1;
             }
             beams[count] = Beam {

@@ -41,9 +41,7 @@ impl ConvexPolygon {
             let a = vertices[i];
             let edge = vertices[(i + 1) % n] - a;
             if edge.length_squared() <= 1e-20
-                || vertices[..n]
-                    .iter()
-                    .any(|&p| edge.perp_dot(p - a) < -1e-12)
+                || vertices[..n].iter().any(|&p| edge.perp_dot(p - a) < -1e-12)
             {
                 return None;
             }
@@ -92,13 +90,12 @@ impl ConvexPolygon {
     }
 
     fn project(&self, axis: DVec2) -> (f64, f64) {
-        self.vertices().iter().fold(
-            (f64::INFINITY, f64::NEG_INFINITY),
-            |(min, max), vertex| {
+        self.vertices()
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), vertex| {
                 let value = vertex.dot(axis);
                 (min.min(value), max.max(value))
-            },
-        )
+            })
     }
 
     /// SAT between a convex obstacle and an oriented, translating rectangle.
@@ -147,7 +144,13 @@ impl ConvexPolygon {
     }
 
     pub fn intersects_aabb(&self, min: DVec2, max: DVec2, margin: f64) -> bool {
-        self.intersects_sweep((min + max) * 0.5, DVec2::X, (max - min) * 0.5, DVec2::ZERO, margin)
+        self.intersects_sweep(
+            (min + max) * 0.5,
+            DVec2::X,
+            (max - min) * 0.5,
+            DVec2::ZERO,
+            margin,
+        )
     }
 
     /// Exact circle/polygon distance test, including the interior.
@@ -214,7 +217,15 @@ mod tests {
         let triangle = ConvexPolygon::new(&[DVec2::ZERO, DVec2::X, DVec2::Y]).unwrap();
         assert!(!triangle.intersects_aabb(DVec2::splat(0.8), DVec2::splat(0.9), 0.0));
         assert!(triangle.intersects_aabb(DVec2::splat(0.4), DVec2::splat(0.6), 0.0));
-        assert!(triangle.clip_segment(DVec2::new(-0.1, 0.2), DVec2::new(1.1, 0.2), 0.0).is_some());
-        assert!(triangle.clip_segment(DVec2::new(0.8, 0.8), DVec2::ONE, 0.0).is_none());
+        assert!(
+            triangle
+                .clip_segment(DVec2::new(-0.1, 0.2), DVec2::new(1.1, 0.2), 0.0)
+                .is_some()
+        );
+        assert!(
+            triangle
+                .clip_segment(DVec2::new(0.8, 0.8), DVec2::ONE, 0.0)
+                .is_none()
+        );
     }
 }

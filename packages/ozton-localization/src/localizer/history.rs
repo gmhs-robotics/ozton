@@ -27,9 +27,10 @@ impl PoseHistory {
 
     pub(super) fn record(&mut self, time: Duration, pose: Pose) {
         while self.samples.len() >= HISTORY_CAPACITY
-            || self.samples.front().is_some_and(|&(old, _)| {
-                time.saturating_sub(old) > HISTORY_AGE
-            })
+            || self
+                .samples
+                .front()
+                .is_some_and(|&(old, _)| time.saturating_sub(old) > HISTORY_AGE)
         {
             self.samples.pop_front();
         }
@@ -55,12 +56,7 @@ impl PoseHistory {
     /// Express the physical sensor pose at acquisition in today's chassis
     /// frame. Raycasting this virtual mount at a current particle is equivalent
     /// to moving that particle backward by the measured relative odometry.
-    pub(super) fn sensor_mount(
-        &self,
-        time: Duration,
-        current: Pose,
-        mount: Pose,
-    ) -> Option<Pose> {
+    pub(super) fn sensor_mount(&self, time: Duration, current: Pose, mount: Pose) -> Option<Pose> {
         let past = self.at(time)?;
         Some(Pose::new(
             current.to_local(past.transform_point(mount.position)),
@@ -71,8 +67,9 @@ impl PoseHistory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use ozton_math::{geometry::DVec2, qty};
+
+    use super::*;
 
     #[test]
     fn delayed_beam_keeps_its_world_origin_and_bearing() {
@@ -85,8 +82,18 @@ mod tests {
         let aligned = history
             .sensor_mount(Duration::from_millis(10), current, mount)
             .unwrap();
-        assert!(current.transform_point(aligned.position).distance(mount.position) < 1e-12);
-        assert!(wrap_heading(current.heading + aligned.heading - mount.heading).value.abs() < 1e-12);
+        assert!(
+            current
+                .transform_point(aligned.position)
+                .distance(mount.position)
+                < 1e-12
+        );
+        assert!(
+            wrap_heading(current.heading + aligned.heading - mount.heading)
+                .value
+                .abs()
+                < 1e-12
+        );
         assert!(history.at(Duration::from_millis(5)).is_none());
         assert!(history.at(Duration::from_millis(40)).is_none());
     }

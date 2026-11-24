@@ -6,11 +6,11 @@ use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{DVec2, Pose},
-    path::clearance::Obstacles,
     localization::observation::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
     },
+    path::clearance::Obstacles,
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
