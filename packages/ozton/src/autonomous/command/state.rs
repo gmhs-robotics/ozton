@@ -26,6 +26,7 @@ pub(in crate::autonomous) struct Step {
     pub lost: bool,
     pub ready: bool,
     pub objective: Option<f64>,
+    pub terminal: bool,
 }
 
 trait WithSettle {
@@ -414,6 +415,7 @@ impl<'path> State<'path> {
             lost,
             ready,
             objective,
+            terminal: self.terminal,
         }
     }
 

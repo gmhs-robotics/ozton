@@ -388,6 +388,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             let mut output_retry_since = None;
             let mut progress_pose: Option<Pose> = None;
             let mut best_objective: Option<f64> = None;
+            let mut terminal_phase = false;
             let mut progress_elapsed = Duration::ZERO;
             loop {
                 let dt = self.clock.tick().await;
@@ -440,7 +441,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     active.robot.pause().map_err(CommandError::StopFailed)?;
                     state.pause();
                     progress_pose = None;
-                        best_objective = None;
+                    best_objective = None;
                     progress_elapsed = Duration::ZERO;
                     continue;
                 };
@@ -508,7 +509,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         if since.elapsed() < Duration::from_millis(300) {
                             state.pause();
                             progress_pose = None;
-                        best_objective = None;
+                            best_objective = None;
                             progress_elapsed = Duration::ZERO;
                             continue;
                         }
@@ -537,12 +538,17 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                             }
                             state.pause();
                             progress_pose = None;
-                        best_objective = None;
+                            best_objective = None;
                             progress_elapsed = Duration::ZERO;
                             continue;
                         }
                         Err(error) => return Err(CommandError::Robot(error)),
                     }
+                }
+                if terminal_phase != step.terminal {
+                    terminal_phase = step.terminal;
+                    best_objective = None;
+                    progress_elapsed = Duration::ZERO;
                 }
                 if let Some(objective) = step.objective {
                     let best = best_objective.get_or_insert(objective);
@@ -578,7 +584,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     }
                 } else {
                     progress_pose = None;
-                        best_objective = None;
+                    best_objective = None;
                     progress_elapsed = Duration::ZERO;
                 }
                 #[cfg(feature = "logging")]
