@@ -213,18 +213,26 @@ impl DifferentialFeedback {
                 let delta = *target - feedback.pose.position;
                 let distance = delta.length();
                 let reached = distance <= options.position_tolerance.value;
-                let heading = error_at(
-                    ozton_math::geometry::bearing(delta)
-                        + ozton_math::angle!(
-                            if *reverse { core::f64::consts::PI } else { 0.0 },
-                            rad
-                        ),
-                );
-                let sign = if *reverse { -1.0 } else { 1.0 };
-                let limit = if reached || heading.abs() > 0.9 {
+                let bearing = ozton_math::geometry::bearing(delta);
+                let opposite = ozton_math::angle!(180 deg);
+                let mut backing = *reverse;
+                let mut heading = error_at(if backing { bearing + opposite } else { bearing });
+                // A small overshoot can be corrected by backing up along the approach.
+                if distance <= 3.0 * options.position_tolerance.value
+                    && heading.abs() > ozton_math::angle!(135 deg).value
+                {
+                    backing = !backing;
+                    heading = error_at(if backing { bearing + opposite } else { bearing });
+                }
+                let sign = if backing { -1.0 } else { 1.0 };
+                let limit = if reached {
                     0.0
                 } else {
-                    maximum_speed.value * heading.cos()
+                    // Give steering priority so the chassis cannot drive a sustained
+                    // arc around the goal while it is still lining up.
+                    let alignment =
+                        (1.0 - heading.abs() / ozton_math::angle!(25 deg).value).clamp(0.0, 1.0);
+                    maximum_speed.value * alignment
                 };
                 let linear = self.pid.forward(distance * sign, forward_rate, limit, dt);
                 let turn = if reached {

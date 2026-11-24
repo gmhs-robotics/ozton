@@ -55,3 +55,32 @@ fn match_turn_settles_with_delayed_angular_response() {
 
     panic!("turn failed to settle within eight seconds (heading {heading}, yaw rate {yaw_rate})");
 }
+
+#[test]
+fn point_approach_turns_before_driving_at_the_logged_heading_error() {
+    let options =
+        DriveOptions::differential(length!(0.3292677692 m), velocity!(0.50, meter_per_second));
+    let tick = Duration::from_millis(10);
+    let (wheels, ready) = DifferentialFeedback::default().step(
+        DifferentialTarget::DriveToPoint {
+            target: DVec2::ZERO,
+            reverse: true,
+            maximum_speed: options.maximum_wheel_speed,
+        },
+        Feedback {
+            time: tick,
+            pose: Pose::new(DVec2::new(0.07375, 0.10689), angle!(0.08910 rad)),
+            forward_travel: Length::ZERO,
+            forward_velocity: Velocity::ZERO,
+            lateral_velocity: Velocity::ZERO,
+            angular_velocity: AngularVelocity::ZERO,
+            ranges: [None; _],
+            reset_accepted: false,
+        },
+        tick,
+        options,
+    );
+    assert!(!ready);
+    assert!(wheels[0].abs() > 0.01);
+    assert!((wheels[0] + wheels[1]).abs() < 1e-12, "{wheels:?}");
+}
