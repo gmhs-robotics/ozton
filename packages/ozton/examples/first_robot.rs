@@ -5,7 +5,10 @@ use ozton::{
     drivetrain::model::Differential,
     motion::Arcade,
     route,
-    runtime::{OztonCompete, Runtime, competition::{RobotRoute, Ui}},
+    runtime::{
+        OztonCompete, Runtime,
+        competition::{RobotRoute, Ui},
+    },
 };
 use vexide::{prelude::*, smart::PortError, time::sleep};
 
@@ -52,5 +55,8 @@ async fn main(p: Peripherals) {
         ),
         controller: p.primary_controller,
     };
-    Runtime::new(robot).with_ui(Ui::Brain(p.display)).compete().await;
+    Runtime::new(robot)
+        .with_ui(Ui::Brain(p.display))
+        .compete()
+        .await;
 }

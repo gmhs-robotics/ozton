@@ -60,7 +60,8 @@ impl PoseEstimator for Mcl {
     }
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
         self.yaw_rate = delta.heading.value.abs() / seconds;
-        let _span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MclPredict);
+        let _span =
+            ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MclPredict);
         self.filter.predict(delta);
         true
     }
@@ -78,7 +79,8 @@ impl PoseEstimator for Mcl {
             );
             return None;
         }
-        let _span = ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MclObserve);
+        let _span =
+            ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::MclObserve);
         let Observations { predicted, map, .. } = observations;
         let empty = Beam {
             mount: Pose {

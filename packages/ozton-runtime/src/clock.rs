@@ -30,7 +30,11 @@ impl CommandClock {
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.previous);
         self.previous = now;
-        crate::profile::record(crate::profile::Stage::ControlInterval, elapsed, self.period + Duration::from_millis(1));
+        crate::profile::record(
+            crate::profile::Stage::ControlInterval,
+            elapsed,
+            self.period + Duration::from_millis(1),
+        );
         elapsed
     }
 }

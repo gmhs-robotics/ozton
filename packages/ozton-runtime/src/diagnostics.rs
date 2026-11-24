@@ -22,7 +22,10 @@ pub const SD_SAMPLE_INTERVAL: Duration = Duration::from_millis(10);
 
 #[cfg(feature = "logging")]
 fn claim_drive_sample(stamp: &std::cell::Cell<Option<Duration>>, now: Duration) -> bool {
-    if stamp.get().is_some_and(|last| now.saturating_sub(last) < SD_SAMPLE_INTERVAL) {
+    if stamp
+        .get()
+        .is_some_and(|last| now.saturating_sub(last) < SD_SAMPLE_INTERVAL)
+    {
         return false;
     }
     stamp.set(Some(now));

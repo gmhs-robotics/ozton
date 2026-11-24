@@ -6,6 +6,8 @@ Tracking reads devices. Localization interprets the readings and estimates the r
 
 Create the motor groups once with shared_motors!, then use Differential::from_shared and DifferentialTracking::from_shared (or its calibrated constructors) so motor commands and encoders refer to the same devices. Give DifferentialTracking the actual wheel diameter, track width and gear ratios in motor order. An IMU and a lateral tracking wheel can improve the estimate.
 
+Distance trackers already carry a default acceptance gate, zero bias and 25 mm measurement noise. Construct them directly with `DistanceTracker::at_mount(sensor, mount)`; add `.with_bias(...)`, `.with_sigma(...)` or `.with_gate(...)` on that tracker only when calibration requires it.
+
 Register a flat tuple of sources with Tracking::new. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
 
 ```rust

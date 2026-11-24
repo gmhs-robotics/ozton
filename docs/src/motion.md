@@ -30,7 +30,7 @@ The robot must have room for these moves and a correct starting pose. The destin
 
 ## Configure once
 
-Use MotionConfig with PoseSeeking::with_config to choose wheel-speed limits, acceleration, deceleration, PID gains, settling criteria, clearance and timeouts. Keep these in your robot's own configuration file. Library defaults are starting points, not calibration results. The generic programmed Runner also accepts MotionConfig.
+Use MotionConfig with PoseSeeking::with_config to choose wheel-speed limits, acceleration, deceleration, PID gains, settling criteria, clearance and timeouts. Declare each controller with the gains and limits it uses. For example, `const BASIC: Basic<Pid, AngularPid> = Basic { /* controllers, tolerances and timeout */ };` creates a reusable primitive whose commands clone their own feedback state. Both PID types support `Pid::new(...).with_output_limit(limit)` in constants. `PoseSeeking::from_config(MotionConfig { ... })` is also const; use `..MotionConfig::DEFAULT` for settings you do not need to change. Avoid an application-wide tuning aggregate. Library defaults are starting points, not calibration results. The generic programmed Runner also accepts MotionConfig.
 
 A command finishes when its applicable error and velocity tolerances remain satisfied for the required settle duration. PoseSeeking returns an error on timeout, loss of feedback or insufficient clearance. Generic motion commands return MotionOutcome::Settled or MotionOutcome::TimedOut; check the outcome rather than assuming an Ok means the target was reached.
 

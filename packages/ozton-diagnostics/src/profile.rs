@@ -15,13 +15,25 @@ pub enum Stage {
     HardwareReport,
     SdFlush,
 }
+#[cfg(feature = "logging")]
 const STAGES: [Stage; 10] = [
-    Stage::Tracking, Stage::Localization, Stage::LocalizationLog, Stage::MclPredict,
-    Stage::MclObserve, Stage::MotionTick, Stage::ControlInterval, Stage::Planner,
-    Stage::HardwareReport, Stage::SdFlush,
+    Stage::Tracking,
+    Stage::Localization,
+    Stage::LocalizationLog,
+    Stage::MclPredict,
+    Stage::MclObserve,
+    Stage::MotionTick,
+    Stage::ControlInterval,
+    Stage::Planner,
+    Stage::HardwareReport,
+    Stage::SdFlush,
 ];
-const BOUNDS: [u64; 12] = [10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+#[cfg(any(feature = "logging", test))]
+const BOUNDS: [u64; 12] = [
+    10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000,
+];
 
+#[cfg(any(feature = "logging", test))]
 #[derive(Clone, Copy)]
 struct Stats {
     count: u64,
@@ -31,8 +43,15 @@ struct Stats {
     histogram: [u64; BOUNDS.len() + 1],
 }
 
+#[cfg(any(feature = "logging", test))]
 impl Stats {
-    const EMPTY: Self = Self { count: 0, total: 0, max: 0, over_budget: 0, histogram: [0; BOUNDS.len() + 1] };
+    const EMPTY: Self = Self {
+        count: 0,
+        total: 0,
+        max: 0,
+        over_budget: 0,
+        histogram: [0; BOUNDS.len() + 1],
+    };
 
     fn add(&mut self, micros: u64, budget: u64) {
         self.count = self.count.saturating_add(1);
@@ -56,7 +75,8 @@ impl Stats {
 }
 
 #[cfg(feature = "logging")]
-static STATS: std::sync::Mutex<[Stats; STAGES.len()]> = std::sync::Mutex::new([Stats::EMPTY; STAGES.len()]);
+static STATS: std::sync::Mutex<[Stats; STAGES.len()]> =
+    std::sync::Mutex::new([Stats::EMPTY; STAGES.len()]);
 
 /// Measure synchronous work, never hold a span across an await unless wall time is intended.
 #[must_use]
@@ -95,7 +115,9 @@ impl Drop for Span {
 #[inline]
 pub fn record(stage: Stage, elapsed: Duration, budget: Duration) {
     #[cfg(feature = "logging")]
-    if crate::serial::sd_enabled() && let Ok(mut stats) = STATS.try_lock() {
+    if crate::serial::sd_enabled()
+        && let Ok(mut stats) = STATS.try_lock()
+    {
         stats[stage as usize].add(
             elapsed.as_micros().min(u128::from(u64::MAX)) as u64,
             budget.as_micros().min(u128::from(u64::MAX)) as u64,
@@ -109,16 +131,30 @@ pub fn record(stage: Stage, elapsed: Duration, budget: Duration) {
 pub fn flush_summary() {
     #[cfg(feature = "logging")]
     {
-        if !crate::serial::sd_enabled() { return; }
+        if !crate::serial::sd_enabled() {
+            return;
+        }
         let snapshot = {
-            let Ok(mut stats) = STATS.try_lock() else { return; };
+            let Ok(mut stats) = STATS.try_lock() else {
+                return;
+            };
             core::mem::replace(&mut *stats, [Stats::EMPTY; STAGES.len()])
         };
         for (stage, stats) in STAGES.into_iter().zip(snapshot) {
-            if stats.count == 0 { continue; }
-            crate::log_row!(Trace, "PROFILE", "stage={stage:?},count={},total_us={},mean_us={:.2},max_us={},p95_upper_us={},over_budget={}",
-                stats.count, stats.total, stats.total as f64 / stats.count as f64,
-                stats.max, stats.p95_upper(), stats.over_budget);
+            if stats.count == 0 {
+                continue;
+            }
+            crate::log_row!(
+                Trace,
+                "PROFILE",
+                "stage={stage:?},count={},total_us={},mean_us={:.2},max_us={},p95_upper_us={},over_budget={}",
+                stats.count,
+                stats.total,
+                stats.total as f64 / stats.count as f64,
+                stats.max,
+                stats.p95_upper(),
+                stats.over_budget
+            );
         }
     }
 }
@@ -129,8 +165,12 @@ mod tests {
     #[test]
     fn percentile_and_deadline_counts() {
         let mut s = Stats::EMPTY;
-        for _ in 0..95 { s.add(120, 1000); }
-        for _ in 0..5 { s.add(12000, 1000); }
+        for _ in 0..95 {
+            s.add(120, 1000);
+        }
+        for _ in 0..5 {
+            s.add(12000, 1000);
+        }
         assert_eq!(s.count, 100);
         assert_eq!(s.max, 12000);
         assert_eq!(s.p95_upper(), 250);

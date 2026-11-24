@@ -95,7 +95,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut feedback_at = Instant::now();
         loop {
             let dt = self.tick().await?;
-            let _span = ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
+            let _span =
+                ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
             if started.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }
@@ -225,7 +226,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         );
         loop {
             let tick = self.tick().await?;
-            let _span = ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
+            let _span =
+                ozton_runtime::profile::Span::new(ozton_runtime::profile::Stage::MotionTick);
             if start.elapsed() >= timeout {
                 return Err(PoseMotionError::StageTimeout);
             }

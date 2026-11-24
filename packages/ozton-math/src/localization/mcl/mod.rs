@@ -36,14 +36,14 @@ impl Default for ParticleConfig {
 
 impl ParticleConfig {
     pub const DEFAULT: Self = Self {
-            count: 64,
-            seed: 1,
-            initial_spread: DVec3::new(0.09, 0.09, 0.03),
-            motion_noise: DVec3::new(0.04, 0.04, 0.03),
-            range_sigma: crate::length!(0.025 m),
-            outlier_weight: 0.08,
-            max_range_residual: None,
-            max_correction_yaw_rate: None,
+        count: 64,
+        seed: 1,
+        initial_spread: DVec3::new(0.09, 0.09, 0.03),
+        motion_noise: DVec3::new(0.04, 0.04, 0.03),
+        range_sigma: crate::length!(0.025 m),
+        outlier_weight: 0.08,
+        max_range_residual: None,
+        max_correction_yaw_rate: None,
     };
 }
 
