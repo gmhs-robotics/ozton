@@ -307,14 +307,26 @@ impl ClearanceConfig {
     }
 
     #[must_use]
-    pub const fn with_forward_braking(mut self, value: Option<Acceleration>) -> Self {
-        self.forward_braking = value;
+    pub const fn with_forward_braking(mut self, value: Acceleration) -> Self {
+        self.forward_braking = Some(value);
         self
     }
 
     #[must_use]
-    pub const fn with_yaw_braking(mut self, value: Option<AngularAcceleration>) -> Self {
-        self.yaw_braking = value;
+    pub const fn with_profile_forward_braking(mut self) -> Self {
+        self.forward_braking = None;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_yaw_braking(mut self, value: AngularAcceleration) -> Self {
+        self.yaw_braking = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_profile_yaw_braking(mut self) -> Self {
+        self.yaw_braking = None;
         self
     }
 

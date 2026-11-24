@@ -41,20 +41,73 @@ pub struct VelocityConfig {
 
 impl Default for VelocityConfig {
     fn default() -> Self {
-        Self {
-            acceleration_axes: [true; 2],
-            linear_process: 0.50,
-            angular_process: 2.0,
-            bias_process: 0.01,
-            wheel_rate_sigma: 0.08,
-            gyro_rate_sigma: 0.05,
-            travel_sigma: 0.0015,
-            heading_sigma: 0.002,
-        }
+        Self::DEFAULT
     }
 }
 
 impl VelocityConfig {
+    pub const DEFAULT: Self = Self {            acceleration_axes: [true; 2],
+        linear_process: 0.50,
+        angular_process: 2.0,
+        bias_process: 0.01,
+        wheel_rate_sigma: 0.08,
+        gyro_rate_sigma: 0.05,
+        travel_sigma: 0.0015,
+        heading_sigma: 0.002,
+    };
+
+    pub const fn new() -> Self {
+        Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_acceleration_axes(mut self, value: [bool; 2]) -> Self {
+        self.acceleration_axes = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_linear_process(mut self, value: f64) -> Self {
+        self.linear_process = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_angular_process(mut self, value: f64) -> Self {
+        self.angular_process = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_bias_process(mut self, value: f64) -> Self {
+        self.bias_process = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_wheel_rate_sigma(mut self, value: f64) -> Self {
+        self.wheel_rate_sigma = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_gyro_rate_sigma(mut self, value: f64) -> Self {
+        self.gyro_rate_sigma = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_travel_sigma(mut self, value: f64) -> Self {
+        self.travel_sigma = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_heading_sigma(mut self, value: f64) -> Self {
+        self.heading_sigma = value;
+        self
+    }
+
     pub fn valid(self) -> bool {
         [
             self.linear_process,

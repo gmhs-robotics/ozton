@@ -128,3 +128,15 @@ buffer and skips clearance testing candidates slower than an already valid best
 route. Path progress keeps a monotonic segment cursor instead of searching and
 interpolating full pose/time profiles for every closest-point projection. Terminal
 feedback skips the moving-reference calculation when it will not be used.
+
+## Composable motion configuration
+
+MotionConfig is a const-friendly collection of typed sub-configurations:
+DriveTuning, MotionLimits, RateFilters, SettlingConfig, MotionTiming,
+ClearanceConfig, PathConfig and ApproachConfig. Each supports defaults and
+const builder methods; configure only the differences from defaults. Pass a
+complete configuration with Seeking::with_config, or change one group with
+with_limits, with_safety, with_settling and the other group setters. Existing
+individual Seeking and MotionConfig builder methods remain available for
+small per-route overrides. The public fields are now grouped (for example,
+config.limits.wheel_speed and config.safety.forward_braking).

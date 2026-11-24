@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use ozton_control::loops::{AngularPid, Pid};
 use ozton_motion::{
-    Basic, MotionConfig, PurePursuit, pursuit::PursuitTerminalConfig, ramsete::Ramsete,
+    Basic, MotionConfig, MotionLimits, PurePursuit, pursuit::PursuitTerminalConfig, ramsete::Ramsete,
 };
 
 const PID: Pid = Pid::new(1.0, 0.0, 0.0, None)
@@ -21,10 +21,12 @@ const PURSUIT: PurePursuit = PurePursuit::new()
     .with_track_width(ozton_math::qty!(13 in))
     .with_lookahead_distance(ozton_math::qty!(6 in))
     .with_terminal_config(PursuitTerminalConfig::new().with_linear_controller(PID));
-const MOTION: MotionConfig = MotionConfig::new()
-    .with_acceleration(ozton_math::qty!(2.5 m/s^2))
-    .with_angular_acceleration(ozton_math::qty!(12 rad/s^2))
-    .with_wheel_speed(ozton_math::qty!(1.2 m/s));
+const MOTION: MotionConfig = MotionConfig::new().with_limits(
+    MotionLimits::new()
+        .with_acceleration(ozton_math::qty!(2.5 m/s^2))
+        .with_angular_acceleration(ozton_math::qty!(12 rad/s^2))
+        .with_wheel_speed(ozton_math::qty!(1.2 m/s)),
+);
 const RAMSETE: Ramsete = Ramsete::new().with_b(2.5).with_zeta(0.8);
 
 #[test]

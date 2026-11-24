@@ -27,18 +27,59 @@ pub struct DsrConfig {
 
 impl Default for DsrConfig {
     fn default() -> Self {
-        Self {
-            maximum_linear_velocity: ozton_math::qty!(0.025 m/s),
-            maximum_angular_velocity: ozton_math::qty!(0.06 rad/s),
-            maximum_position_drift: ozton_math::qty!(0.012 m),
-            maximum_heading_drift: ozton_math::qty!(0.02 rad),
-            stationary_duration: Duration::from_millis(120),
-            collection_duration: Duration::from_millis(45),
-        }
+        Self::DEFAULT
     }
 }
 
 impl DsrConfig {
+    pub const DEFAULT: Self = Self {            maximum_linear_velocity: ozton_math::qty!(0.025 m/s),
+        maximum_angular_velocity: ozton_math::qty!(0.06 rad/s),
+        maximum_position_drift: ozton_math::qty!(0.012 m),
+        maximum_heading_drift: ozton_math::qty!(0.02 rad),
+        stationary_duration: Duration::from_millis(120),
+        collection_duration: Duration::from_millis(45),
+    };
+
+    pub const fn new() -> Self {
+        Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_maximum_linear_velocity(mut self, value: Velocity) -> Self {
+        self.maximum_linear_velocity = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_angular_velocity(mut self, value: AngularVelocity) -> Self {
+        self.maximum_angular_velocity = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_position_drift(mut self, value: Length) -> Self {
+        self.maximum_position_drift = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_heading_drift(mut self, value: Angle) -> Self {
+        self.maximum_heading_drift = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_stationary_duration(mut self, value: Duration) -> Self {
+        self.stationary_duration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_collection_duration(mut self, value: Duration) -> Self {
+        self.collection_duration = value;
+        self
+    }
+
     pub fn valid(self) -> bool {
         [
             self.maximum_linear_velocity.value,
