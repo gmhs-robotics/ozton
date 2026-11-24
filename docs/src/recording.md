@@ -36,3 +36,9 @@ A long flush or planning spike may delay the next control tick. A high average i
 ## Format
 
 SESSION marks a new run. S rows define a schema ID, record kind and field names; R rows use that ID and list values. Uncompressed DBG records also occur. Schema 4 adds D rows: a hexadecimal change mask followed by only the changed values, with independent histories for named devices/ports. Full S/R keyframes are emitted after sync or recovery. All recorded timestamps and numeric precision are preserved; the decoder also reads schema 3. The writer keeps the file open, submits roughly 4 KiB per write, syncs about once a second and backs off after slow calls. SD_QUEUE reports backlog. Optional hardware sampling pauses under pressure and the bounded queue reserves space for operational records. No synchronous VEXos I/O call has a guaranteed latency. Preserve original logs so a later decoder can recover all available fields.
+
+Startup records enter the bounded memory buffer immediately. SD file opening
+runs on the writer task after the hardware initialization future has yielded,
+so synchronous card setup can overlap IMU calibration. The startup event reports
+elapsed application initialization and the SD event reports card-open duration.
+A failed card probe disables the SD sink; operational USB messages remain.

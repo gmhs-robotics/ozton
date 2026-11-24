@@ -218,13 +218,9 @@ impl Distances {
 }
 
 impl crate::TrackingSource for DistanceTracker {
-    fn initialize(&mut self) -> crate::SourceInitialization<'_> {
-        Some(Box::pin(async {
-            self.device.initialize().await;
-            Ok(())
-        }))
-    }
-
+    // Range sources are optional pose observations. A disconnected or slowly
+    // booting sensor must not delay Tracking::new. Runtime packet validation
+    // establishes readiness and requires a fresh packet before emitting data.
     fn sample(&mut self, sink: &mut crate::MeasurementSink<'_>) {
         self.device.poll(
             sink.time,
@@ -261,7 +257,17 @@ impl DistanceDevice {
         {
             self.clock = PacketClock::default();
         }
+        let first_poll = self.last_poll.is_none();
         let observation = self.capture(time, occluded);
+        if first_poll {
+            log_event!(
+                Info,
+                "distance",
+                "Port {} initial packet probe: {}",
+                self.sensor.port_number(),
+                if observation.is_ok() { "responsive" } else { "not ready" }
+            );
+        }
         if observation.is_err() {
             self.clock = PacketClock::default();
         }

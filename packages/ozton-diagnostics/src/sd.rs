@@ -36,6 +36,8 @@ struct Pending {
     file: Option<File>,
     #[cfg(target_os = "vexos")]
     probed: bool,
+    #[cfg(target_os = "vexos")]
+    prepared: bool,
 }
 
 static PENDING: Mutex<Pending> = Mutex::new(Pending {
@@ -53,6 +55,8 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     file: None,
     #[cfg(target_os = "vexos")]
     probed: false,
+    #[cfg(target_os = "vexos")]
+    prepared: false,
 });
 
 #[cfg(target_os = "vexos")]
@@ -66,7 +70,23 @@ pub(crate) fn enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
 
-/// Probe the card once per program run. A successful open enables enqueueing.
+/// Claim the startup writer and begin bounded in-memory recording before I/O.
+/// A second runtime startup must not create another writer.
+#[cfg(target_os = "vexos")]
+pub fn prepare_startup() -> bool {
+    let Ok(mut pending) = PENDING.lock() else {
+        return false;
+    };
+    if pending.prepared {
+        return false;
+    }
+    pending.prepared = true;
+    ENABLED.store(true, Ordering::Relaxed);
+    true
+}
+
+/// Open the card once, after device initialization has been polled.
+/// Early startup records are already queued.
 #[cfg(target_os = "vexos")]
 pub fn enable_at_startup() -> Option<io::Result<()>> {
     let mut pending = match PENDING.lock() {
@@ -77,11 +97,22 @@ pub fn enable_at_startup() -> Option<io::Result<()>> {
         return None;
     }
     pending.probed = true;
-    Some(open_log().map(|file| {
-        pending.bytes.reserve(BUFFER_BYTES);
-        pending.file = Some(file);
+    let result = if pending.file.is_some() {
+        Ok(())
+    } else {
+        open_log().map(|file| pending.file = Some(file))
+    };
+    if result.is_ok() {
+        let additional = BUFFER_BYTES.saturating_sub(pending.bytes.len());
+        pending.bytes.reserve(additional);
         ENABLED.store(true, Ordering::Relaxed);
-    }))
+    } else {
+        ENABLED.store(false, Ordering::Relaxed);
+        pending.bytes.clear();
+        pending.head = 0;
+        pending.reset_streams();
+    }
+    Some(result)
 }
 
 fn open_log() -> io::Result<File> {
@@ -137,6 +168,10 @@ pub fn flush_chunk(max_bytes: usize, sync: bool) -> io::Result<usize> {
     let mut pending = PENDING
         .try_lock()
         .map_err(|_| io::Error::other("SD log buffer unavailable"))?;
+    #[cfg(target_os = "vexos")]
+    if !enabled() {
+        return Ok(0);
+    }
     if pending.queued_bytes() == 0 && !sync {
         return Ok(0);
     }

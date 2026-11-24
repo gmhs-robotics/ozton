@@ -1,6 +1,6 @@
 //! Startup and periodic flushing for the firmware SD sink.
 
-/// Probe and start the SD writer before initializing devices. Keep the task
+/// Queue startup records immediately; open the card after device startup yields. Keep the task
 /// alive for the program. Competition also calls this for applications that
 /// leave SD initialization to the runtime.
 pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
@@ -9,19 +9,33 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
         use std::time::{Duration, Instant};
 
         use ozton_diagnostics::{log_event, sd};
-        match sd::enable_at_startup()? {
-            Ok(()) => log_event!(Info, "SD", "Recording all levels to {}", sd::PATH),
-            Err(error) => {
-                log_event!(
-                    Warn,
-                    "SD",
-                    "Could not open {} ({error}). USB logging active.",
-                    sd::PATH
-                );
-                return None;
-            }
+        if !sd::prepare_startup() {
+            return None;
         }
         Some(vexide::task::spawn(async {
+            // Give the caller's hardware initialization its first poll. The
+            // synchronous SD open can then overlap hardware IMU calibration.
+            vexide::time::sleep(Duration::from_millis(1)).await;
+            let started = Instant::now();
+            match sd::enable_at_startup() {
+                Some(Ok(())) => log_event!(
+                    Info,
+                    "SD",
+                    "Recording all levels to {} (open {} ms)",
+                    sd::PATH,
+                    started.elapsed().as_millis()
+                ),
+                Some(Err(error)) => {
+                    log_event!(
+                        Warn,
+                        "SD",
+                        "Could not open {} ({error}). USB logging active.",
+                        sd::PATH
+                    );
+                    return;
+                }
+                None => return,
+            }
             let mut failed = false;
             let mut last_sync = Instant::now();
             let mut last_summary = Instant::now();

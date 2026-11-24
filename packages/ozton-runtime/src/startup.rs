@@ -8,9 +8,9 @@ use std::{fmt::Display, future::Future, process::ExitCode};
 pub async fn run<A: Application, E: Display>(
     initialize: impl Future<Output = Result<A, E>>,
 ) -> ExitCode {
-    let _startup = Startup::begin();
     #[cfg(feature = "logging")]
     let started = std::time::Instant::now();
+    let _startup = Startup::begin();
     crate::log_event!(Info, "startup", "Initializing robot");
     match initialize.await {
         Ok(runtime) => {
@@ -18,7 +18,7 @@ pub async fn run<A: Application, E: Display>(
             crate::log_event!(
                 Info,
                 "startup",
-                "Robot ready in {:.2}s",
+                "Robot ready in {:.3}s",
                 started.elapsed().as_secs_f64()
             );
             runtime.compete().await
