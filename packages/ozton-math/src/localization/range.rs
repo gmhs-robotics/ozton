@@ -8,20 +8,45 @@ use uom::{
 
 use crate::geometry::{Pose, direction, rotation};
 
-/// A finite, stationary reflecting surface in the field plane.
+/// A finite reflecting face along an XY segment, with constant vertical extent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Surface {
     pub start: DVec2,
     pub end: DVec2,
+    pub height: Length,
+    pub base_height: Length,
 }
 
 impl Surface {
-    pub const fn new(start: DVec2, end: DVec2) -> Self {
-        Self { start, end }
+    /// A continuous face extending from the floor to the specified height.
+    pub const fn new(start: DVec2, end: DVec2, height: Length) -> Self {
+        Self {
+            start,
+            end,
+            height,
+            base_height: Length::ZERO,
+        }
+    }
+
+    /// Raise the entire face without changing its height (e.g. an elevated fixture).
+    pub const fn with_base_height(mut self, base_height: Length) -> Self {
+        self.base_height = base_height;
+        self
+    }
+
+    pub fn visible_at(self, height: Length) -> bool {
+        (self.base_height..self.base_height + self.height).contains(&height)
     }
 
     pub fn is_valid(self) -> bool {
-        self.start.is_finite() && self.end.is_finite() && self.start.distance(self.end) > 1e-6
+        self.start.is_finite()
+            && self.end.is_finite()
+            && self.start.distance(self.end) > 1e-6
+            && self.height.value.is_finite()
+            && self.height.value > 0.0
+            && self.base_height.value.is_finite()
+            && self.base_height.value >= 0.0
+            && (self.base_height + self.height).value.is_finite()
     }
 }
 
@@ -341,11 +366,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn surface_height_and_elevated_face_visibility() {
+        let wall = Surface::new(DVec2::ZERO, DVec2::X, crate::qty!(5.125 in));
+        assert!(wall.is_valid());
+        assert!(wall.visible_at(crate::qty!(3.61811 in)));
+        assert!(!wall.visible_at(crate::qty!(8.125 in)));
+        assert!(!wall.visible_at(crate::qty!(5.125 in)));
+        let raised = wall.with_base_height(crate::qty!(2 in));
+        assert!(!raised.visible_at(crate::qty!(1 in)));
+        assert!(raised.visible_at(crate::qty!(6 in)));
+        assert!(!Surface::new(DVec2::ZERO, DVec2::X, crate::qty!(0 in)).is_valid());
+    }
+
+    #[test]
     fn oblique_wall_only_constrains_normal() {
-        let surface = Surface {
-            start: DVec2::new(1.0, -1.0),
-            end: DVec2::new(1.0, 1.0),
-        };
+        let surface = Surface::new(
+            DVec2::new(1.0, -1.0),
+            DVec2::new(1.0, 1.0),
+            crate::qty!(1 m),
+        );
         let pose = Pose::new(
             crate::geometry::point(crate::qty!(0.1 m), crate::qty!(0.1 m)),
             crate::qty!(0.3 rad),

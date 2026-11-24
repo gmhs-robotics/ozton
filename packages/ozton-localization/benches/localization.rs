@@ -41,18 +41,22 @@ fn main() -> Result<(), &'static str> {
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(-1.8)),
             ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
             ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
             ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(1.8)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(1.8)),
             ozton_math::geometry::point(Length::new::<meter>(-1.8), Length::new::<meter>(-1.8)),
+            ozton_math::qty!(1 m),
         ),
     ];
     let sensors = [

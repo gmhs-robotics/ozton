@@ -229,6 +229,7 @@ async fn main(p: Peripherals) -> std::process::ExitCode {
             map: vec![Surface::new(
                 ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
                 ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
+                ozton::qty!(1 m),
             )],
             ranges: vec![DistanceTracker::at_mount(
                 DistanceSensor::new(p.port_8),

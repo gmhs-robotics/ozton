@@ -42,3 +42,5 @@ Application-owned robots can return LocalizationWorker::start from OztonCompete:
 Register the actual starting pose with drivetrain.localization_mut().set_pose(pose), and check its boolean result. The worker needs fresh samples before feedback becomes available. Pausing invalidates the old baseline. Do not use an unregistered or stale pose for field motion.
 
 In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
+
+A fixed wall is a single `Surface::new(start_xy, end_xy, height)` with a continuous vertical face from the floor to `height`. For an elevated fixture, use `.with_base_height(base)` on the same type. Sensor-height masks are resolved at localizer construction, so rays above or below the face cannot contribute to MCL or DSR. Planar ray-casting primitives still accept precomputed masks.

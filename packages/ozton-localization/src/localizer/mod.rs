@@ -132,7 +132,7 @@ impl<'a> Localizer<'a> {
         config: Config,
         pose: Pose,
         map: Cow<'a, [Surface]>,
-        sensors: Cow<'a, [RangeSensorConfig]>,
+        mut sensors: Cow<'a, [RangeSensorConfig]>,
     ) -> Option<Self> {
         if !config.odometry.is_valid()
             || !pose.is_finite()
@@ -142,6 +142,14 @@ impl<'a> Localizer<'a> {
             || sensors.iter().any(|sensor| !sensor.valid(&map))
         {
             return None;
+        }
+        // Resolve height eligibility once, including direct Localizer callers.
+        for sensor in sensors.to_mut() {
+            for (index, surface) in map.iter().enumerate() {
+                if !surface.visible_at(sensor.mount_height) {
+                    sensor.surface_mask &= !(1u128 << index);
+                }
+            }
         }
         let pose = Pose {
             heading: wrap_heading(pose.heading),

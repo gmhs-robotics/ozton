@@ -55,6 +55,7 @@ const MAP: [Surface; 2] = [
                 ..Length::ZERO
             },
         ),
+        ozton_math::qty!(1 m),
     ),
     Surface::new(
         ozton_math::geometry::point(
@@ -77,6 +78,7 @@ const MAP: [Surface; 2] = [
                 ..Length::ZERO
             },
         ),
+        ozton_math::qty!(1 m),
     ),
 ];
 const SENSOR: RangeSensorConfig = RangeSensorConfig {
@@ -406,10 +408,12 @@ fn surface_mask_excludes_an_ineligible_near_wall_without_hiding_relative_range()
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(0.5)),
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(0.5)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
+            ozton_math::qty!(1 m),
         ),
     ];
     let sensor = RangeSensorConfig {
@@ -501,10 +505,12 @@ fn redundant_conflicting_beams_reject_independent_of_sensor_order() {
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(-1.0)),
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(-1.0)),
+            ozton_math::qty!(1 m),
         ),
     ];
     for sensors in [[forward, opposite], [opposite, forward]] {
@@ -547,10 +553,12 @@ fn mcl_accepts_partial_height_maps_and_estimator_switch_preserves_trust() {
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(0.5)),
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(0.5)),
+            ozton_math::qty!(1 m),
         ),
         Surface::new(
             ozton_math::geometry::point(Length::new::<meter>(1.0), Length::new::<meter>(1.0)),
             ozton_math::geometry::point(Length::new::<meter>(-1.0), Length::new::<meter>(1.0)),
+            ozton_math::qty!(1 m),
         ),
     ];
     let sensors = [RangeSensorConfig {

@@ -49,10 +49,10 @@ impl Field {
         let right = self.max.right;
         let front = self.max.forward;
         [
-            Surface::new(point(left, rear), point(right, rear)),
-            Surface::new(point(right, rear), point(right, front)),
-            Surface::new(point(right, front), point(left, front)),
-            Surface::new(point(left, front), point(left, rear)),
+            Surface::new(point(left, rear), point(right, rear), self.max.up),
+            Surface::new(point(right, rear), point(right, front), self.max.up),
+            Surface::new(point(right, front), point(left, front), self.max.up),
+            Surface::new(point(left, front), point(left, rear), self.max.up),
         ]
     }
 
@@ -61,43 +61,17 @@ impl Field {
     }
 }
 
-/// One fixed planar face, with its visible height interval above the field floor.
-/// Represent curved or sloping fixtures by their surveyed cross-section bands.
-#[derive(Clone, Copy, Debug)]
-pub struct VerticalSurface {
-    pub surface: Surface,
-    pub bottom: Length,
-    pub top: Length,
-}
-
-impl VerticalSurface {
-    pub const fn new(surface: Surface, bottom: Length, top: Length) -> Self {
-        Self {
-            surface,
-            bottom,
-            top,
-        }
-    }
-
-    fn visible_at(self, height: Length) -> bool {
-        (self.bottom..self.top).contains(&height)
-    }
-}
-
 /// Fixed 2.5D field geometry. Heights are resolved once per sensor at assembly.
 #[derive(Default)]
 pub struct FieldMap {
-    faces: Vec<VerticalSurface>,
+    faces: Vec<Surface>,
     perimeter: Option<Field>,
 }
 
 impl From<Field> for FieldMap {
     fn from(field: Field) -> Self {
         Self {
-            faces: field
-                .surfaces()
-                .map(|surface| VerticalSurface::new(surface, field.min.up, field.max.up))
-                .into(),
+            faces: field.surfaces().into(),
             perimeter: Some(field),
         }
     }
@@ -111,12 +85,9 @@ impl FieldMap {
     }
 
     /// Add a surveyed surface. Leave movable game objects out of the fixed map.
-    pub fn add(&mut self, face: VerticalSurface) -> bool {
+    pub fn add(&mut self, face: Surface) -> bool {
         if self.faces.len() >= u128::BITS as usize
-            || !face.surface.is_valid()
-            || !face.bottom.value.is_finite()
-            || !face.top.value.is_finite()
-            || face.bottom >= face.top
+            || !face.is_valid()
         {
             return false;
         }
@@ -157,11 +128,12 @@ impl FieldMap {
         let start = self.faces.len();
         for (index, (x, y)) in corners.into_iter().enumerate() {
             let (end_x, end_y) = corners[(index + 1) % corners.len()];
-            let face = VerticalSurface::new(
-                Surface::new(center + point(x, y), center + point(end_x, end_y)),
-                bottom,
-                top,
-            );
+            let face = Surface::new(
+                center + point(x, y),
+                center + point(end_x, end_y),
+                top - bottom,
+            )
+            .with_base_height(bottom);
             if !self.add(face) {
                 self.faces.truncate(start);
                 return false;
@@ -171,7 +143,7 @@ impl FieldMap {
     }
 
     pub fn surfaces(&self) -> impl ExactSizeIterator<Item = Surface> + '_ {
-        self.faces.iter().map(|face| face.surface)
+        self.faces.iter().copied()
     }
 
     pub fn range_config(&self, mut mount: RangeSensorConfig) -> RangeSensorConfig {
