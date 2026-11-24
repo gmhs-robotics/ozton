@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use ozton_localization::Feedback;
 use ozton_math::{
@@ -93,6 +96,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
+        let mut safety_rate = SafetyRate::default();
         let mut last_feedback = None;
         let mut feedback_at = Instant::now();
         loop {
@@ -113,6 +117,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
+                safety_rate = SafetyRate::default();
                 if feedback_at.elapsed() > self.config.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
@@ -147,12 +152,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            if super::approach::clearance(self.drive, self.config.clearance)?
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config))
-            {
+            let clearance = super::approach::clearance(self.drive, self.config.clearance)?;
+            let forward = safety_rate.update(feedback);
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config)) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
+            let wheels = limit_wall_command(clearance, feedback, wheels, self.options, self.config);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
             if complete {
@@ -213,6 +219,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut no_progress = Duration::ZERO;
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
+        let mut safety_rate = SafetyRate::default();
         let end = path.end();
         let mut options = self.options;
         options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
@@ -261,7 +268,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !self.drive.pose_trusted() {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, self.config)) {
+            let forward = safety_rate.update(feedback);
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config)) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(
@@ -319,6 +327,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - progress.distance(), false)
             };
+            let wheels = limit_wall_command(clearance, feedback, wheels, options, self.config);
             if phase_changed {
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;
@@ -412,20 +421,111 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     }
 }
 
-fn safe_feedback(
-    field: ozton_math::path::clearance::RectangularClearance,
+// Motor encoder packet timing does not necessarily match the controller clock.
+// Estimate sustained forward speed from cumulative travel, not a single delta.
+const RATE_WINDOW: Duration = Duration::from_millis(50);
+const STOP_REACTION: f64 = 0.20;
+const COMMAND_REACTION: f64 = 0.35;
+
+#[derive(Default)]
+struct SafetyRate {
+    history: VecDeque<(Duration, f64)>,
+}
+
+impl SafetyRate {
+    fn update(&mut self, feedback: Feedback) -> f64 {
+        let raw = feedback.forward_velocity.value;
+        let time = feedback.time;
+        let travel = feedback.forward_travel.value;
+        if self
+            .history
+            .back()
+            .is_some_and(|(previous, _)| time <= *previous)
+        {
+            self.history.clear();
+        }
+        self.history.push_back((time, travel));
+        while self.history.len() > 2 && time.saturating_sub(self.history[1].0) >= RATE_WINDOW {
+            self.history.pop_front();
+        }
+        let Some(&(start, distance)) = self.history.front() else {
+            return raw;
+        };
+        let elapsed = time.saturating_sub(start);
+        if elapsed < Duration::from_millis(40) || elapsed > Duration::from_millis(100) {
+            return raw;
+        }
+        let average = (travel - distance) / elapsed.as_secs_f64();
+        if raw != 0.0 && average.signum() != raw.signum() {
+            return raw;
+        }
+        // Allow for acceleration and the lag of the finite observation window.
+        let reserve = 0.05;
+        average.signum() * (average.abs() + reserve).min(raw.abs().max(average.abs()))
+    }
+}
+
+fn stopping_envelope(
     feedback: Feedback,
+    v: f64,
+    w: f64,
+    reaction: f64,
     config: crate::MotionConfig,
-) -> bool {
-    let v = feedback.forward_velocity.value;
-    let w = feedback.angular_velocity.value;
-    let travel = v.signum() * (v * v / (2.0 * config.deceleration.value) + v.abs() * 0.15);
-    let yaw = w * 0.15 + w.signum() * w * w / (2.0 * config.angular_deceleration.value);
+) -> (ozton_math::geometry::DVec2, ozton_math::uom::si::f64::Angle) {
+    let travel = v.signum() * (v * v / (2.0 * config.deceleration.value) + v.abs() * reaction);
+    let yaw = w * reaction + w.signum() * w * w / (2.0 * config.angular_deceleration.value);
     let translation = ozton_math::geometry::direction(feedback.pose.heading) * travel
         + ozton_math::geometry::direction(feedback.pose.heading - ozton_math::qty!(90 deg))
             * feedback.lateral_velocity.value
-            * 0.15;
-    let rotation = ozton_math::qty!((yaw) rad);
+            * reaction;
+    (translation, ozton_math::qty!((yaw) rad))
+}
+
+/// Govern commanded speed before reaching the emergency stopping envelope.
+/// Scale both wheel targets together to retain their curvature.
+fn limit_wall_command(
+    field: Option<ozton_math::path::clearance::RectangularClearance>,
+    feedback: Feedback,
+    wheels: [f64; 2],
+    options: DriveOptions,
+    config: crate::MotionConfig,
+) -> [f64; 2] {
+    let Some(field) = field else {
+        return wheels;
+    };
+    let v = (wheels[0] + wheels[1]) * 0.5;
+    let w = (wheels[1] - wheels[0]) / options.track_width.value;
+    let clear = |scale| {
+        let (translation, yaw) =
+            stopping_envelope(feedback, v * scale, w * scale, COMMAND_REACTION, config);
+        field.wall_stop_clear(feedback.pose, translation, yaw)
+    };
+    if clear(1.0) {
+        return wheels;
+    }
+    let mut low = 0.0;
+    let mut high = 1.0;
+    for _ in 0..10 {
+        let middle = (low + high) * 0.5;
+        if clear(middle) {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    wheels.map(|speed| speed * low)
+}
+
+fn safe_feedback(
+    field: ozton_math::path::clearance::RectangularClearance,
+    feedback: Feedback,
+    v: f64,
+    config: crate::MotionConfig,
+) -> bool {
+    let w = feedback.angular_velocity.value;
+    let raw = feedback.forward_velocity.value;
+    let (translation, rotation) = stopping_envelope(feedback, v, w, STOP_REACTION, config);
+    let yaw = rotation.value;
     let reason = if !field.contains_pose(feedback.pose) {
         "current_footprint"
     } else if !field.wall_stop_clear(feedback.pose, translation, rotation) {
@@ -438,7 +538,7 @@ fn safe_feedback(
     log_row!(
         Warn,
         "CLEARANCE_FAULT",
-        "reason={reason},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={v:.5},yaw_radps={w:.5},stop_x_m={:.5},stop_y_m={:.5},stop_yaw_rad={yaw:.5}",
+        "reason={reason},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={v:.5},raw_forward_mps={raw:.5},yaw_radps={w:.5},stop_x_m={:.5},stop_y_m={:.5},stop_yaw_rad={yaw:.5}",
         feedback.pose.position.x,
         feedback.pose.position.y,
         feedback.pose.heading.value,
@@ -519,5 +619,60 @@ impl Progress {
             self.elapsed += dt;
         }
         self.elapsed >= timeout
+    }
+}
+
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+    use ozton_math::{
+        geometry::{DVec2, Pose},
+        path::clearance::{Footprint, RectangularClearance},
+        qty,
+    };
+
+    fn sample(ms: u64, travel: f64, raw: f64) -> Feedback {
+        Feedback {
+            time: Duration::from_millis(ms),
+            pose: Pose::new(DVec2::new(0.20411, -0.01730), qty!(-1.54347 rad)),
+            forward_travel: qty!((travel) m),
+            forward_velocity: qty!((raw) m/s),
+            lateral_velocity: qty!(0 m/s),
+            angular_velocity: qty!(0.10613 rad/s),
+            ranges: [None; _],
+            reset_accepted: false,
+        }
+    }
+
+    #[test]
+    fn packet_burst_does_not_inflate_stopping_distance() {
+        let mut rate = SafetyRate::default();
+        // Synthetic cumulative encoder sequence with the observed isolated spike.
+        for i in 0..5 {
+            rate.update(sample(i * 10, i as f64 * 0.00549, 0.549));
+        }
+        rate.update(sample(50, 0.024078, 0.2118));
+        let fault = sample(60, 0.03294, 0.88620);
+        let filtered = rate.update(fault);
+        assert!((0.5..0.68).contains(&filtered));
+        let field = RectangularClearance::new(
+            Footprint::new(qty!(15.1 in), qty!(15 in)).unwrap(),
+            DVec2::new(0.93345, 1.3843),
+            qty!(1 in),
+        )
+        .unwrap();
+        let config = crate::MotionConfig {
+            deceleration: qty!(0.55 m/s^2),
+            ..crate::MotionConfig::DEFAULT
+        };
+        assert!(!safe_feedback(field, fault, 0.88620, config));
+        assert!(safe_feedback(field, fault, filtered, config));
+        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
+        let mut near = fault;
+        near.pose.position.x = 0.55;
+        let limited = limit_wall_command(Some(field), near, [0.55; 2], options, config);
+        assert!(limited[0] > 0.0 && limited[0] < 0.55);
+        assert_eq!(limited[0], limited[1]);
     }
 }
