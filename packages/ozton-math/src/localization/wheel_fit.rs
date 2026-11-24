@@ -11,11 +11,15 @@ pub fn fit_wheel_motion(
     yaw: Option<Angle>,
     partial: bool,
 ) -> Option<BodyDelta> {
-    let yaw_scale = observations
-        .clone()
-        .map(|(row, _)| row.z.abs())
-        .fold(0.0, f64::max);
-    let yaw_scale = if yaw_scale > 0.0 { yaw_scale } else { 1.0 };
+    let yaw_scale = if yaw.is_some() {
+        1.0
+    } else {
+        let scale = observations
+            .clone()
+            .map(|(row, _)| row.z.abs())
+            .fold(0.0, f64::max);
+        if scale > 0.0 { scale } else { 1.0 }
+    };
     let mut normal = DMat3::ZERO;
     let mut rhs = DVec3::ZERO;
     for (mut row, mut travel) in observations {
@@ -33,10 +37,16 @@ pub fn fit_wheel_motion(
 
     let [xx, yy, zz] = [normal.x_axis.x, normal.y_axis.y, normal.z_axis.z];
     let translation = DMat2::from_cols(normal.x_axis.truncate(), normal.y_axis.truncate());
+    let planar_determinant = translation.determinant();
+    let full_planar_rank = planar_determinant > RANK_TOLERANCE * xx * yy;
+    let solve_planar = |rhs: DVec2| {
+        DVec2::new(yy * rhs.x - translation.y_axis.x * rhs.y,
+                   xx * rhs.y - translation.x_axis.y * rhs.x) / planar_determinant
+    };
     if let Some(heading) = yaw {
-        if translation.determinant() > RANK_TOLERANCE * xx * yy {
+        if full_planar_rank {
             return Some(BodyDelta {
-                translation: translation.inverse() * rhs.truncate(),
+                translation: solve_planar(rhs.truncate()),
                 heading,
             });
         }
@@ -53,7 +63,7 @@ pub fn fit_wheel_motion(
     }
     let heading = if let Some(heading) = yaw {
         heading.value
-    } else if translation.determinant() <= RANK_TOLERANCE * xx * yy {
+    } else if !full_planar_rank {
         // For parallel wheels, a difference in lever arms can still resolve yaw.
         let (along, cross, travel) = if xx >= yy {
             (xx, normal.z_axis.x, rhs.x)
@@ -71,8 +81,8 @@ pub fn fit_wheel_motion(
     };
 
     let rhs = rhs.truncate() - normal.z_axis.truncate() * (heading * yaw_scale);
-    let planar = if translation.determinant() > RANK_TOLERANCE * xx * yy {
-        translation.inverse() * rhs
+    let planar = if full_planar_rank {
+        solve_planar(rhs)
     } else {
         // The pseudoinverse of a rank-one normal matrix preserves the
         // measured component and contributes zero on the unobserved axis.

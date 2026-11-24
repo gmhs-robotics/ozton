@@ -147,7 +147,7 @@ impl RayFace {
             return None;
         }
         let distance = offset.perp_dot(self.segment) * sign;
-        if distance > 0.0 && distance < nearest * denominator {
+        if distance > 0.0 && distance <= nearest * denominator {
             let distance = distance / denominator;
             if distance.is_finite() {
                 return Some(distance);

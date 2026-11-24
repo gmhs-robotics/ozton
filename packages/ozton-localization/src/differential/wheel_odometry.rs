@@ -16,6 +16,7 @@ pub enum DriveWheels {
 /// Geometry and baselines are stored here. Sensor ownership stays with tracking.
 pub struct WheelOdometry {
     projections: Vec<DVec3>,
+    has_forward_projection: bool,
     previous: Vec<Option<Length>>,
     travel: Vec<Option<f64>>,
 }
@@ -23,10 +24,12 @@ pub struct WheelOdometry {
 impl WheelOdometry {
     pub fn new(projections: impl IntoIterator<Item = DVec3>) -> Self {
         let projections: Vec<_> = projections.into_iter().collect();
+        let has_forward_projection = projections.iter().any(|row| row.y.abs() > 1e-6);
         let previous = vec![None; projections.len()];
         let travel = vec![None; projections.len()];
         Self {
             projections,
+            has_forward_projection,
             previous,
             travel,
         }
@@ -35,7 +38,7 @@ impl WheelOdometry {
     /// A projected pod with a forward component may be a better forward source
     /// than drive-wheel velocity. Do not overwrite its fitted velocity.
     pub fn has_forward_projection(&self) -> bool {
-        self.projections.iter().any(|row| row.y.abs() > 1e-6)
+        self.has_forward_projection
     }
 
     pub fn observe(&mut self, positions: &[Option<Length>]) {
@@ -77,7 +80,12 @@ impl WheelOdometry {
             .copied()
             .zip(&self.travel)
             .filter_map(|(row, travel)| Some((row, (*travel)?)));
-        if let Some(movement) = fit_wheel_motion(pods.clone(), yaw, false) {
+        // A full-rank solution needs two independent rows with known yaw,
+        // or three without it. Avoid solving an underdetermined pod-only fit.
+        let required = if yaw.is_some() { 2 } else { 3 };
+        if self.travel.iter().filter(|travel| travel.is_some()).count() >= required
+            && let Some(movement) = fit_wheel_motion(pods.clone(), yaw, false)
+        {
             return movement;
         }
 
@@ -87,8 +95,8 @@ impl WheelOdometry {
             .flatten()
             .map(|(row, travel)| (row * 0.5, travel * 0.5));
         let observations = pods.chain(drive);
-        fit_wheel_motion(observations.clone(), yaw, false)
-            .or_else(|| fit_wheel_motion(observations.clone(), yaw, true))
+        // The partial-enabled solver already attempts the full-rank solution.
+        fit_wheel_motion(observations, yaw, true)
             .unwrap_or(BodyDelta {
                 translation: DVec2::ZERO,
                 heading: yaw.unwrap_or_default(),

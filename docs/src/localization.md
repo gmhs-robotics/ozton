@@ -120,3 +120,9 @@ all particles. Free-heading updates cache each particle orientation across
 beams. Translation-only moments avoid circular-heading computations; the
 Box-Muller sampler reuses both independent normal variates. These are algebraic
 work reductions, not changes to the range noise or particle count.
+
+Wheel odometry skips underdetermined pod-only fits, solves the combined system
+once (full-rank or partial as appropriate), and avoids yaw normalization when
+heading is independently known. MCL logs distinguish lack of a new range packet
+from missing modeled surfaces, residual and other measurement rejections. The
+fraction of ticks with no new packet is not an estimator failure rate.

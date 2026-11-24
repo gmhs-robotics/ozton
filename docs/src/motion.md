@@ -122,3 +122,9 @@ band, during braking, or when the safety governor requires it, the output can
 be below the configured minimum or zero. Profiled path tracking is unchanged
 until terminal feedback takes over. Characterize linear and rotational
 breakaway rates on the actual chassis rather than assuming universal values.
+
+Path construction reuses segment lengths, the Hermite planner reuses its waypoint
+buffer and skips clearance testing candidates slower than an already valid best
+route. Path progress keeps a monotonic segment cursor instead of searching and
+interpolating full pose/time profiles for every closest-point projection. Terminal
+feedback skips the moving-reference calculation when it will not be used.

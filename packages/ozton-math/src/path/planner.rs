@@ -37,21 +37,28 @@ pub fn plan(
         return None;
     }
     let mut best: Option<Maneuver> = None;
+    let start_direction = direction(start.heading) * distance;
+    let end_direction = direction(end.heading) * distance;
+    let minimum_derivative_squared = (distance * 0.015).powi(2);
+    let mut points = Vec::new();
     for reverse in [false, true] {
         if direction_preference.is_some_and(|value| value != reverse) {
             continue;
         }
         let sign = if reverse { -1.0 } else { 1.0 };
+        let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
         for first in [0.35, 0.65, 1.0, 1.5, 2.0] {
             for last in [0.35, 0.65, 1.0, 1.5, 2.0] {
-                let a = direction(start.heading) * (sign * distance * first);
-                let b = direction(end.heading) * (sign * distance * last);
+                let a = start_direction * (sign * first);
+                let b = end_direction * (sign * last);
                 let n =
                     (libm::ceil(distance * (1.0 + first + last) / 0.008) as usize).clamp(24, 240);
-                let mut points = Vec::with_capacity(n + 1);
+                points.clear();
+                points.reserve(n + 1);
+                let inverse_n = 1.0 / n as f64;
                 let mut valid = true;
                 for i in 0..=n {
-                    let t = i as f64 / n as f64;
+                    let t = i as f64 * inverse_n;
                     let t2 = t * t;
                     let t3 = t2 * t;
                     let position = start.position * (2.0 * t3 - 3.0 * t2 + 1.0)
@@ -61,7 +68,7 @@ pub fn plan(
                     let derivative = (start.position - end.position) * (6.0 * t2 - 6.0 * t)
                         + a * (3.0 * t2 - 4.0 * t + 1.0)
                         + b * (3.0 * t2 - 2.0 * t);
-                    if derivative.length() < distance * 0.015 {
+                    if derivative.length_squared() < minimum_derivative_squared {
                         valid = false;
                         break;
                     }
@@ -73,7 +80,10 @@ pub fn plan(
                 let Ok(path) = Path::new(&points, limits) else {
                     continue;
                 };
-                let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
+                // A slower candidate cannot displace an already valid best path.
+                if best.as_ref().is_some_and(|old| path.end().time >= old.path.end().time) {
+                    continue;
+                }
                 if wrap_heading(path.start().pose.heading + facing - start.heading)
                     .value
                     .abs()
@@ -90,12 +100,7 @@ pub fn plan(
                 {
                     continue;
                 }
-                if best
-                    .as_ref()
-                    .is_none_or(|old| path.end().time < old.path.end().time)
-                {
-                    best = Some(Maneuver { path, reverse });
-                }
+                best = Some(Maneuver { path, reverse });
             }
         }
     }

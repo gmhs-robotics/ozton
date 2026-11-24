@@ -108,22 +108,27 @@ impl PoseEstimator for Mcl {
             count += 1;
         }
         if count == 0 {
-            let no_surface = observations
-                .reports
-                .iter()
-                .flatten()
-                .filter(|report| report.constraint == Err(Rejection::NoSurface))
-                .count();
-            let residual = observations
-                .reports
-                .iter()
-                .flatten()
-                .filter(|report| report.constraint.is_ok())
-                .count();
+            let mut no_surface = 0;
+            let mut no_new_packet = 0;
+            let mut residual = 0;
+            let mut quality = 0;
+            for report in observations.reports.iter().flatten() {
+                match report.constraint {
+                    Ok(_) => residual += 1,
+                    Err(Rejection::NoSurface) => no_surface += 1,
+                    Err(Rejection::Missing | Rejection::Duplicate) => no_new_packet += 1,
+                    Err(_) => quality += 1,
+                }
+            }
+            let status = if no_surface == 0 && residual == 0 && quality == 0 {
+                "no_fresh_beams"
+            } else {
+                "no_consistent_beams"
+            };
             log_row!(
                 Trace,
                 "MCL",
-                "status=no_consistent_beams,beams=0,no_surface={no_surface},residual_rejected={residual}"
+                "status={status},beams=0,no_surface={no_surface},no_new_packet={no_new_packet},residual_rejected={residual},quality_rejected={quality}"
             );
             return None;
         }

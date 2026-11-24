@@ -93,29 +93,7 @@ pub fn command(
     let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
     let end = path.end();
     let limits = path.limits();
-    let (linear, angular) = match follower {
-        Follower::PurePursuit { lookahead } => {
-            let virtual_pose = Pose {
-                heading: pose.heading + facing,
-                ..pose
-            };
-            let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-            let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
-            let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
-            if target.y < 0.0 {
-                (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
-            } else {
-                (sign * speed, speed * pursuit_curvature(target))
-            }
-        }
-        Follower::Ramsete { b, zeta } => crate::ramsete::Ramsete { b, zeta }.twist(
-            pose,
-            path.at_time(Time::new::<second>(elapsed + dt)),
-            reverse,
-        ),
-    };
-    let terminal = is_terminal(progress, follower, sample, position_tolerance);
-    let (linear, angular) = if terminal {
+    let (linear, angular) = if is_terminal(progress, follower, sample, position_tolerance) {
         let error = pose.to_local(end.pose.position);
         let heading_error = wrap_heading(end.pose.heading + facing - pose.heading).value;
         let distance = error.length();
@@ -135,7 +113,27 @@ pub fn command(
             (0.0, 3.0 * heading_error)
         }
     } else {
-        (linear, angular)
+        match follower {
+        Follower::PurePursuit { lookahead } => {
+            let virtual_pose = Pose {
+                heading: pose.heading + facing,
+                ..pose
+                }
+            let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
+            if target.y < 0.0 {
+                (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
+            } else {
+                let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
+                let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
+                (sign * speed, speed * pursuit_curvature(target))
+            }
+        }
+        Follower::Ramsete { b, zeta } => crate::ramsete::Ramsete { b, zeta }.twist(
+            pose,
+            path.at_time(Time::new::<second>(elapsed + dt)),
+            reverse,
+        ),
+    };
     };
     desaturate(
         wheel_speeds(

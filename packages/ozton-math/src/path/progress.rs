@@ -10,6 +10,7 @@ use crate::geometry::circle_segment_fractions;
 pub struct Progress<'path> {
     path: &'path Path,
     distance: f64,
+    segment: usize,
 }
 
 impl<'path> Progress<'path> {
@@ -17,6 +18,7 @@ impl<'path> Progress<'path> {
         Self {
             path,
             distance: 0.0,
+            segment: 0,
         }
     }
 
@@ -32,13 +34,14 @@ impl<'path> Progress<'path> {
     pub fn update(&mut self, position: DVec2, advance_limit: Length) {
         let path = self.path;
         let maximum = self.distance + advance_limit.value.max(0.0);
-        let mut best_error = position.distance_squared(
-            path.at_distance(crate::qty!((self.distance) m))
-                .pose
-                .position,
-        );
+        let start = path.samples[self.segment];
+        let current = path.samples.get(self.segment + 1).map_or(start.pose.position, |end| {
+            let fraction = (self.distance - start.distance) / (end.distance - start.distance);
+            start.pose.position.lerp(end.pose.position, fraction)
+        });
+        let mut best_error = position.distance_squared(current);
         let mut best_distance = self.distance;
-        for pair in path.samples[self.segment(path)..].windows(2).take(64) {
+        for pair in path.samples[self.segment..].windows(2).take(64) {
             let (a, b) = (pair[0], pair[1]);
             if a.distance > maximum {
                 break;
@@ -56,18 +59,15 @@ impl<'path> Progress<'path> {
             }
         }
         self.distance = best_distance;
-    }
-
-    fn segment(&self, path: &Path) -> usize {
-        path.samples
-            .partition_point(|point| point.distance <= self.distance)
-            .saturating_sub(1)
+        while path.samples.get(self.segment + 1).is_some_and(|point| point.distance <= self.distance) {
+            self.segment += 1;
+        }
     }
 
     /// First forward intersection with a circle about the robot.
     pub fn lookahead(&self, position: DVec2, radius: f64) -> DVec2 {
         let path = self.path;
-        for pair in path.samples[self.segment(path)..].windows(2).take(128) {
+        for pair in path.samples[self.segment..].windows(2).take(128) {
             let (a, b) = (pair[0], pair[1]);
             let [_, exit] = circle_segment_fractions(
                 position,

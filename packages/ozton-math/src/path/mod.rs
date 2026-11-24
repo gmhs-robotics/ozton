@@ -111,7 +111,7 @@ impl Path {
         for (index, point) in points.iter().enumerate() {
             if !point.position.is_finite()
                 || !(0.0..=1.0).contains(&point.speed_fraction)
-                || (index > 0 && point.position.distance(points[index - 1].position) < 1e-6)
+                || (index > 0 && point.position.distance_squared(points[index - 1].position) < 1e-12)
             {
                 return Err(PathError::InvalidPoint(index));
             }
@@ -134,28 +134,35 @@ impl Path {
         };
         let mut samples: Vec<PathSample> = Vec::with_capacity(points.len());
         let last = points.len() - 1;
+        let mut incoming_length = 0.0;
         for (index, point) in points.iter().enumerate() {
             let before = points[index.saturating_sub(1)].position;
             let after = points[(index + 1).min(last)].position;
             let incoming = point.position - before;
             let outgoing = after - point.position;
             let chord = after - before;
-            let denominator = incoming.length() * outgoing.length() * chord.length();
+            let outgoing_length = outgoing.length();
+            let cross = incoming.perp_dot(outgoing);
+            let denominator = if index > 0 && index < last {
+                incoming_length * outgoing_length * chord.length()
+            } else {
+                0.0
+            };
             if index > 0
                 && index < last
                 && incoming.dot(outgoing) < 0.0
-                && incoming.perp_dot(outgoing).abs() < 1e-9
+                && cross.abs() < 1e-9
             {
                 return Err(PathError::InvalidPoint(index));
             }
             let curvature = if denominator > 0.0 {
-                2.0 * incoming.perp_dot(outgoing) / denominator
+                2.0 * cross / denominator
             } else {
                 0.0
             };
             let distance = samples
                 .last()
-                .map_or(0.0, |sample| sample.distance + incoming.length());
+                .map_or(0.0, |sample| sample.distance + incoming_length);
             let mut speed = (point.speed_fraction * limits.linear_speed.value).min(
                 limits.wheel_speed.value / (1.0 + curvature.abs() * limits.track_width.value / 2.0),
             );
@@ -171,7 +178,7 @@ impl Path {
                 speed = speed.min(reachable(
                     previous.speed,
                     limits.acceleration.value,
-                    incoming.length(),
+                    incoming_length,
                 ));
             }
             if !distance.is_finite() || !curvature.is_finite() {
@@ -184,6 +191,7 @@ impl Path {
                 speed,
                 time: 0.0,
             });
+            incoming_length = outgoing_length;
         }
         for index in (0..last).rev() {
             let next = samples[index + 1];
