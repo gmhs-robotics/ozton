@@ -82,7 +82,12 @@ impl<'a> PathActions<'a> {
         })
     }
 
-    pub(super) fn advance(&mut self, distance: f64, remaining: f64, arrived: bool) -> MechanismResult {
+    pub(super) fn advance(
+        &mut self,
+        distance: f64,
+        remaining: f64,
+        arrived: bool,
+    ) -> MechanismResult {
         for event in &mut self.events {
             let ready = match event.trigger {
                 Trigger::Distance(target) => arrived || distance >= target.value,

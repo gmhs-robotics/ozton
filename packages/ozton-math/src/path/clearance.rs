@@ -1,10 +1,10 @@
 //! Swept-footprint checks for arcs and in-place turns of a rectangular robot.
 mod polygon;
 mod rectangle;
-pub use polygon::{ConvexPolygon, MAX_OBSTACLES, MAX_POLYGON_VERTICES, Obstacles};
 use core::f64::consts::TAU;
 
 use glam::DVec2;
+pub use polygon::{ConvexPolygon, MAX_OBSTACLES, MAX_POLYGON_VERTICES, Obstacles};
 pub use rectangle::{AStar, DepartureArc, PointDeparture, RectangularClearance, approach_heading};
 use uom::si::f64::{Angle, Length};
 

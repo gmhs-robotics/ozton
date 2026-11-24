@@ -57,7 +57,13 @@ impl RectangularClearance {
         let right = crate::geometry::rotation(pose.heading);
         let center = pose.position + right.rotate(self.footprint.center_offset);
         self.obstacles.iter().flatten().all(|polygon| {
-            !polygon.intersects_sweep(center, right, self.footprint.half_extents, travel, self.margin)
+            !polygon.intersects_sweep(
+                center,
+                right,
+                self.footprint.half_extents,
+                travel,
+                self.margin,
+            )
         })
     }
 
@@ -192,9 +198,11 @@ impl RectangularClearance {
         let radius = self.footprint.turn_radius() + self.margin;
         pose.is_finite()
             && pose.position.abs().cmple(self.turn_area(0.0)).all()
-            && self.obstacles.iter().flatten().all(|polygon| {
-                !polygon.intersects_circle(pose.position, radius)
-            })
+            && self
+                .obstacles
+                .iter()
+                .flatten()
+                .all(|polygon| !polygon.intersects_circle(pose.position, radius))
     }
 
     fn turn_area(&self, reserve: f64) -> DVec2 {
@@ -220,7 +228,9 @@ impl RectangularClearance {
         soft: &[Option<ConvexPolygon>],
         waypoint_reserve: Length,
     ) -> Option<alloc::vec::Vec<DVec2>> {
-        AStar::new().with_waypoint_reserve(waypoint_reserve).plan(&self, start, goal, soft)
+        AStar::new()
+            .with_waypoint_reserve(waypoint_reserve)
+            .plan(&self, start, goal, soft)
     }
 
     /// Distance to the first position with room to pivot, following the current heading.

@@ -107,7 +107,9 @@ impl AStar {
             let u = (0..n)
                 .filter(|&i| !visited[i] && costs[i].length.is_finite())
                 .min_by(|&a, &b| {
-                    costs[a].heuristic(heuristics[a]).compare(costs[b].heuristic(heuristics[b]))
+                    costs[a]
+                        .heuristic(heuristics[a])
+                        .compare(costs[b].heuristic(heuristics[b]))
                 })?;
             if u == 1 {
                 let mut result = alloc::vec![goal];
@@ -124,9 +126,7 @@ impl AStar {
             }
             visited[u] = true;
             for v in 0..n {
-                if visited[v]
-                    || hard().any(|p| p.clip_segment(nodes[u], nodes[v], pad).is_some())
-                {
+                if visited[v] || hard().any(|p| p.clip_segment(nodes[u], nodes[v], pad).is_some()) {
                     continue;
                 }
                 let length = nodes[u].distance(nodes[v]);
@@ -165,7 +165,10 @@ mod tests {
         let soft = [ConvexPolygon::rectangle(obstacle.0, obstacle.1)];
         let start = DVec2::new(0.0, -0.8);
         let goal = DVec2::new(0.0, 0.8);
-        let route = AStar::new().with_waypoint_reserve(qty!(1 in)).plan(&field, start, goal, &soft).unwrap();
+        let route = AStar::new()
+            .with_waypoint_reserve(qty!(1 in))
+            .plan(&field, start, goal, &soft)
+            .unwrap();
         assert!(route.len() > 1);
         let inflated = (
             obstacle.0 - DVec2::splat(field.footprint.turn_radius() + field.margin),
@@ -173,11 +176,21 @@ mod tests {
         );
         let mut previous = start;
         for point in route {
-            assert!(ConvexPolygon::rectangle(inflated.0, inflated.1).unwrap().clip_segment(previous, point, 0.0).is_none());
+            assert!(
+                ConvexPolygon::rectangle(inflated.0, inflated.1)
+                    .unwrap()
+                    .clip_segment(previous, point, 0.0)
+                    .is_none()
+            );
             previous = point;
         }
         // A moved landmark may overlap the start. This is a soft cost, not a
         // fatal wall/clearance condition.
-        assert!(AStar::new().with_waypoint_reserve(qty!(1 in)).plan(&field, DVec2::ZERO, goal, &soft).is_some());
+        assert!(
+            AStar::new()
+                .with_waypoint_reserve(qty!(1 in))
+                .plan(&field, DVec2::ZERO, goal, &soft)
+                .is_some()
+        );
     }
 }

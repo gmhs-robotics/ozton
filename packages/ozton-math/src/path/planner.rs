@@ -2,7 +2,6 @@
 use alloc::vec::Vec;
 
 pub use super::clearance::AStar;
-
 use super::{Limits, Path, Waypoint, clearance::RectangularClearance};
 use crate::geometry::{Pose, direction, wrap_heading};
 
