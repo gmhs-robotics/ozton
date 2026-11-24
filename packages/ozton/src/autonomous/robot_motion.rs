@@ -122,11 +122,7 @@ where
         self.run_command(Command::DriveDistance {
             meters,
             heading: None,
-            maximum_speed: if AUTON_SPEED <= options.maximum_wheel_speed {
-                AUTON_SPEED
-            } else {
-                options.maximum_wheel_speed
-            },
+            maximum_speed: P::motion_config(self).map_or(AUTON_SPEED, |config| config.wheel_speed).min(options.maximum_wheel_speed),
         })
         .await
     }
@@ -155,6 +151,9 @@ where
 
     fn profile_path(&self, waypoints: &[Waypoint]) -> Result<Path, CommandError<Self::Error>> {
         let options = P::drive_options(self).ok_or(CommandError::Configuration)?;
+        if let Some(config) = P::motion_config(self) {
+            return Path::new(waypoints, config.path_limits(options.track_width)).map_err(|_| CommandError::InvalidPath);
+        }
         let speed = if AUTON_SPEED <= options.maximum_wheel_speed {
             AUTON_SPEED
         } else {
@@ -183,7 +182,7 @@ where
             path,
             direction,
             Follower::PurePursuit {
-                lookahead: PATH_LOOKAHEAD,
+                lookahead: P::motion_config(self).map_or(PATH_LOOKAHEAD, |config| config.lookahead),
             },
         )
         .await
@@ -269,6 +268,11 @@ where
     let period = P::motion_period(robot);
     let options = P::drive_options(robot).ok_or(CommandError::Configuration)?;
     let gap = P::maximum_motion_gap(robot);
+    let config = P::motion_config(robot);
     let runner = Runner::new(robot, options, period, gap)?;
-    Ok((runner, super::routine_settings::AUTON_STAGE_TIMEOUT))
+    if let Some(config) = config {
+        Ok((runner.with_config(config)?, config.stage_timeout))
+    } else {
+        Ok((runner, super::routine_settings::AUTON_STAGE_TIMEOUT))
+    }
 }

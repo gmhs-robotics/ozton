@@ -8,6 +8,7 @@ use ozton_math::{
         velocity::meter_per_second,
     },
 };
+use ozton_motion::MotionConfig;
 use ozton_runtime::{clock::CommandClock, log_event, log_row};
 use vexide::competition::{self, CompetitionMode};
 
@@ -64,7 +65,7 @@ pub struct Runner<'a, R: MotionPlatform> {
     robot: &'a mut R,
     clock: CommandClock,
     options: DriveOptions,
-    tuning: DriveTuning,
+    config: MotionConfig,
     #[cfg(feature = "logging")]
     started: Instant,
     max_gap: Duration,
@@ -86,7 +87,17 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
             robot,
             clock: CommandClock::new(period).ok_or(CommandError::Configuration)?,
             options,
-            tuning: DriveTuning::STANDARD,
+            config: MotionConfig {
+                wheel_speed: options.maximum_wheel_speed,
+                position_tolerance: options.position_tolerance,
+                heading_tolerance: options.heading_tolerance,
+                velocity_tolerance: options.speed_tolerance,
+                angular_velocity_tolerance: options.angular_speed_tolerance,
+                settle: options.settle,
+                period,
+                maximum_gap: max_gap,
+                ..MotionConfig::default()
+            },
             #[cfg(feature = "logging")]
             started: Instant::now(),
             max_gap,
@@ -100,7 +111,20 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
         if !tuning.valid() {
             return Err(CommandError::Configuration);
         }
-        self.tuning = tuning;
+        self.config.tuning = tuning;
+        Ok(self)
+    }
+
+    /// Apply the same physical configuration used by drivetrain-only PoseSeeking.
+    pub fn with_config(mut self, config: MotionConfig) -> Result<Self, CommandError<R::Error>> {
+        let options = config.options(self.options.track_width);
+        if !config.valid() || !Self::valid_configuration(options, config.period, config.maximum_gap) {
+            return Err(CommandError::Configuration);
+        }
+        self.clock = CommandClock::new(config.period).ok_or(CommandError::Configuration)?;
+        self.max_gap = config.maximum_gap;
+        self.options = options;
+        self.config = config;
         Ok(self)
     }
 
@@ -356,12 +380,13 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                 );
             }
             let started = Instant::now();
-            let mut state = State::new(self.tuning);
+            let mut state = State::new(self.config);
             let mut initialized = false;
             let mut retry_since = None;
             let mut mechanism_retry_since = None;
             let mut output_retry_since = None;
             let mut progress_pose: Option<Pose> = None;
+            let mut best_objective: Option<f64> = None;
             let mut progress_elapsed = Duration::ZERO;
             loop {
                 let dt = self.clock.tick().await;
@@ -403,6 +428,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         }
                         state.pause();
                         progress_pose = None;
+                        best_objective = None;
                         progress_elapsed = Duration::ZERO;
                         continue;
                     }
@@ -413,6 +439,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     active.robot.pause().map_err(CommandError::StopFailed)?;
                     state.pause();
                     progress_pose = None;
+                        best_objective = None;
                     progress_elapsed = Duration::ZERO;
                     continue;
                 };
@@ -480,6 +507,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         if since.elapsed() < Duration::from_millis(300) {
                             state.pause();
                             progress_pose = None;
+                        best_objective = None;
                             progress_elapsed = Duration::ZERO;
                             continue;
                         }
@@ -487,7 +515,8 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     return Err(CommandError::Robot(error));
                 }
                 mechanism_retry_since = None;
-                if step.complete || step.wheels == [0.0; 2] {
+                let stationary_command = matches!(command, Command::DistanceReset | Command::Wait(_) | Command::WaitUntil(_) | Command::WaitFor { .. });
+                if step.complete || (stationary_command && step.wheels == [0.0; 2]) {
                     active
                         .robot
                         .stop_drive()
@@ -507,13 +536,26 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                             }
                             state.pause();
                             progress_pose = None;
+                        best_objective = None;
                             progress_elapsed = Duration::ZERO;
                             continue;
                         }
                         Err(error) => return Err(CommandError::Robot(error)),
                     }
                 }
-                if step.wheels.iter().any(|v| v.abs() > 0.08) {
+                if let Some(objective) = step.objective {
+                    let best = best_objective.get_or_insert(objective);
+                    if step.ready || objective < *best - 0.002 {
+                        *best = objective;
+                        progress_elapsed = Duration::ZERO;
+                    } else {
+                        progress_elapsed += dt;
+                    }
+                    if progress_elapsed >= self.config.progress_timeout {
+                        log_event!(Error, "motion", "{status}: target error not improving ({objective:.4})");
+                        return Err(CommandError::NoProgress);
+                    }
+                } else if step.wheels.iter().any(|v| v.abs() > 0.08) {
                     let anchor = *progress_pose.get_or_insert(feedback.pose);
                     if feedback.pose.position.distance(anchor.position) > 0.008
                         || wrap_heading(feedback.pose.heading - anchor.heading)
@@ -525,7 +567,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                         progress_elapsed = Duration::ZERO;
                     } else {
                         progress_elapsed += dt;
-                        if progress_elapsed >= Duration::from_millis(800) {
+                        if progress_elapsed >= self.config.progress_timeout {
                             log_event!(Error, "motion", "{status}: no progress for {} ms. Pose ({:.3}, {:.3}) m, wheel targets {:.3}/{:.3} m/s",
                                 progress_elapsed.as_millis(), feedback.pose.position.x, feedback.pose.position.y,
                                 step.wheels[0], step.wheels[1]
@@ -535,6 +577,7 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
                     }
                 } else {
                     progress_pose = None;
+                        best_objective = None;
                     progress_elapsed = Duration::ZERO;
                 }
                 #[cfg(feature = "logging")]

@@ -13,6 +13,10 @@ pub(in crate::autonomous) struct State<'path> {
     range_elapsed: Duration,
     settled_range: Option<Duration>,
     next_marker: usize,
+    initial_feedback: Option<Feedback>,
+    reference_time: f64,
+    terminal: bool,
+    terminal_turn: bool,
 }
 
 pub(in crate::autonomous) struct Step {
@@ -20,6 +24,8 @@ pub(in crate::autonomous) struct Step {
     pub complete: bool,
     pub progress: f64,
     pub lost: bool,
+    pub ready: bool,
+    pub objective: Option<f64>,
 }
 
 trait WithSettle {
@@ -33,15 +39,15 @@ impl WithSettle for ([f64; 2], bool) {
 }
 
 impl<'path> State<'path> {
-    pub(in crate::autonomous) fn new(tuning: crate::autonomous::DriveTuning) -> Self {
+    pub(in crate::autonomous) fn new(config: ozton_motion::MotionConfig) -> Self {
         Self {
-            differential: DifferentialFeedback::new(tuning),
+            differential: DifferentialFeedback::new(config.tuning).with_config(config),
             ..Self::default()
         }
     }
 
     pub(in crate::autonomous) fn pause(&mut self) {
-        self.differential.pid.reset();
+        self.differential.reset();
         self.settled = Duration::ZERO;
         self.settled_range = None;
         self.range_elapsed = Duration::MAX;
@@ -56,6 +62,7 @@ impl<'path> State<'path> {
         dt: Duration,
         options: DriveOptions,
     ) -> Step {
+        let initial = *self.initial_feedback.get_or_insert(feedback);
         let slow = feedback
             .forward_velocity
             .value
@@ -99,6 +106,7 @@ impl<'path> State<'path> {
         };
         let mut fresh_alignment_range = false;
         let mut lost = false;
+        let mut objective = None;
         let (wheels, ready, settle) = match command {
             Command::Follow {
                 path,
@@ -121,76 +129,53 @@ impl<'path> State<'path> {
                     ),
                 );
                 let end = path.end();
-                let reference = path
-                    .at_distance(ozton_math::length!(progress.distance(), m))
-                    .pose;
+                let geometric = path.at_distance(ozton_math::length!(progress.distance(), m));
+                let reference = geometric.pose;
                 let tracking_error = reference.position.distance(feedback.pose.position);
-                lost = tracking_error > 0.35
-                    || (matches!(follower, Follower::Ramsete { .. })
-                        && elapsed.as_secs_f64() >= end.time
-                        && progress.distance() < end.distance - 0.20);
+                lost = tracking_error > 0.35;
                 let heading = end.pose.heading
                     + ozton_math::angle!(if *reverse { core::f64::consts::PI } else { 0.0 }, rad);
-                let ready = progress.distance() >= end.distance - options.position_tolerance.value
-                    && feedback.pose.position.distance(end.pose.position)
-                        <= options.position_tolerance.value
-                    && error_at(heading).abs() <= options.heading_tolerance.value;
+                let distance = feedback.pose.position.distance(end.pose.position);
+                let heading_error = error_at(heading).abs();
+                let ready = distance <= options.position_tolerance.value
+                    && heading_error <= options.heading_tolerance.value;
+                self.reference_time = (self.reference_time + dt.as_secs_f64())
+                    .min(geometric.time + 0.25).min(end.time);
                 let sample = FollowerSample {
                     pose: feedback.pose,
-                    elapsed: Time::new::<second>(elapsed.as_secs_f64()),
+                    elapsed: Time::new::<second>(self.reference_time),
                     period: Time::new::<second>(dt.as_secs_f64()),
                 };
-                let wheels = if ready && slow {
-                    [0.0; 2]
-                } else if profiled::is_terminal(
-                    progress,
-                    *follower,
-                    sample,
-                    options.position_tolerance.value,
-                ) {
-                    let delta = end.pose.position - feedback.pose.position;
-                    let distance = delta.length();
-                    let (linear, yaw_error) = if distance > options.position_tolerance.value {
-                        let toward = ozton_math::geometry::bearing(delta);
-                        let backwards = error_at(toward).abs() > core::f64::consts::FRAC_PI_2;
-                        let heading = toward
-                            + ozton_math::angle!(
-                                if backwards {
-                                    core::f64::consts::PI
-                                } else {
-                                    0.0
-                                },
-                                rad
-                            );
-                        let error = error_at(heading);
-                        let limit = path.limits().linear_speed.value * 0.4 * error.cos().max(0.0);
-                        (
-                            differential.pid.forward(
-                                if backwards { -distance } else { distance },
-                                forward_rate,
-                                limit,
-                                dt,
-                            ),
-                            error,
-                        )
+                if !self.terminal && profiled::is_terminal(progress, *follower, sample, options.position_tolerance.value) {
+                    self.terminal = true;
+                    differential.pid.reset();
+                }
+                let mut path_options = options;
+                path_options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
+                let (wheels, terminal_ready) = if self.terminal {
+                    let turn = distance <= options.position_tolerance.value;
+                    if turn != self.terminal_turn {
+                        differential.pid.reset();
+                        self.terminal_turn = turn;
+                    }
+                    let target = if turn {
+                        DifferentialTarget::Turn { heading }
                     } else {
-                        (
-                            differential.pid.forward(0.0, forward_rate, 0.0, dt),
-                            error_at(heading),
-                        )
+                        DifferentialTarget::DriveToPoint {
+                            target: end.pose.position,
+                            reverse: *reverse,
+                            maximum_speed: path_options.maximum_wheel_speed,
+                        }
                     };
-                    desaturate(
-                        drive(linear, angular(&mut differential.pid, yaw_error)),
-                        path.limits().wheel_speed.value,
-                    )
+                    let (wheels, settled) = differential.step(target, feedback, dt, path_options);
+                    objective = Some(distance + options.track_width.value * heading_error * 0.5);
+                    (wheels, settled && turn && ready)
                 } else {
-                    profiled::command(
-                        *follower,
-                        progress,
-                        sample,
-                        *reverse,
-                        options.position_tolerance,
-                    )
+                    let desired = profiled::command(
+                        *follower, progress, sample, *reverse, options.position_tolerance,
+                    );
+                    objective = Some(end.distance - progress.distance());
+                    differential.limit_step(desired, false, dt, path_options)
                 };
                 log_row!(
                     Trace,
@@ -212,7 +197,7 @@ impl<'path> State<'path> {
                     };
                     self.trigger(command, robot, distance);
                 }
-                (wheels, ready && slow, options.settle)
+                (wheels, terminal_ready && slow, options.settle)
             }
             Command::Turn { heading } => differential
                 .step(
@@ -354,6 +339,22 @@ impl<'path> State<'path> {
             Command::WaitUntil(ready) => ([0.0; 2], ready(robot) && slow, options.settle),
             Command::WaitFor { ready, stable } => ([0.0; 2], ready(robot) && slow, *stable),
         };
+        if objective.is_none() {
+            objective = match command {
+                Command::Turn { heading } => Some(error_at(*heading).abs() * options.track_width.value * 0.5),
+                Command::TurnToPoint { target } => Some(error_at(ozton_math::geometry::bearing(*target - feedback.pose.position)).abs() * options.track_width.value * 0.5),
+                Command::DriveToPoint { target, .. } => Some(feedback.pose.position.distance(*target)),
+                Command::DriveDistance { meters, heading, .. } => Some(
+                    (meters.value - (feedback.forward_travel.value - initial.forward_travel.value)).abs()
+                        + error_at(heading.unwrap_or(initial.pose.heading)).abs() * options.track_width.value * 0.5
+                ),
+                Command::DriveArc { radius, sweep, .. } => Some(
+                    (radius.value * sweep.value.abs() - (feedback.forward_travel.value - initial.forward_travel.value)).abs()
+                        + error_at(initial.pose.heading + *sweep).abs() * radius.value
+                ),
+                _ => None,
+            };
+        }
         self.settled = if ready {
             self.settled.saturating_add(dt)
         } else {
@@ -380,6 +381,8 @@ impl<'path> State<'path> {
             complete,
             progress: self.progress.as_ref().map_or(0.0, Progress::distance),
             lost,
+            ready,
+            objective,
         }
     }
 

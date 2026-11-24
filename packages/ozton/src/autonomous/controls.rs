@@ -25,6 +25,11 @@ pub trait MotionControls<R> {
         None
     }
 
+    /// Optional application motion configuration shared by all high-level commands.
+    fn motion_config(_robot: &R) -> Option<ozton_motion::MotionConfig> {
+        None
+    }
+
     fn motion_period(_robot: &R) -> Duration {
         ozton_runtime::clock::CONTROL_PERIOD
     }
@@ -180,6 +185,10 @@ where
         robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
     ) -> Option<super::DriveOptions> {
         Some(robot.drivetrain.drive_options())
+    }
+
+    fn motion_config(robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Option<ozton_motion::MotionConfig> {
+        robot.drivetrain.motion_config()
     }
 
     fn motion_period(_: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Duration {

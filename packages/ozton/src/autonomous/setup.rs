@@ -160,6 +160,7 @@ impl DifferentialConfig {
             chassis,
             drive_options: DriveOptions::differential(self.track_width, self.maximum_wheel_speed),
             settings: self,
+            motion_config: None,
         })
     }
 }
@@ -214,6 +215,7 @@ pub struct ConfiguredChassis {
     pub(super) chassis: Chassis<'static>,
     pub(super) settings: DifferentialConfig,
     pub(super) drive_options: DriveOptions,
+    motion_config: Option<ozton_motion::MotionConfig>,
 }
 
 impl ConfiguredChassis {
@@ -267,6 +269,20 @@ impl ConfiguredChassis {
         self.drive_options
     }
 
+    pub fn motion_config(&self) -> Option<ozton_motion::MotionConfig> {
+        self.motion_config
+    }
+
+    /// Install the application's calibrated motion policy on the stock chassis.
+    pub fn set_motion_config(&mut self, config: ozton_motion::MotionConfig) -> Result<(), SetupError> {
+        if !config.valid() || config.wheel_speed > self.settings.maximum_wheel_speed {
+            return Err(SetupError::DriveGeometry);
+        }
+        self.drive_options = config.options(self.settings.track_width);
+        self.motion_config = Some(config);
+        Ok(())
+    }
+
     /// Change route limits and settling behavior while retaining the calibrated track width.
     pub fn set_drive_options(&mut self, mut options: DriveOptions) -> Result<(), SetupError> {
         options.track_width = self.settings.track_width;
@@ -274,6 +290,14 @@ impl ConfiguredChassis {
             return Err(SetupError::DriveGeometry);
         }
         self.drive_options = options;
+        if let Some(config) = &mut self.motion_config {
+            config.wheel_speed = options.maximum_wheel_speed;
+            config.position_tolerance = options.position_tolerance;
+            config.heading_tolerance = options.heading_tolerance;
+            config.velocity_tolerance = options.speed_tolerance;
+            config.angular_velocity_tolerance = options.angular_speed_tolerance;
+            config.settle = options.settle;
+        }
         Ok(())
     }
 }
