@@ -2,15 +2,18 @@
 
 use std::time::Duration;
 
-use ozton_drivetrain::{assist::DriveAssist, model::Differential};
 use ozton_math::{
     geometry::{DVec2, Pose},
-    uom::si::f64::{Angle, Length, Velocity},
+    uom::si::{
+        f64::{Angle, Length, Velocity},
+        velocity::meter_per_second,
+    },
 };
+use ozton_runtime::clock::CONTROL_PERIOD;
 
-use super::{DriveMotionFault, TrackedDrive, point};
+use super::{DriveMotionFault, MAX_CONTROL_GAP, PoseDrive, point};
 use crate::commands::{
-    CommandError, DriveOptions, DriveTuning, TravelDirection,
+    CommandError, DriveOptions, DriveTuning, Runner, TravelDirection,
     routine_settings::{AUTON_STAGE_TIMEOUT, AUTON_TOTAL_TIMEOUT},
 };
 
@@ -118,20 +121,39 @@ impl PoseSeeking {
     }
 
     /// Move to a field point in metres without imposing a final heading.
-    pub async fn move_to_point<A: DriveAssist<Differential>>(
+    pub async fn move_to_point<D: PoseDrive>(
         &self,
-        drive: &mut TrackedDrive<A>,
+        drive: &mut D,
         point: impl Into<DVec2>,
     ) -> Result<(), CommandError<DriveMotionFault>> {
         point::drive_to_target(drive, point.into(), None, *self).await
     }
 
     /// Move to a field pose and settle at its heading.
-    pub async fn move_to_pose<A: DriveAssist<Differential>>(
+    pub async fn move_to_pose<D: PoseDrive>(
         &self,
-        drive: &mut TrackedDrive<A>,
+        drive: &mut D,
         target: Pose,
     ) -> Result<(), CommandError<DriveMotionFault>> {
         point::drive_to_target(drive, target.position, Some(target.heading), *self).await
+    }
+    /// Hold the chassis still and try to correct the pose from fresh wall ranges.
+    pub async fn try_distance_reset(
+        &self,
+        drive: &mut impl PoseDrive,
+        timeout: Duration,
+    ) -> Result<bool, CommandError<DriveMotionFault>> {
+        let options = DriveOptions::for_differential(drive, Velocity::new::<meter_per_second>(1.0))
+            .ok_or(CommandError::Configuration)?;
+        let mut runner = Runner::new(
+            drive,
+            options,
+            CONTROL_PERIOD,
+            MAX_CONTROL_GAP,
+            timeout.min(self.budget).saturating_add(MAX_CONTROL_GAP),
+        )?;
+        let reset = runner.try_distance_reset(timeout.min(self.budget)).await?;
+        runner.finish_command()?;
+        Ok(reset)
     }
 }

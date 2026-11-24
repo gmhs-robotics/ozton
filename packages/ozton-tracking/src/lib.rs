@@ -43,8 +43,16 @@ pub use sensor::{Gyro, RotarySensor};
 use vexide::math::Angle;
 pub use wheeled::WheeledTracking;
 
-/// Marker trait for a tracking system.
-pub trait Tracking {}
+/// A tracking system and its optional calibrated drive-wheel source.
+pub trait Tracking {
+    fn drive_wheels(&self) -> Option<&encoders::DifferentialTracking> {
+        None
+    }
+
+    fn drive_wheels_mut(&mut self) -> Option<&mut encoders::DifferentialTracking> {
+        None
+    }
+}
 
 /// Explicit no-op tracking type for drivetrains that do not have odometry.
 ///

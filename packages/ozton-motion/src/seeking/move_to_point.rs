@@ -11,13 +11,13 @@ use ozton_control::{
     axis::Linear,
     loops::{Feedback, Pid},
 };
-use ozton_drivetrain::{Drivetrain, model::Arcade};
+use ozton_drivetrain::{Drive, HasLocalization, model::Arcade};
 use ozton_math::uom::si::{
     f64::{Length, Velocity},
     length::meter,
     velocity::meter_per_second,
 };
-use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
+use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
 use vexide::{
     math::Angle,
     smart::motor::Motor,
@@ -33,13 +33,12 @@ pub(crate) struct State {
 
 /// Moves the robot to a point using two seeking feedback controllers.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct MoveToPointFuture<'a, M, L, A, S, T, D = ()>
+pub struct MoveToPointFuture<'a, M, L, A>
 where
-    M: Arcade,
+    M: Drive,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     pub(crate) target_point: Vec2,
     pub(crate) reverse: bool,
@@ -47,34 +46,32 @@ where
     pub(crate) tolerances: Tolerances<Linear>,
     pub(crate) linear_controller: L,
     pub(crate) lateral_controller: A,
-    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T, D>,
+    pub(crate) drivetrain: &'a mut M,
     pub(crate) state: Option<State>,
 }
 
 // MARK: Future Poll
 
-impl<M, L, A, S, T, D> Drop for MoveToPointFuture<'_, M, L, A, S, T, D>
+impl<M, L, A> Drop for MoveToPointFuture<'_, M, L, A>
 where
-    M: Arcade,
+    M: Drive,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     fn drop(&mut self) {
         if self.state.is_some() {
-            let _ = self.drivetrain.model.drive_arcade(0.0, 0.0);
+            let _ = self.drivetrain.stop_now();
         }
     }
 }
 
-impl<M, L, A, S, T, D> Future for MoveToPointFuture<'_, M, L, A, S, T, D>
+impl<M, L, A> Future for MoveToPointFuture<'_, M, L, A>
 where
-    M: Arcade,
+    M: Drive,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
 
@@ -98,12 +95,14 @@ where
             return Poll::Pending;
         }
 
+        this.drivetrain.refresh_localization();
+
         let now = Instant::now();
         let dt = now.saturating_duration_since(state.prev_time);
 
-        let position = this.drivetrain.localization.position();
-        let heading = this.drivetrain.localization.heading();
-        let velocity = this.drivetrain.localization.linear_velocity();
+        let position = this.drivetrain.localization().position();
+        let heading = this.drivetrain.localization().heading();
+        let velocity = this.drivetrain.localization().linear_velocity();
         let local_target = this.target_point - position;
         let distance_error = local_target.length();
         let feedback_error = if !this.target_point.is_finite() {
@@ -137,10 +136,7 @@ where
             } else {
                 crate::MotionOutcome::TimedOut
             };
-            return Poll::Ready(crate::finish_motion(
-                this.drivetrain.model.drive_arcade(0.0, 0.0),
-                outcome,
-            ));
+            return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), outcome));
         }
 
         let within_position_tolerance = distance_error == 0.0
@@ -178,15 +174,11 @@ where
             ));
         }
 
-        if let Err(output) = this
-            .drivetrain
-            .model
-            .drive_arcade(linear_output, angular_output)
-        {
+        if let Err(output) = Arcade::drive(this.drivetrain, linear_output, angular_output) {
             this.state = None;
             return Poll::Ready(Err(crate::motion_output_error(
                 output,
-                this.drivetrain.model.drive_arcade(0.0, 0.0),
+                this.drivetrain.stop_now(),
             )));
         }
 
@@ -198,26 +190,22 @@ where
     }
 }
 
-fn stop_with_error<M: Arcade, S: Tracking, T, D>(
-    drivetrain: &mut Drivetrain<M, S, T, D>,
+fn stop_with_error<M: Drive>(
+    drivetrain: &mut M,
     error: crate::MotionError<M::Error>,
 ) -> Result<crate::MotionOutcome, crate::MotionError<M::Error>> {
-    drivetrain
-        .model
-        .drive_arcade(0.0, 0.0)
-        .map_err(crate::MotionError::Stop)?;
+    drivetrain.stop_now().map_err(crate::MotionError::Stop)?;
     Err(error)
 }
 
 // MARK: Generic Modifiers
 
-impl<M, L, A, S, T, D> MoveToPointFuture<'_, M, L, A, S, T, D>
+impl<M, L, A> MoveToPointFuture<'_, M, L, A>
 where
-    M: Arcade,
+    M: Drive,
     L: Feedback<State = f64, Signal = f64> + Unpin,
     A: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     /// Reverses this motion, moving to the point backwards rather than forwards.
     pub fn reverse(&mut self) -> &mut Self {
@@ -294,12 +282,11 @@ where
 
 // MARK: Linear PID Modifiers
 
-impl<M, A, S, T, D> MoveToPointFuture<'_, M, Pid, A, S, T, D>
+impl<M, A> MoveToPointFuture<'_, M, Pid, A>
 where
-    M: Arcade,
+    M: Drive,
     A: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     /// Modifies this motion's linear PID gains.
     pub const fn with_linear_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {
@@ -358,12 +345,11 @@ where
 
 // MARK: Angular PID Modifiers
 
-impl<M, L, S, T, D> MoveToPointFuture<'_, M, L, Pid, S, T, D>
+impl<M, L> MoveToPointFuture<'_, M, L, Pid>
 where
-    M: Arcade,
+    M: Drive,
     L: Feedback<State = f64, Signal = f64> + Unpin,
-    S: Tracking,
-    T: TracksPosition + TracksHeading + TracksVelocity,
+    M: HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
 {
     /// Modifies this motion's angular PID gains.
     pub const fn with_angular_gains(&mut self, kp: f64, ki: f64, kd: f64) -> &mut Self {

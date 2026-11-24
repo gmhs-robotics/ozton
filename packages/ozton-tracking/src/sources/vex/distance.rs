@@ -37,8 +37,12 @@ pub struct DistanceTracker {
 impl DistanceTracker {
     /// Bearing is counterclockwise from forward.
     pub fn new(port: SmartPort, position: Vec3<Length>, bearing: UomAngle) -> Self {
+        Self::from_sensor(DistanceSensor::new(port), bearing, position)
+    }
+
+    pub fn from_sensor(sensor: DistanceSensor, bearing: UomAngle, position: Vec3<Length>) -> Self {
         Self {
-            sensor: DistanceSensor::new(port),
+            sensor,
             config: RangeSensorConfig::at_mount(position, bearing),
         }
     }

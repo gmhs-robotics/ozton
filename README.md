@@ -7,7 +7,21 @@ The [programmed example](packages/ozton/examples/programmed.rs) shows a complete
 
 ## Autonomous motion
 
-Pass a mutable drivetrain to each motion. For a calibrated differential drive
+Driver control and motion share the `Drive` interface. `Arcade::drive` accepts
+forward and turn commands, `Tank::drive` accepts left and right commands, and
+`Holonomic` marks drives that support lateral motion.
+
+Install an ordered tuple of assists with
+`RobotBuilder::with_drive_assists(DriveAssists::new((assist_a, assist_b)))`.
+Borrow the drive and assists together to use the same stack in driver and
+autonomous code.
+
+```rust
+let mut drive = AssistedDrivetrain::new(&mut robot.drivetrain, &mut robot.assists);
+Arcade::drive(&mut drive, forward, turn)?;
+```
+
+Pass a mutable drive to each motion. For a calibrated differential drive
 with Ozton's live field localization, `PoseSeeking` plans clearance from walls,
 settles with wheel and heading feedback, and stops on disable or timeout.
 
@@ -25,8 +39,8 @@ chassis. The outer loops command metres per second and radians per second.
 `with_wheel_speed` limits the wheels. `with_timeout` sets a per-stage timeout,
 and `with_budget` limits the full departure, approach and final turn.
 
-`Seeking` and `Basic` work with any `Arcade` drivetrain whose tracker supplies
-the required feedback. Ozton provides `ozton::tracking::WheeledTracking` for
+`Seeking`, `Basic`, and `PurePursuit` work with a bare or assisted drive
+that provides the localization feedback each motion needs. Ozton provides `ozton::tracking::WheeledTracking` for
 wheeled odometry. Point coordinates are right and forward in metres. Use
 `geometry::point(x, y)` to convert two unit-bearing lengths.
 
@@ -46,8 +60,8 @@ let outcome = basic.drive_distance(&mut drivetrain, Length::new::<inch>(24.0)).a
 
 The generic motions return `MotionOutcome::Settled` or `MotionOutcome::TimedOut`.
 `with_linear_output_limit(0.75)` sets the same throttle cap as the voltage form.
-For a custom motion, write an async function that takes `&mut Drivetrain` and
-requires only the tracking traits it uses.
+For a custom motion, write an async function that takes `&mut impl Drive`. Add
+`HasLocalization` and the relevant tracking bounds when it needs feedback.
 
 Licensed under [MIT](LICENSE-MIT.md) or [Apache 2.0](LICENSE-APACHE.md).
 

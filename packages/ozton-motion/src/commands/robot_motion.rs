@@ -94,11 +94,11 @@ pub trait RobotMotion: Sized {
     ) -> Result<(), CommandError<Self::Error>>;
 }
 
-impl<D, C, T, X, P, R, S> RobotMotion for Robot<D, C, T, X, P, Autonomous<R, S>>
+impl<D, C, X, P, R, S, B> RobotMotion for Robot<D, C, X, P, Autonomous<R, S>, B>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
     X: ozton_runtime::competition::Mechanism<
-            <P as MotionControls<Robot<D, C, T, X, P, Autonomous<R, S>>>>::Error,
+            <P as MotionControls<Robot<D, C, X, P, Autonomous<R, S>, B>>>::Error,
         >,
     P: MotionControls<Self> + Program<Self, D, Error = <P as MotionControls<Self>>::Error>,
     R: RouteSet,
@@ -244,28 +244,28 @@ where
     }
 }
 
-type RouteRobot<D, C, T, X, P, R, S> = Robot<D, C, T, X, P, Autonomous<R, S>>;
-type RouteRunner<'a, D, C, T, X, P, R, S> = Result<
-    (Runner<'a, RouteRobot<D, C, T, X, P, R, S>>, Duration),
-    CommandError<<RouteRobot<D, C, T, X, P, R, S> as MotionPlatform>::Error>,
+type RouteRobot<D, C, X, P, R, S, B> = Robot<D, C, X, P, Autonomous<R, S>, B>;
+type RouteRunner<'a, D, C, X, P, R, S, B> = Result<
+    (Runner<'a, RouteRobot<D, C, X, P, R, S, B>>, Duration),
+    CommandError<<RouteRobot<D, C, X, P, R, S, B> as MotionPlatform>::Error>,
 >;
 
-fn route_runner<D, C, T, X, P, R, S>(
-    robot: &mut RouteRobot<D, C, T, X, P, R, S>,
-) -> RouteRunner<'_, D, C, T, X, P, R, S>
+fn route_runner<D, C, X, P, R, S, B>(
+    robot: &mut RouteRobot<D, C, X, P, R, S, B>,
+) -> RouteRunner<'_, D, C, X, P, R, S, B>
 where
-    P: MotionControls<RouteRobot<D, C, T, X, P, R, S>>,
+    P: MotionControls<RouteRobot<D, C, X, P, R, S, B>>,
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
     X: ozton_runtime::competition::Mechanism<
-            <P as MotionControls<RouteRobot<D, C, T, X, P, R, S>>>::Error,
+            <P as MotionControls<RouteRobot<D, C, X, P, R, S, B>>>::Error,
         >,
     P: Program<
-            RouteRobot<D, C, T, X, P, R, S>,
+            RouteRobot<D, C, X, P, R, S, B>,
             D,
-            Error = <P as MotionControls<RouteRobot<D, C, T, X, P, R, S>>>::Error,
+            Error = <P as MotionControls<RouteRobot<D, C, X, P, R, S, B>>>::Error,
         >,
     R: RouteSet,
-    Autonomous<R, S>: Telemetry<RouteRobot<D, C, T, X, P, R, S>>,
+    Autonomous<R, S>: Telemetry<RouteRobot<D, C, X, P, R, S, B>>,
 {
     let started = robot
         .autonomous

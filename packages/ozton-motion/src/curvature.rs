@@ -1,7 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use ozton_drivetrain::{Drivetrain, model::Arcade};
-use ozton_tracking::Tracking;
+use ozton_drivetrain::{Drive, model::Arcade};
 
 /// Curvature Drive (aka Cheesy Drive) Controller
 ///
@@ -77,7 +76,7 @@ impl CurvatureDrive {
     ///
     /// # Examples
     /// ```no_run
-    /// use ozton_drivetrain::{Drivetrain, model::{Differential, Tank}};
+    /// use ozton_drivetrain::{Drivetrain, model::{Differential, Drive}};
     /// use ozton_motion::CurvatureDrive;
     /// use ozton_tracking::NoTracking;
     /// use vexide::{prelude::Controller, smart::PortError};
@@ -88,14 +87,14 @@ impl CurvatureDrive {
     ///     controller: &Controller,
     /// ) -> Result<(), PortError> {
     ///     let Ok(state) = controller.state() else {
-    ///         return drivetrain.model.stop_now();
+    ///         return drivetrain.stop_now();
     ///     };
     ///     curvature.update(drivetrain, state.left_stick.y(), state.right_stick.x())
     /// }
     /// ```
-    pub fn update<M: Arcade>(
+    pub fn update<M: Drive>(
         &mut self,
-        drivetrain: &mut Drivetrain<M, impl Tracking, impl Sized, impl Sized>,
+        drivetrain: &mut M,
         throttle: f64,
         turn: f64,
     ) -> Result<(), M::Error> {
@@ -135,7 +134,7 @@ impl CurvatureDrive {
         self.prev_turn = turn;
         self.prev_throttle = throttle;
 
-        drivetrain.model.drive_arcade(linear_power, angular_power)
+        Arcade::drive(drivetrain, linear_power, angular_power)
     }
 
     fn remap_turn(&self, turn: f64) -> f64 {

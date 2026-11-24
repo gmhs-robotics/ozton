@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use ozton_drivetrain::{assist::DriveAssist, model::Differential};
 use ozton_math::{
     geometry::{DVec2, Pose, bearing},
     path::clearance::{RectangularClearance, approach_heading},
@@ -14,10 +13,9 @@ use ozton_math::{
 };
 use ozton_runtime::clock::CONTROL_PERIOD;
 
-use super::{DriveMotionFault, MAX_CONTROL_GAP, PoseSeeking, TrackedDrive};
+use super::{DriveMotionFault, MAX_CONTROL_GAP, PoseDrive, PoseSeeking};
 use crate::commands::{
-    Command, CommandError, Runner, TravelDirection,
-    routine_settings::{AUTON_SPEED, AUTON_STAGE_TIMEOUT},
+    Command, CommandError, Runner, TravelDirection, routine_settings::AUTON_SPEED,
 };
 
 pub(super) type MotionResult<T = ()> = Result<T, CommandError<DriveMotionFault>>;
@@ -26,15 +24,15 @@ const DEPARTURE_SPEED: Velocity = Velocity {
     value: 0.30,
     ..AUTON_SPEED
 };
-pub(super) async fn drive_to_target<A: DriveAssist<Differential>>(
-    drive: &mut TrackedDrive<A>,
+pub(super) async fn drive_to_target<D: PoseDrive>(
+    drive: &mut D,
     position: DVec2,
     final_heading: Option<Angle>,
     settings: PoseSeeking,
 ) -> MotionResult {
     let target = Pose::new(
         position,
-        final_heading.unwrap_or_else(|| drive.localization.pose().heading),
+        final_heading.unwrap_or_else(|| drive.pose().heading),
     );
     ozton_runtime::log_row!(
         Debug,
@@ -73,7 +71,7 @@ pub(super) async fn drive_to_target<A: DriveAssist<Differential>>(
     }
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
-        let start = runner.robot_ref().localization.pose();
+        let start = runner.robot_ref().pose();
         let displacement = target.position - start.position;
         let reverse = match settings.travel {
             Some(travel) => matches!(travel, TravelDirection::Backward),
@@ -102,12 +100,7 @@ pub(super) async fn drive_to_target<A: DriveAssist<Differential>>(
         if let Some(heading) = final_heading {
             turn_checked(&mut runner, clearance, heading, settings.stage_timeout).await?;
         }
-        let error = runner
-            .robot_ref()
-            .localization
-            .pose()
-            .position
-            .distance(target.position);
+        let error = runner.robot_ref().pose().position.distance(target.position);
         if error <= tolerance {
             return runner.finish_command();
         }
@@ -121,32 +114,13 @@ pub(super) async fn drive_to_target<A: DriveAssist<Differential>>(
     Err(runner.finish_error(CommandError::PositionUnsettled))
 }
 
-pub(super) async fn turn_to<A: DriveAssist<Differential>>(
-    drive: &mut TrackedDrive<A>,
-    heading: Angle,
-) -> MotionResult {
-    let clearance = clearance(drive)?;
-    let options = PoseSeeking::default()
-        .options(drive)
-        .ok_or(CommandError::Configuration)?;
-    let mut runner = Runner::new(
-        drive,
-        options,
-        CONTROL_PERIOD,
-        MAX_CONTROL_GAP,
-        AUTON_STAGE_TIMEOUT,
-    )?;
-    turn_checked(&mut runner, clearance, heading, AUTON_STAGE_TIMEOUT).await?;
-    runner.finish_command()
-}
-
-async fn depart_wall<A: DriveAssist<Differential>>(
-    runner: &mut Runner<'_, TrackedDrive<A>>,
+async fn depart_wall<D: PoseDrive>(
+    runner: &mut Runner<'_, D>,
     field: RectangularClearance,
     target: Pose,
     timeout: Duration,
 ) -> MotionResult {
-    let start = runner.robot_ref().localization.pose();
+    let start = runner.robot_ref().pose();
     if field.can_turn(start) {
         return Ok(());
     }
@@ -178,7 +152,7 @@ async fn depart_wall<A: DriveAssist<Differential>>(
             .await?;
     }
 
-    let measured = runner.robot_ref().localization.pose();
+    let measured = runner.robot_ref().pose();
     if !field.can_turn(measured) {
         let advance = field
             .forward_to_turn(measured, reserve)
@@ -188,31 +162,28 @@ async fn depart_wall<A: DriveAssist<Differential>>(
             .await?;
     }
     field
-        .can_turn(runner.robot_ref().localization.pose())
+        .can_turn(runner.robot_ref().pose())
         .then_some(())
         .ok_or(CommandError::InsufficientClearance)
 }
 
-async fn turn_checked<A: DriveAssist<Differential>>(
-    runner: &mut Runner<'_, TrackedDrive<A>>,
+async fn turn_checked<D: PoseDrive>(
+    runner: &mut Runner<'_, D>,
     clearance: Option<RectangularClearance>,
     heading: Angle,
     timeout: Duration,
 ) -> MotionResult {
-    if clearance.is_some_and(|field| !field.can_turn(runner.robot_ref().localization.pose())) {
+    if clearance.is_some_and(|field| !field.can_turn(runner.robot_ref().pose())) {
         return Err(CommandError::InsufficientClearance);
     }
     runner.turn_to(heading, timeout).await
 }
 
-fn clearance<A: DriveAssist<Differential>>(
-    drive: &TrackedDrive<A>,
-) -> MotionResult<Option<RectangularClearance>> {
+fn clearance<D: PoseDrive>(drive: &D) -> MotionResult<Option<RectangularClearance>> {
     let Some(footprint) = drive.footprint() else {
         return Ok(None);
     };
     let bounds = drive
-        .localization
         .rectangular_half_extents()
         .ok_or(CommandError::Configuration)?;
     RectangularClearance::new(footprint, bounds, Length::new::<meter>(0.0127))

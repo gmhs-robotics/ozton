@@ -23,9 +23,9 @@ impl MountedWheel {
     pub fn from_rotary(
         sensor: impl RotarySensor + 'static,
         diameter: Length,
-        position: Vec3<Length>,
-        bearing: Angle,
         gearing: Option<f64>,
+        bearing: Angle,
+        position: Vec3<Length>,
     ) -> Self {
         Self::new(
             TrackingWheel::new(sensor, diameter, Length::default(), gearing),

@@ -1,8 +1,7 @@
 //! Physical wheel measurements and calibrated conversions.
 use ozton_math::uom::si::{
     angular_velocity::revolution_per_minute,
-    electric_current::ampere,
-    f64::{AngularVelocity, ElectricCurrent, Length, Velocity},
+    f64::{AngularVelocity, Length, Velocity},
     length::meter,
     velocity::meter_per_second,
 };
@@ -36,7 +35,6 @@ pub enum DriveConfigError {
     WheelGearing,
     FreeWheelSpeed,
     TrackWidth,
-    Wheelbase,
 }
 
 impl std::fmt::Display for DriveConfigError {
@@ -46,7 +44,6 @@ impl std::fmt::Display for DriveConfigError {
             Self::WheelGearing => "supply a finite positive ratio for every motor in each group",
             Self::FreeWheelSpeed => "free wheel speed must be finite and positive",
             Self::TrackWidth => "track width must be finite and positive",
-            Self::Wheelbase => "wheelbase must be finite and positive",
         })
     }
 }
@@ -190,28 +187,6 @@ impl Wheels {
             self.groups.get_mut(group)?.sample(&samples[..motors.len()])
         })
     }
-
-    pub fn load(&self, group: usize, motors: &[Motor]) -> Option<WheelLoad> {
-        if !self.group_matches(group, motors) {
-            return None;
-        }
-        let mut current = 0.0;
-        let mut fastest: f64 = 0.0;
-        for (index, motor) in motors.iter().enumerate() {
-            let amps = motor.current().ok()?;
-            let speed =
-                motor.velocity().ok()? * self.meters_per_turn(group, index, motor).ok()? / 60.0;
-            if !amps.is_finite() || !speed.is_finite() {
-                return None;
-            }
-            current += amps.abs();
-            fastest = fastest.max(speed.abs());
-        }
-        Some(WheelLoad {
-            mean_current: ElectricCurrent::new::<ampere>(current / motors.len() as f64),
-            fastest_wheel_speed: Velocity::new::<meter_per_second>(fastest),
-        })
-    }
 }
 
 /// Continuous group travel and velocity from all available motors.
@@ -219,13 +194,6 @@ impl Wheels {
 pub struct WheelFeedback {
     pub position: Length,
     pub velocity: Velocity,
-}
-
-/// Motor load and maximum absolute wheel speed across a group.
-#[derive(Clone, Copy, Debug)]
-pub struct WheelLoad {
-    pub mean_current: ElectricCurrent,
-    pub fastest_wheel_speed: Velocity,
 }
 
 #[cfg(test)]

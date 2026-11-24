@@ -67,7 +67,7 @@ pub trait MotionControls<R> {
     }
 }
 
-impl<D, C, T, X, P, A> MotionPlatform for Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, B> MotionPlatform for Robot<D, C, X, P, A, B>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
     X: ozton_runtime::competition::Mechanism<<P as MotionControls<Self>>::Error>,
@@ -151,7 +151,7 @@ pub trait ScoringControls<R>: MotionControls<R> {
     fn set_action(robot: &mut R, enabled: bool) -> Result<(), Self::Error>;
 }
 
-impl<D, C, T, X, P, A> MechanismRobot for Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, B> MechanismRobot for Robot<D, C, X, P, A, B>
 where
     D: ProgramDrive<AutonCommand = [Velocity; 2]>,
     X: ozton_runtime::competition::Mechanism<<P as MotionControls<Self>>::Error>,
@@ -171,23 +171,23 @@ where
     }
 }
 
-impl<C, T, X, P, A> MotionControls<Robot<super::ConfiguredChassis, C, T, X, P, A>> for P
+impl<C, X, P, A, B> MotionControls<Robot<super::ConfiguredChassis, C, X, P, A, B>> for P
 where
-    P: Program<Robot<super::ConfiguredChassis, C, T, X, P, A>, super::ConfiguredChassis>,
+    P: Program<Robot<super::ConfiguredChassis, C, X, P, A, B>, super::ConfiguredChassis>,
 {
     type Error = <P as Program<
-        Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        Robot<super::ConfiguredChassis, C, X, P, A, B>,
         super::ConfiguredChassis,
     >>::Error;
 
     fn drive_options(
-        robot: &Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
     ) -> Option<super::DriveOptions> {
         Some(robot.drivetrain.drive_options())
     }
 
     fn session_limits(
-        robot: &Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
     ) -> super::routine_settings::SessionLimits {
         let total = robot.drivetrain.settings.route_timeout;
         super::routine_settings::SessionLimits {
@@ -196,16 +196,16 @@ where
         }
     }
 
-    fn motion_period(_: &Robot<super::ConfiguredChassis, C, T, X, P, A>) -> Duration {
+    fn motion_period(_: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Duration {
         P::CONTROL_PERIOD
     }
 
-    fn maximum_motion_gap(robot: &Robot<super::ConfiguredChassis, C, T, X, P, A>) -> Duration {
+    fn maximum_motion_gap(robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Duration {
         robot.drivetrain.settings.max_control_gap
     }
 
     fn sample(
-        robot: &mut Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        robot: &mut Robot<super::ConfiguredChassis, C, X, P, A, B>,
     ) -> Result<Option<Feedback>, Self::Error> {
         let occluded = P::range_occlusion(robot);
         robot
@@ -215,7 +215,7 @@ where
     }
 
     fn set_pose(
-        robot: &mut Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        robot: &mut Robot<super::ConfiguredChassis, C, X, P, A, B>,
         pose: Pose,
     ) -> Result<(), Self::Error> {
         robot
@@ -224,20 +224,20 @@ where
             .map_err(|error| P::drive_error(error, true))
     }
 
-    fn request_distance_reset(robot: &mut Robot<super::ConfiguredChassis, C, T, X, P, A>) {
+    fn request_distance_reset(robot: &mut Robot<super::ConfiguredChassis, C, X, P, A, B>) {
         robot.drivetrain.request_distance_reset();
     }
 
-    fn cancel_distance_reset(robot: &mut Robot<super::ConfiguredChassis, C, T, X, P, A>) {
+    fn cancel_distance_reset(robot: &mut Robot<super::ConfiguredChassis, C, X, P, A, B>) {
         robot.drivetrain.cancel_distance_reset();
     }
 
-    fn pose_trusted(robot: &Robot<super::ConfiguredChassis, C, T, X, P, A>) -> bool {
+    fn pose_trusted(robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> bool {
         robot.drivetrain.chassis().pose_trusted()
     }
 
     fn log_step(
-        robot: &mut Robot<super::ConfiguredChassis, C, T, X, P, A>,
+        robot: &mut Robot<super::ConfiguredChassis, C, X, P, A, B>,
         elapsed: Duration,
         dt: Duration,
         progress: Length,

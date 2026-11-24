@@ -19,14 +19,15 @@ pub mod prelude {
     pub use crate::{
         control::Tolerances,
         drivetrain::{
-            Drivetrain,
-            model::{Arcade, ArcadeInput, DriveConfigError, Holonomic, Tank},
+            Arcade, Drive, Drivetrain, HasLocalization, Holonomic, Tank,
+            assist::{AssistedDrivetrain, DriveAssists},
+            model::{ArcadeInput, DriveConfigError},
         },
         motion::{
-            Basic, DriveTuning, PoseSeeking, Seeking,
+            Basic, DriveTuning, PoseSeeking, PurePursuit, Seeking,
             commands::{
-                Follower, MotionControls, RobotMotion, ScoringControls, TimedMotion,
-                TravelDirection,
+                Follower, MotionControls, ResetStartPose, RobotMotion, ScoringControls,
+                TimedMotion, TravelDirection,
             },
         },
         runtime::{

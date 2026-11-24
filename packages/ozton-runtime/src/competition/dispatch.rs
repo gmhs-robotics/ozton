@@ -1,13 +1,16 @@
 //! Driver ticks and fault handling on an assembled robot.
+use ozton_drivetrain::assist::ResetDriveAssists;
+
 use super::*;
 
-impl<D, T, X, P, R, S> CompetitionRobot for Robot<D, Controller, T, X, P, Autonomous<R, S>>
+impl<D, X, P, R, S, B> CompetitionRobot for Robot<D, Controller, X, P, Autonomous<R, S>, B>
 where
     D: ProgramDrive,
     P: Program<Self, D>,
     R: Routes<Self, P::Error>,
     Autonomous<R, S>: Telemetry<Self>,
     X: Mechanism<P::Error>,
+    B: ResetDriveAssists,
 {
     type Error = P::Error;
     type Route = R;
@@ -18,6 +21,7 @@ where
     }
 
     fn stop(&mut self) -> Result<(), Self::Error> {
+        self.assists.reset_drive_assists();
         stop_program(self)
     }
 
@@ -47,10 +51,6 @@ where
                 self.autonomous.report_driver_fault(Some(error.to_string()));
             }
             Some(Ok(())) => {
-                let output_fault = self
-                    .drivetrain
-                    .take_driver_fault()
-                    .map(|error| P::drive_error(error, false).to_string());
                 let mechanism_fault = self
                     .update_mechanisms(CompetitionMode::Driver, tick.elapsed)
                     .err()
@@ -64,8 +64,7 @@ where
                         }
                         error.to_string()
                     });
-                self.autonomous
-                    .report_driver_fault(mechanism_fault.or(output_fault));
+                self.autonomous.report_driver_fault(mechanism_fault);
             }
         }
     }
@@ -117,12 +116,12 @@ fn report_route_error<D, R, P>(
     }
 }
 
-pub(super) fn stop_program<D, C, T, X, P, A>(
-    robot: &mut Robot<D, C, T, X, P, A>,
+pub(super) fn stop_program<D, C, X, P, A, B>(
+    robot: &mut Robot<D, C, X, P, A, B>,
 ) -> Result<(), P::Error>
 where
     D: ProgramDrive,
-    P: Program<Robot<D, C, T, X, P, A>, D>,
+    P: Program<Robot<D, C, X, P, A, B>, D>,
     X: Mechanism<P::Error>,
 {
     let drive = robot
@@ -132,23 +131,24 @@ where
     drive.and(robot.stop_mechanisms())
 }
 
-pub(super) async fn dispatch_driver<D, C, T, X, P, A>(
-    robot: &mut Robot<D, C, T, X, P, A>,
+pub(super) async fn dispatch_driver<D, C, X, P, A, B>(
+    robot: &mut Robot<D, C, X, P, A, B>,
     tick: Tick,
 ) -> Result<(), P::Error>
 where
     D: ProgramDrive,
-    P: Program<Robot<D, C, T, X, P, A>, D>,
-    A: Telemetry<Robot<D, C, T, X, P, A>>,
+    P: Program<Robot<D, C, X, P, A, B>, D>,
+    A: Telemetry<Robot<D, C, X, P, A, B>>,
     X: Mechanism<P::Error>,
+    B: ResetDriveAssists,
 {
     robot.driver_elapsed = tick.elapsed;
     robot.driver_wrote = false;
     robot.drivetrain.take_driver_output();
-    robot.drivetrain.take_driver_fault();
     P::before_driver(robot);
     P::driver(robot).await?;
     if !robot.drivetrain.take_driver_output() && !robot.driver_wrote {
+        robot.assists.reset_drive_assists();
         robot
             .drivetrain
             .stop()

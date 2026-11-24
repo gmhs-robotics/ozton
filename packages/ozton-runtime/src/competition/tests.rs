@@ -12,10 +12,6 @@ struct FakeDrive {
     direct_output: bool,
 }
 
-impl ozton_drivetrain::model::DrivetrainModel for FakeDrive {
-    type Error = &'static str;
-}
-
 impl ProgramDrive for FakeDrive {
     type Error = &'static str;
     type DriverCommand = bool;
@@ -47,7 +43,7 @@ struct FakeProgram {
     direct: bool,
 }
 struct NoTelemetry;
-type TestRobot = Robot<FakeDrive, (), (), (), FakeProgram, NoTelemetry>;
+type TestRobot = Robot<FakeDrive, (), (), FakeProgram, NoTelemetry>;
 
 impl Telemetry<TestRobot> for NoTelemetry {
     fn record(_: &mut TestRobot, _: Sample) {}
@@ -99,10 +95,10 @@ fn driver_dispatch_and_stop_use_the_installed_drive() {
             direct_output: false,
         },
         controller: (),
-        tracking: (),
         mechanisms: (),
         program: FakeProgram { direct: false },
         autonomous: NoTelemetry,
+        assists: (),
         driver_elapsed: Duration::ZERO,
         driver_wrote: false,
     };

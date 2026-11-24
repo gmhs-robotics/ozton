@@ -1,14 +1,16 @@
 //! Sampling hardware independently of pose estimation.
 use glam::DVec3;
 use ozton_math::uom::si::f64::Length;
-use vexide::{prelude::InertialSensor, smart::SmartPort};
 
 use crate::{
     Tracking,
+    encoders::DifferentialTracking,
     sources::{
         Snapshot,
         distance::{MAX_RANGES, RangeObservation, RangeSensorConfig},
-        vex::{DistanceTracker, Distances, Orientation, Sensors, SharedSensors},
+        vex::{
+            DistanceTracker, Distances, InertialSensorTracking, Orientation, Sensors, SharedSensors,
+        },
         wheels::MountedWheel,
     },
 };
@@ -35,8 +37,8 @@ impl std::error::Error for TrackingBuildError {}
 /// Install sensors and their physical mounts. Building initializes the devices once.
 #[derive(Default)]
 pub struct TrackingBuilder {
-    imu: Option<SmartPort>,
-    drive_encoders: bool,
+    imu: Option<InertialSensorTracking>,
+    drive_encoders: Option<DifferentialTracking>,
     wheels: Vec<MountedWheel>,
     ranges: Vec<DistanceTracker>,
 }
@@ -46,14 +48,14 @@ impl TrackingBuilder {
         Self::default()
     }
 
-    pub fn with_imu(mut self, port: SmartPort) -> Self {
-        self.imu = Some(port);
+    pub fn with_imu(mut self, imu: impl Into<InertialSensorTracking>) -> Self {
+        self.imu = Some(imu.into());
         self
     }
 
     /// Sample the calibrated encoders on the model that this tracker is attached to.
-    pub fn with_drive_encoders(mut self) -> Self {
-        self.drive_encoders = true;
+    pub fn with_drive_encoders(mut self, source: DifferentialTracking) -> Self {
+        self.drive_encoders = Some(source);
         self
     }
 
@@ -73,9 +75,9 @@ impl TrackingBuilder {
             return Err(TrackingBuildError::WheelGeometry);
         }
         let distances = Distances::new(self.ranges).ok_or(TrackingBuildError::RangeLayout)?;
-        let (sensors, distances) = Sensors::default()
+        let (sensors, distances) = Sensors::from_sources((), ())
             .into_shared_reader()
-            .initialize_with_distances(self.imu.map(InertialSensor::new), distances)
+            .initialize_mounted(self.imu, distances)
             .await
             .ok_or(TrackingBuildError::ImuStartup)?;
         Ok(SensorTracking {
@@ -91,15 +93,23 @@ impl TrackingBuilder {
 
 /// Live hardware sources. This type never stores or updates a pose.
 pub struct SensorTracking {
-    sensors: SharedSensors,
+    sensors: SharedSensors<(), ()>,
     distances: Distances,
     wheels: Vec<MountedWheel>,
     positions: Vec<Option<Length>>,
-    drive_encoders: bool,
+    drive_encoders: Option<DifferentialTracking>,
     orientation_sampled: bool,
 }
 
-impl Tracking for SensorTracking {}
+impl Tracking for SensorTracking {
+    fn drive_wheels(&self) -> Option<&DifferentialTracking> {
+        self.drive_encoders.as_ref()
+    }
+
+    fn drive_wheels_mut(&mut self) -> Option<&mut DifferentialTracking> {
+        self.drive_encoders.as_mut()
+    }
+}
 
 pub struct SensorSample<'a> {
     pub snapshot: Snapshot,
@@ -109,7 +119,7 @@ pub struct SensorSample<'a> {
 
 impl SensorTracking {
     pub fn uses_drive_encoders(&self) -> bool {
-        self.drive_encoders
+        self.drive_encoders.is_some()
     }
 
     pub fn wheel_projections(&self) -> impl Iterator<Item = DVec3> + '_ {
@@ -146,7 +156,7 @@ impl SensorTracking {
         for (reading, wheel) in self.positions.iter_mut().zip(&self.wheels) {
             *reading = wheel.sample();
         }
-        let drive = if self.drive_encoders {
+        let drive = if self.uses_drive_encoders() {
             drive
         } else {
             [None; 2]
@@ -174,3 +184,6 @@ pub trait LocalizationLifecycle<T> {
 }
 
 impl<T> LocalizationLifecycle<T> for () {}
+
+// WheeledTracking publishes its estimate from its own sampling task.
+impl<T> LocalizationLifecycle<T> for crate::WheeledTracking {}

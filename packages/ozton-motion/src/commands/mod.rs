@@ -22,7 +22,7 @@ pub use command::{Alignment, Command, Contact, DriveOptions, PathMarker, RangeFa
 pub use command_error::CommandError;
 pub use control_error::{ControlError, ControlResult};
 pub use controls::{MotionControls, ScoringControls};
-pub use drivetrain::{DriveMotionFault, DrivetrainMotion, GoalReset, PoseSeeking};
+pub use drivetrain::{DriveMotionFault, PoseDrive, PoseSeeking, ResetStartPose};
 pub use ozton_localization::{Feedback, RangeFeedback};
 pub use ozton_math::path::follower::Follower;
 pub use robot_motion::{RobotMotion, TravelDirection};
@@ -35,6 +35,4 @@ pub use setup::{
 pub use stage::TimedMotion;
 pub use tuning::DriveTuning;
 
-pub use crate::assists::{
-    AntiTipAssist, AssistedMotion, HeadingHoldAssist, MotorBalanceAssist, TiltAxis,
-};
+pub use crate::assists::{AntiTipAssist, HeadingHoldAssist, MotorBalanceAssist, TiltAxis};

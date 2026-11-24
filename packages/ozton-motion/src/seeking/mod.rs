@@ -8,8 +8,8 @@ use ozton_control::{
     axis::Linear,
     loops::{Feedback, Pid},
 };
-use ozton_drivetrain::{Drivetrain, model::Arcade};
-use ozton_tracking::{Tracking, TracksHeading, TracksPosition, TracksVelocity};
+use ozton_drivetrain::{Drive, HasLocalization};
+use ozton_tracking::{TracksHeading, TracksPosition, TracksVelocity};
 
 mod move_to_point;
 
@@ -70,15 +70,12 @@ where
     /// The final heading of the robot after this motion executes is undefined.
     pub fn move_to_point<
         'a,
-        M: Arcade,
-        S: Tracking,
-        T: TracksPosition + TracksHeading + TracksVelocity,
-        D,
+        M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading + TracksVelocity>,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T, D>,
+        drivetrain: &'a mut M,
         point: impl Into<Vec2>,
-    ) -> MoveToPointFuture<'a, M, L, A, S, T, D> {
+    ) -> MoveToPointFuture<'a, M, L, A> {
         MoveToPointFuture {
             drivetrain,
             reverse: false,

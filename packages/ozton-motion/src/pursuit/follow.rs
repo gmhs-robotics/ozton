@@ -5,9 +5,9 @@ use std::{
 };
 
 use glam::DVec2 as Vec2;
-use ozton_drivetrain::{Drivetrain, model::Tank};
+use ozton_drivetrain::{Drive, HasLocalization, model::Tank};
 use ozton_math::uom::si::{f64::Length, length::meter};
-use ozton_tracking::{Tracking, TracksHeading, TracksPosition};
+use ozton_tracking::{TracksHeading, TracksPosition};
 use vexide::{
     math::Angle,
     time::{Sleep, sleep},
@@ -25,14 +25,12 @@ pub struct State {
 
 /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct PurePursuitFuture<'a, M, S, T, I, D = ()>
+pub struct PurePursuitFuture<'a, M, I>
 where
-    M: Tank,
-    S: Tracking,
-    T: TracksPosition + TracksHeading,
+    M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
     I: Iterator<Item = Waypoint> + Unpin,
 {
-    pub(crate) drivetrain: &'a mut Drivetrain<M, S, T, D>,
+    pub(crate) drivetrain: &'a mut M,
 
     /// Internal future state ("local variables").
     pub(crate) state: Option<State>,
@@ -45,25 +43,21 @@ where
 
 // MARK: Future Poll
 
-impl<M, S, T, I, D> Drop for PurePursuitFuture<'_, M, S, T, I, D>
+impl<M, I> Drop for PurePursuitFuture<'_, M, I>
 where
-    M: Tank,
-    S: Tracking,
-    T: TracksPosition + TracksHeading,
+    M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
     I: Iterator<Item = Waypoint> + Unpin,
 {
     fn drop(&mut self) {
         if self.state.is_some() {
-            let _ = self.drivetrain.model.stop_now();
+            let _ = self.drivetrain.stop_now();
         }
     }
 }
 
-impl<M, S, T, I, D> Future for PurePursuitFuture<'_, M, S, T, I, D>
+impl<M, I> Future for PurePursuitFuture<'_, M, I>
 where
-    M: Tank,
-    S: Tracking,
-    T: TracksPosition + TracksHeading,
+    M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
     I: Iterator<Item = Waypoint> + Unpin,
 {
     type Output = Result<crate::MotionOutcome, crate::MotionError<M::Error>>;
@@ -77,19 +71,18 @@ where
             if !this.lookahead_distance.is_finite() || this.lookahead_distance <= 0.0 {
                 return Poll::Ready(
                     this.drivetrain
-                        .model
                         .stop_now()
                         .map_err(crate::MotionError::Stop)
                         .and(Err(crate::MotionError::InvalidPath)),
                 );
             }
             let now = Instant::now();
-            let position = this.drivetrain.localization.position();
+            this.drivetrain.refresh_localization();
+            let position = this.drivetrain.localization().position();
 
             let Some(mut next) = this.waypoints.next() else {
                 return Poll::Ready(
                     this.drivetrain
-                        .model
                         .stop_now()
                         .map_err(crate::MotionError::Stop)
                         .and(Err(crate::MotionError::InvalidPath)),
@@ -114,7 +107,7 @@ where
                     next_waypoint
                 } else {
                     return Poll::Ready(crate::finish_motion(
-                        this.drivetrain.model.stop_now(),
+                        this.drivetrain.stop_now(),
                         crate::MotionOutcome::Settled,
                     ));
                 };
@@ -130,7 +123,6 @@ where
                 (None, None) => {
                     return Poll::Ready(
                         this.drivetrain
-                            .model
                             .stop_now()
                             .map_err(crate::MotionError::Stop)
                             .and(Err(crate::MotionError::InvalidPath)),
@@ -163,6 +155,8 @@ where
             return Poll::Pending;
         }
 
+        this.drivetrain.refresh_localization();
+
         // Cancel movement if timeout has elapsed.
         if this
             .timeout
@@ -170,14 +164,14 @@ where
         {
             this.state = None;
             return Poll::Ready(crate::finish_motion(
-                this.drivetrain.model.stop_now(),
+                this.drivetrain.stop_now(),
                 crate::MotionOutcome::TimedOut,
             ));
         }
 
         // Tracking data (robot position and heading)
-        let position = this.drivetrain.localization.position();
-        let heading = this.drivetrain.localization.heading();
+        let position = this.drivetrain.localization().position();
+        let heading = this.drivetrain.localization().heading();
 
         // If the lookahead circle envelops the end of the current waypoint segment,
         // then switch to the next two waypoints.
@@ -192,7 +186,7 @@ where
                 // We're out of waypoints, meaning the end of path has been reached.
                 this.state = None;
                 return Poll::Ready(crate::finish_motion(
-                    this.drivetrain.model.stop_now(),
+                    this.drivetrain.stop_now(),
                     crate::MotionOutcome::Settled,
                 ));
             };
@@ -233,14 +227,15 @@ where
 
         let curvature = signed_arc_curvature(position, heading, state.lookahead_point);
 
-        if let Err(output) = this.drivetrain.model.drive_tank(
+        if let Err(output) = Tank::drive(
+            this.drivetrain,
             velocity * (2.0 + curvature * this.track_width) / 2.0,
             velocity * (2.0 - curvature * this.track_width) / 2.0,
         ) {
             this.state = None;
             return Poll::Ready(Err(crate::motion_output_error(
                 output,
-                this.drivetrain.model.stop_now(),
+                this.drivetrain.stop_now(),
             )));
         }
 
@@ -252,11 +247,9 @@ where
 
 // MARK: Modifiers
 
-impl<M, S, T, I, D> PurePursuitFuture<'_, M, S, T, I, D>
+impl<M, I> PurePursuitFuture<'_, M, I>
 where
-    M: Tank,
-    S: Tracking,
-    T: TracksPosition + TracksHeading,
+    M: Drive + HasLocalization<Localization: TracksPosition + TracksHeading>,
     I: Iterator<Item = Waypoint> + Unpin,
 {
     /// Modifies this motion's track width.

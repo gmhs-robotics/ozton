@@ -1,15 +1,10 @@
-//! Stock drive assists and timed assisted motion.
-
-use std::time::Duration;
+//! Stock drive assists.
 
 use ozton_control::{drive::AntiTip, heading_corrector::HeadingCorrector, loops::Pid};
-use ozton_drivetrain::{assist::DriveAssist, model::DrivetrainModel};
-use ozton_tracking::sources::vex::Orientation;
-
-mod timed;
-
-pub use ozton_drivetrain::assist::{AssistChain, AssistedDrivetrain, MotorBalanceAssist};
-pub use timed::AssistedMotion;
+pub use ozton_drivetrain::assist::{
+    AssistContext, AssistedDrivetrain, DriveAssists, MotorBalanceAssist,
+};
+use ozton_drivetrain::{Drive, assist::DriveAssist};
 
 pub struct HeadingHoldAssist(HeadingCorrector);
 
@@ -26,17 +21,21 @@ impl HeadingHoldAssist {
     }
 }
 
-impl<M: DrivetrainModel> DriveAssist<M> for HeadingHoldAssist {
+impl<M: Drive, T, L> DriveAssist<M, T, L> for HeadingHoldAssist {
     fn needs_orientation(&self) -> bool {
         true
     }
 
-    fn apply(&mut self, axes: &mut [f64; 2], orientation: Option<Orientation>, dt: Duration) {
+    fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
+        if context.wheel_velocity {
+            self.0.reset();
+            return;
+        }
         axes[1] = self.0.turn_with_period(
             axes[0],
             axes[1],
-            orientation.and_then(|sample| sample.heading),
-            dt,
+            context.orientation.and_then(|sample| sample.heading),
+            context.elapsed,
         );
     }
 
@@ -63,18 +62,18 @@ impl AntiTipAssist {
     }
 }
 
-impl<M: DrivetrainModel> DriveAssist<M> for AntiTipAssist {
+impl<M: Drive, T, L> DriveAssist<M, T, L> for AntiTipAssist {
     fn needs_orientation(&self) -> bool {
         true
     }
 
-    fn apply(&mut self, axes: &mut [f64; 2], orientation: Option<Orientation>, dt: Duration) {
-        let tilt = orientation.and_then(|sample| match self.axis {
+    fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
+        let tilt = context.orientation.and_then(|sample| match self.axis {
             TiltAxis::Pitch => sample.pitch,
             TiltAxis::Roll => sample.roll,
         });
         if let Some(tilt) = tilt {
-            axes[0] += self.controller.correction(tilt, dt);
+            axes[0] += self.controller.correction(tilt, context.elapsed);
         } else {
             self.controller.reset();
         }

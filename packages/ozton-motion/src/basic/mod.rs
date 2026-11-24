@@ -8,15 +8,13 @@ use ozton_control::{
     axis::Linear,
     loops::{AngularPid, Feedback, Pid},
 };
-use ozton_drivetrain::{Drivetrain, model::Arcade};
+use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::uom::si::{
     angle::radian,
     f64::{Angle as UnitAngle, Length},
     length::meter,
 };
-use ozton_tracking::{
-    Tracking, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
-};
+use ozton_tracking::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity};
 use vexide::math::Angle;
 
 use crate::commands::routine_settings::{
@@ -81,16 +79,13 @@ where
     /// Negative `target_distance` values will move the robot backwards.
     pub fn drive_distance_at_heading<
         'a,
-        M: Arcade,
-        S: Tracking,
-        T: TracksForwardTravel + TracksHeading + TracksVelocity,
-        D,
+        M: Drive + HasLocalization<Localization: TracksForwardTravel + TracksHeading + TracksVelocity>,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T, D>,
+        drivetrain: &'a mut M,
         target_distance: Length,
         target_heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, S, T, D> {
+    ) -> DriveFuture<'a, M, L, A> {
         DriveFuture {
             target_distance: target_distance.value,
             target_heading: Angle::from_radians(target_heading.value),
@@ -109,49 +104,44 @@ where
     /// Negative `distance` values will move the robot backwards.
     pub fn drive_distance<
         'a,
-        M: Arcade,
-        S: Tracking,
-        T: TracksForwardTravel + TracksHeading + TracksVelocity,
-        D,
+        M: Drive + HasLocalization<Localization: TracksForwardTravel + TracksHeading + TracksVelocity>,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T, D>,
+        drivetrain: &'a mut M,
         distance: Length,
-    ) -> DriveFuture<'a, M, L, A, S, T, D> {
+    ) -> DriveFuture<'a, M, L, A> {
+        drivetrain.refresh_localization();
         self.drive_distance_at_heading(
             drivetrain,
             distance,
-            UnitAngle::new::<radian>(drivetrain.localization.heading().as_radians()),
+            UnitAngle::new::<radian>(drivetrain.localization().heading().as_radians()),
         )
     }
 
     /// Turns the robot in place to face a heading.
     pub fn turn_to_heading<
         'a,
-        M: Arcade,
-        S: Tracking,
-        T: TracksForwardTravel + TracksHeading + TracksVelocity,
-        D,
+        M: Drive + HasLocalization<Localization: TracksForwardTravel + TracksHeading + TracksVelocity>,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T, D>,
+        drivetrain: &'a mut M,
         heading: UnitAngle,
-    ) -> DriveFuture<'a, M, L, A, S, T, D> {
+    ) -> DriveFuture<'a, M, L, A> {
         self.drive_distance_at_heading(drivetrain, Length::new::<meter>(0.0), heading)
     }
 
     /// Turns the robot in place to face a 2D point.
     pub fn turn_to_point<
         'a,
-        M: Arcade,
-        S: Tracking,
-        T: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
-        D,
+        M: Drive
+            + HasLocalization<
+                Localization: TracksForwardTravel + TracksPosition + TracksHeading + TracksVelocity,
+            >,
     >(
         &self,
-        drivetrain: &'a mut Drivetrain<M, S, T, D>,
+        drivetrain: &'a mut M,
         point: impl Into<Vec2>,
-    ) -> TurnToPointFuture<'a, M, L, A, S, T, D> {
+    ) -> TurnToPointFuture<'a, M, L, A> {
         TurnToPointFuture {
             point: point.into(),
             timeout: self.timeout,

@@ -8,10 +8,6 @@ use crate::commands::DriveTuning;
 
 const RATE_FILTER: Duration = Duration::from_millis(55);
 
-pub(in crate::commands) const fn angular_pid() -> Pid {
-    DriveTuning::STANDARD.angular
-}
-
 pub(super) struct MotionPid {
     forward: Pid,
     angular: Pid,

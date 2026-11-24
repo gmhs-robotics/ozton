@@ -7,7 +7,7 @@ use ozton_diagnostics::{Event, serial};
 use ozton_diagnostics::{Journal, calibration::CalibrationSample};
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Differential, Tank, WheelFeedback, WheelSpeedError},
+    model::{Differential, Drive, WheelFeedback, WheelSpeedError},
 };
 #[cfg(feature = "logging")]
 use ozton_localization::localizer::{Correction, Update};
@@ -54,11 +54,20 @@ impl WheelControl {
 }
 
 pub(super) struct ChassisSensors {
+    pub(super) drive_encoders: ozton_tracking::encoders::DifferentialTracking,
     pub(super) sensors: SharedSensors,
     pub(super) distances: Distances,
 }
 
-impl ozton_tracking::Tracking for ChassisSensors {}
+impl ozton_tracking::Tracking for ChassisSensors {
+    fn drive_wheels(&self) -> Option<&ozton_tracking::encoders::DifferentialTracking> {
+        Some(&self.drive_encoders)
+    }
+
+    fn drive_wheels_mut(&mut self) -> Option<&mut ozton_tracking::encoders::DifferentialTracking> {
+        Some(&mut self.drive_encoders)
+    }
+}
 
 pub struct Chassis<'a, E: PoseEstimator = Filter> {
     pub(super) drivetrain: Drivetrain<Differential, ChassisSensors, Localizer<'a, E>>,

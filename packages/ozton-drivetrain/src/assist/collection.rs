@@ -1,55 +1,71 @@
-//! Ordered drive assists selected at assembly time.
+//! Assist state stored inline in installation order.
 
-use std::time::Duration;
+use std::time::Instant;
 
-use ozton_tracking::sources::vex::Orientation;
+use super::{AssistContext, DriveAssist};
+use crate::Drive;
 
-use super::DriveAssist;
-use crate::model::DrivetrainModel;
-
-/// An ordered collection of assists with a type independent of its contents.
-pub struct DriveAssists<M: DrivetrainModel>(Vec<Box<dyn DriveAssist<M>>>);
-
-impl<M: DrivetrainModel> Default for DriveAssists<M> {
-    fn default() -> Self {
-        Self::new()
-    }
+/// The owned assist tuple and timing state shared across borrowed drive views.
+pub struct DriveAssists<A> {
+    pub(super) items: A,
+    pub(super) last_tick: Option<(Instant, bool)>,
 }
 
-impl<M: DrivetrainModel> DriveAssists<M> {
-    pub fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    /// Append an assist to the collection.
-    pub fn with(mut self, assist: impl DriveAssist<M> + 'static) -> Self {
-        self.0.push(Box::new(assist));
-        self
-    }
-}
-
-impl<M: DrivetrainModel> DriveAssist<M> for DriveAssists<M> {
-    fn needs_orientation(&self) -> bool {
-        self.0.iter().any(|assist| assist.needs_orientation())
-    }
-
-    fn apply(&mut self, axes: &mut [f64; 2], orientation: Option<Orientation>, dt: Duration) {
-        for assist in &mut self.0 {
-            assist.apply(axes, orientation, dt);
-        }
-    }
-
-    fn wheels(&mut self, model: &M, wheels: &mut [f64; 2]) -> Result<(), M::Error> {
-        let mut result = Ok(());
-        for assist in &mut self.0 {
-            result = result.and(assist.wheels(model, wheels));
-        }
-        result
-    }
-
-    fn reset(&mut self) {
-        for assist in &mut self.0 {
-            assist.reset();
+impl<A> DriveAssists<A> {
+    pub const fn new(items: A) -> Self {
+        Self {
+            items,
+            last_tick: None,
         }
     }
 }
+
+/// Invalidate any assist state when drive output is stopped externally.
+pub trait ResetDriveAssists {
+    fn reset_drive_assists(&mut self);
+}
+
+impl ResetDriveAssists for () {
+    fn reset_drive_assists(&mut self) {}
+}
+
+impl<A> ResetDriveAssists for DriveAssists<A> {
+    fn reset_drive_assists(&mut self) {
+        self.last_tick = None;
+    }
+}
+
+macro_rules! tuple_assists {
+    ($($index:tt : $assist:ident),+ $(,)?) => {
+        impl<M: Drive, T, L, $($assist: DriveAssist<M, T, L>),+> DriveAssist<M, T, L>
+            for ($($assist,)+)
+        {
+            fn needs_orientation(&self) -> bool {
+                false $(|| self.$index.needs_orientation())+
+            }
+
+            fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
+                $(self.$index.apply(axes, context);)+
+            }
+
+            fn wheels(
+                &mut self,
+                context: &AssistContext<'_, M, T, L>,
+                wheels: &mut [f64; 2],
+            ) -> Result<(), M::Error> {
+                Ok(())$(.and(self.$index.wheels(context, wheels)))+
+            }
+
+            fn reset(&mut self) {
+                $(self.$index.reset();)+
+            }
+        }
+    };
+}
+
+tuple_assists!(0: A);
+tuple_assists!(0: A, 1: B);
+tuple_assists!(0: A, 1: B, 2: C);
+tuple_assists!(0: A, 1: B, 2: C, 3: D);
+tuple_assists!(0: A, 1: B, 2: C, 3: D, 4: E);
+tuple_assists!(0: A, 1: B, 2: C, 3: D, 4: E, 5: F);

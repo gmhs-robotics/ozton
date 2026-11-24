@@ -11,36 +11,36 @@ use crate::{
 /// All components are stored inline and the compiler checks the assembled layout.
 pub trait RobotLayout: Sized {
     type Drivetrain;
-    type Tracking;
     type Mechanisms;
     type Routes: RouteSet;
     type Report;
+    type Assists;
 }
 
 /// Concrete robot for a layout, usable in route and policy signatures.
 pub type CompetitionBot<L> = Robot<
     <L as RobotLayout>::Drivetrain,
     Controller,
-    <L as RobotLayout>::Tracking,
     <L as RobotLayout>::Mechanisms,
     L,
     Autonomous<<L as RobotLayout>::Routes, Sampler<<L as RobotLayout>::Report>>,
+    <L as RobotLayout>::Assists,
 >;
 
 /// An assembled robot. Components are stored inline and dispatched statically.
 #[must_use]
-pub struct Robot<D = (), C = (), T = (), X = (), P = (), A = ()> {
+pub struct Robot<D = (), C = (), X = (), P = (), A = (), S = ()> {
     pub drivetrain: D,
     pub controller: C,
-    pub tracking: T,
     pub mechanisms: X,
     pub program: P,
     pub autonomous: A,
+    pub assists: S,
     pub(crate) driver_elapsed: std::time::Duration,
     pub(crate) driver_wrote: bool,
 }
 
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, S> Robot<D, C, X, P, A, S>
 where
     D: crate::competition::ProgramDrive,
     P: crate::competition::Program<Self, D>,
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, S> Robot<D, C, X, P, A, S>
 where
     D: crate::competition::ProgramDrive,
     P: crate::competition::Program<Self, D>,
@@ -84,13 +84,13 @@ where
 
 /// Compose a robot before handing it to competition control.
 #[must_use]
-pub struct RobotBuilder<D = (), C = (), T = (), X = (), P = (), A = ()> {
+pub struct RobotBuilder<D = (), C = (), X = (), P = (), A = (), S = ()> {
     drivetrain: D,
     controller: C,
-    tracking: T,
     mechanisms: X,
     program: P,
     autonomous: A,
+    assists: S,
 }
 
 impl RobotBuilder {
@@ -98,10 +98,10 @@ impl RobotBuilder {
         Self {
             drivetrain: (),
             controller: (),
-            tracking: (),
             mechanisms: (),
             program: (),
             autonomous: (),
+            assists: (),
         }
     }
 }
@@ -123,7 +123,7 @@ macro_rules! with_component {
     };
 }
 
-impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
+impl<D, C, X, P, A, S> RobotBuilder<D, C, X, P, A, S> {
     /// Finish assembly and hand ownership of the components to the robot.
     ///
     /// A built robot exposes only its operational interfaces.
@@ -133,95 +133,86 @@ impl<D, C, T, X, P, A> RobotBuilder<D, C, T, X, P, A> {
     /// let robot = RobotBuilder::new().build();
     /// robot.with_drivetrain(());
     /// ```
-    pub fn build(self) -> Robot<D, C, T, X, P, A> {
+    pub fn build(self) -> Robot<D, C, X, P, A, S> {
         let Self {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
             autonomous,
+            assists,
         } = self;
         Robot {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
             autonomous,
+            assists,
             driver_elapsed: std::time::Duration::ZERO,
             driver_wrote: false,
         }
     }
 
-    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, T, X, P, A>, controller, tracking, mechanisms, program, autonomous);
-    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, T, X, P, A>, drivetrain, tracking, mechanisms, program, autonomous);
-    with_component!("Install the owned tracking value.", with_tracking, tracking, RobotBuilder<D, C, N, X, P, A>, drivetrain, controller, mechanisms, program, autonomous);
-    with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, T, X, N, A>, drivetrain, controller, tracking, mechanisms, autonomous);
+    with_component!("Install the owned drivetrain value.", with_drivetrain, drivetrain, RobotBuilder<N, C, X, P, A, S>, controller, mechanisms, program, autonomous, assists);
+    with_component!("Install the owned controller value.", with_controller, controller, RobotBuilder<D, N, X, P, A, S>, drivetrain, mechanisms, program, autonomous, assists);
+    with_component!("Install application-wide control state and behavior.", with_program, program, RobotBuilder<D, C, X, N, A, S>, drivetrain, controller, mechanisms, autonomous, assists);
 
-    /// Assemble tracking from the installed drivetrain's calibration, then
-    /// keep both components owned independently by the robot.
-    pub async fn with_tracking_from_drive<N, E>(
-        self,
-        assemble: impl AsyncFnOnce(&D) -> Result<N, E>,
-    ) -> Result<RobotBuilder<D, C, N, X, P, A>, E> {
-        let tracking = assemble(&self.drivetrain).await?;
-        Ok(self.with_tracking(tracking))
-    }
+    with_component!("Install the owned drive assist stack.", with_drive_assists, assists, RobotBuilder<D, C, X, P, A, N>, drivetrain, controller, mechanisms, program, autonomous);
 
     /// Register the selectable routes in menu order.
     pub fn with_auton<R: RouteSet>(
         self,
         routes: impl IntoIterator<Item = R>,
-    ) -> RobotBuilder<D, C, T, X, P, AutonSelection<R>> {
+    ) -> RobotBuilder<D, C, X, P, AutonSelection<R>, S> {
         let Self {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
+            assists,
             ..
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
+            assists,
             autonomous: AutonSelection(routes.into_iter().collect()),
         }
     }
 
-    with_component!("Install the application's named mechanism aggregate.", with_mechanisms, mechanisms, RobotBuilder<D, C, T, N, P, A>, drivetrain, controller, tracking, program, autonomous);
+    with_component!("Install the application's named mechanism aggregate.", with_mechanisms, mechanisms, RobotBuilder<D, C, N, P, A, S>, drivetrain, controller, program, autonomous, assists);
 }
 
 /// The selectable routes before a competition UI is installed.
 pub struct AutonSelection<R>(Vec<R>);
 
-impl<D, C, T, X, P, R: RouteSet> RobotBuilder<D, C, T, X, P, AutonSelection<R>> {
+impl<D, C, X, P, R: RouteSet, S> RobotBuilder<D, C, X, P, AutonSelection<R>, S> {
     /// Attach the UI that selects the registered autonomous routes.
-    pub fn with_ui(self, ui: Ui<Option<R>>) -> RobotBuilder<D, C, T, X, P, Autonomous<R>> {
+    pub fn with_ui(self, ui: Ui<Option<R>>) -> RobotBuilder<D, C, X, P, Autonomous<R>, S> {
         let Self {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
             autonomous,
+            assists,
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
+            assists,
             autonomous: crate::competition::autonomous_ui(ui, autonomous.0),
         }
     }
 }
 
-impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
-    RobotBuilder<D, C, T, X, P, crate::competition::Autonomous<R, S>>
+impl<D, C, X, P, R: crate::competition::RouteSet, S, B>
+    RobotBuilder<D, C, X, P, crate::competition::Autonomous<R, S>, B>
 {
     /// Register the driver callback alongside the autonomous routes.
     pub fn with_driver(mut self, driver: R) -> Self
@@ -240,31 +231,31 @@ impl<D, C, T, X, P, R: crate::competition::RouteSet, S>
     ) -> RobotBuilder<
         D,
         C,
-        T,
         X,
         P,
         crate::competition::Autonomous<R, crate::diagnostics::Sampler<L>>,
+        B,
     > {
         let Self {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
             autonomous,
+            assists,
         } = self;
         RobotBuilder {
             drivetrain,
             controller,
-            tracking,
             mechanisms,
             program,
+            assists,
             autonomous: autonomous.with_diagnostics(interval),
         }
     }
 }
 
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, S> Robot<D, C, X, P, A, S>
 where
     A: crate::diagnostics::Telemetry<Self>,
 {
@@ -286,7 +277,7 @@ where
     }
 }
 
-impl<D, C, T, X, P, A> Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, S> Robot<D, C, X, P, A, S>
 where
     Self: crate::competition::CompetitionRobot + 'static,
 {

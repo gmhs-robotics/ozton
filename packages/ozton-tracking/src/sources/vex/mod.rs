@@ -16,7 +16,7 @@ mod distance;
 mod imu;
 pub use distance::{DistanceTracker, Distances};
 use imu::CalibratedImu;
-pub use imu::Orientation;
+pub use imu::{InertialSensorTracking, Orientation};
 
 /// A wheel-travel source in meters. A missing observation returns None.
 pub trait WheelSource {
@@ -72,7 +72,7 @@ impl Default for Sensors {
 }
 
 impl<F: WheelSource, L: WheelSource> Sensors<F, L> {
-    fn from_sources(forward: F, lateral: L) -> Self {
+    pub(crate) fn from_sources(forward: F, lateral: L) -> Self {
         Self {
             imu: None,
             orientation: None,
@@ -138,6 +138,15 @@ impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
         imu: Option<InertialSensor>,
         distances: Distances,
     ) -> Option<(Self, Distances)> {
+        self.initialize_mounted(imu.map(Into::into), distances)
+            .await
+    }
+
+    pub(crate) async fn initialize_mounted(
+        self,
+        imu: Option<InertialSensorTracking>,
+        distances: Distances,
+    ) -> Option<(Self, Distances)> {
         let orientation = async {
             match imu {
                 Some(imu) => self.with_imu(imu).await,
@@ -151,8 +160,8 @@ impl<F: WheelSource, L: WheelSource> SharedSensors<F, L> {
 
 impl<F: WheelSource, L: WheelSource, D> Sensors<F, L, D> {
     /// Calibrate once during assembly. A failed calibration returns no reader.
-    pub async fn with_imu(mut self, imu: InertialSensor) -> Option<Self> {
-        self.imu = Some(CalibratedImu::initialize(imu).await?);
+    pub async fn with_imu(mut self, imu: impl Into<InertialSensorTracking>) -> Option<Self> {
+        self.imu = Some(CalibratedImu::initialize(imu.into()).await?);
         self.orientation = None;
         Some(self)
     }

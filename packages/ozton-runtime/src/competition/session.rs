@@ -150,7 +150,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     }
 }
 
-impl<D, C, T, X, P, A> Compete for crate::Robot<D, C, T, X, P, A>
+impl<D, C, X, P, A, B> Compete for crate::Robot<D, C, X, P, A, B>
 where
     Self: CompetitionRobot,
 {

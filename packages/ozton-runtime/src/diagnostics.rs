@@ -77,9 +77,9 @@ impl<R> Report<R> for () {
     fn collect(_: &R, _: Frame, _: Sample) {}
 }
 
-impl<M, T, L, A> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L, A>
+impl<M, T, L> ComponentReport for ozton_drivetrain::Drivetrain<M, T, L>
 where
-    M: ozton_drivetrain::model::DrivetrainModel + ozton_drivetrain::MotorGroups,
+    M: ozton_drivetrain::model::Drive + ozton_drivetrain::MotorGroups,
     T: ozton_tracking::Tracking + ComponentReport,
     L: ComponentReport,
 {
@@ -280,9 +280,9 @@ impl SampleClock {
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_tracking::Tracking, L, A>(
+pub fn report_differential<T: ozton_tracking::Tracking, L>(
     frame: Frame,
-    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L, A>,
+    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
     use ozton_drivetrain::MotorGroups;
 
@@ -292,12 +292,11 @@ pub fn report_differential<T: ozton_tracking::Tracking, L, A>(
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.
 #[cfg(feature = "logging")]
-pub fn report_motion_drive<L, A>(
+pub fn report_motion_drive<L>(
     drive: &ozton_drivetrain::Drivetrain<
         ozton_drivetrain::model::Differential,
         ozton_tracking::sampling::SensorTracking,
         L,
-        A,
     >,
 ) {
     if serial::sd_enabled() {

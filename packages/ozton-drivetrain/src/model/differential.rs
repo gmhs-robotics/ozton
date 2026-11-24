@@ -1,15 +1,17 @@
 //! Two sides of motors driven by normalized voltage.
+use glam::DVec2;
 use vexide::{
     prelude::Motor,
     smart::{PortError, SmartDevice, motor::MotorType},
 };
 
-use super::{Balancing, DrivetrainModel, Tank};
-use crate::MotorGroups;
+use super::{Balancing, Drive, arcade_mix};
+use crate::{Footprint, MotorGroups};
 
 /// Motors on a side receive the same fraction of their rated voltage.
 pub struct Differential {
     sides: [Box<[Motor]>; 2],
+    footprint: Option<Footprint>,
 }
 
 impl Differential {
@@ -19,12 +21,18 @@ impl Differential {
     ) -> Self {
         Self {
             sides: [left.into_iter().collect(), right.into_iter().collect()],
+            footprint: None,
         }
     }
-}
 
-impl DrivetrainModel for Differential {
-    type Error = PortError;
+    pub fn with_footprint(mut self, footprint: Footprint) -> Self {
+        self.footprint = Some(footprint);
+        self
+    }
+
+    pub fn footprint(&self) -> Option<Footprint> {
+        self.footprint
+    }
 }
 
 impl MotorGroups for Differential {
@@ -39,16 +47,16 @@ impl MotorGroups for Differential {
     }
 }
 
-impl Tank for Differential {
-    fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        crate::normalized_voltage(&mut self.sides, [left, right])
+impl Drive for Differential {
+    type Error = PortError;
+
+    fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
+        crate::normalized_voltage(&mut self.sides, arcade_mix(vector.y, turn))
     }
 }
 
 impl Balancing for Differential {
-    type Command = [f64; 2];
-
-    fn balance(&self, command: &mut Self::Command) -> Result<(), PortError> {
+    fn balance(&self, command: &mut [f64; 2]) -> Result<(), PortError> {
         if *command == [0.0; 2] {
             return Ok(());
         }
@@ -74,11 +82,6 @@ impl Balancing for Differential {
         });
         *command = balance_motor_output(*command, availability);
         fault.map_or(Ok(()), Err)
-    }
-
-    fn drive_balanced(&mut self, mut command: Self::Command) -> Result<(), PortError> {
-        let balance = self.balance(&mut command);
-        self.drive_tank(command[0], command[1]).and(balance)
     }
 }
 

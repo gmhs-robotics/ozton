@@ -12,6 +12,8 @@ pub trait DriveEncoders {
 }
 
 pub mod consensus;
+mod differential;
 mod wheels;
 
-pub use wheels::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, Wheels, positive};
+pub use differential::DifferentialTracking;
+pub use wheels::{DriveConfigError, WheelFeedback, WheelGearing, Wheels, positive};

@@ -12,18 +12,19 @@ mod mecanum;
 pub use differential::Differential;
 pub use mecanum::Mecanum;
 
-pub use crate::{DriveConfigError, WheelFeedback, WheelGearing, WheelLoad, WheelSpeedError};
+pub use crate::{DriveConfigError, WheelFeedback, WheelGearing, WheelSpeedError};
 
-/// A collection of motors driving a wheeled mobile robot.
-///
-/// Implementors of this trait represent a physical or simulated robot drivetrain and may define
-/// additional motion-related functionality.
-///
-/// This is the base trait for all drivetrain models, such as [`Tank`], [`Arcade`], or
-/// [`Holonomic`].
-pub trait DrivetrainModel {
-    /// Error type returned when the robot fails to move.
+/// Normalized robot-relative actuation. Positive Y drives forward, positive X
+/// strafes right on holonomic drives, and positive turn rotates right.
+pub trait Drive {
     type Error;
+
+    fn drive_vector(&mut self, vector: Vec2, turn: f64) -> Result<(), Self::Error>;
+
+    /// Immediately remove output, bypassing command transforms where applicable.
+    fn stop_now(&mut self) -> Result<(), Self::Error> {
+        self.drive_vector(Vec2::ZERO, 0.0)
+    }
 }
 
 pub use ozton_tracking::encoders::DriveEncoders;
@@ -45,7 +46,7 @@ impl ArcadeInput {
         }
     }
 
-    /// Multiply the mixed wheel outputs by a controller-selected fraction.
+    /// Scale both input axes by a controller-selected fraction before mixing.
     pub const fn with_output_scale(mut self, scale: f64) -> Self {
         self.output_scale = if scale.is_finite() {
             scale.clamp(0.0, 1.0)
@@ -63,44 +64,36 @@ impl ArcadeInput {
     }
 }
 
-/// A drivetrain model that supports holonomic inverse kinematics.
-///
-/// Holonomic drivetrains (such as mecanum or swerve) can move freely in any direction without
-/// changing their orientation.
-///
-/// This interface allows for driving the robot based on a desired translation vector and a
-/// rotational component.
-pub trait Holonomic: DrivetrainModel {
-    /// Drives the robot using a translation vector and rotational power.
-    fn drive_vector(&mut self, vector: Vec2, turn: f64) -> Result<(), Self::Error>;
+/// A drive capable of lateral motion.
+pub trait Holonomic: Drive {}
+
+/// Robot-relative forward and turn control.
+pub struct Arcade;
+
+impl Arcade {
+    pub fn drive<D: Drive + ?Sized>(
+        drive: &mut D,
+        forward: f64,
+        turn: f64,
+    ) -> Result<(), D::Error> {
+        drive.drive_vector(Vec2::new(0.0, forward), turn)
+    }
 }
 
-/// A drivetrain model that supports "arcade drive" (forward/turn) inverse kinematics.
-pub trait Arcade: DrivetrainModel {
-    /// Drives the robot using arcade-style controls.
-    fn drive_arcade(&mut self, throttle: f64, steer: f64) -> Result<(), Self::Error>;
-}
+/// Left and right side control.
+pub struct Tank;
 
-/// A drivetrain model that supports "tank drive" (left/right) inverse kinematics.
-pub trait Tank: DrivetrainModel {
-    /// Drives the robot using left and right wheel powers.
-    fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error>;
-
-    /// Immediately remove drivetrain output on disable or fault.
-    fn stop_now(&mut self) -> Result<(), Self::Error> {
-        self.drive_tank(0.0, 0.0)
+impl Tank {
+    pub fn drive<D: Drive + ?Sized>(drive: &mut D, left: f64, right: f64) -> Result<(), D::Error> {
+        let (forward, turn) = tank_axes([left, right]);
+        Arcade::drive(drive, forward, turn)
     }
 }
 
 /// A model that can limit its own commands using its installed actuators' capacity.
-pub trait Balancing: DrivetrainModel {
-    type Command;
-
+pub trait Balancing: Drive {
     /// Reduce commands to match the available motors.
-    fn balance(&self, command: &mut Self::Command) -> Result<(), Self::Error>;
-
-    /// Apply a balanced command, attempting all motor writes even if a port fails.
-    fn drive_balanced(&mut self, command: Self::Command) -> Result<(), Self::Error>;
+    fn balance(&self, command: &mut [f64; 2]) -> Result<(), Self::Error>;
 }
 
 /// Mix normalized arcade axes into tank commands.
@@ -108,10 +101,6 @@ pub fn arcade_mix(throttle: f64, turn: f64) -> [f64; 2] {
     desaturate([throttle + turn, throttle - turn], 1.0)
 }
 
-impl<T: Tank> Arcade for T {
-    fn drive_arcade(&mut self, throttle: f64, steer: f64) -> Result<(), Self::Error> {
-        let [left, right] = arcade_mix(throttle, steer);
-
-        self.drive_tank(left, right)
-    }
+pub(crate) fn tank_axes([left, right]: [f64; 2]) -> (f64, f64) {
+    (left * 0.5 + right * 0.5, left * 0.5 - right * 0.5)
 }

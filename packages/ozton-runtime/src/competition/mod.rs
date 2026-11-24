@@ -136,36 +136,34 @@ impl<R: RouteSet, S> Autonomous<R, S> {
     }
 }
 
-impl<R: RouteSet, D, C, T, X, P> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R> {
-    fn record(_: &mut Robot<D, C, T, X, P, Self>, _: Sample) {}
+impl<R: RouteSet, D, C, X, P, B> Telemetry<Robot<D, C, X, P, Self, B>> for Autonomous<R> {
+    fn record(_: &mut Robot<D, C, X, P, Self, B>, _: Sample) {}
 
-    fn status(robot: &mut Robot<D, C, T, X, P, Self>, status: &str) {
+    fn status(robot: &mut Robot<D, C, X, P, Self, B>, status: &str) {
         robot.autonomous.status(status);
     }
 }
 
-impl<R, D, C, T, X, P, S> Telemetry<Robot<D, C, T, X, P, Self>> for Autonomous<R, Sampler<S>>
+impl<R, D, C, X, P, S, B> Telemetry<Robot<D, C, X, P, Self, B>> for Autonomous<R, Sampler<S>>
 where
     R: RouteSet,
-    S: Report<Robot<D, C, T, X, P, Self>>,
+    S: Report<Robot<D, C, X, P, Self, B>>,
     D: ComponentReport,
-    T: ComponentReport,
     X: ComponentReport,
 {
-    fn record(robot: &mut Robot<D, C, T, X, P, Self>, sample: Sample) {
+    fn record(robot: &mut Robot<D, C, X, P, Self, B>, sample: Sample) {
         if let Some(frame) = robot.autonomous.sampler.frame(sample) {
             robot.drivetrain.report(frame);
-            robot.tracking.report(frame);
             robot.mechanisms.report(frame);
             S::collect(robot, frame, sample);
         }
     }
 
-    fn status(robot: &mut Robot<D, C, T, X, P, Self>, status: &str) {
+    fn status(robot: &mut Robot<D, C, X, P, Self, B>, status: &str) {
         robot.autonomous.status(status);
     }
 
-    fn driver_output(robot: &mut Robot<D, C, T, X, P, Self>, elapsed: Duration) {
+    fn driver_output(robot: &mut Robot<D, C, X, P, Self, B>, elapsed: Duration) {
         robot.autonomous.sampler.driver_output(elapsed);
     }
 }

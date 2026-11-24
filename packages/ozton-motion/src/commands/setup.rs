@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use ozton_drivetrain::{
-    Drivetrain,
-    model::{Arcade, ArcadeInput, Differential, DriveConfigError, DrivetrainModel},
+    Drivetrain, MotorGroups,
+    model::{Arcade, ArcadeInput, Differential, DriveConfigError},
 };
 use ozton_localization::localizer::{
     Config, Estimator, Localizer, OdometryConfig,
@@ -24,6 +24,7 @@ use ozton_math::{
     },
 };
 use ozton_runtime::competition::ProgramDrive;
+use ozton_tracking::encoders::DifferentialTracking;
 use vexide::prelude::{InertialSensor, Motor};
 
 use super::{
@@ -139,13 +140,22 @@ impl DifferentialConfig {
             .await
             .ok_or(SetupError::Tracking)?;
         let control = std::mem::replace(&mut self.wheel_control, WheelControl::Native);
+        let model = Differential::new(left, right);
+        let drive_encoders = DifferentialTracking::inferred(
+            model.motor_groups(),
+            self.track_width,
+            self.wheel_diameter,
+            self.free_wheel_speed,
+        )?;
         let drivetrain = Drivetrain::new(
-            Differential::new(left, right),
-            ChassisSensors { sensors, distances },
+            model,
+            ChassisSensors {
+                sensors,
+                distances,
+                drive_encoders,
+            },
             localizer,
-        )
-        .with_wheel_feedback(self.wheel_diameter, self.free_wheel_speed)?
-        .with_track_width(self.track_width)?;
+        );
         let chassis = Chassis::new(drivetrain, control, self.journal_capacity)
             .ok_or(SetupError::DriveGeometry)?;
         Ok(ConfiguredChassis {
@@ -282,10 +292,6 @@ impl From<ArcadeInput> for ChassisDriverCommand {
     }
 }
 
-impl DrivetrainModel for ConfiguredChassis {
-    type Error = ChassisError;
-}
-
 impl ozton_runtime::diagnostics::ComponentReport for ConfiguredChassis {
     fn report(&self, frame: ozton_runtime::diagnostics::Frame) {
         ozton_runtime::diagnostics::report_pose(
@@ -309,10 +315,7 @@ impl ProgramDrive for ConfiguredChassis {
         match command {
             ChassisDriverCommand::Arcade(input) => {
                 let (throttle, turn) = input.scaled_axes();
-                self.chassis
-                    .drivetrain
-                    .model
-                    .drive_arcade(throttle, turn)
+                Arcade::drive(&mut self.chassis.drivetrain, throttle, turn)
                     .map_err(ChassisError::Output)
             }
             ChassisDriverCommand::Calibration(output) => {

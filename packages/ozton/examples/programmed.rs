@@ -96,8 +96,8 @@ struct Controls {
 type CompetitionBot = ConfiguredBot<Controls>;
 
 impl RobotLayout for Controls {
+    type Assists = ();
     type Drivetrain = ConfiguredChassis;
-    type Tracking = ();
     type Mechanisms = Mechanisms;
     type Routes = RegisteredRoute<Self, RouteError>;
     type Report = ();

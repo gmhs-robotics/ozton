@@ -13,7 +13,8 @@ use ozton_control::{
 };
 use ozton_drivetrain::{
     Drivetrain,
-    model::{Arcade, DrivetrainModel},
+    assist::{AssistedDrivetrain, DriveAssists},
+    model::Drive,
 };
 use ozton_math::uom::si::{
     angle::radian,
@@ -97,15 +98,13 @@ impl MockArcadeModel {
     }
 }
 
-impl DrivetrainModel for MockArcadeModel {
+impl Drive for MockArcadeModel {
     type Error = Infallible;
-}
 
-impl Arcade for MockArcadeModel {
-    fn drive_arcade(&mut self, throttle: f64, steer: f64) -> Result<(), Self::Error> {
+    fn drive_vector(&mut self, vector: glam::DVec2, steer: f64) -> Result<(), Self::Error> {
         let mut state = self.state.borrow_mut();
         state.sync();
-        state.throttle_command = throttle.clamp(-1.0, 1.0);
+        state.throttle_command = vector.y.clamp(-1.0, 1.0);
         state.drove_backward |= state.throttle_command < -0.1;
         state.turn_command = steer.clamp(-1.0, 1.0);
         if steer != 0.0 {
@@ -114,6 +113,20 @@ impl Arcade for MockArcadeModel {
         Ok(())
     }
 }
+
+impl ozton_drivetrain::MotorGroups for MockArcadeModel {
+    type WheelSpeeds = [Velocity; 0];
+
+    fn motor_groups(&self) -> &[Box<[vexide::smart::motor::Motor]>] {
+        &[]
+    }
+
+    fn motor_groups_mut(&mut self) -> &mut [Box<[vexide::smart::motor::Motor]>] {
+        &mut []
+    }
+}
+
+impl ozton_tracking::sampling::LocalizationLifecycle<()> for MockTracking {}
 
 #[derive(Clone, Debug)]
 struct MockTracking {
@@ -246,13 +259,15 @@ fn basic_motion_reaches_distance_and_heading_goals() {
     let mut drivetrain = new_drivetrain();
     let motion = basic_motion();
 
+    let mut assists = DriveAssists::new(());
     block_on(async {
+        let mut drive = AssistedDrivetrain::new(&mut drivetrain, &mut assists);
         motion
-            .drive_distance(&mut drivetrain, Length::new::<meter>(1.2))
+            .drive_distance(&mut drive, Length::new::<meter>(1.2))
             .await
             .expect("motion output succeeds");
         motion
-            .turn_to_point(&mut drivetrain, glam::DVec2::new(-1.2, 1.2))
+            .turn_to_point(&mut drive, glam::DVec2::new(-1.2, 1.2))
             .await
             .expect("motion output succeeds");
     });

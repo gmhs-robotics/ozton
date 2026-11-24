@@ -1,7 +1,7 @@
 use glam::DVec2;
 use vexide::{prelude::Motor, smart::PortError};
 
-use super::{DrivetrainModel, Holonomic, Tank};
+use super::{Drive, Holonomic};
 use crate::MotorGroups;
 
 /// Motor groups in front-left, front-right, back-left, back-right order.
@@ -27,10 +27,6 @@ impl Mecanum {
     }
 }
 
-impl DrivetrainModel for Mecanum {
-    type Error = PortError;
-}
-
 impl MotorGroups for Mecanum {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 4];
 
@@ -43,17 +39,15 @@ impl MotorGroups for Mecanum {
     }
 }
 
-impl Holonomic for Mecanum {
+impl Drive for Mecanum {
+    type Error = PortError;
+
     fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
         crate::normalized_voltage(&mut self.motors, mix(vector.x, vector.y, turn))
     }
 }
 
-impl Tank for Mecanum {
-    fn drive_tank(&mut self, left: f64, right: f64) -> Result<(), PortError> {
-        crate::normalized_voltage(&mut self.motors, [left, right, left, right])
-    }
-}
+impl Holonomic for Mecanum {}
 
 fn mix(strafe: f64, forward: f64, turn: f64) -> [f64; 4] {
     [
