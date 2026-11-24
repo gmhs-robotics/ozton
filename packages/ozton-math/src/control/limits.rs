@@ -1,8 +1,7 @@
 //! Finite travel and arrival limits for position-controlled mechanisms.
 
-use crate::uom::si::{Dimension, Quantity, SI};
-
 use super::axis::{AxisDimension, Position, Rotary};
+use crate::uom::si::{Dimension, Quantity, SI};
 
 /// Inclusive travel bounds and an absolute arrival tolerance.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -190,12 +190,8 @@ mod tests {
     fn live_buttons_ramp_up_and_down_then_stop_immediately() {
         let mut lift = controller();
         let step = Duration::from_millis(100);
-        assert!(
-            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
-        );
-        assert!(
-            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.30).abs() < 1e-12
-        );
+        assert!((lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12);
+        assert!((lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.30).abs() < 1e-12);
         assert_eq!(
             lift.update(
                 1,
@@ -209,9 +205,7 @@ mod tests {
             lift.update(0, None, Some(crate::qty!(100.0 deg)), step),
             0.0
         );
-        assert!(
-            (lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
-        );
+        assert!((lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12);
         assert_eq!(
             lift.update(
                 -1,
@@ -221,9 +215,7 @@ mod tests {
             ),
             -0.33
         );
-        assert!(
-            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
-        );
+        assert!((lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12);
     }
 
     #[test]
@@ -238,16 +230,12 @@ mod tests {
             lift.update(-1, None, Some(crate::qty!(30.0 deg)), step),
             0.0
         );
-        assert!(
-            (lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12
-        );
+        assert!((lift.update(1, None, Some(crate::qty!(100.0 deg)), step) - 0.15).abs() < 1e-12);
         assert_eq!(
             lift.update(1, None, Some(crate::qty!(600.0 deg)), step),
             0.0
         );
-        assert!(
-            (lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12
-        );
+        assert!((lift.update(-1, None, Some(crate::qty!(100.0 deg)), step) + 0.09).abs() < 1e-12);
     }
 
     #[test]

@@ -1,9 +1,8 @@
 //! Bounded progress and encoder checks shared by mechanisms and motion executors.
 use core::{marker::PhantomData, time::Duration};
 
-use crate::uom::ConstZero;
-
 use super::axis::{AxisDimension, Position, Rotary, Velocity};
+use crate::uom::ConstZero;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressFault {
@@ -135,9 +134,8 @@ impl<D: AxisDimension> ProgressGuard<D> {
 
 #[cfg(test)]
 mod tests {
-    use crate::uom::si::{angular_velocity::radian_per_second, f64::AngularVelocity};
-
     use super::*;
+    use crate::uom::si::{angular_velocity::radian_per_second, f64::AngularVelocity};
     #[test]
     fn jam_trips_release_rearms_and_jump_needs_acknowledgment() {
         let mut guard = ProgressGuard::<Rotary>::new(

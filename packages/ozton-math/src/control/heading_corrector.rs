@@ -105,10 +105,7 @@ mod tests {
         assert_eq!(hold.turn(0.6, 0.0, angle(50.0)), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, None), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(60.0)), 0.0);
-        assert_eq!(
-            hold.turn(0.6, 0.0, Some(crate::qty!((f64::NAN) rad))),
-            0.0
-        );
+        assert_eq!(hold.turn(0.6, 0.0, Some(crate::qty!((f64::NAN) rad))), 0.0);
         assert_eq!(hold.turn(0.6, 0.0, angle(70.0)), 0.0);
         hold.reset();
         assert_eq!(hold.turn(0.6, 0.0, angle(80.0)), 0.0);

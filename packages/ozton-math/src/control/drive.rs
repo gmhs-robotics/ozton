@@ -2,9 +2,8 @@
 
 use core::time::Duration;
 
-use crate::uom::si::f64::{Angle, Frequency};
-
 use super::{Feedback, Pid};
+use crate::uom::si::f64::{Angle, Frequency};
 
 /// Limits changes in a normalized command without changing its steady-state value.
 #[derive(Debug, Clone, Copy)]

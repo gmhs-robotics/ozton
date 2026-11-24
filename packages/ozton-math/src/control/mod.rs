@@ -1,15 +1,15 @@
 //! Hardware-independent control loops.
 
 pub mod axis;
+mod bang_bang;
 pub mod controller;
 pub mod drive;
+mod feedforward;
 pub mod heading_corrector;
 pub mod lift;
 pub mod limits;
-pub mod protection;
-mod bang_bang;
-mod feedforward;
 mod pid;
+pub mod protection;
 mod tbh;
 
 use core::time::Duration;

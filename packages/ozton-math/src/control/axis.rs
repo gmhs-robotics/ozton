@@ -41,9 +41,8 @@ pub type Acceleration<D> = Quantity<<D as AxisDimension>::Acceleration, SI<f64>,
 
 use core::time::Duration;
 
-use crate::uom::si::{electric_potential::volt, f64::ElectricPotential};
-
 use super::{Feedforward, MotorFeedforward, MotorFeedforwardSetpoint, Pid};
+use crate::uom::si::{electric_potential::volt, f64::ElectricPotential};
 
 /// Builder-style settings for an axis with typed position limits and voltage.
 /// Call `build()` to validate settings before running the controller.
@@ -321,6 +320,7 @@ impl<D: AxisDimension> AxisController<D> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::uom::{
         ConstZero,
         si::{
@@ -329,8 +329,6 @@ mod tests {
             f64::{AngularAcceleration, AngularVelocity},
         },
     };
-
-    use super::*;
 
     const TICK: Duration = Duration::from_millis(10);
     const SAMPLE: AxisSample = AxisSample {
