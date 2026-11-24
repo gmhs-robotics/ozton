@@ -21,6 +21,7 @@ pub struct State {
     lookahead_point: Vec2,
     start_time: Instant,
     sleep: Sleep,
+    terminal: bool,
 }
 
 /// Moves a drivetrain along a set of discrete waypoints using pure pursuit.
@@ -77,6 +78,7 @@ where
                 );
             }
             let now = Instant::now();
+            let mut terminal = false;
             let position = this.drivetrain.localization().position();
 
             let Some(mut next) = this.waypoints.next() else {
@@ -105,15 +107,13 @@ where
                 next = if let Some(next_waypoint) = this.waypoints.next() {
                     next_waypoint
                 } else {
-                    return Poll::Ready(crate::finish_motion(
-                        this.drivetrain.stop_now(),
-                        crate::MotionOutcome::Settled,
-                    ));
+                    terminal = true;
+                    break;
                 };
             }
 
             // Compute initial lookahead point.
-            let lookahead_point = match line_segment_circle_intersections(
+            let lookahead_point = if terminal { next.position } else { match line_segment_circle_intersections(
                 position,
                 this.lookahead_distance,
                 current.position,
@@ -139,14 +139,15 @@ where
                         solution_2
                     }
                 }
-            };
+            }};
 
             this.state.insert(State {
-                sleep: sleep(Duration::from_millis(5)),
+                sleep: sleep(Duration::from_millis(10)),
                 start_time: now,
                 lookahead_point,
                 current,
                 next,
+                terminal,
             })
         };
 
@@ -175,18 +176,45 @@ where
         //
         // The ending point of the current segment becomes the starting point of the
         // next and so on until the path is complete.
-        while position.distance(state.next.position) < this.lookahead_distance {
+        while !state.terminal && position.distance(state.next.position) < this.lookahead_distance {
             state.current = state.next;
             state.next = if let Some(next_waypoint) = this.waypoints.next() {
                 next_waypoint
             } else {
-                // We're out of waypoints, meaning the end of path has been reached.
-                this.state = None;
-                return Poll::Ready(crate::finish_motion(
-                    this.drivetrain.stop_now(),
-                    crate::MotionOutcome::Settled,
-                ));
+                state.terminal = true;
+                break;
             };
+        }
+
+        if state.terminal {
+            let delta = state.next.position - position;
+            let distance = delta.length();
+            if !distance.is_finite() || !heading.value.is_finite() {
+                this.state = None;
+                return Poll::Ready(this.drivetrain.stop_now().map_err(crate::MotionError::Stop)
+                    .and(Err(crate::MotionError::InvalidFeedback)));
+            }
+            if distance <= crate::defaults::AUTON_POSITION_TOLERANCE.value {
+                this.state = None;
+                return Poll::Ready(crate::finish_motion(this.drivetrain.stop_now(), crate::MotionOutcome::Settled));
+            }
+            let error = ozton_math::geometry::wrap_heading(
+                ozton_math::geometry::bearing(delta) - heading
+            ).value;
+            let reverse = error.abs() > core::f64::consts::FRAC_PI_2;
+            let error = if reverse {
+                ozton_math::geometry::wrap_heading(ozton_math::angle!(error + core::f64::consts::PI, rad)).value
+            } else { error };
+            let linear = (2.0 * distance).min(0.35) * error.cos().max(0.0)
+                * if reverse { -1.0 } else { 1.0 };
+            let turn = (1.5 * error).clamp(-0.4, 0.4);
+            if let Err(output) = Tank::drive(this.drivetrain, linear - turn, linear + turn) {
+                this.state = None;
+                return Poll::Ready(Err(crate::motion_output_error(output, this.drivetrain.stop_now())));
+            }
+            state.sleep = sleep(Duration::from_millis(10));
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
         }
 
         // Compute lookahead point.
@@ -236,7 +264,7 @@ where
             )));
         }
 
-        state.sleep = sleep(Duration::from_millis(5));
+        state.sleep = sleep(Duration::from_millis(10));
         cx.waker().wake_by_ref();
         Poll::Pending
     }
