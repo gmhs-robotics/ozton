@@ -9,9 +9,7 @@ use ozton_math::{
 };
 use ozton_runtime::clock::CONTROL_PERIOD;
 
-use super::{
-    PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession,
-};
+use super::{PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
 use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
@@ -130,7 +128,9 @@ async fn approach<D: PoseDrive>(
                 bearing(displacement) + ozton_math::angle!(if reverse { 180.0 } else { 0.0 }, deg);
             // A point-only target does not require enough space to rotate at
             // the destination; only the actual approach orientation must fit.
-            if clearance.is_some_and(|field| !field.contains_pose(Pose::new(target.position, heading))) {
+            if clearance
+                .is_some_and(|field| !field.contains_pose(Pose::new(target.position, heading)))
+            {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             turn_checked(session, clearance, heading, settings.config.stage_timeout).await?;

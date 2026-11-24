@@ -10,8 +10,8 @@ use ozton_control::{
 };
 use ozton_drivetrain::{Drive, HasLocalization};
 use ozton_math::{
-    localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
     geometry::Pose,
+    localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
     uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
 };
 
@@ -126,7 +126,8 @@ impl Seeking<Normalized> {
 
     #[must_use]
     pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.config.linear_controller
+        self.config
+            .linear_controller
             .set_integration_range(Some(range.value));
         self
     }
@@ -175,7 +176,8 @@ impl Seeking<Normalized> {
 
     #[must_use]
     pub const fn with_lateral_integration_range(mut self, range: Length) -> Self {
-        self.config.lateral_controller
+        self.config
+            .lateral_controller
             .set_integration_range(Some(range.value));
         self
     }
@@ -395,5 +397,4 @@ where
     ) -> MoveToPointFuture<'a, M, L, A> {
         self.move_to_point_at_heading(drivetrain, target.position, target.heading)
     }
-
 }

@@ -16,8 +16,8 @@ use ozton_math::{
     geometry::{bearing, wrap_heading},
     localization::observation::{TracksHeading, TracksPosition, TracksVelocity},
     uom::si::{
-        f64::{Angle, AngularVelocity, Length, Velocity},
         angular_velocity::radian_per_second,
+        f64::{Angle, AngularVelocity, Length, Velocity},
         velocity::meter_per_second,
     },
 };
@@ -109,12 +109,18 @@ where
         let velocity = this.drivetrain.localization().linear_velocity();
         let local_target = this.target_point - position;
         let distance_error = local_target.length();
-        let yaw_rate = this.final_heading.map(|_| this.drivetrain.localization().angular_velocity());
+        let yaw_rate = this
+            .final_heading
+            .map(|_| this.drivetrain.localization().angular_velocity());
         let feedback_error = if !this.target_point.is_finite()
-            || this.final_heading.is_some_and(|target| !target.value.is_finite())
+            || this
+                .final_heading
+                .is_some_and(|target| !target.value.is_finite())
         {
             Some(crate::MotionError::InvalidTarget)
-        } else if !distance_error.is_finite() || !heading.value.is_finite() || !velocity.is_finite()
+        } else if !distance_error.is_finite()
+            || !heading.value.is_finite()
+            || !velocity.is_finite()
             || yaw_rate.is_some_and(|rate| !rate.is_finite())
         {
             Some(crate::MotionError::InvalidFeedback)
@@ -132,15 +138,24 @@ where
             Velocity::new::<meter_per_second>(velocity),
             now,
         );
-        let heading_error = this.final_heading.map(|target| wrap_heading(heading - target));
+        let heading_error = this
+            .final_heading
+            .map(|target| wrap_heading(heading - target));
         let within_position_tolerance = distance_error == 0.0
-            || this.tolerances.error_tolerance.is_some_and(|tolerance| distance_error < tolerance.value)
+            || this
+                .tolerances
+                .error_tolerance
+                .is_some_and(|tolerance| distance_error < tolerance.value)
             || (this.final_heading.is_some() && this.tolerances.error_tolerance.is_none());
         let angular_settled = match (heading_error, yaw_rate) {
-            (Some(error), Some(rate)) if within_position_tolerance => this.angular_tolerances.check_with(
-                &mut state.angular_settling, error,
-                AngularVelocity::new::<radian_per_second>(rate), now,
-            ),
+            (Some(error), Some(rate)) if within_position_tolerance => {
+                this.angular_tolerances.check_with(
+                    &mut state.angular_settling,
+                    error,
+                    AngularVelocity::new::<radian_per_second>(rate),
+                    now,
+                )
+            }
             (Some(_), _) => {
                 state.angular_settling = Default::default();
                 false
@@ -163,9 +178,15 @@ where
 
         let (linear_output, angular_output) = if within_position_tolerance {
             let angular = match heading_error {
-                Some(error) if error.value != 0.0
-                    && this.angular_tolerances.error_tolerance.is_none_or(|tolerance| error.value.abs() >= tolerance.value) =>
-                    this.heading_controller.update(-error.value, 0.0, dt),
+                Some(error)
+                    if error.value != 0.0
+                        && this
+                            .angular_tolerances
+                            .error_tolerance
+                            .is_none_or(|tolerance| error.value.abs() >= tolerance.value) =>
+                {
+                    this.heading_controller.update(-error.value, 0.0, dt)
+                }
                 _ => 0.0,
             };
             (0.0, angular)
@@ -206,9 +227,12 @@ where
         );
         if let Some(error) = heading_error {
             ozton_runtime::log_row!(
-                Trace, "SEEK_HEADING",
+                Trace,
+                "SEEK_HEADING",
                 "error_rad={:.5},yaw_radps={:.5},position_ready={}",
-                error.value, yaw_rate.unwrap_or(0.0), within_position_tolerance
+                error.value,
+                yaw_rate.unwrap_or(0.0),
+                within_position_tolerance
             );
         }
         if let Err(output) = Arcade::drive(this.drivetrain, linear_output, angular_output) {

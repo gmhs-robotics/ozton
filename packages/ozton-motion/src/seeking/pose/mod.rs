@@ -19,6 +19,7 @@ mod session;
 pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
 use session::PoseSession;
+
 use super::Seeking;
 
 pub const DEFAULT_STAGE_TIMEOUT: Duration = AUTON_STAGE_TIMEOUT;
@@ -42,7 +43,10 @@ impl Seeking {
 
     /// Declare a reusable motion primitive directly from physical motion settings.
     pub const fn from_config(config: crate::MotionConfig) -> Self {
-        Self { config, travel: None }
+        Self {
+            config,
+            travel: None,
+        }
     }
 
     /// Effective settings, including changes made through individual modifiers.
@@ -246,7 +250,10 @@ impl Seeking {
 
     #[must_use]
     pub const fn with_linear_integration_range(mut self, range: Length) -> Self {
-        self.config.tuning.linear.set_integration_range(Some(range.value));
+        self.config
+            .tuning
+            .linear
+            .set_integration_range(Some(range.value));
         self
     }
 
@@ -276,7 +283,10 @@ impl Seeking {
 
     #[must_use]
     pub const fn with_angular_integration_range(mut self, range: Angle) -> Self {
-        self.config.tuning.angular.set_integration_range(Some(range.value));
+        self.config
+            .tuning
+            .angular
+            .set_integration_range(Some(range.value));
         self
     }
 
@@ -401,7 +411,8 @@ impl Seeking {
         drive: &mut D,
         target: Pose,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.move_to_point_at_heading(drive, target.position, target.heading).await
+        self.move_to_point_at_heading(drive, target.position, target.heading)
+            .await
     }
     /// Drive a signed distance while preserving the starting heading.
     pub async fn drive_distance<D: PoseDrive>(
@@ -527,7 +538,14 @@ impl Seeking {
         let target = Pose::new(end.position, end.heading + facing);
         let mut session = PoseSession::new(drive, options, self.effective_config())?;
         let result = session
-            .follow(path, follower, reverse, target, field, self.config.stage_timeout)
+            .follow(
+                path,
+                follower,
+                reverse,
+                target,
+                field,
+                self.config.stage_timeout,
+            )
             .await;
         session.finish(result)
     }
