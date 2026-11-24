@@ -99,3 +99,7 @@ regular clearance-aware departure planner is required.
 The minimum braking deceleration can be configured independently of nominal
 trajectory acceleration/deceleration using with_braking_deceleration. Never
 infer guaranteed physical stopping performance from a commanded profile limit.
+
+The command slew limiter records the wheel targets actually sent after wall
+governance. Releasing a safety limit therefore resumes from the constrained
+speed rather than the unconstrained internal target.

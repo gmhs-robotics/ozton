@@ -181,3 +181,18 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
         );
     }
 }
+
+#[test]
+fn slew_uses_actual_governed_wheel_targets() {
+    let config = crate::MotionConfig::DEFAULT;
+    let options = config.options(ozton_math::qty!(0.33 m));
+    let mut controller = DifferentialFeedback::default().with_config(config);
+    let dt = std::time::Duration::from_millis(10);
+    for _ in 0..100 {
+        controller.limit_step([0.5; 2], false, dt, options);
+    }
+    controller.record_applied_wheels([0.1; 2]);
+    let (wheels, _) = controller.limit_step([0.5; 2], false, dt, options);
+    let expected = 0.1 + config.acceleration.value * dt.as_secs_f64();
+    assert!(wheels.iter().all(|v| (*v - expected).abs() < 1e-10));
+}

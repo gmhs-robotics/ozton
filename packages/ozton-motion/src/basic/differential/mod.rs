@@ -397,6 +397,12 @@ impl DifferentialFeedback {
         self.limit_step(wheels, ready, dt, options)
     }
 
+    /// Feed the actual applied wheel targets back to the slew limiter.
+    /// A downstream safety governor may have scaled the requested targets.
+    pub fn record_applied_wheels(&mut self, wheels: [f64; 2]) {
+        self.last_wheels = wheels;
+    }
+
     /// Apply coupled linear/angular command slew constraints without changing the public target API.
     pub fn limit_step(
         &mut self,

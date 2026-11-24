@@ -166,6 +166,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config,
                 uncertainty,
             );
+            controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
             if complete {
@@ -343,6 +344,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config,
                 uncertainty,
             );
+            controller.record_applied_wheels(wheels);
             if phase_changed {
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;
