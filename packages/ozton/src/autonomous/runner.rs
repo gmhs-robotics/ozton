@@ -118,7 +118,8 @@ impl<'a, R: MotionPlatform> Runner<'a, R> {
     /// Apply the same physical configuration used by drivetrain-only PoseSeeking.
     pub fn with_config(mut self, config: MotionConfig) -> Result<Self, CommandError<R::Error>> {
         let options = config.options(self.options.track_width);
-        if !config.valid() || !Self::valid_configuration(options, config.period, config.maximum_gap) {
+        if !config.valid() || !Self::valid_configuration(options, config.period, config.maximum_gap)
+        {
             return Err(CommandError::Configuration);
         }
         self.clock = CommandClock::new(config.period).ok_or(CommandError::Configuration)?;

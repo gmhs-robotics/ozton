@@ -122,7 +122,9 @@ where
         self.run_command(Command::DriveDistance {
             meters,
             heading: None,
-            maximum_speed: P::motion_config(self).map_or(AUTON_SPEED, |config| config.wheel_speed).min(options.maximum_wheel_speed),
+            maximum_speed: P::motion_config(self)
+                .map_or(AUTON_SPEED, |config| config.wheel_speed)
+                .min(options.maximum_wheel_speed),
         })
         .await
     }
@@ -152,7 +154,8 @@ where
     fn profile_path(&self, waypoints: &[Waypoint]) -> Result<Path, CommandError<Self::Error>> {
         let options = P::drive_options(self).ok_or(CommandError::Configuration)?;
         if let Some(config) = P::motion_config(self) {
-            return Path::new(waypoints, config.path_limits(options.track_width)).map_err(|_| CommandError::InvalidPath);
+            return Path::new(waypoints, config.path_limits(options.track_width))
+                .map_err(|_| CommandError::InvalidPath);
         }
         let speed = if AUTON_SPEED <= options.maximum_wheel_speed {
             AUTON_SPEED

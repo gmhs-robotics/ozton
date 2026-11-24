@@ -187,7 +187,9 @@ where
         Some(robot.drivetrain.drive_options())
     }
 
-    fn motion_config(robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>) -> Option<ozton_motion::MotionConfig> {
+    fn motion_config(
+        robot: &Robot<super::ConfiguredChassis, C, X, P, A, B>,
+    ) -> Option<ozton_motion::MotionConfig> {
         robot.drivetrain.motion_config()
     }
 

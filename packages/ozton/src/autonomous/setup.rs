@@ -274,7 +274,10 @@ impl ConfiguredChassis {
     }
 
     /// Install the application's calibrated motion policy on the stock chassis.
-    pub fn set_motion_config(&mut self, config: ozton_motion::MotionConfig) -> Result<(), SetupError> {
+    pub fn set_motion_config(
+        &mut self,
+        config: ozton_motion::MotionConfig,
+    ) -> Result<(), SetupError> {
         if !config.valid() || config.wheel_speed > self.settings.maximum_wheel_speed {
             return Err(SetupError::DriveGeometry);
         }

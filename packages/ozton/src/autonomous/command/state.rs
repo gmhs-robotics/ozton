@@ -140,18 +140,27 @@ impl<'path> State<'path> {
                 let ready = distance <= options.position_tolerance.value
                     && heading_error <= options.heading_tolerance.value;
                 self.reference_time = (self.reference_time + dt.as_secs_f64())
-                    .min(geometric.time + 0.25).min(end.time);
+                    .min(geometric.time + 0.25)
+                    .min(end.time);
                 let sample = FollowerSample {
                     pose: feedback.pose,
                     elapsed: Time::new::<second>(self.reference_time),
                     period: Time::new::<second>(dt.as_secs_f64()),
                 };
-                if !self.terminal && profiled::is_terminal(progress, *follower, sample, options.position_tolerance.value) {
+                if !self.terminal
+                    && profiled::is_terminal(
+                        progress,
+                        *follower,
+                        sample,
+                        options.position_tolerance.value,
+                    )
+                {
                     self.terminal = true;
                     differential.pid.reset();
                 }
                 let mut path_options = options;
-                path_options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
+                path_options.maximum_wheel_speed =
+                    options.maximum_wheel_speed.min(path.limits().wheel_speed);
                 let (wheels, terminal_ready) = if self.terminal {
                     let turn = distance <= options.position_tolerance.value;
                     if turn != self.terminal_turn {
@@ -172,7 +181,11 @@ impl<'path> State<'path> {
                     (wheels, settled && turn && ready)
                 } else {
                     let desired = profiled::command(
-                        *follower, progress, sample, *reverse, options.position_tolerance,
+                        *follower,
+                        progress,
+                        sample,
+                        *reverse,
+                        options.position_tolerance,
                     );
                     objective = Some(end.distance - progress.distance());
                     differential.limit_step(desired, false, dt, path_options)
@@ -341,16 +354,34 @@ impl<'path> State<'path> {
         };
         if objective.is_none() {
             objective = match command {
-                Command::Turn { heading } => Some(error_at(*heading).abs() * options.track_width.value * 0.5),
-                Command::TurnToPoint { target } => Some(error_at(ozton_math::geometry::bearing(*target - feedback.pose.position)).abs() * options.track_width.value * 0.5),
-                Command::DriveToPoint { target, .. } => Some(feedback.pose.position.distance(*target)),
-                Command::DriveDistance { meters, heading, .. } => Some(
-                    (meters.value - (feedback.forward_travel.value - initial.forward_travel.value)).abs()
-                        + error_at(heading.unwrap_or(initial.pose.heading)).abs() * options.track_width.value * 0.5
+                Command::Turn { heading } => {
+                    Some(error_at(*heading).abs() * options.track_width.value * 0.5)
+                }
+                Command::TurnToPoint { target } => Some(
+                    error_at(ozton_math::geometry::bearing(
+                        *target - feedback.pose.position,
+                    ))
+                    .abs()
+                        * options.track_width.value
+                        * 0.5,
+                ),
+                Command::DriveToPoint { target, .. } => {
+                    Some(feedback.pose.position.distance(*target))
+                }
+                Command::DriveDistance {
+                    meters, heading, ..
+                } => Some(
+                    (meters.value - (feedback.forward_travel.value - initial.forward_travel.value))
+                        .abs()
+                        + error_at(heading.unwrap_or(initial.pose.heading)).abs()
+                            * options.track_width.value
+                            * 0.5,
                 ),
                 Command::DriveArc { radius, sweep, .. } => Some(
-                    (radius.value * sweep.value.abs() - (feedback.forward_travel.value - initial.forward_travel.value)).abs()
-                        + error_at(initial.pose.heading + *sweep).abs() * radius.value
+                    (radius.value * sweep.value.abs()
+                        - (feedback.forward_travel.value - initial.forward_travel.value))
+                        .abs()
+                        + error_at(initial.pose.heading + *sweep).abs() * radius.value,
                 ),
                 _ => None,
             };
