@@ -18,6 +18,7 @@ mod session;
 pub use actions::PathActions;
 pub use drive::{DriveMotionFault, PoseDrive};
 pub use error::PoseMotionError;
+pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
 
 use super::Seeking;
@@ -108,6 +109,17 @@ impl Seeking {
         let config = self.config;
         config.valid().then(|| ())?;
         Some(config.options(drive.track_width()?))
+    }
+
+    /// Prepare the same stopping governor used by trajectory execution for
+    /// externally controlled wheel commands (including calibration pulses).
+    pub fn stopping_governor<D: PoseDrive>(
+        &self,
+        drive: &D,
+    ) -> Result<StoppingGovernor, PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let field = approach::clearance(drive, self.config.safety.clearance)?;
+        Ok(StoppingGovernor::new(field, options, self.config))
     }
 
     /// Move to a field point in metres without imposing a final heading.

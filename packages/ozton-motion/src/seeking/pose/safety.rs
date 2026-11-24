@@ -1,9 +1,56 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
 use ozton_localization::Feedback;
-use ozton_math::{geometry::DVec2, path::clearance::RectangularClearance, qty};
+use ozton_math::{geometry::DVec2, path::clearance::RectangularClearance, qty, uom::si::f64::Velocity};
 use ozton_runtime::{log_event, log_row};
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
+
+/// Shared stopping-envelope governor for closed-loop and raw wheel commands.
+pub struct StoppingGovernor {
+    field: Option<RectangularClearance>,
+    options: DriveOptions,
+    config: MotionConfig,
+}
+
+impl StoppingGovernor {
+    pub(super) fn new(
+        field: Option<RectangularClearance>,
+        options: DriveOptions,
+        config: MotionConfig,
+    ) -> Self {
+        Self { field, options, config }
+    }
+
+    /// Returns the admissible command, or None if the current measured
+    /// motion is already outside the stopping envelope.
+    pub fn govern(
+        &self,
+        feedback: Feedback,
+        uncertainty: [f64; 3],
+        requested: [Velocity; 2],
+    ) -> Option<[Velocity; 2]> {
+        if requested.iter().any(|v| !v.value.is_finite())
+            || !feedback.pose.is_finite()
+            || !feedback.forward_velocity.value.is_finite()
+            || !feedback.lateral_velocity.value.is_finite()
+            || !feedback.angular_velocity.value.is_finite()
+            || self.field.is_some_and(|field| {
+                !safe_feedback(field, feedback, self.config, uncertainty)
+            })
+        {
+            return None;
+        }
+        let limited = limit_wall_command(
+            self.field,
+            feedback,
+            requested.map(|v| v.value),
+            self.options,
+            self.config,
+            uncertainty,
+        );
+        Some(limited.map(|value| qty!((value) m/s)))
+    }
+}
 
 /// Constant-speed reaction interval followed by bounded constant deceleration.
 fn stop(v: f64, deceleration: f64, reaction: f64) -> f64 {
