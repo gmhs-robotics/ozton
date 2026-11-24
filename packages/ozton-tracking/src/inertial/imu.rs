@@ -96,9 +96,7 @@ impl InertialSensorTracking {
         }
         let angle = |angle: vexide::math::Angle| {
             let radians = angle.as_radians();
-            radians
-                .is_finite()
-                .then(|| ozton_math::qty!((radians) rad))
+            radians.is_finite().then(|| ozton_math::qty!((radians) rad))
         };
         let euler = include_tilt.then(|| imu.euler().ok()).flatten();
         let tilt = euler.and_then(|value| {

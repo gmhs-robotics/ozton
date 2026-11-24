@@ -154,20 +154,12 @@ mod tests {
             Err(ProgressFault::NoProgress)
         );
         assert!(guard.update(ozton_math::qty!(0.0 rad), 0.0, tick).is_ok());
-        assert!(
-            guard
-                .update(ozton_math::qty!(0.01 rad), 1.0, tick)
-                .is_ok()
-        );
+        assert!(guard.update(ozton_math::qty!(0.01 rad), 1.0, tick).is_ok());
         assert_eq!(
             guard.update(ozton_math::qty!(1.0 rad), 1.0, tick),
             Err(ProgressFault::EncoderJump)
         );
-        assert!(
-            guard
-                .update(ozton_math::qty!(1.0 rad), 0.0, tick)
-                .is_err()
-        );
+        assert!(guard.update(ozton_math::qty!(1.0 rad), 0.0, tick).is_err());
         guard.reset();
         assert!(guard.update(ozton_math::qty!(1.0 rad), 0.0, tick).is_ok());
     }

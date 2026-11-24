@@ -222,7 +222,6 @@ impl<S: TrackingSources> Tracking<S> {
 mod tests {
     use futures_util::FutureExt;
 
-
     use super::*;
     use crate::{
         HeadingObservation, Measurement, MeasurementSink, TrackingSource, range::RangeObservation,

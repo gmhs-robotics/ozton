@@ -4,11 +4,11 @@ use std::time::Duration;
 use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{Pose, wrap_heading},
-    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
     localization::{
         observation::{MAX_RANGES, RangeObservation, RangeSensorConfig},
         range::{Constraint, Rejection, Surface, fit_translation},
     },
+    uom::si::f64::{Angle, AngularVelocity, Length, Velocity},
 };
 
 use super::ranges::{RangeReport, constrain_sample};

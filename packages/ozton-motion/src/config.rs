@@ -1,7 +1,9 @@
 //! Robot-specific physical motion configuration. All scalar dynamics use SI units.
 use std::time::Duration;
 
-use ozton_math::uom::si::f64::{Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity};
+use ozton_math::uom::si::f64::{
+    Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity,
+};
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
 

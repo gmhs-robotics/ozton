@@ -234,7 +234,10 @@ mod tests {
         let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 11.52 in, 0 deg));
         for (field, width, mask) in [(Field::PORTABLE, 140.40, 0b1111), (Field::METAL, 140.50, 0)] {
             let wall = field.surfaces()[0];
-            assert!(((wall.end - wall.start).length() - ozton_math::qty!((width) in).value).abs() < 1e-12);
+            assert!(
+                ((wall.end - wall.start).length() - ozton_math::qty!((width) in).value).abs()
+                    < 1e-12
+            );
             assert_eq!(field.range_config(mount).surface_mask, mask);
         }
     }

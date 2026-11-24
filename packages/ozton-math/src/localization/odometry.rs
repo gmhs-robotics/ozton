@@ -33,10 +33,7 @@ mod tests {
             for forward_x in [-0.15, 0.15] {
                 for lateral_y in [-0.08, 0.08] {
                     let stationary = body_delta(
-                        (
-                            crate::qty!((forward_x * yaw) m),
-                            crate::qty!((forward_x) m),
-                        ),
+                        (crate::qty!((forward_x * yaw) m), crate::qty!((forward_x) m)),
                         Some((
                             crate::qty!((-lateral_y * yaw) m),
                             crate::qty!((lateral_y) m),

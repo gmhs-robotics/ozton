@@ -7,9 +7,7 @@ pub use ozton_diagnostics as diagnostics;
 pub use ozton_drivetrain as drivetrain;
 pub use ozton_localization as localization;
 pub use ozton_math as math;
-pub use ozton_math::{
-    position_xy, position_xyh, position_xyz, position_xyzh, qty, units, uom,
-};
+pub use ozton_math::{position_xy, position_xyh, position_xyz, position_xyzh, qty, units, uom};
 pub use ozton_motion as motion;
 pub use ozton_path_io as path_io;
 pub use ozton_runtime as runtime;

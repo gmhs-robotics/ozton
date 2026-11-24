@@ -631,10 +631,9 @@ fn range_usage_selects_filter_and_reset_observations_independently() {
 #[test]
 fn setting_field_zero_rebaselines_imu_heading() {
     use ozton_localization::differential::LocalizationBuilder;
-    use ozton_math::localization::observation::HeadingObservation;
-    use ozton_math::localization::observation::Measurement;
-    use ozton_math::localization::observation::Observation;
-    use ozton_math::localization::observation::SensorSample;
+    use ozton_math::localization::observation::{
+        HeadingObservation, Measurement, Observation, SensorSample,
+    };
 
     let mut localization = LocalizationBuilder::default()
         .build(Default::default())
@@ -650,7 +649,9 @@ fn setting_field_zero_rebaselines_imu_heading() {
                     observations: &[Observation {
                         source: 0,
                         time,
-                        measurement: Measurement::Heading(HeadingObservation::Compass(ozton_math::qty!((degrees) deg))),
+                        measurement: Measurement::Heading(HeadingObservation::Compass(
+                            ozton_math::qty!((degrees) deg),
+                        )),
                     }],
                 },
                 None,
@@ -671,8 +672,6 @@ fn setting_field_zero_rebaselines_imu_heading() {
 
 #[test]
 fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
-
-
     let mut localization = localizer(
         Estimator::Mcl(ParticleConfig {
             max_range_residual: Some(ozton_math::qty!(0.05 m)),

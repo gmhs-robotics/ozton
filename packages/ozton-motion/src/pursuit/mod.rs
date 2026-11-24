@@ -4,7 +4,10 @@ use std::time::Duration;
 
 #[cfg(feature = "vex")]
 use ozton_drivetrain::{Drive, HasLocalization};
-use ozton_math::{control::Pid, uom::si::f64::{AngularVelocity, Length, Velocity}};
+use ozton_math::{
+    control::Pid,
+    uom::si::f64::{AngularVelocity, Length, Velocity},
+};
 #[cfg(feature = "vex")]
 use ozton_math::{
     localization::observation::{TracksHeading, TracksPosition},

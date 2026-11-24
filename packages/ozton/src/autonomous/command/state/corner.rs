@@ -199,8 +199,7 @@ fn match_corner_reaches_center_with_position_and_heading_settled() {
     assert!(field.can_turn(plant.sample.pose));
     let displacement = target.position - plant.sample.pose.position;
     let (reverse, _) = approach_heading(plant.sample.pose.heading, target.heading, displacement);
-    let heading =
-        bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
+    let heading = bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
     plant.run(Command::Turn { heading }, options);
     plant.run(
         Command::DriveToPoint {

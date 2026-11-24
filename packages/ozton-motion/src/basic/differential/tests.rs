@@ -127,8 +127,14 @@ fn point_approach_converges_with_motor_lag_and_small_overshoot() {
             Pose::new(DVec2::new(0.07375, 0.10689), ozton_math::qty!(0.08910 rad)),
             true,
         ),
-        (Pose::new(DVec2::new(0.0, -0.24), ozton_math::qty!(0.0 rad)), false),
-        (Pose::new(DVec2::new(0.0, 0.03), ozton_math::qty!(0.0 rad)), false),
+        (
+            Pose::new(DVec2::new(0.0, -0.24), ozton_math::qty!(0.0 rad)),
+            false,
+        ),
+        (
+            Pose::new(DVec2::new(0.0, 0.03), ozton_math::qty!(0.0 rad)),
+            false,
+        ),
     ] {
         let mut controller = DifferentialFeedback::new(tuning);
         let mut pose = initial;

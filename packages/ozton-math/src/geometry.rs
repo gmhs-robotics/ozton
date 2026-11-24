@@ -208,10 +208,7 @@ mod tests {
             heading: crate::qty!((PI / 2.0) rad),
         });
         assert!(pose.position.distance(DVec2::new(-1.0, 1.0)) < 1e-10);
-        assert_eq!(
-            compass_heading(crate::qty!(0.0 rad)),
-            crate::qty!(0.0 rad)
-        );
+        assert_eq!(compass_heading(crate::qty!(0.0 rad)), crate::qty!(0.0 rad));
         assert_eq!(
             compass_heading(crate::qty!(90.0 deg)),
             crate::qty!((-PI / 2.0) rad)

@@ -1,4 +1,10 @@
-use ozton_math::{qty, uom::si::f64::{Acceleration, AngularAcceleration, AngularVelocity, Length, Velocity, ElectricPotential, Time}};
+use ozton_math::{
+    qty,
+    uom::si::f64::{
+        Acceleration, AngularAcceleration, AngularVelocity, ElectricPotential, Length, Time,
+        Velocity,
+    },
+};
 const SPEED: Velocity = qty!(3 m/s);
 const ACCEL: Acceleration = qty!(3 m/s^2);
 const TURN_ACCEL: AngularAcceleration = qty!(12 rad/s^2);

@@ -88,9 +88,7 @@ pub(crate) fn delta(
         .filter(|angle| angle.is_finite())
         .or_else(|| {
             (config.track_width.value > 0.0)
-                .then(|| {
-                    Some(ozton_math::qty!(((right? - left?) / config.track_width.value) rad))
-                })
+                .then(|| Some(ozton_math::qty!(((right? - left?) / config.track_width.value) rad)))
                 .flatten()
                 .filter(|angle| angle.is_finite())
         });
@@ -115,12 +113,7 @@ pub(crate) fn delta(
     }
     let heading = heading.unwrap_or_default();
     let forward = forward.unwrap_or_default();
-    let lengths = |(travel, offset)| {
-        (
-            ozton_math::qty!((travel) m),
-            ozton_math::qty!((offset) m),
-        )
-    };
+    let lengths = |(travel, offset)| (ozton_math::qty!((travel) m), ozton_math::qty!((offset) m));
     Ok((
         body_delta(lengths(forward), lateral.map(lengths), heading),
         dt,
