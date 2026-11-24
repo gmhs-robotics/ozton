@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use glam::{DVec2, DVec3};
 use random::Random;
-use uom::si::f64::{Angle, Length};
+use uom::si::f64::{Angle, AngularVelocity, Length};
 
 use super::range::{Surface, ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
@@ -22,6 +22,10 @@ pub struct ParticleConfig {
     pub motion_noise: DVec3,
     pub range_sigma: Length,
     pub outlier_weight: f64,
+    /// Maximum difference between a range reading and the predicted wall distance.
+    pub max_range_residual: Option<Length>,
+    /// Defer live range corrections above this yaw speed while still predicting pose.
+    pub max_correction_yaw_rate: Option<AngularVelocity>,
 }
 
 impl Default for ParticleConfig {
@@ -33,6 +37,8 @@ impl Default for ParticleConfig {
             motion_noise: DVec3::new(0.04, 0.04, 0.03),
             range_sigma: crate::length!(0.025 m),
             outlier_weight: 0.08,
+            max_range_residual: None,
+            max_correction_yaw_rate: None,
         }
     }
 }
@@ -96,6 +102,13 @@ impl ParticleFilter {
             || !config.range_sigma.value.is_finite()
             || config.range_sigma.value <= 0.0
             || !(0.001..=0.9).contains(&config.outlier_weight)
+            || [
+                config.max_range_residual.map(|limit| limit.value),
+                config.max_correction_yaw_rate.map(|limit| limit.value),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|limit| !limit.is_finite() || limit <= 0.0)
         {
             return None;
         }

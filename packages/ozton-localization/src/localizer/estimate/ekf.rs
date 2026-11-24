@@ -69,7 +69,7 @@ impl PoseEstimator for Ekf {
         let config = self.config;
         let mut candidate = self.filter;
         let mut changed = false;
-        for (sensor, constraint, distance) in observations.measurements() {
+        for (sensor, constraint, distance) in observations.measurements(None) {
             let normal = constraint.hit.normal;
             let pose = candidate.pose();
             let beam = direction(pose.heading + sensor.mount.heading);

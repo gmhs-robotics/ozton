@@ -33,40 +33,32 @@ pub struct Observations<'a> {
 impl<'a> Observations<'a> {
     fn measurements(
         &self,
+        max_residual: Option<f64>,
     ) -> impl Iterator<Item = (&'a RangeSensorConfig, Constraint, f64)> + Clone {
-        let constraints = self
-            .sensors
-            .iter()
-            .zip(self.reports)
-            .filter_map(|(sensor, report)| {
-                let constraint = report.as_ref()?.constraint.ok()?;
-                Some((
-                    constraint,
-                    sensor.sigma.value * constraint.hit.incidence.abs(),
-                ))
-            });
+        let measurements =
+            self.sensors
+                .iter()
+                .zip(self.reports)
+                .filter_map(move |(sensor, report)| {
+                    let report = report.as_ref()?;
+                    let constraint = report.constraint.ok()?;
+                    if max_residual.is_some_and(|limit| constraint.residual.abs() > limit) {
+                        return None;
+                    }
+                    Some((sensor, constraint, report.calibrated_distance?.value))
+                });
         let mut buffer = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut count = 0;
-        for constraint in constraints.take(MAX_RANGES) {
-            buffer[count] = constraint;
+        for (sensor, constraint, _) in measurements.clone().take(MAX_RANGES) {
+            buffer[count] = (
+                constraint,
+                sensor.sigma.value * constraint.hit.incidence.abs(),
+            );
             count += 1;
         }
         let consistent =
             ozton_math::localization::range::fit_translation(&buffer[..count]).is_some();
-        self.sensors
-            .iter()
-            .zip(self.reports)
-            .filter_map(move |(sensor, report)| {
-                if !consistent {
-                    return None;
-                }
-                let report = report.as_ref()?;
-                Some((
-                    sensor,
-                    report.constraint.ok()?,
-                    report.calibrated_distance?.value,
-                ))
-            })
+        measurements.filter(move |_| consistent)
     }
 }
 

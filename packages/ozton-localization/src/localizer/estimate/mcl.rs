@@ -17,13 +17,20 @@ use super::{MAX_RANGES, Observations, PoseEstimator};
 pub struct Mcl {
     filter: ParticleFilter,
     candidate: ParticleFilter,
+    config: ParticleConfig,
+    yaw_rate: f64,
 }
 
 impl Mcl {
     pub fn new(pose: Pose, config: ParticleConfig) -> Option<Self> {
         let filter = ParticleFilter::new(pose, config)?;
         let candidate = filter.clone();
-        Some(Self { filter, candidate })
+        Some(Self {
+            filter,
+            candidate,
+            config,
+            yaw_rate: 0.0,
+        })
     }
 }
 
@@ -37,12 +44,27 @@ impl PoseEstimator for Mcl {
     }
     fn reset(&mut self, pose: Pose) {
         self.filter.reset(pose);
+        self.yaw_rate = 0.0;
     }
-    fn predict(&mut self, delta: BodyDelta, _: f64) -> bool {
+    fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
+        self.yaw_rate = delta.heading.value.abs() / seconds;
         self.filter.predict(delta);
         true
     }
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose> {
+        if self
+            .config
+            .max_correction_yaw_rate
+            .is_some_and(|limit| self.yaw_rate > limit.value)
+        {
+            log_row!(
+                Trace,
+                "MCL",
+                "status=turning,yaw_radps={:.5}",
+                self.yaw_rate
+            );
+            return None;
+        }
         let Observations { predicted, map, .. } = observations;
         let empty = Beam {
             mount: Pose {
@@ -57,7 +79,8 @@ impl PoseEstimator for Mcl {
         let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
         let mut noise = f64::INFINITY;
         let mut count = 0;
-        let measurements = observations.measurements();
+        let measurements =
+            observations.measurements(self.config.max_range_residual.map(|limit| limit.value));
         for (sensor, constraint, distance) in measurements {
             let sigma = sensor.sigma.value * constraint.hit.incidence.abs();
             constraints[count] = (constraint, sigma);

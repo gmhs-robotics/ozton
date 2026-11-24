@@ -670,3 +670,49 @@ fn setting_field_zero_rebaselines_imu_heading() {
     let turned = sample(&mut localization, 40, 73.0).unwrap();
     assert!((turned.pose.heading - angle!(10 deg)).value.abs() < 1e-12);
 }
+
+#[test]
+fn mcl_filters_large_wall_residuals_and_resumes_after_a_fast_turn() {
+    use ozton_math::{angle, length, units::angular_velocity};
+
+    let mut localization = localizer(
+        Estimator::Mcl(ParticleConfig {
+            max_range_residual: Some(length!(0.05 m)),
+            max_correction_yaw_rate: Some(angular_velocity!(0.35, radian_per_second)),
+            ..ParticleConfig::default()
+        }),
+        false,
+    );
+    assert!(localization.set_pose(Pose::default()));
+    assert_eq!(
+        localization.update(snapshot(10), &[]).unwrap_err(),
+        Fault::Initializing
+    );
+
+    let wall = |millis, meters| {
+        Some(RangeObservation {
+            distance: length!(meters, m),
+            ..reading(millis, false).unwrap()
+        })
+    };
+    let outlier = localization
+        .update(snapshot(20), &[wall(20, 0.9128)])
+        .unwrap();
+    assert_eq!(outlier.pose, outlier.predicted);
+
+    let turning = Snapshot {
+        imu: Some(angle!(0.03 rad)),
+        ..snapshot(30)
+    };
+    let distance = 1.0 / 0.03_f64.cos() - 0.03;
+    let during_turn = localization.update(turning, &[wall(30, distance)]).unwrap();
+    assert_eq!(during_turn.pose, during_turn.predicted);
+
+    let stopped = Snapshot {
+        time: Duration::from_millis(40),
+        ..turning
+    };
+    let corrected = localization.update(stopped, &[wall(40, distance)]).unwrap();
+    assert!(corrected.pose.position.y > corrected.predicted.position.y);
+    assert_eq!(corrected.pose.heading, corrected.predicted.heading);
+}
