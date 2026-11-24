@@ -8,7 +8,7 @@ use ozton_diagnostics::{log_event, log_row};
 use ozton_math::uom::si::f64::{Angle as UomAngle, Length};
 use vexide::{
     prelude::DistanceSensor,
-    smart::{SmartDevice, SmartPort, distance::DistanceReadyError},
+    smart::{SmartDevice, distance::DistanceReadyError},
     time::LowResolutionTime,
 };
 
@@ -34,15 +34,6 @@ pub struct DistanceTracker {
 impl DistanceTracker {
     /// Mount the device at a surveyed XYZ position and beam heading.
     pub fn at_mount(sensor: DistanceSensor, (position, bearing): (Vec3<Length>, UomAngle)) -> Self {
-        Self::from_sensor(sensor, bearing, position)
-    }
-
-    /// Bearing is counterclockwise from forward.
-    pub fn new(port: SmartPort, position: Vec3<Length>, bearing: UomAngle) -> Self {
-        Self::from_sensor(DistanceSensor::new(port), bearing, position)
-    }
-
-    pub fn from_sensor(sensor: DistanceSensor, bearing: UomAngle, position: Vec3<Length>) -> Self {
         Self {
             device: DistanceDevice {
                 sensor,
@@ -76,18 +67,6 @@ impl DistanceTracker {
         self
     }
 
-    /// Change measurement tuning without replacing the surveyed mount.
-    pub fn with_tuning(
-        mut self,
-        gate: ozton_math::localization::range::RangeGate,
-        bias: Length,
-        sigma: Length,
-    ) -> Self {
-        self.config.gate = gate;
-        self.config.bias = bias;
-        self.config.sigma = sigma;
-        self
-    }
 }
 
 #[derive(Clone, Copy, Default)]

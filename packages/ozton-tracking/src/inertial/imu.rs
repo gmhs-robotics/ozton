@@ -20,10 +20,6 @@ pub struct InertialSensorTracking {
 impl InertialSensorTracking {
     /// Mount the sensor at a surveyed XYZ position and heading.
     pub fn at_mount(sensor: InertialSensor, (position, bearing): (Vec3<Length>, Angle)) -> Self {
-        Self::new(sensor, bearing, position)
-    }
-
-    pub fn new(sensor: InertialSensor, bearing: Angle, position: Vec3<Length>) -> Self {
         Self {
             sensor,
             bearing,
@@ -44,10 +40,9 @@ impl InertialSensorTracking {
 
 impl From<InertialSensor> for InertialSensorTracking {
     fn from(sensor: InertialSensor) -> Self {
-        Self::new(
+        Self::at_mount(
             sensor,
-            Angle::default(),
-            Vec3::new(Length::default(), Length::default(), Length::default()),
+            (Vec3::new(Length::default(), Length::default(), Length::default()), Angle::default()),
         )
     }
 }

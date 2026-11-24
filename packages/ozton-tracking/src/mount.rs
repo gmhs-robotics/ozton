@@ -74,7 +74,7 @@ impl MountAxes {
 mod tests {
 
     use super::*;
-    use crate::position;
+    use ozton_math::position_xyz;
 
     #[test]
     fn alternate_axes_use_the_same_origin_and_wheel_lever_arms() {
@@ -97,15 +97,15 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                axes.point(position!(0 m, 0 m, 0 m)),
-                position!(0 m, 0 m, 0 m)
+                axes.point(position_xyz!(0 m, 0 m, 0 m)),
+                position_xyz!(0 m, 0 m, 0 m)
             );
             let point = axes.point(Vec3::new(
                 ozton_math::length!(x, m),
                 ozton_math::length!(y, m),
                 ozton_math::length!(0.3 m),
             ));
-            assert_eq!(point, position!(-0.1 m, 0.2 m, 0.3 m));
+            assert_eq!(point, position_xyz!(-0.1 m, 0.2 m, 0.3 m));
 
             let yaw = 0.4;
             let delta = ozton_math::localization::odometry::body_delta(
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn invalid_coordinates_are_rejected_on_each_axis() {
-        assert!(position!(0 m, 0 m, 0 m).is_finite());
+        assert!(position_xyz!(0 m, 0 m, 0 m).is_finite());
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let invalid = ozton_math::length!(invalid, m);
             for point in [

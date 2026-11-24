@@ -69,9 +69,6 @@ pub trait TrackingSystem {
 #[derive(Default, Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct NoTracking;
 
-/// Backwards-friendly alias for [`NoTracking`].
-pub type DummyTracking = NoTracking;
-
 impl TrackingSystem for NoTracking {}
 impl TrackingSystem for () {}
 
@@ -81,7 +78,6 @@ pub use ozton_math::localization::observation::{
 };
 
 pub mod mount;
-pub use ozton_math::position;
 
 /// Define sensor IDs, ordered mounts and named device wiring from one layout.
 #[macro_export]

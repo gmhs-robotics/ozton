@@ -11,7 +11,7 @@ use ozton::{
     },
     math::{geometry::Pose, localization::range::Surface, path::Path},
     motion::arcade::ArcadeInput,
-    position, route,
+    position_xyz, route,
     runtime::{
         CompetitionBot as ConfiguredBot, RobotBuilder, RobotLayout,
         competition::{Program, RegisteredRoute},
@@ -61,7 +61,7 @@ const CONFIG: DifferentialConfig = {
     config.journal_capacity = 2048;
     config
 };
-const FRONT_MOUNT: Vec3<Length> = position!(0 m, 0.15 m, 0 m);
+const FRONT_MOUNT: Vec3<Length> = position_xyz!(0 m, 0.15 m, 0 m);
 // `front` is the first (and only) range registered with `TrackingSetup` below.
 const FRONT_RANGE_INDEX: usize = 0;
 
@@ -218,10 +218,9 @@ async fn main(p: Peripherals) -> Result<(), Box<dyn std::error::Error>> {
             ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(-1.8)),
             ozton::math::geometry::point(Length::new::<meter>(1.8), Length::new::<meter>(1.8)),
         )],
-        ranges: vec![DistanceTracker::new(
-            p.port_8,
-            FRONT_MOUNT,
-            Angle::new::<radian>(0.0),
+        ranges: vec![DistanceTracker::at_mount(
+            DistanceSensor::new(p.port_8),
+            (FRONT_MOUNT, Angle::new::<radian>(0.0)),
         )],
         ..TrackingSetup::default()
     };

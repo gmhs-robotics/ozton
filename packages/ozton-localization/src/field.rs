@@ -2,7 +2,7 @@
 use ozton_math::{
     geometry::{DVec2, point},
     localization::{observation::RangeSensorConfig, range::Surface},
-    position,
+    position_xyz,
     units::Vec3,
     uom::si::f64::Length,
 };
@@ -33,14 +33,14 @@ impl Field {
 
     /// Portable VEX field, nominal inside dimensions from Override Appendix A.
     pub const PORTABLE: Self = Self {
-        min: position!(-70.20 in, -70.20 in, 0 in),
-        max: position!(70.20 in, 70.20 in, 11.54 in),
+        min: position_xyz!(-70.20 in, -70.20 in, 0 in),
+        max: position_xyz!(70.20 in, 70.20 in, 11.54 in),
     };
 
     /// Metal VEX field, nominal inside dimensions from Override Appendix A.
     pub const METAL: Self = Self {
-        min: position!(-70.25 in, -70.25 in, 0 in),
-        max: position!(70.25 in, 70.25 in, 11.50 in),
+        min: position_xyz!(-70.25 in, -70.25 in, 0 in),
+        max: position_xyz!(70.25 in, 70.25 in, 11.50 in),
     };
 
     pub fn surfaces(self) -> [Surface; 4] {

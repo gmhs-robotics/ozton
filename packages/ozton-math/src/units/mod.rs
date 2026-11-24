@@ -21,7 +21,7 @@ mod quantities;
 pub use quantities::*;
 
 pub use crate::{
-    angle, length, position, position_xy, position_xyh, position_xyz, position_xyzh, quantity,
+    angle, length, position_xy, position_xyh, position_xyz, position_xyzh, quantity,
 };
 
 /// Three coordinates in right, forward, up order.
@@ -139,10 +139,4 @@ macro_rules! position_xyzh {
     ($x:literal $x_unit:ident, $y:literal $y_unit:ident, $z:literal $z_unit:ident, $h:literal $h_unit:ident $(,)?) => {
         ($crate::position_xyz!($x $x_unit, $y $y_unit, $z $z_unit), $crate::angle!($h $h_unit))
     };
-}
-
-/// Alias for [`position_xyz!`].
-#[macro_export]
-macro_rules! position {
-    ($($coordinates:tt)*) => { $crate::position_xyz!($($coordinates)*) };
 }
