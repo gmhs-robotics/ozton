@@ -290,7 +290,6 @@ name = "ozton-tools"
 version = "0.4.0"
 dependencies = [
  "ozton-diagnostics",
- "ozton-math",
 ]
 
 [[package]]

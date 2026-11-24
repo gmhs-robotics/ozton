@@ -11,4 +11,3 @@ workspace = true
 
 [dependencies]
 ozton-diagnostics = { workspace = true }
-ozton-math = { workspace = true }

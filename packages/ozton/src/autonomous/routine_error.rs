@@ -90,7 +90,7 @@ impl<M> RoutineError<M> {
             Self::InvalidField => "STOP: invalid field configuration",
             Self::InvalidMotionConfiguration => "STOP: invalid motion configuration",
             Self::InvalidPose => "STOP: invalid field pose",
-            Self::InvalidPath => "STOP: invalid path export",
+            Self::InvalidPath => "STOP: invalid path",
             Self::InsufficientClearance => "STOP: insufficient clearance",
             Self::InvalidAlignmentSensor => "STOP: alignment requires front/rear sensor",
             Self::MotionFault => "STOP: autonomous motion failure",

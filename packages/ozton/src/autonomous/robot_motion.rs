@@ -44,13 +44,7 @@ pub trait RobotMotion: Sized {
         direction: TravelDirection,
     ) -> Result<(), CommandError<Self::Error>>;
 
-    /// Profile a PATH.JERRYIO export using the robot's motion limits.
-    fn load_path(&self, export: &[u8]) -> Result<Path, CommandError<Self::Error>> {
-        let points =
-            ozton_path_io::jerryio::parse(export).map_err(|_| CommandError::InvalidPath)?;
-        self.profile_path(&points)
-    }
-
+    /// Profile native waypoints using the robot's motion limits.
     fn profile_path(&self, waypoints: &[Waypoint]) -> Result<Path, CommandError<Self::Error>>;
 
     /// Follow a prepared path with the selected Ozton algorithm and tuning.
