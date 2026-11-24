@@ -133,7 +133,13 @@ async fn approach<D: PoseDrive>(
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            turn_checked(session, clearance, heading, settings.config.timing.stage_timeout).await?;
+            turn_checked(
+                session,
+                clearance,
+                heading,
+                settings.config.timing.stage_timeout,
+            )
+            .await?;
         }
         session
             .run(
@@ -146,7 +152,13 @@ async fn approach<D: PoseDrive>(
             )
             .await?;
         if let Some(heading) = final_heading {
-            turn_checked(session, clearance, heading, settings.config.timing.stage_timeout).await?;
+            turn_checked(
+                session,
+                clearance,
+                heading,
+                settings.config.timing.stage_timeout,
+            )
+            .await?;
         }
         let error = session.drive.pose().position.distance(target.position);
         if error <= tolerance {
@@ -176,7 +188,10 @@ async fn depart_wall<D: PoseDrive>(
 
     let options = session.options;
     let reserve = options.position_tolerance + config.safety.departure_reserve;
-    let speed = config.safety.departure_speed.min(options.maximum_wheel_speed);
+    let speed = config
+        .safety
+        .departure_speed
+        .min(options.maximum_wheel_speed);
     let plan = field
         .point_departure(start, target, options.track_width / 2.0, reserve)
         .ok_or(PoseMotionError::InsufficientClearance)?;

@@ -150,8 +150,10 @@ impl DifferentialFeedback {
     }
 
     pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
-        self.pid = MotionPid::new(config.tuning)
-            .with_rate_filters(config.rates.linear_rate_filter, config.rates.angular_rate_filter);
+        self.pid = MotionPid::new(config.tuning).with_rate_filters(
+            config.rates.linear_rate_filter,
+            config.rates.angular_rate_filter,
+        );
         self.config = config;
         self
     }
@@ -200,7 +202,8 @@ impl DifferentialFeedback {
                 .max(options.speed_tolerance.value * 3.0)
                 .min(maximum)
         };
-        let reaction = config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
+        let reaction =
+            config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
         let forward = |pid: &mut MotionPid, error: f64, limit: f64| {
             let output = pid.forward(error, forward_rate, limit, dt);
             compensate_breakaway(
@@ -212,7 +215,8 @@ impl DifferentialFeedback {
                 config.limits.minimum_linear_speed.value,
                 limit.min(config.tuning.linear.output_limit().unwrap_or(f64::INFINITY)),
                 config
-                    .safety.forward_braking
+                    .safety
+                    .forward_braking
                     .unwrap_or(config.limits.deceleration)
                     .value
                     .min(config.limits.deceleration.value),
@@ -240,7 +244,8 @@ impl DifferentialFeedback {
                         .unwrap_or(f64::INFINITY),
                 ),
                 config
-                    .safety.yaw_braking
+                    .safety
+                    .yaw_braking
                     .unwrap_or(config.limits.angular_deceleration)
                     .value
                     .min(config.limits.angular_deceleration.value),
@@ -312,7 +317,8 @@ impl DifferentialFeedback {
                 });
                 // Latch travel direction. Near the goal, allow a deliberate reversal
                 // only after nearly stopping, with a wide hysteresis band.
-                if distance <= config.approach.reversal_distance_factor * options.position_tolerance.value
+                if distance
+                    <= config.approach.reversal_distance_factor * options.position_tolerance.value
                     && heading.abs() > config.approach.reversal_heading.value
                     && forward_rate.abs() <= 2.0 * options.speed_tolerance.value
                     && yaw_rate.abs() <= config.approach.reversal_yaw_rate.value
@@ -362,11 +368,12 @@ impl DifferentialFeedback {
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let limit = stopping_limit(error, maximum_speed.value);
-                let translation_error = if reached || heading.abs() > config.approach.realign_enter.value {
-                    0.0
-                } else {
-                    error
-                };
+                let translation_error =
+                    if reached || heading.abs() > config.approach.realign_enter.value {
+                        0.0
+                    } else {
+                        error
+                    };
                 let speed = if reached && facing && slow {
                     0.0
                 } else {
@@ -437,7 +444,8 @@ impl DifferentialFeedback {
                                     .unwrap_or(f64::INFINITY),
                             ),
                             config
-                                .safety.yaw_braking
+                                .safety
+                                .yaw_braking
                                 .unwrap_or(config.limits.angular_deceleration)
                                 .value
                                 .min(config.limits.angular_deceleration.value),

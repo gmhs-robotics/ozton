@@ -32,7 +32,8 @@ impl Default for DsrConfig {
 }
 
 impl DsrConfig {
-    pub const DEFAULT: Self = Self {            maximum_linear_velocity: ozton_math::qty!(0.025 m/s),
+    pub const DEFAULT: Self = Self {
+        maximum_linear_velocity: ozton_math::qty!(0.025 m/s),
         maximum_angular_velocity: ozton_math::qty!(0.06 rad/s),
         maximum_position_drift: ozton_math::qty!(0.012 m),
         maximum_heading_drift: ozton_math::qty!(0.02 rad),

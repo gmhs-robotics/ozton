@@ -746,9 +746,7 @@ fn sensors_above_every_face_are_excluded_from_pose_corrections() {
     tracker.set_range_usage(u8::MAX, u8::MAX);
     assert!(!tracker.request_distance_reset_axes(1));
     tracker.update(snapshot(10), &[]).unwrap_err();
-    let update = tracker
-        .update(snapshot(20), &[reading(20, false)])
-        .unwrap();
+    let update = tracker.update(snapshot(20), &[reading(20, false)]).unwrap();
     assert!(update.ranges[0].is_none());
     assert_eq!(update.pose, update.predicted);
     assert!(

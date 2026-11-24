@@ -62,7 +62,8 @@ impl TerminalPose {
             // preserve the planned direction farther from the endpoint.
             self.approach_reverse = if !inside
                 && distance
-                    <= controller.config.approach.reversal_distance_factor * options.position_tolerance.value
+                    <= controller.config.approach.reversal_distance_factor
+                        * options.position_tolerance.value
             {
                 let error = wrap_heading(
                     bearing(target.position - feedback.pose.position) - feedback.pose.heading,

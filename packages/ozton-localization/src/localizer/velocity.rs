@@ -46,7 +46,8 @@ impl Default for VelocityConfig {
 }
 
 impl VelocityConfig {
-    pub const DEFAULT: Self = Self {            acceleration_axes: [true; 2],
+    pub const DEFAULT: Self = Self {
+        acceleration_axes: [true; 2],
         linear_process: 0.50,
         angular_process: 2.0,
         bias_process: 0.01,

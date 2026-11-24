@@ -33,7 +33,11 @@ fn bounds(
     let forward = interval(
         v,
         forward,
-        config.safety.forward_braking.unwrap_or(config.limits.deceleration).value,
+        config
+            .safety
+            .forward_braking
+            .unwrap_or(config.limits.deceleration)
+            .value,
         reaction,
     );
     let lateral = interval(
@@ -45,7 +49,8 @@ fn bounds(
     let yaw = stop(
         w.abs() + yaw,
         config
-            .safety.yaw_braking
+            .safety
+            .yaw_braking
             .unwrap_or(config.limits.angular_deceleration)
             .value,
         reaction,

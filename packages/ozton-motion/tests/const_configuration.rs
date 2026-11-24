@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use ozton_control::loops::{AngularPid, Pid};
 use ozton_motion::{
-    Basic, MotionConfig, MotionLimits, PurePursuit, pursuit::PursuitTerminalConfig, ramsete::Ramsete,
+    Basic, MotionConfig, MotionLimits, PurePursuit, pursuit::PursuitTerminalConfig,
+    ramsete::Ramsete,
 };
 
 const PID: Pid = Pid::new(1.0, 0.0, 0.0, None)

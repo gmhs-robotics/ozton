@@ -822,14 +822,19 @@ impl MotionConfig {
             && self.limits.minimum_linear_speed.value >= 0.0
             && self.limits.minimum_angular_speed.value.is_finite()
             && self.limits.minimum_angular_speed.value >= 0.0
-            && [self.safety.clearance.value, self.safety.departure_reserve.value]
-                .into_iter()
-                .all(|v| v.is_finite() && v >= 0.0)
+            && [
+                self.safety.clearance.value,
+                self.safety.departure_reserve.value,
+            ]
+            .into_iter()
+            .all(|v| v.is_finite() && v >= 0.0)
             && self
-                .safety.forward_braking
+                .safety
+                .forward_braking
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self
-                .safety.yaw_braking
+                .safety
+                .yaw_braking
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self.safety.braking_sigma.is_finite()
             && self.safety.braking_sigma >= 0.0

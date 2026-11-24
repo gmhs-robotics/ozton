@@ -203,7 +203,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if complete {
                 return Ok(());
             }
-            if progress.stalled(target, feedback, ready, dt, self.config.timing.progress_timeout) {
+            if progress.stalled(
+                target,
+                feedback,
+                ready,
+                dt,
+                self.config.timing.progress_timeout,
+            ) {
                 governor.report_stall(status, requested, wheels);
                 return Err(PoseMotionError::NoProgress);
             }
@@ -306,7 +312,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 geometric,
                 end,
                 self.config
-                    .path.lookahead
+                    .path
+                    .lookahead
                     .value
                     .max(self.options.position_tolerance.value * 2.0),
             );
