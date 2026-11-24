@@ -2,11 +2,11 @@ use glam::{DVec2, DVec3};
 use rand::{RngCore, SeedableRng, rngs::SmallRng};
 
 #[derive(Clone)]
-pub(super) struct Random(SmallRng);
+pub(super) struct Random(SmallRng, Option<f64>);
 
 impl Random {
     pub(super) fn seeded(seed: u64) -> Self {
-        Self(SmallRng::seed_from_u64(seed))
+        Self(SmallRng::seed_from_u64(seed), None)
     }
 
     pub(super) fn uniform(&mut self) -> f64 {
@@ -22,6 +22,14 @@ impl Random {
 
     pub(super) fn normal3(&mut self) -> DVec3 {
         let xy = self.normal_pair();
-        DVec3::new(xy.x, xy.y, self.normal_pair().x)
+        let z = match self.1.take() {
+            Some(value) => value,
+            None => {
+                let pair = self.normal_pair();
+                self.1 = Some(pair.y);
+                pair.x
+            }
+        };
+        DVec3::new(xy.x, xy.y, z)
     }
 }

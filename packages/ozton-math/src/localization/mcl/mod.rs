@@ -7,7 +7,7 @@ use glam::{DVec2, DVec3};
 use random::Random;
 use uom::si::f64::{Angle, AngularVelocity, Length};
 
-use super::range::{Surface, ray_distance};
+use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
 
 const MAX_PARTICLES: usize = 128;
@@ -73,6 +73,7 @@ pub struct ParticleFilter {
     particles: Vec<Particle>,
     scratch: Vec<Particle>,
     random: Random,
+    ray_faces: Vec<RayFace>,
 }
 
 impl Clone for ParticleFilter {
@@ -84,6 +85,7 @@ impl Clone for ParticleFilter {
             particles: self.particles.clone(),
             scratch,
             random: self.random.clone(),
+            ray_faces: Vec::with_capacity(self.ray_faces.capacity()),
         }
     }
 
@@ -121,6 +123,7 @@ impl ParticleFilter {
             particles: Vec::with_capacity(config.count),
             scratch: Vec::with_capacity(config.count),
             random: Random::seeded(config.seed),
+            ray_faces: Vec::new(),
         };
         filter.reset(pose);
         Some(filter)
@@ -165,9 +168,8 @@ impl ParticleFilter {
     /// Seed some particles from coherent external translation observations.
     /// A single wall normal leaves each particle's tangent coordinate intact.
     pub fn propose_position(&mut self, target: DVec2, normal: Option<DVec2>, noise: f64) {
-        let estimate = self.estimate();
-        let displacement = target - estimate.pose.position;
-        let deviation = estimate.standard_deviation.truncate();
+        let (position, deviation) = self.position_moments();
+        let displacement = target - position;
         let (displacement, spread) = if let Some(normal) = normal {
             (
                 normal * displacement.dot(normal),
@@ -179,7 +181,7 @@ impl ParticleFilter {
         if !noise.is_finite()
             || noise <= 0.0
             || !displacement.is_finite()
-            || displacement.length() <= libm::hypot(spread, noise)
+            || displacement.length_squared() <= spread * spread + noise * noise
         {
             return;
         }
@@ -242,43 +244,92 @@ impl ParticleFilter {
         }
         let sigma = self.config.range_sigma.value;
         let mixture = self.config.outlier_weight;
-        for beam in beams {
-            // Divide the mixture by the Gaussian peak. Normalization cancels
-            // this constant and keeps tiny noise values from overflowing.
-            let random_likelihood = ((sigma / beam.max_range.value)
-                * (mixture * libm::sqrt(core::f64::consts::TAU) / (1.0 - mixture)))
-                .clamp(1e-12, 1e12);
-            let mut total = 0.0;
-            let body_direction = direction(beam.mount.heading);
-            for particle in &mut self.particles {
-                let orientation = fixed_rotation.unwrap_or_else(|| rotation(particle.pose.heading));
-                let origin = particle.pose.position + orientation.rotate(beam.mount.position);
-                let direction = orientation.rotate(body_direction);
-                let matched = ray_distance(origin, direction, map, beam.surface_mask).map_or(
-                    0.0,
-                    |distance| {
-                        let residual = (beam.distance.value - distance) / sigma;
-                        libm::exp(-0.5 * residual * residual)
-                    },
-                );
-                particle.weight *= matched + random_likelihood;
-                total += particle.weight;
-            }
-            for particle in &mut self.particles {
-                particle.weight /= total;
+        let random_scale = sigma * mixture * libm::sqrt(core::f64::consts::TAU)
+            / (1.0 - mixture);
+        let inverse_sigma = 1.0 / sigma;
+        prepare_faces(map, &mut self.ray_faces);
+        let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
+        if fixed_rotation.is_none() {
+            for (orientation, particle) in orientations.iter_mut().zip(&self.particles) {
+                *orientation = rotation(particle.pose.heading);
             }
         }
-        let estimate = self.estimate();
-        let effective_count = 1.0
-            / self
-                .particles
-                .iter()
-                .map(|p| p.weight * p.weight)
-                .sum::<f64>();
-        if effective_count < self.config.count as f64 * 0.5 {
+        let mut likelihoods = [f64::NAN; MAX_PARTICLES];
+        let mut used = false;
+        for beam in beams {
+            let random_likelihood = (random_scale / beam.max_range.value).clamp(1e-12, 1e12);
+            let body_direction = direction(beam.mount.heading);
+            let fixed_ray = fixed_rotation.map(|r| {
+                (r.rotate(beam.mount.position), r.rotate(body_direction))
+            });
+            let mut modeled_weight = 0.0;
+            let mut evidence = 0.0;
+            for (index, particle) in self.particles.iter().enumerate() {
+                let (offset, direction) = fixed_ray.unwrap_or_else(|| {
+                    let r = orientations[index];
+                    (r.rotate(beam.mount.position), r.rotate(body_direction))
+                });
+                let origin = particle.pose.position + offset;
+                let distance = prepared_ray_distance(
+                    origin,
+                    direction,
+                    &self.ray_faces,
+                    beam.surface_mask,
+                    beam.max_range.value,
+                );
+                likelihoods[index] = if let Some(distance) = distance {
+                    let residual = (beam.distance.value - distance) * inverse_sigma;
+                    let likelihood = libm::exp(-0.5 * residual * residual) + random_likelihood;
+                    modeled_weight += particle.weight;
+                    evidence += particle.weight * likelihood;
+                    likelihood
+                } else {
+                    f64::NAN
+                };
+            }
+            if modeled_weight <= 0.0 || evidence <= 0.0 {
+                continue;
+            }
+            // Marginalize unknown geometry: a missing prediction receives
+            // the conditional mean likelihood of modeled particles. This
+            // keeps its prior mass unchanged, rather than rewarding or
+            // punishing a particle for seeing through an opening.
+            let mean = evidence / modeled_weight;
+            for (particle, &likelihood) in self.particles.iter_mut().zip(&likelihoods) {
+                if likelihood.is_finite() {
+                    particle.weight *= likelihood / mean;
+                }
+            }
+            used = true;
+        }
+        if !used {
+            return None;
+        }
+        let estimate = if fixed_rotation.is_some() {
+            let (position, deviation) = self.position_moments();
+            Estimate {
+                pose: Pose::new(position, self.particles[0].pose.heading),
+                standard_deviation: deviation.extend(0.0),
+            }
+        } else {
+            self.estimate()
+        };
+        let squared_weight = self.particles.iter().map(|p| p.weight * p.weight).sum::<f64>();
+        if squared_weight * self.config.count as f64 > 2.0 {
             self.resample();
         }
         Some(estimate)
+    }
+
+    fn position_moments(&self) -> (DVec2, DVec2) {
+        let position = self.particles.iter().fold(DVec2::ZERO, |sum, particle| {
+            sum + particle.pose.position * particle.weight
+        });
+        let variance = self.particles.iter().fold(DVec2::ZERO, |sum, particle| {
+            let error = particle.pose.position - position;
+            sum + error * error * particle.weight
+        });
+        (position, DVec2::new(libm::sqrt(variance.x), libm::sqrt(variance.y)))
     }
 
     fn estimate(&self) -> Estimate {
