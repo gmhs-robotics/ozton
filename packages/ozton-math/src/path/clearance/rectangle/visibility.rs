@@ -61,17 +61,12 @@ pub(super) fn plan(
     soft: &[Option<Bounds>],
     reserve: Length,
 ) -> Option<Vec<DVec2>> {
-    if !start.is_finite()
-        || !goal.is_finite()
-        || !reserve.value.is_finite()
-        || reserve.value <= 0.0
+    if !start.is_finite() || !goal.is_finite() || !reserve.value.is_finite() || reserve.value <= 0.0
     {
         return None;
     }
     let radius = field.footprint.turn_radius();
-    let inflate = |(min, max): Bounds, pad: f64| {
-        (min - DVec2::splat(pad), max + DVec2::splat(pad))
-    };
+    let inflate = |(min, max): Bounds, pad: f64| (min - DVec2::splat(pad), max + DVec2::splat(pad));
     let hard: Vec<_> = field
         .obstacles
         .iter()
@@ -129,7 +124,11 @@ pub(super) fn plan(
         }
         visited[u] = true;
         for v in 0..n {
-            if visited[v] || hard.iter().any(|&b| clipped(nodes[u], nodes[v], b).is_some()) {
+            if visited[v]
+                || hard
+                    .iter()
+                    .any(|&b| clipped(nodes[u], nodes[v], b).is_some())
+            {
                 continue;
             }
             let length = nodes[u].distance(nodes[v]);

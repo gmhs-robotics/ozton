@@ -361,8 +361,12 @@ impl MotionConfig {
             && [self.clearance.value, self.departure_reserve.value]
                 .into_iter()
                 .all(|v| v.is_finite() && v >= 0.0)
-            && self.forward_braking.is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self.yaw_braking.is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self
+                .forward_braking
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self
+                .yaw_braking
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self.braking_sigma.is_finite()
             && self.braking_sigma >= 0.0
             && self.ramsete_zeta <= 1.0

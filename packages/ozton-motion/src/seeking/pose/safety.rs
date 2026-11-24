@@ -44,7 +44,10 @@ fn bounds(
     );
     let yaw = stop(
         w.abs() + yaw,
-        config.yaw_braking.unwrap_or(config.angular_deceleration).value,
+        config
+            .yaw_braking
+            .unwrap_or(config.angular_deceleration)
+            .value,
         reaction,
     );
     field.braking_bounds(feedback.pose, forward, lateral, qty!((yaw) rad))
