@@ -154,7 +154,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let clearance = super::approach::clearance(self.drive, self.config.clearance)?;
             let forward = safety_rate.update(feedback);
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config)) {
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config))
+            {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
@@ -269,7 +270,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::UntrustedPose);
             }
             let forward = safety_rate.update(feedback);
-            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config)) {
+            if clearance.is_some_and(|field| !safe_feedback(field, feedback, forward, self.config))
+            {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(
@@ -622,15 +624,15 @@ impl Progress {
     }
 }
 
-
 #[cfg(test)]
 mod safety_tests {
-    use super::*;
     use ozton_math::{
         geometry::{DVec2, Pose},
         path::clearance::{Footprint, RectangularClearance},
         qty,
     };
+
+    use super::*;
 
     fn sample(ms: u64, travel: f64, raw: f64) -> Feedback {
         Feedback {
