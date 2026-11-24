@@ -169,7 +169,7 @@ impl Wheels {
         motors: &[SharedMotors],
     ) -> [Option<WheelFeedback>; N] {
         core::array::from_fn(|group| {
-            let motors = motors.get(group)?.borrow();
+            let motors = motors.get(group)?.try_borrow().ok()?;
             if !self.group_matches(group, &motors) {
                 return None;
             }

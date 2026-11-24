@@ -1,6 +1,6 @@
 //! Run a drivetrain's localization at the robot's control period.
 
-use std::time::{Duration, Instant};
+use std::{cell::Cell, time::{Duration, Instant}};
 
 use ozton_drivetrain::{Drive, Drivetrain};
 use ozton_localization::differential::DifferentialLocalization;
@@ -98,6 +98,7 @@ type Start<D> = fn(&D, LocalizationSchedule, CompetitionMode, Duration) -> Optio
 pub(crate) struct Schedule<D> {
     modes: LocalizationSchedule,
     start: Start<D>,
+    previous_mode: Cell<Option<CompetitionMode>>,
 }
 
 impl<D> Schedule<D> {
@@ -108,6 +109,7 @@ impl<D> Schedule<D> {
         Self {
             modes,
             start: D::start_localization,
+            previous_mode: Cell::new(None),
         }
     }
 
@@ -117,6 +119,15 @@ impl<D> Schedule<D> {
         mode: CompetitionMode,
         period: Duration,
     ) -> Option<Task<()>> {
+        let previous = self.previous_mode.replace(Some(mode));
+        if self.modes == LocalizationSchedule::Autonomous
+            && mode == CompetitionMode::Autonomous
+            && previous == Some(CompetitionMode::Autonomous)
+        {
+            // Reset baselines if an intervening mode was too short to run
+            // its callback. Always-on localization retains its continuity.
+            (self.start)(drive, self.modes, CompetitionMode::Disabled, period);
+        }
         (self.start)(drive, self.modes, mode, period)
     }
 }

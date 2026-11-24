@@ -1,7 +1,7 @@
 //! Shared handles for actuator and encoder access to the same motor objects.
 
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut},
     rc::Rc,
 };
 
@@ -10,6 +10,8 @@ use vexide::prelude::Motor;
 trait MotorStorage {
     fn borrow(&self) -> Ref<'_, [Motor]>;
     fn borrow_mut(&self) -> RefMut<'_, [Motor]>;
+    fn try_borrow(&self) -> Result<Ref<'_, [Motor]>, BorrowError>;
+    fn try_borrow_mut(&self) -> Result<RefMut<'_, [Motor]>, BorrowMutError>;
 }
 
 impl<T: AsRef<[Motor]> + AsMut<[Motor]>> MotorStorage for RefCell<T> {
@@ -19,6 +21,14 @@ impl<T: AsRef<[Motor]> + AsMut<[Motor]>> MotorStorage for RefCell<T> {
 
     fn borrow_mut(&self) -> RefMut<'_, [Motor]> {
         RefMut::map(self.borrow_mut(), AsMut::as_mut)
+    }
+
+    fn try_borrow(&self) -> Result<Ref<'_, [Motor]>, BorrowError> {
+        RefCell::try_borrow(self).map(|motors| Ref::map(motors, AsRef::as_ref))
+    }
+
+    fn try_borrow_mut(&self) -> Result<RefMut<'_, [Motor]>, BorrowMutError> {
+        RefCell::try_borrow_mut(self).map(|motors| RefMut::map(motors, AsMut::as_mut))
     }
 }
 
@@ -33,6 +43,15 @@ impl SharedMotors {
 
     pub fn borrow_mut(&self) -> RefMut<'_, [Motor]> {
         self.0.borrow_mut()
+    }
+
+    /// Background readers must skip a sample rather than panic on a busy group.
+    pub fn try_borrow(&self) -> Result<Ref<'_, [Motor]>, BorrowError> {
+        self.0.try_borrow()
+    }
+
+    pub fn try_borrow_mut(&self) -> Result<RefMut<'_, [Motor]>, BorrowMutError> {
+        self.0.try_borrow_mut()
     }
 }
 

@@ -72,3 +72,24 @@ impl Token {
             && competition::is_connected() == self.connected
     }
 }
+
+#[cfg(all(test, not(target_os = "vexos")))]
+mod tests {
+    use super::*;
+    use vex_sdk_mock as _;
+
+    #[test]
+    fn dropping_activation_invalidates_its_tokens_before_reentry() {
+        let first = Activation::enter();
+        let token = Token::capture(competition::mode());
+        assert!(token.active());
+        drop(first);
+        assert!(!token.active());
+        let second = Activation::enter();
+        let replacement = Token::capture(competition::mode());
+        assert!(!token.active());
+        assert!(replacement.active());
+        drop(second);
+        assert!(!replacement.active());
+    }
+}

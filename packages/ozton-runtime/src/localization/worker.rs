@@ -41,8 +41,24 @@ impl LocalizationWorker {
     {
         let state = drive.localization_state();
         let sampling = Cell::new(Sampling::Running);
+        let previous_activation = Cell::new(None);
         let synchronize = Rc::new(move |mode, sample| {
             let enabled = schedule.runs_in(mode);
+            if !sample {
+                let activation = crate::competition::activation::current();
+                let previous = previous_activation.replace(Some((mode, activation)));
+                if schedule == LocalizationSchedule::Autonomous
+                    && previous.is_some_and(|(old_mode, old_activation)| {
+                        old_mode == CompetitionMode::Autonomous
+                            && mode == CompetitionMode::Autonomous
+                            && old_activation != activation
+                    })
+                {
+                    // A new autonomous callback can follow a very brief
+                    // intervening mode that the sampling task never observed.
+                    sampling.set(Sampling::PausePending);
+                }
+            }
             if !enabled && sampling.get() == Sampling::Running {
                 sampling.set(Sampling::PausePending);
             }
@@ -100,6 +116,25 @@ mod tests {
 
     use super::*;
     use crate::localization::tests::{Counts, TestDrive};
+
+    #[test]
+    fn rapid_autonomous_reentry_rebaselines_before_new_route() {
+        vexide::runtime::block_on(async {
+            let drive = Drivetrain::new(TestDrive, (), Counts::default());
+            let worker = LocalizationWorker::start(
+                &drive,
+                LocalizationSchedule::Autonomous,
+                Duration::from_millis(1),
+            );
+            worker.mode_changed(CompetitionMode::Autonomous);
+            assert_eq!(drive.localization().pauses, 0);
+            crate::competition::activation::advance();
+            worker.mode_changed(CompetitionMode::Autonomous);
+            assert_eq!(drive.localization().pauses, 1);
+            worker.mode_changed(CompetitionMode::Autonomous);
+            assert_eq!(drive.localization().pauses, 1);
+        });
+    }
 
     #[test]
     fn pending_pause_is_applied_before_the_next_route_can_seed() {

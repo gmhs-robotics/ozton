@@ -348,7 +348,10 @@ fn report_drive_motors(frame: Frame, groups: &[SharedMotors]) {
         _ => &[],
     };
     for (group, motors) in groups.iter().enumerate() {
-        for (index, motor) in motors.borrow().iter().enumerate() {
+        let Ok(motors) = motors.try_borrow() else {
+            continue;
+        };
+        for (index, motor) in motors.iter().enumerate() {
             let sample = MotorSample::read(motor);
             if let Some(name) = names.get(group) {
                 sample.write(frame, format_args!("drive_{name}{}", index + 1));
