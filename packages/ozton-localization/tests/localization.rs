@@ -627,3 +627,46 @@ fn range_usage_selects_filter_and_reset_observations_independently() {
     assert!(resetting.ranges[0].unwrap().constraint.is_ok());
     assert!(resetting.ranges[1].is_none());
 }
+
+#[test]
+fn setting_field_zero_rebaselines_imu_heading() {
+    use ozton_localization::differential::LocalizationBuilder;
+    use ozton_math::{
+        angle,
+        localization::observation::{HeadingObservation, Measurement, Observation, SensorSample},
+    };
+
+    let mut localization = LocalizationBuilder::default()
+        .build(Default::default())
+        .unwrap();
+    let sample = |localization: &mut ozton_localization::differential::DifferentialLocalization,
+                  millis,
+                  degrees| {
+        let time = Duration::from_millis(millis);
+        localization
+            .update(
+                SensorSample {
+                    time,
+                    observations: &[Observation {
+                        source: 0,
+                        time,
+                        measurement: Measurement::Heading(HeadingObservation::Compass(angle!(
+                            degrees, deg
+                        ))),
+                    }],
+                },
+                None,
+            )
+            .unwrap()
+    };
+
+    sample(&mut localization, 0, 0.0);
+    sample(&mut localization, 10, 83.0);
+    assert!(localization.set_pose(Pose::default()));
+
+    sample(&mut localization, 20, 83.0);
+    let stationary = sample(&mut localization, 30, 83.0).unwrap();
+    assert!(stationary.pose.heading.value.abs() < 1e-12);
+    let turned = sample(&mut localization, 40, 73.0).unwrap();
+    assert!((turned.pose.heading - angle!(10 deg)).value.abs() < 1e-12);
+}

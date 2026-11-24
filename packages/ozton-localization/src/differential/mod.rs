@@ -5,7 +5,7 @@ use std::time::Duration;
 use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
-    geometry::{DVec2, Pose, compass_heading},
+    geometry::{DVec2, Pose},
     localization::observation::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
@@ -41,7 +41,6 @@ pub struct DifferentialLocalization {
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
     range_uses: RangeUses,
-    imu_heading_offset: Option<Angle>,
     occluded: u8,
     last_reset: DistanceReset,
     feedback: Result<Option<Feedback>, Fault>,
@@ -63,31 +62,6 @@ impl DifferentialLocalization {
         self.wheels.observe(&[]);
     }
 
-    pub fn register_start(&mut self, pose: Pose, imu: Option<Angle>) -> bool {
-        if !self.set_pose(pose) {
-            return false;
-        }
-        self.imu_heading_offset = imu
-            .filter(|heading| heading.value.is_finite())
-            .map(|heading| pose.heading - compass_heading(heading));
-        log_row!(
-            Debug,
-            "START_POSE",
-            "x_m={:.5},y_m={:.5},heading_rad={:.5},imu_offset_rad={:.5}",
-            pose.position.x,
-            pose.position.y,
-            pose.heading.value,
-            self.imu_heading_offset
-                .map_or(f64::NAN, |angle| angle.value)
-        );
-        true
-    }
-
-    pub fn field_heading(&self, imu: Option<Angle>) -> Option<Angle> {
-        let heading = imu.filter(|heading| heading.value.is_finite())?;
-        Some(compass_heading(heading) + self.imu_heading_offset?)
-    }
-
     pub fn pose(&self) -> Pose {
         self.localizer.pose()
     }
@@ -96,6 +70,8 @@ impl DifferentialLocalization {
         self.localizer.pose_trust() == PoseTrust::Trusted
     }
 
+    /// Sets the field pose and clears the odometry baselines. IMU observations
+    /// contribute heading changes from the next baseline sample.
     pub fn set_pose(&mut self, pose: Pose) -> bool {
         if !self.localizer.set_pose(pose) {
             return false;

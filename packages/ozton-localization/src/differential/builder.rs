@@ -135,7 +135,6 @@ impl LocalizationBuilder {
             drive: self.drive,
             use_imu: self.use_imu,
             range_uses: self.ranges,
-            imu_heading_offset: None,
             occluded: 0,
             last_reset: DistanceReset::Idle,
             feedback: Ok(None),
