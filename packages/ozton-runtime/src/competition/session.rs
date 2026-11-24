@@ -89,7 +89,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
     pub(super) async fn disabled(&mut self) {
         self.enter(CompetitionMode::Disabled);
         let _localization = self.0.start_localization(CompetitionMode::Disabled);
-        self.ticks(CompetitionMode::Disabled).await;
+        self.0.idle_mode(CompetitionMode::Disabled).await;
         self.stop();
     }
 
@@ -153,7 +153,7 @@ impl<R: CompetitionRobot> CompetitionSession<'_, R> {
         } else {
             robot.menu().status("Autonomous disabled");
         }
-        self.ticks(mode).await;
+        self.0.idle_mode(mode).await;
         self.stop();
     }
 }

@@ -45,6 +45,30 @@ impl Arcade {
         forward: f64,
         turn: f64,
     ) -> Result<(), D::Error> {
-        drive.drive_vector(Vec2::new(0.0, forward), turn)
+        drive_command(drive, Vec2::new(0.0, forward), turn, "arcade")
     }
+}
+
+pub(crate) fn drive_command<D: Drive + ?Sized>(
+    drive: &mut D,
+    translation: Vec2,
+    turn: f64,
+    style: &str,
+) -> Result<(), D::Error> {
+    #[cfg(feature = "logging")]
+    let started = std::time::Instant::now();
+    let result = drive.drive_vector(translation, turn);
+    #[cfg(feature = "logging")]
+    ozton_runtime::log_row!(
+        Trace,
+        "DRIVER_OUTPUT",
+        "style={style},right={:.4},forward={:.4},turn={turn:.4},output_us={},ok={}",
+        translation.x,
+        translation.y,
+        started.elapsed().as_micros(),
+        u8::from(result.is_ok()),
+    );
+    #[cfg(not(feature = "logging"))]
+    let _ = style;
+    result
 }

@@ -15,14 +15,13 @@ use crate::{
 
 mod dispatch;
 mod drive;
-mod driver;
 pub use drive::ProgramDrive;
 mod policy;
 mod routes;
 mod runtime;
+mod selector_task;
 mod session;
 
-pub use driver::DriverLoop;
 pub use policy::{CompetitionLayout, Mechanism, Program};
 pub use routes::*;
 pub use runtime::{OztonCompete, Runtime};
@@ -80,6 +79,10 @@ pub trait CompetitionRobot: Sized {
     fn driver_failed(&mut self, error: Self::Error) {
         crate::log_event!(Error, "driver", "Control fault ({error})");
         self.menu().status(&error.to_string());
+    }
+
+    async fn idle_mode(&mut self, mode: CompetitionMode) {
+        session::CompetitionSession(self).ticks(mode).await;
     }
 
     fn mode_changed(&mut self, _mode: CompetitionMode) {}

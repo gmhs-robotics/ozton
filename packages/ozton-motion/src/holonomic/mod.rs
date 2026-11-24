@@ -10,6 +10,6 @@ impl Holonomic {
         translation: impl Into<DVec2>,
         turn: f64,
     ) -> Result<(), D::Error> {
-        drive.drive_vector(translation.into(), turn)
+        crate::arcade::drive_command(drive, translation.into(), turn, "holonomic")
     }
 }

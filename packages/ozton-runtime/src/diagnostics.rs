@@ -10,6 +10,11 @@ use ozton_math::uom::si::f64::{Length, Velocity};
 use ozton_tracking::odometric::SharedMotors;
 use vexide::smart::SmartDevice;
 
+#[cfg(feature = "logging")]
+mod background;
+#[cfg(feature = "logging")]
+pub use background::{drivetrain_reporter, start_diagnostics};
+
 mod sd;
 pub use sd::{flush_sd_logging, start_sd_logging};
 
@@ -153,6 +158,8 @@ pub struct Sampler<S> {
     #[cfg(feature = "logging")]
     clock: SampleClock,
     source: PhantomData<S>,
+    #[cfg(feature = "logging")]
+    report_control_ticks: bool,
 }
 
 impl<S> Sampler<S> {
@@ -163,6 +170,8 @@ impl<S> Sampler<S> {
             #[cfg(feature = "logging")]
             clock: SampleClock::new(Instant::now(), interval.min(SD_SAMPLE_INTERVAL)),
             source: PhantomData,
+            #[cfg(feature = "logging")]
+            report_control_ticks: true,
         }
     }
 
@@ -188,16 +197,18 @@ impl<S> Sampler<S> {
                     time: vexide::time::user_uptime(),
                 },
             };
-            frame.row(
-                "LOOP",
-                format_args!(
-                    "ticks={},dt_ms={:.3},max_dt_ms={:.3},max_driver_output_us={}",
-                    snapshot.ticks,
-                    sample.dt.as_secs_f64() * 1000.0,
-                    snapshot.max_tick.as_secs_f64() * 1000.0,
-                    snapshot.max_driver_output.as_micros(),
-                ),
-            );
+            if self.report_control_ticks {
+                frame.row(
+                    "LOOP",
+                    format_args!(
+                        "ticks={},dt_ms={:.3},max_dt_ms={:.3},max_driver_output_us={}",
+                        snapshot.ticks,
+                        sample.dt.as_secs_f64() * 1000.0,
+                        snapshot.max_tick.as_secs_f64() * 1000.0,
+                        snapshot.max_driver_output.as_micros(),
+                    ),
+                );
+            }
             frame.row("MODE", format_args!("mode={:?}", sample.mode));
             frame.row(
                 "BATTERY",
