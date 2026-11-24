@@ -6,6 +6,7 @@ use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
     geometry::{DVec2, Pose},
+    path::clearance::Obstacles,
     localization::observation::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
@@ -36,8 +37,8 @@ pub use builder::{DsrUse, LocalizationBuilder};
 pub struct DifferentialLocalization {
     localizer: Localizer<'static>,
     rectangular_half_extents: Option<DVec2>,
-    motion_obstacles: [Option<(DVec2, DVec2)>; 4],
-    movable_obstacles: [Option<(DVec2, DVec2)>; 4],
+    motion_obstacles: Obstacles,
+    movable_obstacles: Obstacles,
     wheels: WheelOdometry,
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
@@ -69,12 +70,12 @@ impl DifferentialLocalization {
     }
 
     /// Fixed footprints projected from the unified field geometry.
-    pub fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+    pub fn motion_obstacles(&self) -> Obstacles {
         self.motion_obstacles
     }
 
     /// Movable footprints projected from the same faces used by localization.
-    pub fn movable_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+    pub fn movable_obstacles(&self) -> Obstacles {
         self.movable_obstacles
     }
 

@@ -264,9 +264,9 @@ pub(super) fn clearance<D: PoseDrive>(
         .ok_or(PoseMotionError::Configuration)?;
     let mut field = RectangularClearance::new(footprint, bounds, margin)
         .ok_or(PoseMotionError::Configuration)?;
-    for (min, max) in drive.motion_obstacles().into_iter().flatten() {
+    for polygon in drive.motion_obstacles().into_iter().flatten() {
         field = field
-            .with_obstacle(min, max)
+            .with_polygon(polygon)
             .ok_or(PoseMotionError::Configuration)?;
     }
     Ok(Some(field))

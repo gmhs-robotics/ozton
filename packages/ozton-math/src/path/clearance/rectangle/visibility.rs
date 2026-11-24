@@ -1,14 +1,13 @@
-//! Visibility graph over conservatively inflated axis-aligned obstacle boxes.
-//! Dijkstra uses a lexicographic cost: soft overlap distance, then route length.
+//! A* on a convex configuration-space visibility graph.
+//! Lexicographic objective: minimize soft-obstacle overlap, then distance.
+
 use alloc::vec::Vec;
 
 use glam::DVec2;
 use uom::si::f64::Length;
 
-use super::RectangularClearance;
+use super::{ConvexPolygon, RectangularClearance};
 use crate::geometry::Pose;
-
-type Bounds = (DVec2, DVec2);
 
 #[derive(Clone, Copy)]
 struct Cost {
@@ -27,127 +26,126 @@ impl Cost {
             .total_cmp(&other.overlap)
             .then_with(|| self.length.total_cmp(&other.length))
     }
-}
 
-/// Liang-Barsky/slab clipping: interval of the segment inside an AABB.
-/// A corner touch counts as an intersection for hard obstacles.
-fn clipped(a: DVec2, b: DVec2, bounds: Bounds) -> Option<(f64, f64)> {
-    let (min, max) = bounds;
-    let d = b - a;
-    let mut enter: f64 = 0.0;
-    let mut leave: f64 = 1.0;
-    for axis in 0..2 {
-        if d[axis].abs() <= f64::EPSILON {
-            if a[axis] < min[axis] || a[axis] > max[axis] {
-                return None;
-            }
-        } else {
-            let t0 = (min[axis] - a[axis]) / d[axis];
-            let t1 = (max[axis] - a[axis]) / d[axis];
-            enter = enter.max(t0.min(t1));
-            leave = leave.min(t0.max(t1));
-            if enter > leave {
-                return None;
-            }
+    fn heuristic(self, distance: f64) -> Self {
+        Self {
+            length: self.length + distance,
+            ..self
         }
     }
-    Some((enter, leave))
 }
 
-pub(super) fn plan(
-    field: RectangularClearance,
-    start: DVec2,
-    goal: DVec2,
-    soft: &[Option<Bounds>],
-    reserve: Length,
-) -> Option<Vec<DVec2>> {
-    if !start.is_finite() || !goal.is_finite() || !reserve.value.is_finite() || reserve.value <= 0.0
-    {
-        return None;
+/// A* visibility-graph planner for a differential robot that can pivot.
+/// Convex obstacles are offset by the circumscribed footprint radius.
+#[derive(Clone, Copy, Debug)]
+pub struct AStar {
+    waypoint_reserve: Length,
+}
+
+impl Default for AStar {
+    fn default() -> Self {
+        Self::new()
     }
-    let radius = field.footprint.turn_radius();
-    let inflate = |(min, max): Bounds, pad: f64| (min - DVec2::splat(pad), max + DVec2::splat(pad));
-    let hard: Vec<_> = field
-        .obstacles
-        .iter()
-        .flatten()
-        .copied()
-        .map(|bounds| inflate(bounds, radius))
-        .collect();
-    let mut soft_boxes = Vec::new();
-    for &(min, max) in soft.iter().flatten() {
-        if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all() {
+}
+
+impl AStar {
+    pub const fn new() -> Self {
+        Self {
+            waypoint_reserve: crate::qty!(1 in),
+        }
+    }
+
+    #[must_use]
+    pub const fn with_waypoint_reserve(mut self, reserve: Length) -> Self {
+        self.waypoint_reserve = reserve;
+        self
+    }
+
+    pub fn plan(
+        self,
+        field: &RectangularClearance,
+        start: DVec2,
+        goal: DVec2,
+        soft: &[Option<ConvexPolygon>],
+    ) -> Option<Vec<DVec2>> {
+        if !start.is_finite()
+            || !goal.is_finite()
+            || !self.waypoint_reserve.value.is_finite()
+            || self.waypoint_reserve.value <= 0.0
+        {
             return None;
         }
-        soft_boxes.push(inflate((min, max), radius + field.margin));
-    }
-    let fits = |p| field.can_turn(Pose::new(p, Default::default()));
-    if !fits(start) || !fits(goal) {
-        return None;
-    }
-
-    let mut nodes = Vec::new();
-    nodes.push(start);
-    nodes.push(goal);
-    for &bounds in hard.iter().chain(&soft_boxes) {
-        let (a, b) = inflate(bounds, reserve.value);
-        for point in [a, b, DVec2::new(a.x, b.y), DVec2::new(b.x, a.y)] {
-            if fits(point) {
-                nodes.push(point);
-            }
+        let pad = field.footprint.turn_radius() + field.margin;
+        let fits = |p| field.can_turn(Pose::new(p, Default::default()));
+        if !fits(start) || !fits(goal) {
+            return None;
         }
-    }
-    let n = nodes.len();
-    let mut costs = alloc::vec![Cost::INFINITY; n];
-    let mut previous: Vec<Option<usize>> = alloc::vec![None; n];
-    let mut visited = alloc::vec![false; n];
-    costs[0] = Cost {
-        overlap: 0.0,
-        length: 0.0,
-    };
-    for _ in 0..n {
-        let u = (0..n)
-            .filter(|&i| !visited[i] && costs[i].length.is_finite())
-            .min_by(|&a, &b| costs[a].compare(costs[b]))?;
-        if u == 1 {
-            let mut result = alloc::vec![goal];
-            let mut i = u;
-            while let Some(parent) = previous[i] {
-                if parent == 0 {
-                    result.reverse();
-                    return Some(result);
+        let hard = || field.obstacles.iter().flatten();
+        let soft = || soft.iter().flatten();
+        let mut nodes = Vec::new();
+        nodes.push(start);
+        nodes.push(goal);
+        for polygon in hard().chain(soft()) {
+            for index in 0..polygon.vertices().len() {
+                if let Some(point) = polygon.offset_vertex(index, pad + self.waypoint_reserve.value)
+                    && fits(point)
+                {
+                    nodes.push(point);
                 }
-                result.push(nodes[parent]);
-                i = parent;
-            }
-            return None;
-        }
-        visited[u] = true;
-        for v in 0..n {
-            if visited[v]
-                || hard
-                    .iter()
-                    .any(|&b| clipped(nodes[u], nodes[v], b).is_some())
-            {
-                continue;
-            }
-            let length = nodes[u].distance(nodes[v]);
-            let overlap = soft_boxes
-                .iter()
-                .filter_map(|&b| clipped(nodes[u], nodes[v], b))
-                .map(|(a, b)| length * (b - a))
-                .sum::<f64>();
-            let candidate = Cost {
-                overlap: costs[u].overlap + overlap,
-                length: costs[u].length + length,
-            };
-            if candidate.compare(costs[v]).is_lt() {
-                costs[v] = candidate;
-                previous[v] = Some(u);
             }
         }
+        let n = nodes.len();
+        let heuristics: Vec<_> = nodes.iter().map(|p| p.distance(goal)).collect();
+        let mut costs = alloc::vec![Cost::INFINITY; n];
+        let mut previous: Vec<Option<usize>> = alloc::vec![None; n];
+        let mut visited = alloc::vec![false; n];
+        costs[0] = Cost {
+            overlap: 0.0,
+            length: 0.0,
+        };
+        for _ in 0..n {
+            let u = (0..n)
+                .filter(|&i| !visited[i] && costs[i].length.is_finite())
+                .min_by(|&a, &b| {
+                    costs[a].heuristic(heuristics[a]).compare(costs[b].heuristic(heuristics[b]))
+                })?;
+            if u == 1 {
+                let mut result = alloc::vec![goal];
+                let mut i = u;
+                while let Some(parent) = previous[i] {
+                    if parent == 0 {
+                        result.reverse();
+                        return Some(result);
+                    }
+                    result.push(nodes[parent]);
+                    i = parent;
+                }
+                return None;
+            }
+            visited[u] = true;
+            for v in 0..n {
+                if visited[v]
+                    || hard().any(|p| p.clip_segment(nodes[u], nodes[v], pad).is_some())
+                {
+                    continue;
+                }
+                let length = nodes[u].distance(nodes[v]);
+                let overlap = soft()
+                    .filter_map(|p| p.clip_segment(nodes[u], nodes[v], pad))
+                    .map(|(a, b)| length * (b - a))
+                    .sum::<f64>();
+                let candidate = Cost {
+                    overlap: costs[u].overlap + overlap,
+                    length: costs[u].length + length,
+                };
+                if candidate.compare(costs[v]).is_lt() {
+                    costs[v] = candidate;
+                    previous[v] = Some(u);
+                }
+            }
+        }
+        None
     }
-    None
 }
 
 #[cfg(test)]
@@ -164,10 +162,10 @@ mod tests {
         )
         .unwrap();
         let obstacle = (DVec2::new(-0.05, -0.05), DVec2::new(0.05, 0.05));
-        let soft = [Some(obstacle)];
+        let soft = [ConvexPolygon::rectangle(obstacle.0, obstacle.1)];
         let start = DVec2::new(0.0, -0.8);
         let goal = DVec2::new(0.0, 0.8);
-        let route = plan(field, start, goal, &soft, qty!(1 in)).unwrap();
+        let route = AStar::new().with_waypoint_reserve(qty!(1 in)).plan(&field, start, goal, &soft).unwrap();
         assert!(route.len() > 1);
         let inflated = (
             obstacle.0 - DVec2::splat(field.footprint.turn_radius() + field.margin),
@@ -175,11 +173,11 @@ mod tests {
         );
         let mut previous = start;
         for point in route {
-            assert!(clipped(previous, point, inflated).is_none());
+            assert!(ConvexPolygon::rectangle(inflated.0, inflated.1).unwrap().clip_segment(previous, point, 0.0).is_none());
             previous = point;
         }
         // A moved landmark may overlap the start. This is a soft cost, not a
         // fatal wall/clearance condition.
-        assert!(plan(field, DVec2::ZERO, goal, &soft, qty!(1 in)).is_some());
+        assert!(AStar::new().with_waypoint_reserve(qty!(1 in)).plan(&field, DVec2::ZERO, goal, &soft).is_some());
     }
 }

@@ -8,6 +8,7 @@ use ozton_drivetrain::{
 use ozton_localization::{Fault, Feedback, differential::DifferentialLocalization};
 use ozton_math::{
     geometry::{DVec2, Pose},
+    path::clearance::{MAX_OBSTACLES, Obstacles},
     uom::si::f64::Velocity,
 };
 use ozton_runtime::drive_assist::{AssistedDrivetrain, DriveAssist};
@@ -55,8 +56,11 @@ pub trait PoseDrive: DriveEncoders {
     fn pose(&self) -> Pose;
     fn footprint(&self) -> Option<Footprint>;
     fn rectangular_half_extents(&self) -> Option<DVec2>;
-    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
-        [None; 4]
+    fn motion_obstacles(&self) -> Obstacles {
+        [None; MAX_OBSTACLES]
+    }
+    fn movable_obstacles(&self) -> Obstacles {
+        [None; MAX_OBSTACLES]
     }
     fn pose_trusted(&self) -> bool;
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
@@ -87,8 +91,12 @@ impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
         self.localization().rectangular_half_extents()
     }
 
-    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+    fn motion_obstacles(&self) -> Obstacles {
         self.localization().motion_obstacles()
+    }
+
+    fn movable_obstacles(&self) -> Obstacles {
+        self.localization().movable_obstacles()
     }
 
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
@@ -151,8 +159,12 @@ where
         self.drivetrain().rectangular_half_extents()
     }
 
-    fn motion_obstacles(&self) -> [Option<(DVec2, DVec2)>; 4] {
+    fn motion_obstacles(&self) -> Obstacles {
         self.drivetrain().motion_obstacles()
+    }
+
+    fn movable_obstacles(&self) -> Obstacles {
+        self.drivetrain().movable_obstacles()
     }
 
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {

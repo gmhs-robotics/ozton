@@ -3,19 +3,20 @@
 use glam::DVec2;
 use uom::si::f64::{Angle, Length};
 
-use super::{Footprint, forward_arc_end};
+use super::{ConvexPolygon, Footprint, MAX_OBSTACLES, Obstacles, forward_arc_end};
 use crate::geometry::{Pose, direction};
 
 mod approach;
 mod visibility;
 pub use approach::{PointDeparture, approach_heading};
+pub use visibility::AStar;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectangularClearance {
     footprint: Footprint,
     usable: DVec2,
     margin: f64,
-    obstacles: [Option<(DVec2, DVec2)>; 4],
+    obstacles: Obstacles,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -31,39 +32,46 @@ impl RectangularClearance {
             footprint,
             usable,
             margin: margin.value,
-            obstacles: [None; 4],
+            obstacles: [None; MAX_OBSTACLES],
         })
     }
 
-    /// Add a solid rectangle to the clearance map, independently of range surfaces.
-    pub fn with_obstacle(mut self, min: DVec2, max: DVec2) -> Option<Self> {
-        if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all() {
-            return None;
-        }
-        *self.obstacles.iter_mut().find(|slot| slot.is_none())? = Some((
-            min - DVec2::splat(self.margin),
-            max + DVec2::splat(self.margin),
-        ));
+    /// Add a rectangle through the same convex geometry as all other obstacles.
+    pub fn with_obstacle(self, min: DVec2, max: DVec2) -> Option<Self> {
+        self.with_polygon(ConvexPolygon::rectangle(min, max)?)
+    }
+
+    pub fn with_polygon(mut self, polygon: ConvexPolygon) -> Option<Self> {
+        *self.obstacles.iter_mut().find(|slot| slot.is_none())? = Some(polygon);
         Some(self)
     }
 
-    fn obstacles_clear(self, min: DVec2, max: DVec2) -> bool {
+    fn obstacles_clear(&self, min: DVec2, max: DVec2) -> bool {
         self.obstacles
             .iter()
             .flatten()
-            .all(|&(a, b)| max.cmplt(a).any() || min.cmpgt(b).any())
+            .all(|polygon| !polygon.intersects_aabb(min, max, self.margin))
+    }
+
+    fn sweep_clear(&self, pose: Pose, travel: DVec2) -> bool {
+        let right = crate::geometry::rotation(pose.heading);
+        let center = pose.position + right.rotate(self.footprint.center_offset);
+        self.obstacles.iter().flatten().all(|polygon| {
+            !polygon.intersects_sweep(center, right, self.footprint.half_extents, travel, self.margin)
+        })
     }
 
     /// Conservative swept AABB for constant-heading translation.
-    pub fn contains_translation(self, start: Pose, end: DVec2) -> bool {
+    pub fn contains_translation(&self, start: Pose, end: DVec2) -> bool {
         let (min, max) = self.footprint.bounds(start);
         let delta = end - start.position;
-        self.contains_aabb(min.min(min + delta), max.max(max + delta))
+        self.wall_contains_aabb(min.min(min + delta), max.max(max + delta))
+            && self.sweep_clear(start, delta)
     }
 
     /// Conservative wall braking envelope, including the rotation of every
     /// chassis corner. This must run even when there are no motion obstacles.
-    pub fn wall_stop_clear(self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
+    pub fn wall_stop_clear(&self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
         if !pose.is_finite() || !translation.is_finite() || !yaw.value.is_finite() {
             return false;
         }
@@ -79,7 +87,7 @@ impl RectangularClearance {
     /// by the extreme projection of its direction over the same heading range.
     /// This avoids charging corner rotation twice when already near a diagonal.
     pub fn braking_bounds(
-        self,
+        &self,
         pose: Pose,
         forward: [f64; 2],
         lateral: [f64; 2],
@@ -131,7 +139,7 @@ impl RectangularClearance {
     }
 
     /// Check the perimeter independently of fixed obstacles.
-    pub fn wall_contains_aabb(self, min: DVec2, max: DVec2) -> bool {
+    pub fn wall_contains_aabb(&self, min: DVec2, max: DVec2) -> bool {
         min.is_finite()
             && max.is_finite()
             && min.cmple(max).all()
@@ -140,7 +148,7 @@ impl RectangularClearance {
     }
 
     /// Conservative obstacle-only braking envelope using measured travel and yaw.
-    pub fn obstacle_stop_clear(self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
+    pub fn obstacle_stop_clear(&self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
         if self.obstacles.iter().all(Option::is_none) {
             return true;
         }
@@ -156,17 +164,17 @@ impl RectangularClearance {
     }
 
     /// Check the oriented footprint, not the full turning disk.
-    pub fn contains_pose(self, pose: Pose) -> bool {
+    pub fn contains_pose(&self, pose: Pose) -> bool {
         if !pose.is_finite() {
             return false;
         }
         let (min, max) = self.footprint.bounds(pose);
-        self.contains_bounds(min, max)
+        self.wall_contains_aabb(min, max) && self.sweep_clear(pose, DVec2::ZERO)
     }
 
     /// Conservative bound for the swept footprint over interpolated poses.
     /// Every corner moves at most center travel plus radius times heading change.
-    pub fn contains_segment(self, a: Pose, b: Pose) -> bool {
+    pub fn contains_segment(&self, a: Pose, b: Pose) -> bool {
         let travel = a.position.distance(b.position);
         let turn = crate::geometry::wrap_heading(b.heading - a.heading)
             .value
@@ -180,22 +188,24 @@ impl RectangularClearance {
         )
     }
 
-    pub fn can_turn(self, pose: Pose) -> bool {
-        let extent = DVec2::splat(self.footprint.turn_radius());
+    pub fn can_turn(&self, pose: Pose) -> bool {
+        let radius = self.footprint.turn_radius() + self.margin;
         pose.is_finite()
             && pose.position.abs().cmple(self.turn_area(0.0)).all()
-            && self.obstacles_clear(pose.position - extent, pose.position + extent)
+            && self.obstacles.iter().flatten().all(|polygon| {
+                !polygon.intersects_circle(pose.position, radius)
+            })
     }
 
-    fn turn_area(self, reserve: f64) -> DVec2 {
+    fn turn_area(&self, reserve: f64) -> DVec2 {
         self.usable - DVec2::splat(self.footprint.turn_radius() + reserve)
     }
 
-    pub fn contains_aabb(self, min: DVec2, max: DVec2) -> bool {
+    pub fn contains_aabb(&self, min: DVec2, max: DVec2) -> bool {
         min.is_finite() && max.is_finite() && min.cmple(max).all() && self.contains_bounds(min, max)
     }
 
-    fn contains_bounds(self, min: DVec2, max: DVec2) -> bool {
+    fn contains_bounds(&self, min: DVec2, max: DVec2) -> bool {
         min.cmpge(-self.usable).all()
             && max.cmple(self.usable).all()
             && self.obstacles_clear(min, max)
@@ -207,10 +217,10 @@ impl RectangularClearance {
         self,
         start: DVec2,
         goal: DVec2,
-        soft: &[Option<(DVec2, DVec2)>],
+        soft: &[Option<ConvexPolygon>],
         waypoint_reserve: Length,
     ) -> Option<alloc::vec::Vec<DVec2>> {
-        visibility::plan(self, start, goal, soft, waypoint_reserve)
+        AStar::new().with_waypoint_reserve(waypoint_reserve).plan(&self, start, goal, soft)
     }
 
     /// Distance to the first position with room to pivot, following the current heading.

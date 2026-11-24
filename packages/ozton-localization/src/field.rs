@@ -2,6 +2,7 @@
 use ozton_math::{
     geometry::{DVec2, point},
     localization::{observation::RangeSensorConfig, range::Surface},
+    path::clearance::{ConvexPolygon, MAX_OBSTACLES, Obstacles},
     position_xyz,
     units::Vec3,
     uom::si::f64::Length,
@@ -74,14 +75,12 @@ struct Object {
     policy: ObjectPolicy,
 }
 
-type ObstacleBounds = [Option<(DVec2, DVec2)>; 4];
-
 /// Derived, height-independent motion geometry. The containment boundary is
 /// a safety policy, even when a section of the physical perimeter is open.
 pub(crate) struct MotionProjection {
     pub(crate) bounds: Option<DVec2>,
-    pub(crate) fixed: ObstacleBounds,
-    pub(crate) movable: ObstacleBounds,
+    pub(crate) fixed: Obstacles,
+    pub(crate) movable: Obstacles,
 }
 
 /// Unified 2.5D field geometry. Range masks and XY obstacle footprints are
@@ -147,13 +146,38 @@ impl FieldMap {
     }
 
     fn add_box(&mut self, min: DVec2, max: DVec2, height: Length, policy: ObjectPolicy) -> bool {
-        if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all() {
+        let Some(polygon) = ConvexPolygon::rectangle(min, max) else {
             return false;
-        }
-        let corners = [min, DVec2::new(max.x, min.y), max, DVec2::new(min.x, max.y)];
-        let faces = core::array::from_fn::<_, 4, _>(|index| {
-            Surface::new(corners[index], corners[(index + 1) % 4], height)
-        });
+        };
+        self.add_polygon(polygon.vertices(), Length::default(), height, policy)
+    }
+
+    /// Register a convex polygon in the shared 2.5D map with its vertical span.
+    pub fn add_fixed_polygon(&mut self, vertices: &[DVec2], bottom: Length, top: Length) -> bool {
+        self.add_polygon(vertices, bottom, top, ObjectPolicy::Fixed)
+    }
+
+    pub fn add_movable_polygon(&mut self, vertices: &[DVec2], bottom: Length, top: Length) -> bool {
+        self.add_polygon(vertices, bottom, top, ObjectPolicy::Movable)
+    }
+
+    fn add_polygon(
+        &mut self,
+        vertices: &[DVec2],
+        bottom: Length,
+        top: Length,
+        policy: ObjectPolicy,
+    ) -> bool {
+        let Some(polygon) = ConvexPolygon::new(vertices) else {
+            return false;
+        };
+        let points = polygon.vertices();
+        let faces: Vec<_> = (0..points.len())
+            .map(|i| {
+                Surface::new(points[i], points[(i + 1) % points.len()], top - bottom)
+                    .with_base_height(bottom)
+            })
+            .collect();
         self.append_object(&faces, policy)
     }
 
@@ -170,40 +194,29 @@ impl FieldMap {
     }
 
     /// Compute motion footprints solely from the same XY endpoints raycasting
-    /// uses. The current rectangular planner supports four fixed and four
-    /// movable obstacles; reject overflow rather than silently omit geometry.
+    /// uses. Reject capacity overflow rather than silently omit geometry.
     pub(crate) fn motion_projection(&self) -> Option<MotionProjection> {
         let mut projection = MotionProjection {
             bounds: self.motion_bounds,
-            fixed: [None; 4],
-            movable: [None; 4],
+            fixed: [None; MAX_OBSTACLES],
+            movable: [None; MAX_OBSTACLES],
         };
         for object in &self.objects {
             let faces = &self.faces[object.faces.clone()];
             if faces.len() == 1 && self.on_perimeter(faces[0]) {
                 continue;
             }
-            let (mut min, mut max) = faces.iter().fold(
-                (DVec2::splat(f64::INFINITY), DVec2::splat(f64::NEG_INFINITY)),
-                |(min, max), face| {
-                    (
-                        min.min(face.start).min(face.end),
-                        max.max(face.start).max(face.end),
-                    )
-                },
-            );
-            // Preserve zero-thickness interior walls as conservative boxes.
-            for axis in 0..2 {
-                if min[axis] == max[axis] {
-                    min[axis] -= 1e-9;
-                    max[axis] += 1e-9;
-                }
-            }
+            let polygon = if faces.len() == 1 {
+                ConvexPolygon::segment(faces[0].start, faces[0].end)?
+            } else {
+                let vertices: Vec<_> = faces.iter().map(|face| face.start).collect();
+                ConvexPolygon::new(&vertices)?
+            };
             let slots = match object.policy {
                 ObjectPolicy::Fixed => &mut projection.fixed,
                 ObjectPolicy::Movable => &mut projection.movable,
             };
-            *slots.iter_mut().find(|slot| slot.is_none())? = Some((min, max));
+            *slots.iter_mut().find(|slot| slot.is_none())? = Some(polygon);
         }
         Some(projection)
     }
@@ -238,17 +251,8 @@ impl FieldMap {
         {
             return false;
         }
-        let faces = core::array::from_fn::<_, 8, _>(|index| {
-            let (x, y) = corners[index];
-            let (end_x, end_y) = corners[(index + 1) % corners.len()];
-            Surface::new(
-                center + point(x, y),
-                center + point(end_x, end_y),
-                top - bottom,
-            )
-            .with_base_height(bottom)
-        });
-        self.append_object(&faces, ObjectPolicy::Fixed)
+        let vertices = corners.map(|(x, y)| center + point(x, y));
+        self.add_fixed_polygon(&vertices, bottom, top)
     }
 
     pub fn surfaces(&self) -> impl ExactSizeIterator<Item = Surface> + '_ {
@@ -342,8 +346,8 @@ mod tests {
             qty!(0 in),
         )
         .unwrap();
-        for (min, max) in localization.motion_obstacles().into_iter().flatten() {
-            clearance = clearance.with_obstacle(min, max).unwrap();
+        for polygon in localization.motion_obstacles().into_iter().flatten() {
+            clearance = clearance.with_polygon(polygon).unwrap();
         }
         assert!(!clearance.contains_translation(Pose::default(), DVec2::new(0.0, 0.8)));
     }
@@ -368,8 +372,8 @@ mod tests {
         assert_eq!(field.range_config(high).surface_mask, 0b111100000);
         let projection = field.motion_projection().unwrap();
         assert_eq!(projection.bounds, Some(DVec2::new(1.0, 1.5)));
-        assert_eq!(projection.fixed, [Some(fixed), None, None, None]);
-        assert_eq!(projection.movable, [Some(movable), None, None, None]);
+        assert_eq!(projection.fixed[0].unwrap().bounds(), fixed);
+        assert_eq!(projection.movable[0].unwrap().bounds(), movable);
     }
 
     #[test]
