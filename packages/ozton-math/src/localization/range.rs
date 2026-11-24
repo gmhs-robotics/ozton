@@ -596,6 +596,27 @@ mod tests {
     }
 
     #[test]
+    fn nearest_predicted_hit_must_be_inside_sensor_interval() {
+        let wall = |y| Surface::new(
+            DVec2::new(-1.0, y),
+            DVec2::new(1.0, y),
+            crate::qty!(1 m),
+        );
+        let reading = RangeReading {
+            distance: crate::qty!(1.9 m),
+            confidence: 1.0,
+            age: Time::ZERO,
+            occluded: false,
+        };
+        let constraint = |map: &[Surface]| constrain_masked(
+            Pose::default(), Pose::default(), reading, RangeGate::DEFAULT, map, None, u128::MAX
+        );
+        assert_eq!(constraint(&[wall(2.01)]), Err(Rejection::NoSurface));
+        assert_eq!(constraint(&[wall(0.01), wall(1.9)]), Err(Rejection::NoSurface));
+        assert!(constraint(&[wall(2.0)]).is_ok());
+    }
+
+    #[test]
     fn surface_height_and_elevated_face_visibility() {
         let wall = Surface::new(DVec2::ZERO, DVec2::X, crate::qty!(5.125 in));
         assert!(wall.is_valid());
