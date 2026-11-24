@@ -100,10 +100,12 @@ impl Telemetry {
             let config = localizer.range_config(index);
             let constraint = report.and_then(|report| report.constraint.ok());
             let predicted_m = constraint.map_or(f64::NAN, |c| c.hit.distance);
-            let sigma_m = config.zip(constraint).zip(report.and_then(|r| r.calibrated_distance))
-                .map_or(f64::NAN, |((sensor, c), distance)| sensor.range_sigma(
-                    ozton_math::qty!((distance.value.max(c.hit.distance)) m)
-                ));
+            let sigma_m = config
+                .zip(constraint)
+                .zip(report.and_then(|r| r.calibrated_distance))
+                .map_or(f64::NAN, |((sensor, c), distance)| {
+                    sensor.range_sigma(ozton_math::qty!((distance.value.max(c.hit.distance)) m))
+                });
             frame.record(Level::Trace, "LOCALIZATION_RANGE", format_args!(
                 "index={index},status={verdict},reason={reason:?},sample_ms={:.0},distance_m={:.4},calibrated_m={:.4},confidence={:.3},occluded={},surface={hit:?},residual_m={residual:.4},predicted_m={predicted_m:.4},range_sigma_m={sigma_m:.4}",
                 reading.map_or(f64::NAN, |reading| reading.timestamp.as_secs_f64() * 1000.0),
