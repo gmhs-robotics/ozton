@@ -7,47 +7,31 @@ impl ComponentReport for FakeDrive {
     fn report(&self, _: Frame) {}
 }
 
-#[derive(Default)]
-struct FakeMechanisms {
-    updates: usize,
-    stops: usize,
-}
-
-impl ComponentReport for FakeMechanisms {
-    fn report(&self, _: Frame) {}
-}
-
-impl Mechanism<&'static str> for FakeMechanisms {
-    fn update(&mut self, mode: CompetitionMode, _: Duration) -> Result<(), &'static str> {
-        assert_eq!(mode, CompetitionMode::Driver);
-        self.updates += 1;
-        Ok(())
-    }
-
-    fn stop(&mut self) -> Result<(), &'static str> {
-        self.stops += 1;
-        Ok(())
-    }
-}
-
 struct Application {
     drive: FakeDrive,
-    mechanisms: FakeMechanisms,
+    mechanism_updates: usize,
+    mechanism_stops: usize,
     driver_entries: usize,
 }
 
 impl OztonCompete for Application {
     type Error = &'static str;
     type Drivetrain = FakeDrive;
-    type Mechanisms = FakeMechanisms;
     const CONTROL_PERIOD: Duration = Duration::from_millis(1);
 
     fn drivetrain(&mut self) -> &mut FakeDrive {
         &mut self.drive
     }
 
-    fn mechanisms(&mut self) -> &mut FakeMechanisms {
-        &mut self.mechanisms
+    fn update_mechanisms(&mut self, mode: CompetitionMode, _: Duration) -> Result<(), Self::Error> {
+        assert_eq!(mode, CompetitionMode::Driver);
+        self.mechanism_updates += 1;
+        Ok(())
+    }
+
+    fn stop_mechanisms(&mut self) -> Result<(), Self::Error> {
+        self.mechanism_stops += 1;
+        Ok(())
     }
 
     async fn driver(&mut self, driver: &mut DriverLoop<'_, Self>) -> Result<(), Self::Error> {
@@ -69,7 +53,8 @@ fn application_driver_runs_once_per_activation_with_watchdog_and_cleanup() {
                 fail_stop: false,
                 direct_output: false,
             },
-            mechanisms: FakeMechanisms::default(),
+            mechanism_updates: 0,
+            mechanism_stops: 0,
             driver_entries: 0,
         });
 
@@ -77,8 +62,8 @@ fn application_driver_runs_once_per_activation_with_watchdog_and_cleanup() {
             Compete::driver(&mut runtime).await;
             let robot = &runtime.robot;
             assert_eq!(robot.driver_entries, activation);
-            assert_eq!(robot.mechanisms.updates, 2 * activation);
-            assert_eq!(robot.mechanisms.stops, 2 * activation);
+            assert_eq!(robot.mechanism_updates, 2 * activation);
+            assert_eq!(robot.mechanism_stops, 2 * activation);
             assert_eq!(
                 &robot.drive.writes[(activation - 1) * 4..],
                 ["stop drive", "drive", "stop drive", "stop drive"]

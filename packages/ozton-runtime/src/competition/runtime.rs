@@ -3,12 +3,12 @@
 use std::{fmt::Display, time::Duration};
 
 use super::{
-    Autonomous, Compete, CompetitionMode, CompetitionRobot, DriverLoop, Mechanism, ProgramDrive,
-    RobotRoute, RouteSelector, Routes, Tick, Ui, autonomous_ui, session, while_in_mode,
+    Autonomous, Compete, CompetitionMode, CompetitionRobot, DriverLoop, ProgramDrive, RobotRoute,
+    RouteSelector, Routes, Tick, Ui, autonomous_ui, session, while_in_mode,
 };
 use crate::{
     clock::CONTROL_PERIOD,
-    diagnostics::{ComponentReport, SD_SAMPLE_INTERVAL, Sample, Sampler},
+    diagnostics::{ComponentReport, Frame, SD_SAMPLE_INTERVAL, Sample, Sampler},
     localization::LocalizationWorker,
 };
 
@@ -17,12 +17,25 @@ use crate::{
 pub trait OztonCompete: Sized + 'static {
     type Error: Display + From<<Self::Drivetrain as ProgramDrive>::Error> + 'static;
     type Drivetrain: ProgramDrive + ComponentReport;
-    type Mechanisms: Mechanism<Self::Error> + ComponentReport;
 
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
     fn drivetrain(&mut self) -> &mut Self::Drivetrain;
-    fn mechanisms(&mut self) -> &mut Self::Mechanisms;
+    /// Service application-owned mechanisms after driver commands.
+    fn update_mechanisms(
+        &mut self,
+        _mode: CompetitionMode,
+        _dt: Duration,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    /// Cancel mechanism work and stop its outputs on a mode transition or fault.
+    fn stop_mechanisms(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn report_mechanisms(&self, _frame: Frame) {}
 
     const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[];
 
@@ -104,7 +117,7 @@ impl<R: OztonCompete> CompetitionRobot for Runtime<R> {
         let drive = self.robot.drivetrain();
         drive.take_driver_output();
         let drive = drive.stop().map_err(R::Error::from);
-        drive.and(self.robot.mechanisms().stop())
+        drive.and(self.robot.stop_mechanisms())
     }
 
     async fn driver_tick(&mut self, _: Tick) {}
@@ -165,7 +178,7 @@ pub(super) fn record<R: OztonCompete>(
         motion: None,
     }) {
         robot.drivetrain().report(frame);
-        robot.mechanisms().report(frame);
+        robot.report_mechanisms(frame);
     }
 }
 

@@ -3,11 +3,7 @@
 use std::time::Instant;
 
 use super::{Autonomous, CompetitionMode, OztonCompete, ProgramDrive, RobotRoute, Tick, runtime};
-use crate::{
-    clock::sleep,
-    competition::{Mechanism, session::control_sleep},
-    diagnostics::Sampler,
-};
+use crate::{clock::sleep, competition::session::control_sleep, diagnostics::Sampler};
 
 /// The competition bookkeeping for one invocation of the application's driver.
 pub struct DriverLoop<'a, R: OztonCompete> {
@@ -33,9 +29,7 @@ impl<'a, R: OztonCompete> DriverLoop<'a, R> {
         } else {
             robot.drivetrain().stop()?;
         }
-        robot
-            .mechanisms()
-            .update(CompetitionMode::Driver, self.tick.elapsed)?;
+        robot.update_mechanisms(CompetitionMode::Driver, self.tick.elapsed)?;
         self.autonomous.menu.poll(false);
         runtime::record(
             robot,
