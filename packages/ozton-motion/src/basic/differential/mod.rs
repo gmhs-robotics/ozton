@@ -5,7 +5,8 @@ use std::time::Duration;
 use ozton_localization::Feedback;
 use ozton_math::{
     desaturate,
-    geometry::{DVec2, wheel_speeds, wrap_heading},
+    following::Boomerang,
+    geometry::{DVec2, Pose, wheel_speeds, wrap_heading},
     path::braking::stoppable_speed,
     uom::{
         ConstZero,
@@ -99,6 +100,11 @@ pub enum DifferentialTarget {
     },
     DriveToPoint {
         target: DVec2,
+        reverse: bool,
+        maximum_speed: Velocity,
+    },
+    DriveToPose {
+        target: Pose,
         reverse: bool,
         maximum_speed: Velocity,
     },
@@ -353,6 +359,44 @@ impl DifferentialFeedback {
                 };
                 let turn = angular(&mut self.pid, heading);
                 (drive(linear, turn), reached && slow)
+            }
+            DifferentialTarget::DriveToPose {
+                target,
+                reverse,
+                maximum_speed,
+            } => {
+                let distance = feedback.pose.position.distance(target.position);
+                let final_error = error_at(target.heading);
+                if distance <= options.position_tolerance.value {
+                    let ready = final_error.abs() <= options.heading_tolerance.value && slow;
+                    let linear = self.pid.forward(0.0, forward_rate, maximum_speed.value, dt);
+                    let turn = if ready {
+                        0.0
+                    } else {
+                        angular(&mut self.pid, final_error)
+                    };
+                    (drive(linear, turn), ready)
+                } else {
+                    let Some(guidance) = Boomerang::new(config.approach.boomerang_lead) else {
+                        return self.limit_step([0.0; 2], false, dt, options);
+                    };
+                    let carrot = guidance.carrot(feedback.pose.position, *target, *reverse);
+                    let bearing = ozton_math::geometry::bearing(carrot - feedback.pose.position);
+                    let facing = if *reverse {
+                        bearing + ozton_math::qty!(180 deg)
+                    } else {
+                        bearing
+                    };
+                    let heading = error_at(facing);
+                    let sign = if *reverse { -1.0 } else { 1.0 };
+                    let speed = forward(
+                        &mut self.pid,
+                        sign * distance * heading.cos().max(0.0),
+                        stopping_limit(distance, maximum_speed.value),
+                    );
+                    let turn = angular(&mut self.pid, heading);
+                    (drive(speed, turn), false)
+                }
             }
             DifferentialTarget::DriveDistance {
                 meters,
