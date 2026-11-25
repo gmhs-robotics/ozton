@@ -174,10 +174,8 @@ mod tests {
         let borrowed = Path::from_precomputed(samples, limits).unwrap();
         assert_eq!(borrowed.samples(), expected.samples());
         assert_eq!(borrowed.samples().as_ptr(), samples.as_ptr());
-        let cancelled = super::super::complete_ready(chain().build_cooperative(
-            limits,
-            async || false,
-        ));
+        let cancelled =
+            super::super::complete_ready(chain().build_cooperative(limits, async || false));
         assert_eq!(cancelled.unwrap_err(), PathError::Cancelled);
     }
 
