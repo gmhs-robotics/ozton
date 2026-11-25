@@ -23,9 +23,7 @@ Use mode_changed to reset application state without accidentally issuing an old 
 
 ## Unreachable goals
 
-Point and pose commands attempt recovery and replanning before returning a
-blocked-goal result. Handle `PoseMotionError::NoRoute` explicitly to choose the
-next independent task; do not treat it as successful scoring or blindly replay
-the entire autonomous routine. All other errors must retain their actual fault
-semantics. Competition disable, hardware faults and loss of trusted feedback
-are not recoverable navigation outcomes.
+Routes are authored in advance. Motion commands report insufficient clearance,
+tracking faults, cancellation or failure to settle rather than searching for
+an alternative route. Propagate faults unless the application can explicitly
+establish a safe next action. Do not silently retry or skip failed scoring moves.
