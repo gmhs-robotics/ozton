@@ -10,7 +10,7 @@ mod basic;
 pub mod config;
 pub use config::{
     ApproachConfig, ClearanceConfig, MotionConfig, MotionLimits, MotionTiming, PathConfig,
-    PathGuidance, RateFilters, SettlingConfig,
+    PathGuidance, RateFilters, SettlingConfig, TerminalGuidance,
 };
 mod pursuit;
 pub mod seeking;

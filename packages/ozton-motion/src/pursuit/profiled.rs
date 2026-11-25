@@ -2,6 +2,8 @@
 
 use core::f64::consts::PI;
 
+use super::unicycle;
+
 use ozton_math::{
     control::Pid,
     geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
@@ -103,7 +105,9 @@ impl<'path> ProfiledFollower<'path> {
         });
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
-            crate::PathGuidance::Tangent => {
+            crate::PathGuidance::Tangent
+            | crate::PathGuidance::Ramsete { .. }
+            | crate::PathGuidance::Lqr { .. } => {
                 let cross = reference.pose.to_local(predicted.position).x;
                 let desired = reference.pose.heading
                     + facing
@@ -138,6 +142,29 @@ impl<'path> ProfiledFollower<'path> {
         let speed = path
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
             .speed;
+        // The trajectory controllers receive signed body-frame errors. Spatial
+        // progress (rather than wall time) selects the reference, preventing
+        // runaway schedule error after localization corrections or saturation.
+        if matches!(
+            self.guidance,
+            crate::PathGuidance::Ramsete { .. } | crate::PathGuidance::Lqr { .. }
+        ) {
+            let local = predicted.to_local(reference.pose.position);
+            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
+            let velocity = if reverse { -speed } else { speed };
+            let yaw_rate = speed * reference.curvature;
+            let [linear, angular] = unicycle::track(
+                self.guidance,
+                [local.y, -local.x, heading],
+                [velocity, yaw_rate],
+            );
+            return wheel_speeds(
+                Velocity::new::<meter_per_second>(linear),
+                AngularVelocity::new::<radian_per_second>(angular),
+                limits.track_width,
+            )
+            .map(|speed| speed.value);
+        }
         // A valid pursuit arc already aligns the motion with the carrot.
         // Its curvature is constrained by the shared wheel/lateral limits.
         // Heading projection is needed only for heading-feedback recovery.

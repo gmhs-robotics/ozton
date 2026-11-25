@@ -318,18 +318,74 @@ impl ClearanceConfig {
 }
 
 /// Trajectory follower parameters.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum PathGuidance {
     /// Spatial tangent feedback with measured yaw damping.
     #[default]
     Tangent,
     /// Geometric pursuit of an arc-length lookahead point.
     PurePursuit,
+    /// Nonlinear unicycle trajectory tracking (Kanayama/RAMSETE).
+    Ramsete { b: f64, zeta: f64 },
+    /// Continuous-time, speed-scheduled LQR about a straight unicycle reference.
+    /// Weights are inverse squared acceptable state and input errors.
+    Lqr {
+        state: [f64; 3],
+        input: [f64; 2],
+    },
+}
+
+impl PathGuidance {
+    pub const RAMSETE: Self = Self::Ramsete { b: 2.0, zeta: 0.7 };
+
+    pub const LQR: Self = Self::Lqr {
+        state: [4.0, 16.0, 4.0],
+        input: [1.0, 1.0],
+    };
+
+    fn valid(self) -> bool {
+        match self {
+            Self::Tangent | Self::PurePursuit => true,
+            Self::Ramsete { b, zeta } => b.is_finite() && b > 0.0 && zeta > 0.0 && zeta <= 1.0,
+            Self::Lqr { state, input } => state
+                .into_iter()
+                .chain(input)
+                .all(|weight| weight.is_finite() && weight > 0.0),
+        }
+    }
+}
+
+/// Terminal approach controller; final tolerance and brake handling are shared.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum TerminalGuidance {
+    #[default]
+    Point,
+    /// Polar-coordinate pose stabilization with k_alpha > k_rho > 0, k_beta < 0.
+    Polar { k_rho: f64, k_alpha: f64, k_beta: f64 },
+}
+
+impl TerminalGuidance {
+    pub const POLAR: Self = Self::Polar {
+        k_rho: 2.0,
+        k_alpha: 4.0,
+        k_beta: -1.0,
+    };
+
+    fn valid(self) -> bool {
+        match self {
+            Self::Point => true,
+            Self::Polar { k_rho, k_alpha, k_beta } => {
+                k_rho.is_finite() && k_alpha.is_finite() && k_beta.is_finite()
+                    && k_rho > 0.0 && k_alpha > k_rho && k_beta < 0.0
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathConfig {
     pub guidance: PathGuidance,
+    pub terminal: TerminalGuidance,
     pub lookahead: Length,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
@@ -344,6 +400,7 @@ impl Default for PathConfig {
 impl PathConfig {
     pub const DEFAULT: Self = Self {
         guidance: PathGuidance::Tangent,
+        terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
     };
@@ -355,6 +412,12 @@ impl PathConfig {
     #[must_use]
     pub const fn with_guidance(mut self, guidance: PathGuidance) -> Self {
         self.guidance = guidance;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_terminal(mut self, terminal: TerminalGuidance) -> Self {
+        self.terminal = terminal;
         self
     }
 
@@ -525,6 +588,8 @@ impl MotionConfig {
 
     pub fn valid(self) -> bool {
         self.tuning.valid()
+            && self.path.guidance.valid()
+            && self.path.terminal.valid()
             && [
                 self.limits.wheel_speed.value,
                 self.limits.acceleration.value,
