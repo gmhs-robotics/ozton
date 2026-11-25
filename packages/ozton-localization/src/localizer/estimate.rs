@@ -2,11 +2,11 @@
 
 use ozton_math::{
     geometry::{BodyDelta, Pose},
-    path::clearance::WallContactConstraint,
     localization::{
         mcl::ParticleConfig,
         range::{Constraint, Surface},
     },
+    path::clearance::WallContactConstraint,
 };
 
 use super::{MAX_RANGES, RangeReport, RangeRoles, RangeSensorConfig};
