@@ -10,7 +10,7 @@ use ozton_math::{
 };
 
 use super::{
-    MotionExecution, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession,
+    MotionExecution, Engine, TravelDirection, error::PoseMotionError, session::PoseSession,
 };
 use crate::basic::differential::DifferentialTarget;
 
@@ -22,7 +22,7 @@ pub(super) async fn drive_to_target<D: MotionExecution>(
     drive: &mut D,
     position: DVec2,
     final_heading: Option<Angle>,
-    settings: Seeking,
+    settings: Engine,
 ) -> MotionResult<D> {
     if !position.is_finite() || final_heading.is_some_and(|h| !h.value.is_finite()) {
         return Err(PoseMotionError::Configuration);
@@ -62,7 +62,7 @@ async fn direct<D: MotionExecution>(
     session: &mut PoseSession<'_, D>,
     position: DVec2,
     final_heading: Option<Angle>,
-    settings: Seeking,
+    settings: Engine,
 ) -> MotionResult<D> {
     let options = session.options;
     let timeout = settings.config.timing.stage_timeout;

@@ -25,8 +25,8 @@ pub mod prelude {
             MotorAddress, WheelActuation, WheelCommand, model::DriveConfigError,
         },
         motion::{
-            Arcade, Chassis, DriveTuning, Holonomic, Seeking, Tank, arcade::ArcadeInput,
-            seeking::TravelDirection,
+            Arcade, Basic, Boomerang, DriveTuning, Holonomic, LtvLqr, PurePursuit, Ramsete,
+            Tank, Tangent, TravelDirection, arcade::ArcadeInput, capabilities::*,
         },
         runtime::{
             OztonCompete, Runtime,

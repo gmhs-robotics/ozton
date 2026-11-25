@@ -1,31 +1,13 @@
-//! Physical-velocity feedback seeking.
+//! Shared execution for independently typed motion controllers.
 
-mod chassis;
+mod controllers;
 mod pose;
-pub use chassis::Chassis;
-pub use pose::{
-    BrakeMode, MotionExecution, PathActions, PoseMotionError, RangeResetDrive, TravelDirection,
-    WallContact, WheelActuation, WheelCommand,
-};
+pub use controllers::*;
+pub use pose::{PathActions, PoseMotionError, TravelDirection, WallContact};
 
-/// Reusable physical motion template for a calibrated drivetrain.
+/// Private execution configuration, not a public controller.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Seeking {
+struct Engine {
     config: crate::MotionConfig,
     travel: Option<TravelDirection>,
-}
-
-impl Seeking {
-    /// Choose a direction rather than letting seeking select one.
-    #[must_use]
-    pub const fn with_travel(mut self, travel: TravelDirection) -> Self {
-        self.travel = Some(travel);
-        self
-    }
-
-    #[must_use]
-    pub const fn without_travel(mut self) -> Self {
-        self.travel = None;
-        self
-    }
 }

@@ -6,10 +6,10 @@ use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::RectangularClearance,
-    uom::si::f64::{Angle, Length, Velocity},
+    uom::si::f64::{Angle, Length},
 };
 
-use crate::basic::differential::{DriveOptions, DriveTuning};
+use crate::basic::differential::DriveOptions;
 
 mod actions;
 mod approach;
@@ -23,7 +23,7 @@ pub use ozton_drivetrain::{
 pub use ozton_math::path::clearance::WallContact;
 use session::{PoseSession, Trajectory};
 
-use super::Seeking;
+use super::Engine;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TravelDirection {
@@ -31,107 +31,7 @@ pub enum TravelDirection {
     Backward,
 }
 
-impl Default for Seeking {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Seeking {
-    pub const fn new() -> Self {
-        Self {
-            config: crate::MotionConfig::DEFAULT,
-            travel: None,
-        }
-    }
-
-    /// Physical settings for this motion template.
-    pub const fn config(self) -> crate::MotionConfig {
-        self.config
-    }
-
-    /// Apply a robot's physical constraints, PID gains and settling configuration.
-    #[must_use]
-    pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
-        self.config = config;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_limits(mut self, value: crate::config::MotionLimits) -> Self {
-        self.config.limits = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_rates(mut self, value: crate::config::RateFilters) -> Self {
-        self.config.rates = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_settling(mut self, value: crate::config::SettlingConfig) -> Self {
-        self.config.settling = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_timing(mut self, value: crate::config::MotionTiming) -> Self {
-        self.config.timing = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_safety(mut self, value: crate::config::ClearanceConfig) -> Self {
-        self.config.safety = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_path(mut self, value: crate::config::PathConfig) -> Self {
-        self.config.path = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_approach(mut self, value: crate::config::ApproachConfig) -> Self {
-        self.config.approach = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
-        self.config.tuning = tuning;
-        self
-    }
-
-    /// Select the path tracker without changing other motion settings.
-    #[must_use]
-    pub const fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
-        self.config.path.guidance = guidance;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_terminal(mut self, terminal: crate::TerminalGuidance) -> Self {
-        self.config.path.terminal = terminal;
-        self
-    }
-
-    /// Override only the wheel speed, preserving all other robot settings.
-    #[must_use]
-    pub const fn with_wheel_speed(mut self, speed: Velocity) -> Self {
-        self.config.limits = self.config.limits.with_wheel_speed(speed);
-        self
-    }
-
-    /// Override only the stage timeout.
-    #[must_use]
-    pub const fn with_stage_timeout(mut self, timeout: Duration) -> Self {
-        self.config.timing = self.config.timing.with_stage_timeout(timeout);
-        self
-    }
-
+impl Engine {
     /// Construct the clearance model configured for this motion template.
     pub fn clearance<D: MotionExecution>(
         &self,
@@ -443,14 +343,19 @@ impl Seeking {
         drive: &mut D,
         distance: Length,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.drive_distance_inner(drive, distance, None).await
+        let contact = drive.localization().wall_contact();
+        if let Some(wall) = contact {
+            self.drive_distance_from_contact(drive, distance, wall).await
+        } else {
+            self.drive_distance_inner(drive, distance, None).await
+        }
     }
 
     /// Leave a physically verified flush contact using the ordinary
     /// distance PID and a one-shot unilateral wall constraint.
     /// Register the surveyed contact pose before this command. Virtual
     /// boundaries are never valid contact observations.
-    pub async fn drive_distance_from_contact<D: MotionExecution>(
+    async fn drive_distance_from_contact<D: MotionExecution>(
         &self,
         drive: &mut D,
         distance: Length,
