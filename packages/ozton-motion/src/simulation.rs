@@ -183,7 +183,7 @@ pub fn simulate_path(
             wheels
         };
         controller.record_applied_wheels(wheels);
-        commands.pop_back();
+        let _ = commands.pop_back();
         commands.push_front([
             (wheels[0] + wheels[1]) * 0.5,
             (wheels[1] - wheels[0]) / limits.track_width.value,
