@@ -42,7 +42,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             let mut last_summary = Instant::now();
             let mut was_autonomous = false;
             let mut draining = false;
-            let mut delay = Duration::from_millis(40);
+            let mut delay = Duration::from_millis(100);
             let mut bytes_written = 0usize;
             let mut writes = 0u64;
             let mut peak_queue = 0usize;
@@ -54,8 +54,20 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                     && crate::competition::activation::route_running();
                 let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
-                draining |= autonomous_ended;
-                peak_queue = peak_queue.max(sd::queued_bytes());
+                let queued_bytes = sd::queued_bytes();
+                // Normal completion checkpoints synchronously in the route
+                // callback. The background writer handles cancellation and
+                // pressure, plus infrequent batches outside autonomous.
+                draining |= autonomous_ended && queued_bytes != 0;
+                peak_queue = peak_queue.max(queued_bytes);
+                if autonomous && !sd::under_pressure() {
+                    delay = Duration::from_millis(100);
+                    continue;
+                }
+                if !autonomous && !draining && queued_bytes < 64 * 1024 {
+                    delay = Duration::from_millis(250);
+                    continue;
+                }
                 if autonomous_ended || last_summary.elapsed() >= Duration::from_secs(5) {
                     ozton_diagnostics::profile::flush_summary();
                     let queued_bytes = sd::queued_bytes();
@@ -73,12 +85,6 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                     peak_queue = 0;
                     max_flush_us = 0;
                     errors = 0;
-                }
-                // Avoid synchronous SD calls while control is active unless
-                // the bounded staging buffer needs to be drained.
-                if autonomous && !sd::under_pressure() {
-                    delay = Duration::from_millis(40);
-                    continue;
                 }
                 let chunk = if autonomous { 4096 } else { 32 * 1024 };
                 // Sync the initial post-route chunk and the final chunk, not
@@ -133,10 +139,16 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
     None
 }
 
-/// Give the startup error record a chance to reach the card before exiting.
-pub(crate) fn flush_sd_logging() {
+/// Checkpoint all queued records after outputs stop or before exiting.
+/// This deliberately does not yield: completion is visible only after the write.
+pub(crate) fn flush_sd_logging() -> bool {
     #[cfg(all(feature = "logging", target_os = "vexos"))]
-    if let Err(error) = ozton_diagnostics::sd::flush() {
-        ozton_diagnostics::log_event!(Warn, "SD", "Final flush failed ({error})");
+    if ozton_diagnostics::serial::sd_enabled() {
+        ozton_diagnostics::profile::flush_summary();
+        if let Err(error) = ozton_diagnostics::sd::flush() {
+            ozton_diagnostics::log_event!(Warn, "SD", "Final flush failed ({error})");
+            return false;
+        }
     }
+    true
 }
