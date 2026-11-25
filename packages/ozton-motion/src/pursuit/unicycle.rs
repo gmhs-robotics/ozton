@@ -17,7 +17,10 @@ pub(super) fn track(guidance: PathGuidance, error: [f64; 3], reference: [f64; 2]
             } else {
                 theta.sin() / theta
             };
-            [v * theta.cos() + gain * x, w + gain * theta + b * v * sinc * y]
+            [
+                v * theta.cos() + gain * x,
+                w + gain * theta + b * v * sinc * y,
+            ]
         }
         PathGuidance::Lqr { state, input } => {
             let [qx, qy, qt] = state;

@@ -2,8 +2,6 @@
 
 use core::f64::consts::PI;
 
-use super::unicycle;
-
 use ozton_math::{
     control::Pid,
     geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
@@ -14,6 +12,8 @@ use ozton_math::{
         velocity::meter_per_second,
     },
 };
+
+use super::unicycle;
 
 /// Progress and nominal remaining duration for nonblocking mechanism actions.
 pub(crate) struct PathObservation {

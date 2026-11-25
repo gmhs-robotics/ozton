@@ -329,10 +329,7 @@ pub enum PathGuidance {
     Ramsete { b: f64, zeta: f64 },
     /// Continuous-time, speed-scheduled LQR about a straight unicycle reference.
     /// Weights are inverse squared acceptable state and input errors.
-    Lqr {
-        state: [f64; 3],
-        input: [f64; 2],
-    },
+    Lqr { state: [f64; 3], input: [f64; 2] },
 }
 
 impl PathGuidance {
@@ -361,7 +358,11 @@ pub enum TerminalGuidance {
     #[default]
     Point,
     /// Polar-coordinate pose stabilization with k_alpha > k_rho > 0, k_beta < 0.
-    Polar { k_rho: f64, k_alpha: f64, k_beta: f64 },
+    Polar {
+        k_rho: f64,
+        k_alpha: f64,
+        k_beta: f64,
+    },
 }
 
 impl TerminalGuidance {
@@ -374,9 +375,17 @@ impl TerminalGuidance {
     fn valid(self) -> bool {
         match self {
             Self::Point => true,
-            Self::Polar { k_rho, k_alpha, k_beta } => {
-                k_rho.is_finite() && k_alpha.is_finite() && k_beta.is_finite()
-                    && k_rho > 0.0 && k_alpha > k_rho && k_beta < 0.0
+            Self::Polar {
+                k_rho,
+                k_alpha,
+                k_beta,
+            } => {
+                k_rho.is_finite()
+                    && k_alpha.is_finite()
+                    && k_beta.is_finite()
+                    && k_rho > 0.0
+                    && k_alpha > k_rho
+                    && k_beta < 0.0
             }
         }
     }

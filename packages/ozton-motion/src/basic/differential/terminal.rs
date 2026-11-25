@@ -131,7 +131,14 @@ impl TerminalPose {
             }
         };
         let (wheels, ready) = match (turning, controller.config.path.terminal) {
-            (false, crate::TerminalGuidance::Polar { k_rho, k_alpha, k_beta }) => {
+            (
+                false,
+                crate::TerminalGuidance::Polar {
+                    k_rho,
+                    k_alpha,
+                    k_beta,
+                },
+            ) => {
                 let backing = self.approach_reverse.unwrap_or(reverse);
                 let facing = ozton_math::qty!((if backing { 180.0 } else { 0.0 }) deg);
                 let direction = bearing(target.position - feedback.pose.position);
@@ -140,10 +147,14 @@ impl TerminalPose {
                 let max_speed = stoppable_speed(
                     distance,
                     controller.config.limits.brake_latency.as_secs_f64(),
-                    controller.config.limits.forward_braking.unwrap_or(
-                        controller.config.limits.deceleration,
-                    ).value,
-                ).unwrap_or(0.0);
+                    controller
+                        .config
+                        .limits
+                        .forward_braking
+                        .unwrap_or(controller.config.limits.deceleration)
+                        .value,
+                )
+                .unwrap_or(0.0);
                 let speed = (k_rho * distance).min(max_speed) * alpha.cos().max(0.0);
                 let linear = if backing { -speed } else { speed };
                 let angular = k_alpha * alpha + k_beta * beta;
@@ -151,7 +162,8 @@ impl TerminalPose {
                     Velocity::new::<meter_per_second>(linear),
                     AngularVelocity::new::<radian_per_second>(angular),
                     options.track_width,
-                ).map(|speed| speed.value);
+                )
+                .map(|speed| speed.value);
                 controller.limit_step(desired, false, dt, options)
             }
             _ => controller.step(command, feedback, dt, options),
