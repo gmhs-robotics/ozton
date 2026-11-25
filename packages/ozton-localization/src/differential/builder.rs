@@ -4,68 +4,9 @@ use ozton_math::localization::observation::{
 
 use super::*;
 use crate::{
-    Config, DsrConfig, OdometryConfig,
+    Config, DsrConfig, OdometryConfig, RangeRoles,
     field::{Boundary, FieldMap},
 };
-
-/// Which estimator or reset may consume the installed distance sensors.
-#[derive(Clone, Copy)]
-pub enum RangeUse {
-    Dsr,
-    Ekf,
-    Mcl,
-}
-
-#[derive(Clone, Copy)]
-pub struct RangeUsage {
-    dsr: u8,
-    ekf: u8,
-    mcl: u8,
-}
-
-impl Default for RangeUsage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RangeUsage {
-    pub const fn new() -> Self {
-        Self {
-            dsr: u8::MAX,
-            ekf: u8::MAX,
-            mcl: u8::MAX,
-        }
-    }
-
-    pub(super) fn apply(self, localizer: &mut Localizer<'_>) {
-        let filter = match localizer.estimator() {
-            Estimator::Odometry => 0,
-            Estimator::Ekf(_) => self.ekf,
-            Estimator::Mcl(_) => self.mcl,
-        };
-        localizer.set_range_usage(self.dsr, filter);
-    }
-    /// Set the roles for the whole distance sensor bank.
-    pub fn with_uses(self, uses: impl IntoIterator<Item = RangeUse>) -> Self {
-        self.with_mask(u8::MAX, uses)
-    }
-
-    /// Set roles for specific distance sensors, indexed in tracking registration order.
-    pub fn with_mask(mut self, mask: u8, uses: impl IntoIterator<Item = RangeUse>) -> Self {
-        self.dsr &= !mask;
-        self.ekf &= !mask;
-        self.mcl &= !mask;
-        for usage in uses {
-            match usage {
-                RangeUse::Dsr => self.dsr |= mask,
-                RangeUse::Ekf => self.ekf |= mask,
-                RangeUse::Mcl => self.mcl |= mask,
-            }
-        }
-        self
-    }
-}
 
 /// Which available observations contribute to the odometry prediction.
 #[derive(Clone, Copy)]
@@ -123,8 +64,7 @@ pub struct LocalizationBuilder<B = (), R = ()> {
     field: FieldMap<B>,
     estimator: Estimator,
     odometry: OdometrySettings,
-    ranges: RangeUsage,
-    dsr: DsrConfig,
+    dsr: Option<DsrConfig>,
     velocity: crate::VelocityConfig,
     range_requirement: R,
 }
@@ -135,8 +75,7 @@ impl Default for LocalizationBuilder {
             field: FieldMap::default(),
             estimator: Estimator::Odometry,
             odometry: OdometrySettings::new(),
-            ranges: RangeUsage::new(),
-            dsr: DsrConfig::default(),
+            dsr: None,
             velocity: crate::VelocityConfig::default(),
             range_requirement: (),
         }
@@ -159,7 +98,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
             field: field.into(),
             estimator: self.estimator,
             odometry: self.odometry,
-            ranges: self.ranges,
             dsr: self.dsr,
             velocity: self.velocity,
             range_requirement: self.range_requirement,
@@ -171,7 +109,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
             field: self.field,
             estimator: self.estimator,
             odometry: self.odometry,
-            ranges: self.ranges,
             dsr: self.dsr,
             velocity: self.velocity,
             range_requirement: RangeRequired,
@@ -196,17 +133,11 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
     }
 
     #[must_use]
-    pub fn with_ranges(mut self, ranges: RangeUsage) -> LocalizationBuilder<B, RangeRequired> {
-        self.ranges = ranges;
-        self.require_ranges()
-    }
-
-    #[must_use]
     pub fn with_distance_reset(
         mut self,
         config: DsrConfig,
     ) -> LocalizationBuilder<B, RangeRequired> {
-        self.dsr = config;
+        self.dsr = Some(config);
         self.require_ranges()
     }
 
@@ -224,25 +155,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         let projection = self.field.motion_projection()?;
         let map: Vec<_> = self.field.surfaces().collect();
         let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
-        if require_ranges {
-            let eligible =
-                mounts
-                    .iter()
-                    .take(MAX_RANGES)
-                    .enumerate()
-                    .fold(0u8, |mask, (index, mount)| {
-                        mask | (u8::from(mount.with_visible_surfaces(&map).surface_mask != 0)
-                            << index)
-                    });
-            let configured = match self.estimator {
-                Estimator::Odometry => self.ranges.dsr | self.ranges.ekf | self.ranges.mcl,
-                Estimator::Ekf(_) => self.ranges.ekf,
-                Estimator::Mcl(_) => self.ranges.mcl,
-            };
-            if eligible & configured == 0 {
-                return None;
-            }
-        }
         let mut localizer = Localizer::new_owned(
             Config::new(
                 OdometryConfig::for_mounted_wheels(self.odometry.maximum_gap),
@@ -253,10 +165,27 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
             map,
             mounts,
         )?;
-        if !localizer.set_dsr_config(self.dsr) || !localizer.set_velocity_config(self.velocity) {
+        if require_ranges {
+            let roles = match self.estimator {
+                Estimator::Odometry => RangeRoles::ALL,
+                Estimator::Ekf(_) => RangeRoles::EKF,
+                Estimator::Mcl(_) => RangeRoles::MCL,
+            };
+            if !localizer.has_mapped_ranges(roles) {
+                return None;
+            }
+        }
+        if let Some(dsr) = self.dsr
+            && (!localizer.has_mapped_ranges(RangeRoles::DSR) || !localizer.set_dsr_config(dsr))
+        {
             return None;
         }
-        self.ranges.apply(&mut localizer);
+        if !localizer.set_velocity_config(self.velocity) {
+            return None;
+        }
+        if matches!(self.estimator, Estimator::Odometry) {
+            localizer.disable_range_inspection();
+        }
         Some(DifferentialLocalization {
             localizer,
             boundary: projection.boundary,
@@ -266,7 +195,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
             observations: super::observations::Observations::new(layout),
             drive: self.odometry.drive,
             use_imu: self.odometry.use_imu,
-            range_uses: self.ranges,
             occluded: 0,
             last_reset: DistanceReset::Idle,
             feedback: Ok(None),
@@ -293,10 +221,10 @@ impl<B: Boundary> LocalizationBuilder<B, RangeRequired> {
     /// configured sensor roles must also provide at least one eligible surface.
     ///
     /// ```compile_fail
-    /// use ozton_localization::differential::{LocalizationBuilder, RangeUsage};
+    /// use ozton_localization::{DsrConfig, differential::LocalizationBuilder};
     /// use ozton_math::localization::observation::ObservationLayout;
     /// let _ = LocalizationBuilder::new()
-    ///     .with_ranges(RangeUsage::new())
+    ///     .with_distance_reset(DsrConfig::default())
     ///     .build(&ObservationLayout::default());
     /// ```
     pub fn build(self, tracking: &impl RangeLayoutSource) -> Option<DifferentialLocalization<B>> {
@@ -335,14 +263,14 @@ mod tests {
         )]);
         assert!(
             LocalizationBuilder::new()
-                .with_ranges(RangeUsage::new())
+                .with_distance_reset(DsrConfig::default())
                 .build(&ranges)
                 .is_none()
         );
         assert!(
             LocalizationBuilder::new()
                 .with_field(Field::METAL)
-                .with_ranges(RangeUsage::new())
+                .with_distance_reset(DsrConfig::default())
                 .build(&ranges)
                 .is_some()
         );
@@ -353,7 +281,7 @@ mod tests {
         assert!(
             LocalizationBuilder::new()
                 .with_field(Field::METAL)
-                .with_ranges(RangeUsage::new())
+                .with_distance_reset(DsrConfig::default())
                 .build(&high)
                 .is_none()
         );

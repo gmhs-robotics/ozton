@@ -29,6 +29,35 @@ pub fn v5_range_accuracy(distance: Length) -> Length {
     crate::qty!((0.015_f64.max(0.05 * distance.value)) m)
 }
 
+/// Localization algorithms allowed to consume a particular range source.
+/// Relative range feedback remains available regardless of these roles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RangeRoles(u8);
+
+impl RangeRoles {
+    pub const NONE: Self = Self(0);
+    pub const DSR: Self = Self(1);
+    pub const EKF: Self = Self(2);
+    pub const MCL: Self = Self(4);
+    pub const FILTERS: Self = Self::EKF.union(Self::MCL);
+    pub const ALL: Self = Self::DSR.union(Self::FILTERS);
+
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn contains(self, role: Self) -> bool {
+        self.0 & role.0 == role.0
+    }
+}
+
+impl Default for RangeRoles {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct RangeSensorConfig {
     pub mount: Pose,
@@ -40,6 +69,7 @@ pub struct RangeSensorConfig {
     pub surface: Option<usize>,
     /// Eligible map surfaces, e.g. walls reaching this sensor's mounting height.
     pub surface_mask: u128,
+    pub roles: RangeRoles,
 }
 
 impl RangeSensorConfig {
@@ -53,6 +83,7 @@ impl RangeSensorConfig {
             sigma: crate::qty!(0.025 m),
             surface: None,
             surface_mask: u128::MAX,
+            roles: RangeRoles::ALL,
         }
     }
 
@@ -65,6 +96,13 @@ impl RangeSensorConfig {
                 bearing,
             ))
         }
+    }
+
+    /// Restrict localization use without disabling relative range feedback.
+    #[must_use]
+    pub const fn with_roles(mut self, roles: RangeRoles) -> Self {
+        self.roles = roles;
+        self
     }
 
     pub fn valid(self, map: &[Surface]) -> bool {

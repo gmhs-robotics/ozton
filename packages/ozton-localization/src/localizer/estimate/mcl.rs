@@ -11,7 +11,7 @@ use ozton_math::{
     uom::si::f64::Angle,
 };
 
-use super::{MAX_RANGES, Observations, PoseEstimator};
+use super::{MAX_RANGES, Observations, PoseEstimator, RangeRoles};
 
 /// Independent Monte Carlo pose correction with reusable transactional particle storage.
 pub struct Mcl {
@@ -35,6 +35,10 @@ impl Mcl {
 }
 
 impl PoseEstimator for Mcl {
+    fn range_roles(&self) -> RangeRoles {
+        RangeRoles::MCL
+    }
+
     fn name(&self, shadow: bool) -> &'static str {
         if shadow {
             "Odometry / MCL shadow"

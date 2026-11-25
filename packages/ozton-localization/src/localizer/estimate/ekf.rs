@@ -6,7 +6,7 @@ use ozton_math::{
     localization::ekf::PoseEkf,
 };
 
-use super::{Observations, PoseEstimator};
+use super::{Observations, PoseEstimator, RangeRoles};
 
 #[derive(Debug, Clone, Copy)]
 pub struct EkfConfig {
@@ -48,6 +48,10 @@ impl Ekf {
 }
 
 impl PoseEstimator for Ekf {
+    fn range_roles(&self) -> RangeRoles {
+        RangeRoles::EKF
+    }
+
     fn name(&self, shadow: bool) -> &'static str {
         if shadow {
             "Odometry / EKF shadow"

@@ -14,7 +14,7 @@ use vexide::{
 
 use crate::{
     mount::Vec3,
-    range::{MAX_RANGES, RangeObservation, RangeSensorConfig},
+    range::{MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig},
     sampling::stamp,
 };
 
@@ -74,6 +74,13 @@ impl DistanceTracker {
     #[must_use]
     pub fn with_maximum_range_error(mut self, error: Length) -> Option<Self> {
         self.config.limit_accuracy(error).then_some(self)
+    }
+
+    /// Choose which localization algorithms may use this sensor.
+    #[must_use]
+    pub fn with_roles(mut self, roles: RangeRoles) -> Self {
+        self.config = self.config.with_roles(roles);
+        self
     }
 
     /// Override the measurement acceptance gate for this sensor.

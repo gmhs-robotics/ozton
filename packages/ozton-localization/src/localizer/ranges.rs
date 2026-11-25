@@ -5,7 +5,7 @@ use std::time::Duration;
 use ozton_math::{
     geometry::Pose,
     localization::{
-        observation::{RangeObservation, RangeSensorConfig},
+        observation::{RangeObservation, RangeRoles, RangeSensorConfig},
         range::{Constraint, Rejection, Surface, constrain_masked},
     },
     uom::si::{
@@ -13,6 +13,54 @@ use ozton_math::{
         time::second,
     },
 };
+
+/// Compiled height-aware range roles. Masks never escape localization.
+#[derive(Clone, Copy, Default)]
+pub(super) struct RangeMasks {
+    dsr: u8,
+    ekf: u8,
+    mcl: u8,
+}
+
+impl RangeMasks {
+    pub(super) fn new(sensors: &[RangeSensorConfig]) -> Self {
+        let mut masks = Self::default();
+        for (index, sensor) in sensors.iter().enumerate() {
+            if sensor.surface_mask == 0 {
+                continue;
+            }
+            let bit = 1 << index;
+            if sensor.roles.contains(RangeRoles::DSR) {
+                masks.dsr |= bit;
+            }
+            if sensor.roles.contains(RangeRoles::EKF) {
+                masks.ekf |= bit;
+            }
+            if sensor.roles.contains(RangeRoles::MCL) {
+                masks.mcl |= bit;
+            }
+        }
+        masks
+    }
+
+    pub(super) fn for_roles(self, roles: RangeRoles) -> u8 {
+        let mut mask = 0;
+        if roles.contains(RangeRoles::DSR) {
+            mask |= self.dsr;
+        }
+        if roles.contains(RangeRoles::EKF) {
+            mask |= self.ekf;
+        }
+        if roles.contains(RangeRoles::MCL) {
+            mask |= self.mcl;
+        }
+        mask
+    }
+
+    pub(super) fn reset(self) -> u8 {
+        self.dsr
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct RangeReport {

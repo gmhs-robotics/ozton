@@ -20,9 +20,9 @@ mod snapshot;
 mod velocity;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 use history::PoseHistory;
-pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeSensorConfig};
+pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig};
 pub use ranges::RangeReport;
-use ranges::{RangeTick, inspect};
+use ranges::{RangeMasks, RangeTick, inspect};
 pub use reset::DsrConfig;
 use reset::{ResetResult, ResetTick, ResetWindow};
 pub use snapshot::{Fault, OdometryConfig, Snapshot};
@@ -111,7 +111,7 @@ pub struct Localizer<'a, E = Filter> {
 
     trust: PoseTrust,
     corrections_enabled: bool,
-    reset_ranges: u8,
+    range_masks: RangeMasks,
     filter_ranges: u8,
 }
 
@@ -154,21 +154,18 @@ impl<'a> Localizer<'a> {
         for sensor in sensors.to_mut() {
             *sensor = sensor.with_visible_surfaces(&map);
         }
-        let eligible = sensors
-            .iter()
-            .enumerate()
-            .fold(0u8, |mask, (index, sensor)| {
-                mask | (u8::from(sensor.surface_mask != 0) << index)
-            });
+        let range_masks = RangeMasks::new(&sensors);
         let pose = Pose {
             heading: wrap_heading(pose.heading),
             ..pose
         };
+        let filter = Filter::new(pose, config.estimator)?;
+        let filter_ranges = range_masks.for_roles(filter.range_roles());
         Some(Self {
             config,
             map,
             sensors,
-            filter: Filter::new(pose, config.estimator)?,
+            filter,
             pose,
             odometry: pose,
             filter_pose: pose,
@@ -184,8 +181,8 @@ impl<'a> Localizer<'a> {
 
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
-            reset_ranges: eligible,
-            filter_ranges: eligible,
+            range_masks,
+            filter_ranges,
         })
     }
 }
@@ -193,6 +190,7 @@ impl<'a> Localizer<'a> {
 impl<'a, E: PoseEstimator> Localizer<'a, E> {
     pub fn with_filter<N: PoseEstimator>(self, mut filter: N) -> Localizer<'a, N> {
         filter.reset(self.pose);
+        let filter_ranges = self.range_masks.for_roles(filter.range_roles());
         let Self {
             config,
             map,
@@ -210,8 +208,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
             trust,
             corrections_enabled,
-            reset_ranges,
-            filter_ranges,
+            range_masks,
             ..
         } = self;
         Localizer {
@@ -234,7 +231,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
             trust,
             corrections_enabled,
-            reset_ranges,
+            range_masks,
             filter_ranges,
         }
     }
@@ -253,17 +250,15 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.dsr_config
     }
 
-    /// Select range indices for geometric resets and for the active filter.
-    pub fn set_range_usage(&mut self, reset: u8, filter: u8) {
-        let eligible = self
-            .sensors
-            .iter()
-            .enumerate()
-            .fold(0u8, |mask, (index, sensor)| {
-                mask | (u8::from(sensor.surface_mask != 0) << index)
-            });
-        self.reset_ranges = reset & eligible;
-        self.filter_ranges = filter & eligible;
+    /// Whether an eligible mapped sensor is available for these roles.
+    pub(crate) fn has_mapped_ranges(&self, roles: RangeRoles) -> bool {
+        self.range_masks.for_roles(roles) != 0
+    }
+
+    /// Skip automatic range inspection during differential dead reckoning.
+    /// Explicit resets still use their own independently compiled role.
+    pub(crate) fn disable_range_inspection(&mut self) {
+        self.filter_ranges = 0;
     }
 
     /// Odometry limits and legacy snapshot geometry.
@@ -373,7 +368,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
     /// Attempt an immediate geometric DSR on the next fresh sample.
     pub fn request_distance_reset(&mut self) {
-        if self.corrections_enabled && self.reset_ranges != 0 {
+        if self.corrections_enabled && self.range_masks.reset() != 0 {
             self.reset.get_or_insert_with(ResetWindow::default);
         }
     }
@@ -384,7 +379,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Rejected collections retry at rest until accepted or explicitly canceled;
     /// the caller must enforce a timeout, as the autonomous runner does.
     pub fn request_distance_reset_axes(&mut self, minimum_axes: u8) -> bool {
-        if !self.corrections_enabled || self.reset_ranges == 0 || !(1..=2).contains(&minimum_axes) {
+        if !self.corrections_enabled || self.range_masks.reset() == 0 || !(1..=2).contains(&minimum_axes) {
             return false;
         }
         self.reset
@@ -507,7 +502,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         let mut aligned = [RangeSensorConfig::new(Pose::default()); MAX_RANGES];
         aligned[..self.sensors.len()].copy_from_slice(&self.sensors);
         let (checking_pose, active_ranges) = if self.reset.is_some() {
-            (predicted, self.reset_ranges)
+            (predicted, self.range_masks.reset())
         } else {
             (filter_prediction, self.filter_ranges)
         };
@@ -627,6 +622,7 @@ impl Localizer<'_> {
         let Some(filter) = Filter::new(self.pose, estimator) else {
             return false;
         };
+        self.filter_ranges = self.range_masks.for_roles(filter.range_roles());
         self.filter = filter;
         self.filter_pose = self.pose;
         self.config.estimator = estimator;

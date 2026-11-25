@@ -8,7 +8,7 @@ use ozton_math::{
     },
 };
 
-use super::{MAX_RANGES, RangeReport, RangeSensorConfig};
+use super::{MAX_RANGES, RangeReport, RangeRoles, RangeSensorConfig};
 
 mod ekf;
 mod mcl;
@@ -87,6 +87,10 @@ pub trait PoseEstimator {
     fn corrects_pose(&self) -> bool {
         true
     }
+    /// Configured range roles consumed by this algorithm.
+    fn range_roles(&self) -> RangeRoles {
+        RangeRoles::FILTERS
+    }
     /// XY covariance in field coordinates, if this estimator tracks uncertainty.
     fn position_covariance(&self) -> Option<glam::DMat2> {
         None
@@ -150,6 +154,9 @@ impl PoseEstimator for Filter {
     }
     fn corrects_pose(&self) -> bool {
         !matches!(self, Self::Odometry(_))
+    }
+    fn range_roles(&self) -> RangeRoles {
+        dispatch!(self, range_roles())
     }
     fn position_covariance(&self) -> Option<glam::DMat2> {
         dispatch!(self, position_covariance())

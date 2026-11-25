@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use glam::DVec3;
 use ozton_localization::localizer::{
-    Config, EkfConfig, Estimator, Fault, Localizer, OdometryConfig, RangeObservation,
+    Config, EkfConfig, Estimator, Fault, Localizer, OdometryConfig, RangeObservation, RangeRoles,
     RangeSensorConfig, Snapshot,
 };
 use ozton_math::{
@@ -95,6 +95,7 @@ const SENSOR: RangeSensorConfig = RangeSensorConfig {
     },
     surface: Some(0),
     surface_mask: u128::MAX,
+    roles: RangeRoles::ALL,
 };
 const SENSORS: [RangeSensorConfig; 2] = [
     SENSOR,
@@ -618,8 +619,17 @@ fn typed_estimators_keep_pose_trust_when_switching() {
 
 #[test]
 fn range_usage_selects_filter_and_reset_observations_independently() {
-    let mut tracking = localizer(Estimator::Ekf(EkfConfig::default()), false);
-    tracking.set_range_usage(0b01, 0b10);
+    let sensors = [
+        SENSORS[0].with_roles(RangeRoles::DSR),
+        SENSORS[1].with_roles(RangeRoles::EKF),
+    ];
+    let mut tracking = Localizer::new(
+        Config::new(CONFIG, Estimator::Ekf(EkfConfig::default()), false),
+        localizer(Estimator::Odometry, false).pose(),
+        &MAP,
+        &sensors,
+    )
+    .unwrap();
     assert_eq!(
         tracking.update(snapshot(10), &[]).unwrap_err(),
         Fault::Initializing
@@ -743,7 +753,6 @@ fn sensors_above_every_face_are_excluded_from_pose_corrections() {
     )
     .unwrap();
     assert_eq!(tracker.range_config(0).unwrap().surface_mask, 0);
-    tracker.set_range_usage(u8::MAX, u8::MAX);
     assert!(!tracker.request_distance_reset_axes(1));
     tracker.update(snapshot(10), &[]).unwrap_err();
     let update = tracker.update(snapshot(20), &[reading(20, false)]).unwrap();

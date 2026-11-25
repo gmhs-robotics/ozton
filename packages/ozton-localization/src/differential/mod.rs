@@ -31,7 +31,7 @@ mod builder;
 mod observations;
 #[cfg(feature = "logging")]
 mod telemetry;
-pub use builder::{LocalizationBuilder, OdometrySettings, RangeRequired, RangeUsage, RangeUse};
+pub use builder::{LocalizationBuilder, OdometrySettings, RangeRequired};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
 pub struct DifferentialLocalization<B = ()> {
@@ -43,7 +43,6 @@ pub struct DifferentialLocalization<B = ()> {
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
     use_imu: bool,
-    range_uses: RangeUsage,
     occluded: u8,
     last_reset: DistanceReset,
     feedback: Result<Option<Feedback>, Fault>,
@@ -119,7 +118,9 @@ impl<B: Boundary> DifferentialLocalization<B> {
         if !self.localizer.set_estimator(estimator, shadow) {
             return false;
         }
-        self.range_uses.apply(&mut self.localizer);
+        if matches!(estimator, Estimator::Odometry) {
+            self.localizer.disable_range_inspection();
+        }
         true
     }
 
