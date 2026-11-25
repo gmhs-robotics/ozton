@@ -94,10 +94,21 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         target: DifferentialTarget,
         timeout: Duration,
     ) -> Result<(), PoseMotionError<D::Error>> {
+        self.run_with_output(target, timeout, |drive, wheels| drive.drive_wheels(wheels))
+            .await
+    }
+
+    pub(super) async fn run_with_output(
+        &mut self,
+        target: DifferentialTarget,
+        timeout: Duration,
+        mut output: impl FnMut(&mut D, [Velocity; 2]) -> Result<(), D::Error>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
         let status = match target {
             DifferentialTarget::Turn { .. } | DifferentialTarget::TurnToPoint { .. } => {
                 "Autonomous: turn"
             }
+            DifferentialTarget::Swing { .. } => "Autonomous: swing turn",
             DifferentialTarget::DriveToPoint { .. } => "Autonomous: drive to point",
             DifferentialTarget::DriveToPose { .. } => "Autonomous: Boomerang pose",
             DifferentialTarget::DriveDistance { .. } => "Autonomous: drive distance",
@@ -111,7 +122,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             timeout.as_millis()
         );
         let [x, y, heading, travel, radius, sweep] = match target {
-            DifferentialTarget::Turn { heading } => [
+            DifferentialTarget::Turn { heading } | DifferentialTarget::Swing { heading, .. } => [
                 f64::NAN,
                 f64::NAN,
                 heading.value,
@@ -155,7 +166,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             "MOTION_TARGET",
             "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5}"
         );
-        let result = self.run_stage(target, timeout, status).await;
+        let result = self.run_stage(target, timeout, status, &mut output).await;
         match &result {
             Ok(()) => {
                 log_row!(Debug, "MOTION_COMMAND", "state=complete,command={status}");
@@ -176,6 +187,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         target: DifferentialTarget,
         timeout: Duration,
         status: &str,
+        output: &mut impl FnMut(&mut D, [Velocity; 2]) -> Result<(), D::Error>,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
         self.previous_tick = started;
@@ -244,6 +256,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 || matches!(
                     target,
                     DifferentialTarget::DriveArc { .. }
+                        | DifferentialTarget::Swing { .. }
                         | DifferentialTarget::TurnToPoint { .. }
                         | DifferentialTarget::DriveToPoint { .. }
                         | DifferentialTarget::DriveToPose { .. }
@@ -308,8 +321,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if complete {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
-                self.drive
-                    .drive_wheels(wheels.map(Velocity::new::<meter_per_second>))
+                output(self.drive, wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
             governor.observe(status, requested, wheels, dt);
@@ -688,7 +700,7 @@ impl Progress {
                 pose.position.distance(target.position)
                     + 0.1 * wrap_heading(target.heading - pose.heading).value.abs()
             }
-            DifferentialTarget::Turn { heading } => {
+            DifferentialTarget::Turn { heading } | DifferentialTarget::Swing { heading, .. } => {
                 wrap_heading(heading - pose.heading).value.abs()
             }
             DifferentialTarget::TurnToPoint { target } => {
@@ -716,7 +728,9 @@ impl Progress {
             }
         };
         let improvement = match target {
-            DifferentialTarget::Turn { .. } | DifferentialTarget::TurnToPoint { .. } => 0.01,
+            DifferentialTarget::Turn { .. }
+            | DifferentialTarget::Swing { .. }
+            | DifferentialTarget::TurnToPoint { .. } => 0.01,
             _ => 0.002,
         };
         let best = self.best.get_or_insert(error);
