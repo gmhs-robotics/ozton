@@ -192,7 +192,6 @@ impl<
             .command_wheels(applied)
             .and(adjustment.map_err(WheelSpeedError::Port))
     }
-
 }
 
 #[cfg(test)]
