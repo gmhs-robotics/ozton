@@ -144,19 +144,35 @@ impl Segment {
 /// the path that must decelerate for it. Wheel acceleration is constrained
 /// at both endpoints; because it is affine within each segment, this also
 /// bounds the entire interpolated segment.
-pub(super) fn limit_wheels(samples: &mut [PathSample], limits: Limits) -> Result<(), PathError> {
+pub(super) async fn limit_wheels<F>(
+    samples: &mut [PathSample],
+    limits: Limits,
+    checkpoint: &mut F,
+) -> Result<(), PathError>
+where
+    F: core::ops::AsyncFnMut() -> bool,
+{
     let mut caps: Vec<_> = samples.iter().map(|p| p.speed * p.speed).collect();
     for (i, pair) in samples.windows(2).enumerate() {
+        if i % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
         let segment = Segment::new(pair[0], pair[1], limits);
         caps[i] = caps[i].min(segment.speed_squared);
         caps[i + 1] = caps[i + 1].min(segment.speed_squared);
     }
     for i in (0..samples.len() - 1).rev() {
+        if i % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
         let segment = Segment::new(samples[i], samples[i + 1], limits);
         caps[i] = segment.predecessor(caps[i], caps[i + 1]);
     }
     let mut x = 0.0;
     for i in 0..samples.len() - 1 {
+        if i % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
         let segment = Segment::new(samples[i], samples[i + 1], limits);
         let y = segment.successor(x, caps[i + 1]);
         // Guard the continuous segment inequalities against arithmetic error.
