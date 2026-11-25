@@ -377,12 +377,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let (requested, ready, objective, phase_changed) = if terminal {
                 terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
-                let desired = profiled::command(
-                    follower,
-                    &progress,
-                    sample,
-                    reverse,
-                );
+                let desired = profiled::command(follower, &progress, sample, reverse);
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - progress.distance(), false)
             };

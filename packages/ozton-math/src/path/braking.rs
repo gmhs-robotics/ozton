@@ -58,16 +58,22 @@ impl RateBounds {
 
 /// Invert d = v*T + v²/(2*a) using the cancellation-free positive root.
 pub fn stoppable_speed(distance: f64, reaction: f64, deceleration: f64) -> Option<f64> {
-    if !distance.is_finite() || distance < 0.0
-        || !reaction.is_finite() || reaction < 0.0
-        || !deceleration.is_finite() || deceleration <= 0.0
+    if !distance.is_finite()
+        || distance < 0.0
+        || !reaction.is_finite()
+        || reaction < 0.0
+        || !deceleration.is_finite()
+        || deceleration <= 0.0
     {
         return None;
     }
     if distance == 0.0 {
         return Some(0.0);
     }
-    Some(2.0 * distance / (reaction + libm::sqrt(reaction * reaction + 2.0 * distance / deceleration)))
+    Some(
+        2.0 * distance
+            / (reaction + libm::sqrt(reaction * reaction + 2.0 * distance / deceleration)),
+    )
 }
 
 /// Axis projections of an XY covariance ellipse, scaled by the configured

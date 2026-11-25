@@ -42,8 +42,13 @@ pub fn advance_reference_time(
     lead: Length,
 ) -> f64 {
     let path = progress.path();
-    let limit = path.at_distance(ozton_math::qty!((progress.distance() + lead.value) m)).time;
-    (previous + dt).min(limit).max(previous).min(path.end().time)
+    let limit = path
+        .at_distance(ozton_math::qty!((progress.distance() + lead.value) m))
+        .time;
+    (previous + dt)
+        .min(limit)
+        .max(previous)
+        .min(path.end().time)
 }
 
 /// Whether to stop using the moving reference and settle at the final pose.
@@ -55,9 +60,7 @@ pub fn is_terminal(
 ) -> bool {
     let end = progress.path().end();
     match follower {
-        Follower::PurePursuit { .. } => {
-            progress.distance() >= end.distance - position_tolerance
-        }
+        Follower::PurePursuit { .. } => progress.distance() >= end.distance - position_tolerance,
         Follower::Ramsete { .. } => sample.elapsed.value >= end.time,
     }
 }
@@ -76,38 +79,35 @@ pub fn command(
     progress: &Progress<'_>,
     sample: FollowerSample,
     reverse: bool,
- ) -> [f64; 2] {
+) -> [f64; 2] {
     let path = progress.path();
     let pose = sample.pose;
     let (elapsed, dt) = (sample.elapsed.value, sample.period.value);
     let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
     let limits = path.limits();
     let (linear, angular) = match follower {
-            Follower::PurePursuit { lookahead } => {
-                let virtual_pose = Pose {
-                    heading: pose.heading + facing,
-                    ..pose
-                };
-                let target =
-                    virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
-                if target.y < 0.0 {
-                    (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
-                } else {
-                    let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
-                    let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
-                    PurePursuit::new().twist(
-                        pose,
-                        virtual_pose.transform_point(target),
-                        Velocity::new::<meter_per_second>(speed),
-                        reverse,
-                    )
-                }
+        Follower::PurePursuit { lookahead } => {
+            let virtual_pose = Pose {
+                heading: pose.heading + facing,
+                ..pose
+            };
+            let target = virtual_pose.to_local(progress.lookahead(pose.position, lookahead.value));
+            if target.y < 0.0 {
+                (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
+            } else {
+                let reference = path.at_distance(ozton_math::qty!((progress.distance()) m));
+                let speed = path.at_time(Time::new::<second>(reference.time + dt)).speed;
+                PurePursuit::new().twist(
+                    pose,
+                    virtual_pose.transform_point(target),
+                    Velocity::new::<meter_per_second>(speed),
+                    reverse,
+                )
             }
-            Follower::Ramsete { b, zeta } => Ramsete { b, zeta }.twist(
-                pose,
-                path.at_time(Time::new::<second>(elapsed)),
-                reverse,
-            ),
+        }
+        Follower::Ramsete { b, zeta } => {
+            Ramsete { b, zeta }.twist(pose, path.at_time(Time::new::<second>(elapsed)), reverse)
+        }
     };
     desaturate(
         wheel_speeds(

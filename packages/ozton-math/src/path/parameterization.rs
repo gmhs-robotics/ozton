@@ -18,7 +18,10 @@ struct Line {
 }
 
 impl Line {
-    const ZERO: Self = Self { slope: 0.0, intercept: 0.0 };
+    const ZERO: Self = Self {
+        slope: 0.0,
+        intercept: 0.0,
+    };
 
     fn at(self, x: f64) -> f64 {
         self.slope * x + self.intercept
@@ -36,9 +39,21 @@ impl Segment {
         let half = limits.track_width.value * 0.5;
         let gradient = half * (b.curvature - a.curvature) / ds;
         let rate = 0.5 / ds;
-        let mut bounds = [Bound { a: 0.0, b: 0.0, c: 0.0 }; 10];
-        bounds[0] = Bound { a: -rate, b: rate, c: limits.acceleration.value };
-        bounds[1] = Bound { a: rate, b: -rate, c: limits.deceleration.value };
+        let mut bounds = [Bound {
+            a: 0.0,
+            b: 0.0,
+            c: 0.0,
+        }; 10];
+        bounds[0] = Bound {
+            a: -rate,
+            b: rate,
+            c: limits.acceleration.value,
+        };
+        bounds[1] = Bound {
+            a: rate,
+            b: -rate,
+            c: limits.deceleration.value,
+        };
         let mut index = 2;
         for sign in [-1.0, 1.0] {
             for (endpoint, curvature) in [a.curvature, b.curvature].into_iter().enumerate() {
@@ -48,16 +63,27 @@ impl Segment {
                 let left = -factor + if endpoint == 0 { sign * gradient } else { 0.0 };
                 let right = factor + if endpoint == 1 { sign * gradient } else { 0.0 };
                 let c = limits.wheel_acceleration.value;
-                bounds[index] = Bound { a: left, b: right, c };
-                bounds[index + 1] = Bound { a: -left, b: -right, c };
+                bounds[index] = Bound {
+                    a: left,
+                    b: right,
+                    c,
+                };
+                bounds[index + 1] = Bound {
+                    a: -left,
+                    b: -right,
+                    c,
+                };
                 index += 2;
             }
         }
         let curvature = a.curvature.abs().max(b.curvature.abs());
         let wheel_speed = limits.wheel_speed.value / (1.0 + half * curvature);
-        let speed_squared = (wheel_speed * wheel_speed)
-            .min(limits.lateral_acceleration.value / curvature);
-        Self { bounds, speed_squared }
+        let speed_squared =
+            (wheel_speed * wheel_speed).min(limits.lateral_acceleration.value / curvature);
+        Self {
+            bounds,
+            speed_squared,
+        }
     }
 
     /// Project the feasible two-variable polytope onto x. All constraints
@@ -134,9 +160,12 @@ pub(super) fn limit_wheels(samples: &mut [PathSample], limits: Limits) -> Result
         let segment = Segment::new(samples[i], samples[i + 1], limits);
         let y = segment.successor(x, caps[i + 1]);
         // Guard the continuous segment inequalities against arithmetic error.
-        if !y.is_finite() || segment.bounds.iter().any(|b| {
-            b.a * x + b.b * y > b.c + 1e-8 * b.c.max(1.0)
-        }) {
+        if !y.is_finite()
+            || segment
+                .bounds
+                .iter()
+                .any(|b| b.a * x + b.b * y > b.c + 1e-8 * b.c.max(1.0))
+        {
             return Err(PathError::BlockedSegment(i + 1));
         }
         samples[i + 1].speed = libm::sqrt(y);

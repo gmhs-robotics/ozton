@@ -197,14 +197,27 @@ impl DifferentialFeedback {
             .min(config.limits.angular_speed.value);
         let reaction =
             config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
-        let forward_braking = config.safety.forward_braking
-            .unwrap_or(config.limits.deceleration).value.min(config.limits.deceleration.value);
-        let yaw_braking = config.safety.yaw_braking
-            .unwrap_or(config.limits.angular_deceleration).value.min(config.limits.angular_deceleration.value);
+        let forward_braking = config
+            .safety
+            .forward_braking
+            .unwrap_or(config.limits.deceleration)
+            .value
+            .min(config.limits.deceleration.value);
+        let yaw_braking = config
+            .safety
+            .yaw_braking
+            .unwrap_or(config.limits.angular_deceleration)
+            .value
+            .min(config.limits.angular_deceleration.value);
         // Keep bounded damping authority inside the arrival tolerance.
         let stopping_limit = |distance: f64, maximum: f64| {
-            stoppable_speed(distance.abs().max(options.position_tolerance.value), reaction, forward_braking)
-                .unwrap_or(0.0).min(maximum)
+            stoppable_speed(
+                distance.abs().max(options.position_tolerance.value),
+                reaction,
+                forward_braking,
+            )
+            .unwrap_or(0.0)
+            .min(maximum)
         };
         let forward = |pid: &mut MotionPid, error: f64, limit: f64| {
             let output = pid.forward(error, forward_rate, limit, dt);
@@ -226,8 +239,13 @@ impl DifferentialFeedback {
             )
         };
         let angular = |pid: &mut MotionPid, error: f64| {
-            let limit = stoppable_speed(error.abs().max(options.heading_tolerance.value), reaction, yaw_braking)
-                .unwrap_or(0.0).min(yaw_limit);
+            let limit = stoppable_speed(
+                error.abs().max(options.heading_tolerance.value),
+                reaction,
+                yaw_braking,
+            )
+            .unwrap_or(0.0)
+            .min(yaw_limit);
             let output = pid.yaw(error, yaw_rate, 0.0, limit, dt);
             compensate_breakaway(
                 output,
@@ -514,9 +532,14 @@ impl DifferentialFeedback {
             options.maximum_wheel_speed.value,
         );
         let scale = self.config.limits.wheel_acceleration.map_or(1.0, |limit| {
-            let delta = (desired[0] - self.last_wheels[0]).abs()
+            let delta = (desired[0] - self.last_wheels[0])
+                .abs()
                 .max((desired[1] - self.last_wheels[1]).abs());
-            if delta > 0.0 { (limit.value * seconds / delta).min(1.0) } else { 1.0 }
+            if delta > 0.0 {
+                (limit.value * seconds / delta).min(1.0)
+            } else {
+                1.0
+            }
         });
         self.last_wheels = core::array::from_fn(|i| {
             self.last_wheels[i] + scale * (desired[i] - self.last_wheels[i])
