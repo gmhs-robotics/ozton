@@ -85,19 +85,19 @@ impl<'path> ProfiledFollower<'path> {
             self.geometric.pose.heading + facing + ozton_math::qty!((cross.atan2(lookahead)) rad);
         let error = wrap_heading(desired_heading - pose.heading).value;
 
-        // Preview the velocity envelope to launch from rest and brake before
-        // changes in curvature. The measured speed determines actuator lead.
-        let preview = (lookahead * 0.25).min(0.025).min(remaining * 0.5);
+        // Preview the profile by the distance travelled during actuator
+        // response. From rest, use the constant-acceleration launch distance
+        // instead of a fixed spatial offset. Keep the preview short of the
+        // terminal zero-speed sample until measured progress reaches it.
+        let horizon = reaction.max(dt.as_secs_f64());
         let delay = (measured_speed.value.abs() * reaction).min(remaining * 0.5);
+        let launch = 0.5 * limits.acceleration.value * horizon * horizon;
+        let preview = launch
+            .max(measured_speed.value.abs() * horizon)
+            .min(remaining * 0.5);
         let speed = path
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
             .speed
-            .min(
-                path.at_distance(
-                    ozton_math::qty!((self.geometric.distance + preview.max(delay)) m),
-                )
-                .speed,
-            )
             * error.cos().max(0.0);
         let curvature = path
             .at_distance(ozton_math::qty!((self.geometric.distance + delay) m))
