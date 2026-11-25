@@ -155,7 +155,11 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
     ) -> Option<Localization<B>> {
         let projection = self.field.motion_projection()?;
         let map: Vec<_> = self.field.surfaces().collect();
-        let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
+        let mounts: Vec<_> = layout
+            .ranges
+            .iter()
+            .map(|&(_, mount)| self.field.range_config(mount))
+            .collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
                 OdometryConfig::for_mounted_wheels(self.odometry.maximum_gap),
