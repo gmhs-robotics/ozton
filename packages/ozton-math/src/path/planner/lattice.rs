@@ -66,9 +66,7 @@ impl LatticePlanner {
         reverse: Option<bool>,
         track_width: Length,
     ) -> Option<Vec<LatticeStep>> {
-        // The synchronous entry point uses an always-ready checkpoint.
-        // Consequently the same search completes in a single poll.
-        let mut search = core::pin::pin!(self.plan_cooperative(
+        crate::path::complete_ready(self.plan_cooperative(
             field,
             start,
             goal,
@@ -76,12 +74,7 @@ impl LatticePlanner {
             reverse,
             track_width,
             async || true,
-        ));
-        let mut context = core::task::Context::from_waker(core::task::Waker::noop());
-        match core::future::Future::poll(search.as_mut(), &mut context) {
-            core::task::Poll::Ready(result) => result,
-            core::task::Poll::Pending => unreachable!("ready checkpoint suspended"),
-        }
+        ))
     }
 
     /// The same bounded search with an asynchronous cancellation/yield checkpoint
@@ -348,7 +341,7 @@ mod tests {
 
     #[test]
     fn cooperative_search_honors_cancellation() {
-        let route = super::super::complete_ready(LatticePlanner::new().plan_cooperative(
+        let route = crate::path::complete_ready(LatticePlanner::new().plan_cooperative(
             None,
             Pose::default(),
             DVec2::Y,
