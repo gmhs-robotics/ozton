@@ -1,7 +1,7 @@
 //! Competition-loop adapter around the shared selector, with Disable first.
 use vexide::display::Display;
 
-use crate::selector::{Selector, SelectorItem, StatusHandle};
+use crate::selector::{Background, Selector, SelectorItem, StatusHandle, THEME_DARK};
 
 /// A selector owns presentation while the competition runtime owns route dispatch.
 pub trait RouteSelector<A> {
@@ -15,6 +15,8 @@ type RouteSelectorFactory<A> = dyn FnOnce(Vec<(String, A)>) -> Box<dyn RouteSele
 /// Build a stock Brain menu or give the route list to a custom UI factory.
 pub enum Ui<A> {
     Brain(Display),
+    /// Stock route menu with an application-defined background decoration.
+    BrainWithBackground(Display, Background),
     Custom(Box<RouteSelectorFactory<A>>),
 }
 
@@ -40,6 +42,15 @@ impl<A: Copy + 'static> Ui<A> {
             Self::Brain(display) => {
                 Box::new(RouteMenu::with_default(display, disabled, routes, default))
             }
+            Self::BrainWithBackground(display, background) => Box::new(
+                RouteMenu::with_default_and_background(
+                    display,
+                    disabled,
+                    routes,
+                    default,
+                    Some(background),
+                ),
+            ),
             Self::Custom(build) => {
                 let mut choices = vec![("Disable".into(), disabled)];
                 choices.extend(routes);
@@ -89,6 +100,16 @@ impl<A: Copy + 'static> RouteMenu<A> {
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
         default: Option<&str>,
     ) -> Self {
+        Self::with_default_and_background(display, disabled, routes, default, None)
+    }
+
+    fn with_default_and_background(
+        display: Display,
+        disabled: A,
+        routes: impl IntoIterator<Item = (impl Into<String>, A)>,
+        default: Option<&str>,
+        background: Option<Background>,
+    ) -> Self {
         let mut choices = vec![Choice {
             label: "Disable".into(),
             action: disabled,
@@ -100,7 +121,8 @@ impl<A: Copy + 'static> RouteMenu<A> {
         let selection = default
             .and_then(|label| choices.iter().position(|choice| choice.label == label))
             .unwrap_or_default();
-        let selector = Selector::new(display, choices, selection);
+        let selector =
+            Selector::new_with_background(display, choices, selection, THEME_DARK, background);
         let status = selector.status_handle();
         status.set_selection_enabled(
             vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,

@@ -41,6 +41,10 @@ pub const THEME_DARK: SimpleSelectTheme = SimpleSelectTheme {
     border: Color::new(153, 153, 153),
 };
 
+/// Draw an optional decoration over a filled background region, before text.
+/// The callback must stay inside the supplied region.
+pub type Background = fn(&mut Display, Rect, Color);
+
 pub trait SelectorItem: Clone {
     fn label(&self) -> &str;
 }
@@ -89,10 +93,20 @@ impl<I: SelectorItem + 'static> Selector<I> {
     }
 
     pub fn new_with_theme(
+        display: Display,
+        options: Vec<I>,
+        default_selection: usize,
+        theme: SimpleSelectTheme,
+    ) -> Self {
+        Self::new_with_background(display, options, default_selection, theme, None)
+    }
+
+    pub fn new_with_background(
         mut display: Display,
         options: Vec<I>,
         default_selection: usize,
         theme: SimpleSelectTheme,
+        background: Option<Background>,
     ) -> Self {
         assert!(
             !options.is_empty(),
@@ -128,7 +142,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
 
                 {
                     let state = state.borrow();
-                    Self::draw_page(&mut display, &theme, &state, page);
+                    Self::draw_page(&mut display, &theme, &state, page, background);
                 }
 
                 {
@@ -229,7 +243,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
 
                     if redraw_page {
                         let state = state.borrow();
-                        Self::draw_page(&mut display, &theme, &state, page);
+                        Self::draw_page(&mut display, &theme, &state, page, background);
                     }
 
                     if let Some(status_text) = status_text {

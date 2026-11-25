@@ -10,15 +10,16 @@ impl<I: SelectorItem + 'static> Selector<I> {
         theme: &SimpleSelectTheme,
         state: &SelectorState<I>,
         page: usize,
+        background: Option<Background>,
     ) {
-        display.fill(
-            &Rect::from_dimensions(
-                [0, 0],
-                Display::HORIZONTAL_RESOLUTION as u16,
-                Self::list_height() as u16,
-            ),
-            theme.background_default,
+        let region = Rect::new(
+            [0, 0],
+            [Display::HORIZONTAL_RESOLUTION, Self::list_height()],
         );
+        display.fill(&region, theme.background_default);
+        if let Some(draw) = background {
+            draw(display, region, theme.background_default);
+        }
 
         let start = page * Self::PAGE_SIZE;
         for row in 0..Self::PAGE_SIZE {
@@ -31,6 +32,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
                     row,
                     index == state.selection,
                     state.active_row == Some(index),
+                    background,
                 );
             }
         }
@@ -85,6 +87,7 @@ impl<I: SelectorItem + 'static> Selector<I> {
         row: usize,
         selected: bool,
         active: bool,
+        background: Option<Background>,
     ) {
         let (background_color, text_color) = match (selected, active) {
             (false, false) => (theme.background_default, theme.text_default),
@@ -102,10 +105,13 @@ impl<I: SelectorItem + 'static> Selector<I> {
             .unwrap_or_default();
         let y = row as i16 * Self::ROW_HEIGHT;
 
-        display.fill(
-            &Rect::from_dimensions([0, y], width, height),
-            background_color,
-        );
+        if background.is_none() || background_color != theme.background_default {
+            let region = Rect::from_dimensions([0, y], width, height);
+            display.fill(&region, background_color);
+            if let Some(draw) = background {
+                draw(display, region, background_color);
+            }
+        }
 
         let label = Self::short_label(label, 28);
         display.draw_text(
