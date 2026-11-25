@@ -17,7 +17,7 @@ use vexide::{
 use wheels::WheelSpeedError;
 
 use super::{Drive, Footprint, HasLocalization, LateralDrive, wheels};
-use crate::model::Differential;
+use crate::model::{Differential, MotionGeometry};
 
 /// Access the model's motor groups in their fixed wheel order.
 pub trait MotorGroups {
@@ -140,11 +140,13 @@ impl<M: Drive + MotorGroups, T: HasDriveWheels, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<T: TrackingSystem, L> Drivetrain<Differential, T, L> {
+impl<G: MotionGeometry, T: TrackingSystem, L> Drivetrain<Differential<G>, T, L> {
     pub fn footprint(&self) -> Option<Footprint> {
         self.model.footprint()
     }
+}
 
+impl<G, T: TrackingSystem, L> Drivetrain<Differential<G>, T, L> {
     pub fn measured_voltage(&self) -> [Option<ElectricPotential>; 2] {
         std::array::from_fn(|side| {
             self.model.motor_groups()[side]
@@ -157,7 +159,7 @@ impl<T: TrackingSystem, L> Drivetrain<Differential, T, L> {
     }
 }
 
-impl<T: HasDriveWheels, L> DriveEncoders for Drivetrain<Differential, T, L> {
+impl<G, T: HasDriveWheels, L> DriveEncoders for Drivetrain<Differential<G>, T, L> {
     fn track_width(&self) -> Length {
         self.tracking().calibrated_drive().track_width()
     }

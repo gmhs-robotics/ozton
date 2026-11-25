@@ -23,6 +23,7 @@ pub trait PoseDrive: DriveEncoders {
     type Error;
 
     fn pose(&self) -> Pose;
+    /// None means the implementation explicitly permits unbounded motion.
     fn footprint(&self) -> Option<Footprint>;
     fn rectangular_half_extents(&self) -> Option<DVec2>;
     fn motion_obstacles(&self) -> Obstacles {

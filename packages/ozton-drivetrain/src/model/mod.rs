@@ -35,6 +35,35 @@ pub trait Drive {
 
 pub use ozton_tracking::odometric::DriveEncoders;
 
+/// Explicit geometry policy required by field-relative motion.
+/// A drivetrain with no configured geometry does not implement this capability.
+///
+/// ```compile_fail
+/// use ozton_drivetrain::model::MotionGeometry;
+/// fn require<G: MotionGeometry>() {}
+/// require::<()>();
+/// ```
+pub trait MotionGeometry {
+    /// None explicitly means unbounded motion, never an omitted configuration.
+    fn footprint(&self) -> Option<crate::Footprint>;
+}
+
+impl MotionGeometry for crate::Footprint {
+    fn footprint(&self) -> Option<crate::Footprint> {
+        Some(*self)
+    }
+}
+
+/// Explicit permission to use pose motion without a field containment envelope.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UnboundedMotion;
+
+impl MotionGeometry for UnboundedMotion {
+    fn footprint(&self) -> Option<crate::Footprint> {
+        None
+    }
+}
+
 /// A model capable of lateral motion.
 pub trait LateralDrive: Drive {}
 

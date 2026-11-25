@@ -137,18 +137,18 @@ pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_tracking::HasDriveWheels, L>(
+pub fn report_differential<G, T: ozton_tracking::HasDriveWheels, L>(
     frame: Frame,
-    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
+    drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential<G>, T, L>,
 ) {
     report_drive_feedback(frame, drive.feedback(), drive.wheel_diameter());
 }
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.
 #[cfg(feature = "logging")]
-pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
+pub fn report_motion_drive<G, S: ozton_tracking::TrackingSources, D, L>(
     drive: &ozton_drivetrain::Drivetrain<
-        ozton_drivetrain::model::Differential,
+        ozton_drivetrain::model::Differential<G>,
         ozton_tracking::Tracking<S, D>,
         L,
     >,

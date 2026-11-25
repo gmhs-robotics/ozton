@@ -3,7 +3,10 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use ozton_drivetrain::{Drive, DriveMotionFault, Footprint, PoseDrive, model::Differential};
+use ozton_drivetrain::{
+    Drive, DriveMotionFault, Footprint, PoseDrive,
+    model::{Differential, MotionGeometry},
+};
 use ozton_localization::{Feedback, differential::DifferentialLocalization};
 use ozton_math::{
     geometry::{DVec2, Pose},
@@ -14,14 +17,15 @@ use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
 
 use super::{AssistedDrivetrain, DriveAssist};
 
-type AssistedTrackedDrive<'a, S, D, A> =
-    AssistedDrivetrain<'a, Differential, Tracking<S, D>, DifferentialLocalization, A>;
+type AssistedTrackedDrive<'a, G, S, D, A> =
+    AssistedDrivetrain<'a, Differential<G>, Tracking<S, D>, DifferentialLocalization, A>;
 
-impl<S, D, A> PoseDrive for AssistedTrackedDrive<'_, S, D, A>
+impl<G, S, D, A> PoseDrive for AssistedTrackedDrive<'_, G, S, D, A>
 where
+    G: MotionGeometry,
     S: TrackingSources,
     Tracking<S, D>: HasDriveWheels,
-    A: DriveAssist<Differential, Tracking<S, D>, DifferentialLocalization>,
+    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization>,
 {
     type Error = DriveMotionFault;
 

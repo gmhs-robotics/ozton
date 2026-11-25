@@ -14,11 +14,11 @@ use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
 use super::PoseDrive;
 use crate::{
     Drive, Drivetrain, Footprint, MotorGroups,
-    model::{Differential, WheelSpeedError},
+    model::{Differential, MotionGeometry, WheelSpeedError},
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<S, D> = Drivetrain<Differential, Tracking<S, D>, DifferentialLocalization>;
+type TrackedDrive<G, S, D> = Drivetrain<Differential<G>, Tracking<S, D>, DifferentialLocalization>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
@@ -49,7 +49,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<S: TrackingSources, D> PoseDrive for TrackedDrive<S, D>
+impl<G: MotionGeometry, S: TrackingSources, D> PoseDrive for TrackedDrive<G, S, D>
 where
     Tracking<S, D>: HasDriveWheels,
 {

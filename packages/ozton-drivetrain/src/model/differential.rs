@@ -6,13 +6,13 @@ use vexide::{
     smart::{PortError, SmartDevice, motor::MotorType},
 };
 
-use super::{Balancing, Drive, arcade_mix};
+use super::{Balancing, Drive, MotionGeometry, UnboundedMotion, arcade_mix};
 use crate::{Footprint, MotorGroups};
 
 /// Motors on a side receive the same fraction of their rated voltage.
-pub struct Differential {
+pub struct Differential<G = ()> {
     sides: [SharedMotors; 2],
-    footprint: Option<Footprint>,
+    geometry: G,
 }
 
 impl Differential {
@@ -31,25 +31,40 @@ impl Differential {
     pub fn from_shared(left: impl Into<SharedMotors>, right: impl Into<SharedMotors>) -> Self {
         Self {
             sides: [left.into(), right.into()],
-            footprint: None,
+            geometry: (),
         }
     }
+}
 
+impl<G> Differential<G> {
     pub fn shared_motors(&self) -> &[SharedMotors; 2] {
         &self.sides
     }
 
-    pub fn with_footprint(mut self, footprint: Footprint) -> Self {
-        self.footprint = Some(footprint);
-        self
+    /// Configure the physical chassis footprint for field-bounded motion.
+    pub fn with_footprint(self, footprint: Footprint) -> Differential<Footprint> {
+        Differential {
+            sides: self.sides,
+            geometry: footprint,
+        }
     }
 
-    pub fn footprint(&self) -> Option<Footprint> {
-        self.footprint
+    /// Explicitly opt into pose motion without a field clearance envelope.
+    pub fn with_unbounded_motion(self) -> Differential<UnboundedMotion> {
+        Differential {
+            sides: self.sides,
+            geometry: UnboundedMotion,
+        }
     }
 }
 
-impl MotorGroups for Differential {
+impl<G: MotionGeometry> Differential<G> {
+    pub fn footprint(&self) -> Option<Footprint> {
+        self.geometry.footprint()
+    }
+}
+
+impl<G> MotorGroups for Differential<G> {
     type WheelSpeeds = [ozton_math::uom::si::f64::Velocity; 2];
     type WheelVoltages = [ozton_math::uom::si::f64::ElectricPotential; 2];
 
@@ -62,7 +77,7 @@ impl MotorGroups for Differential {
     }
 }
 
-impl Drive for Differential {
+impl<G> Drive for Differential<G> {
     type Error = PortError;
 
     fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
@@ -70,7 +85,7 @@ impl Drive for Differential {
     }
 }
 
-impl Balancing for Differential {
+impl<G> Balancing for Differential<G> {
     fn balance(&self, command: &mut [f64; 2]) -> Result<(), PortError> {
         if *command == [0.0; 2] {
             return Ok(());
