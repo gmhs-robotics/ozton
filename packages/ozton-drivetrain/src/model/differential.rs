@@ -7,7 +7,7 @@ use vexide::{
 };
 
 use super::{Balancing, Drive, MotionGeometry, UnboundedMotion, arcade_mix};
-use crate::{Footprint, MotorGroups};
+use crate::{BrakeMode, BrakeMotors, Footprint, HasBraking, MotorAddress, MotorGroups};
 
 /// Motors on a side receive the same fraction of their rated voltage.
 pub struct Differential<G = ()> {
@@ -82,6 +82,31 @@ impl<G> Drive for Differential<G> {
 
     fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
         crate::normalized_voltage(&mut self.sides, arcade_mix(vector.y, turn))
+    }
+}
+
+impl<G> HasBraking for Differential<G> {
+    type BrakeError = PortError;
+
+    fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
+        self.brake_motors(|_| Some(mode))
+    }
+}
+
+impl<G> BrakeMotors for Differential<G> {
+    fn brake_motors(
+        &mut self,
+        mut select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
+    ) -> Result<(), Self::BrakeError> {
+        let mut result = Ok(());
+        for (group, motors) in self.sides.iter_mut().enumerate() {
+            for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
+                if let Some(mode) = select(MotorAddress { group, motor }) {
+                    result = result.and(device.apply_brake(mode));
+                }
+            }
+        }
+        result
     }
 }
 
