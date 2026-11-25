@@ -9,7 +9,9 @@ use std::{
 
 mod index;
 
+#[cfg(target_os = "vexos")]
 use index::open_log;
+
 const BUFFER_BYTES: usize = 512 * 1024;
 const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=4,level=INFO\n";
 #[cfg(target_os = "vexos")]
