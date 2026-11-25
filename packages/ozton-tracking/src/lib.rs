@@ -49,15 +49,13 @@ pub mod snapshot;
 #[cfg(feature = "vex")]
 pub use sensor::RotarySensor;
 
-/// A tracking system and its optional calibrated drive-wheel source.
+/// A tracking configuration. Optional reporting is not a motion capability.
 pub trait TrackingSystem {
+    /// Observe the explicitly selected source for diagnostics and generic
+    /// observation ingestion. Physical wheel commands require HasDriveWheels.
+    #[doc(hidden)]
     #[cfg(feature = "vex")]
-    fn drive_wheels(&self) -> Option<&odometric::DifferentialTracking> {
-        None
-    }
-
-    #[cfg(feature = "vex")]
-    fn drive_wheels_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
+    fn selected_drive(&self) -> Option<&odometric::DifferentialTracking> {
         None
     }
 }
@@ -124,6 +122,9 @@ pub type SourceInitialization<'a> = Option<
 
 /// A source can emit any measurement, regardless of how its hardware works.
 pub trait TrackingSource {
+    /// Whether this concrete source supplies differential encoder observations.
+    const DIFFERENTIAL_ENCODERS: bool = false;
+
     fn initialize(&mut self) -> SourceInitialization<'_> {
         None
     }
@@ -142,25 +143,7 @@ pub trait TrackingSource {
 
     #[doc(hidden)]
     #[cfg(feature = "vex")]
-    fn differential(&self) -> Option<&odometric::DifferentialTracking> {
-        None
-    }
-
-    #[doc(hidden)]
-    #[cfg(feature = "vex")]
-    fn differential_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
-        None
-    }
-
-    #[doc(hidden)]
-    #[cfg(feature = "vex")]
     fn inertial(&self) -> Option<&inertial::InertialSensorTracking> {
-        None
-    }
-
-    #[doc(hidden)]
-    #[cfg(feature = "vex")]
-    fn inertial_mut(&mut self) -> Option<&mut inertial::InertialSensorTracking> {
         None
     }
 }

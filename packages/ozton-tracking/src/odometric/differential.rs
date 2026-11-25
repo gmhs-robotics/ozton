@@ -122,6 +122,8 @@ impl DifferentialTracking {
 }
 
 impl TrackingSource for DifferentialTracking {
+    const DIFFERENTIAL_ENCODERS: bool = true;
+
     fn sample(&mut self, sink: &mut MeasurementSink<'_>) {
         let feedback = self.read_wheels();
         let positions = feedback.map(|sample| sample.map(|wheel| wheel.position));
@@ -135,13 +137,5 @@ impl TrackingSource for DifferentialTracking {
                 DVec3::Z * ((right - left) / self.track_width.value),
             ));
         }
-    }
-
-    fn differential(&self) -> Option<&Self> {
-        Some(self)
-    }
-
-    fn differential_mut(&mut self) -> Option<&mut Self> {
-        Some(self)
     }
 }

@@ -8,7 +8,7 @@ use std::{
 use ozton_math::uom::si::f64::{ElectricPotential, Length, Velocity};
 use ozton_tracking::{
     HasDriveWheels, TrackingSystem,
-    odometric::{DifferentialTracking, DriveEncoders, SharedMotors, WheelFeedback},
+    odometric::{DriveEncoders, SharedMotors, WheelFeedback},
 };
 use vexide::{
     prelude::Motor,
@@ -82,17 +82,13 @@ impl<M: Drive, T, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
-    pub fn track_width(&self) -> Option<Length> {
-        self.tracking()
-            .drive_wheels()
-            .map(DifferentialTracking::track_width)
+impl<M: Drive, T: HasDriveWheels, L> Drivetrain<M, T, L> {
+    pub fn track_width(&self) -> Length {
+        self.tracking().calibrated_drive().track_width()
     }
 
-    pub fn wheel_diameter(&self) -> Option<Length> {
-        self.tracking()
-            .drive_wheels()
-            .map(|source| source.wheels().diameter())
+    pub fn wheel_diameter(&self) -> Length {
+        self.tracking().calibrated_drive().wheels().diameter()
     }
 }
 
@@ -133,18 +129,14 @@ impl<M: Drive + MotorGroups, T, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: Drive + MotorGroups, T: TrackingSystem, L> Drivetrain<M, T, L> {
+impl<M: Drive + MotorGroups, T: HasDriveWheels, L> Drivetrain<M, T, L> {
     pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
-        self.tracking_mut()
-            .drive_wheels_mut()
-            .map_or([None; 2], DifferentialTracking::read_wheels)
+        self.tracking_mut().calibrated_drive_mut().read_wheels()
     }
 
     /// Read the last measured translation and velocity without advancing odometry.
     pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
-        self.tracking()
-            .drive_wheels()
-            .map_or([None; 2], DifferentialTracking::feedback)
+        self.tracking().calibrated_drive().feedback()
     }
 }
 

@@ -51,7 +51,6 @@ pub enum TrackingBuildError {
     WheelGeometry,
     RangeLayout,
     ImuStartup,
-    DuplicateDriveEncoders,
 }
 
 impl std::fmt::Display for TrackingBuildError {
@@ -60,9 +59,6 @@ impl std::fmt::Display for TrackingBuildError {
             Self::WheelGeometry => f.write_str("invalid tracking-wheel geometry"),
             Self::RangeLayout => write!(f, "too many range sources (maximum {MAX_RANGES})"),
             Self::ImuStartup => f.write_str("IMU startup calibration failed"),
-            Self::DuplicateDriveEncoders => {
-                f.write_str("multiple differential motor groups supplied")
-            }
         }
     }
 }
@@ -70,83 +66,50 @@ impl std::fmt::Display for TrackingBuildError {
 impl std::error::Error for TrackingBuildError {}
 
 mod sources;
-use sources::Capture;
+use sources::{Capture, SourceLayout};
 pub use sources::TrackingSources;
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
 pub struct Tracking<S, D = ()> {
     sources: S,
     drive: PhantomData<D>,
-    #[cfg(feature = "vex")]
-    differential: Option<usize>,
-    #[cfg(feature = "vex")]
-    imu: Option<usize>,
     range_layout: arrayvec::ArrayVec<(usize, RangeSensorConfig), MAX_RANGES>,
     wheel_mounts: Vec<(usize, DVec3)>,
     observations: Vec<Observation>,
 }
 
-impl<S: TrackingSources, D> TrackingSystem for Tracking<S, D> {
-    #[cfg(feature = "vex")]
-    fn drive_wheels(&self) -> Option<&DifferentialTracking> {
-        self.sources.source(self.differential?)?.differential()
-    }
+impl<S: TrackingSources> TrackingSystem for Tracking<S> {}
 
-    #[cfg(feature = "vex")]
-    fn drive_wheels_mut(&mut self) -> Option<&mut DifferentialTracking> {
-        self.sources
-            .source_mut(self.differential?)?
-            .differential_mut()
+#[cfg(feature = "vex")]
+impl<S: TrackingSources, const I: usize> TrackingSystem for Tracking<S, DriveSource<I>>
+where
+    Self: SourceAt<I, Source = DifferentialTracking>,
+{
+    fn selected_drive(&self) -> Option<&DifferentialTracking> {
+        Some(self.source_at())
     }
 }
 
 impl<S: TrackingSources> Tracking<S> {
     /// Initialize the tuple or list of sources concurrently before the first sample.
     pub async fn new(mut sources: S) -> Result<Self, TrackingBuildError> {
-        #[cfg(feature = "vex")]
-        let mut differential = None;
-        #[cfg(feature = "vex")]
-        let mut imu = None;
-        let mut range_layout = arrayvec::ArrayVec::new();
-        let mut wheel_mounts = Vec::new();
-        for index in 0..S::SOURCE_COUNT {
-            let Some(source) = sources.source(index) else {
-                continue;
-            };
-            #[cfg(feature = "vex")]
-            {
-                if source.differential().is_some() && differential.replace(index).is_some() {
-                    return Err(TrackingBuildError::DuplicateDriveEncoders);
-                }
-                if imu.is_none() && source.inertial().is_some() {
-                    imu = Some(index);
-                }
-            }
-            if let Some(mount) = source.range_mount() {
-                range_layout
-                    .try_push((index, mount))
-                    .map_err(|_| TrackingBuildError::RangeLayout)?;
-            }
-            if let Some(projection) = source.wheel_projection() {
-                if !projection.is_finite() {
-                    return Err(TrackingBuildError::WheelGeometry);
-                }
-                wheel_mounts.push((index, projection));
-            }
+        const {
+            assert!(
+                S::DIFFERENTIAL_COUNT <= 1,
+                "tracking may contain at most one differential encoder source"
+            );
         }
+        let mut layout = SourceLayout::default();
+        sources.describe(&mut layout)?;
         for result in join_all(sources.initialization()).await {
             result?;
         }
         Ok(Self {
             observations: Vec::with_capacity(S::SOURCE_COUNT),
             drive: PhantomData,
-            range_layout,
+            range_layout: layout.ranges,
             sources,
-            #[cfg(feature = "vex")]
-            differential,
-            #[cfg(feature = "vex")]
-            imu,
-            wheel_mounts,
+            wheel_mounts: layout.wheels,
         })
     }
 
@@ -160,8 +123,6 @@ impl<S: TrackingSources> Tracking<S> {
         Tracking {
             sources: self.sources,
             drive: PhantomData,
-            differential: self.differential,
-            imu: self.imu,
             range_layout: self.range_layout,
             wheel_mounts: self.wheel_mounts,
             observations: self.observations,
@@ -204,35 +165,13 @@ impl<S: TrackingSources, D> Tracking<S, D> {
     }
 
     #[cfg(feature = "vex")]
-    /// Read orientation for driver assists and reuse it on the next sampling tick.
-    pub fn refresh_orientation(&mut self) -> Option<Orientation> {
-        self.sources
-            .source_mut(self.imu?)?
-            .inertial_mut()?
-            .refresh(true)
-    }
-
-    #[cfg(feature = "vex")]
-    pub fn refresh_heading(&mut self) -> Option<Orientation> {
-        self.sources
-            .source_mut(self.imu?)?
-            .inertial_mut()?
-            .refresh(false)
-    }
-
-    #[cfg(feature = "vex")]
-    fn imu(&self) -> Option<&InertialSensorTracking> {
-        self.sources.source(self.imu?)?.inertial()
-    }
-
-    #[cfg(feature = "vex")]
     pub fn diagnostic_orientation(&self) -> Option<Orientation> {
-        self.imu()?.diagnostic_orientation()
+        self.sources.diagnostic_imu()?.diagnostic_orientation()
     }
 
     #[cfg(feature = "vex")]
     pub fn imu_telemetry(&self) -> ([f64; 3], [f64; 3]) {
-        self.imu().map_or(
+        self.sources.diagnostic_imu().map_or(
             ([f64::NAN; 3], [f64::NAN; 3]),
             InertialSensorTracking::telemetry,
         )

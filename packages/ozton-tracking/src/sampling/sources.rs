@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use glam::DVec3;
+
 use ozton_math::localization::observation::SourceAt;
 
 use crate::{
@@ -14,10 +16,14 @@ pub trait TrackingSources {
     const SOURCE_COUNT: usize;
 
     #[doc(hidden)]
-    fn source(&self, index: usize) -> Option<&dyn TrackingSource>;
+    const DIFFERENTIAL_COUNT: usize;
 
     #[doc(hidden)]
-    fn source_mut(&mut self, index: usize) -> Option<&mut dyn TrackingSource>;
+    fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError>;
+
+    #[doc(hidden)]
+    #[cfg(feature = "vex")]
+    fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking>;
 
     #[doc(hidden)]
     fn initialization(&mut self) -> Vec<Startup<'_>>;
@@ -31,11 +37,14 @@ type Startup<'a> = <SourceInitialization<'a> as IntoIterator>::Item;
 impl TrackingSources for () {
     const SOURCE_COUNT: usize = 0;
 
-    fn source(&self, _: usize) -> Option<&dyn TrackingSource> {
-        None
+    const DIFFERENTIAL_COUNT: usize = 0;
+
+    fn describe(&self, _: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
+        Ok(())
     }
 
-    fn source_mut(&mut self, _: usize) -> Option<&mut dyn TrackingSource> {
+    #[cfg(feature = "vex")]
+    fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking> {
         None
     }
 
@@ -49,12 +58,18 @@ impl TrackingSources for () {
 impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     const SOURCE_COUNT: usize = N;
 
-    fn source(&self, index: usize) -> Option<&dyn TrackingSource> {
-        self.get(index).map(|source| source as _)
+    const DIFFERENTIAL_COUNT: usize = N * S::DIFFERENTIAL_ENCODERS as usize;
+
+    fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
+        for (index, source) in self.iter().enumerate() {
+            layout.register(index, source)?;
+        }
+        Ok(())
     }
 
-    fn source_mut(&mut self, index: usize) -> Option<&mut dyn TrackingSource> {
-        self.get_mut(index).map(|source| source as _)
+    #[cfg(feature = "vex")]
+    fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking> {
+        self.iter().find_map(TrackingSource::inertial)
     }
 
     fn initialization(&mut self) -> Vec<Startup<'_>> {
@@ -95,18 +110,16 @@ macro_rules! tracking_tuples {
         impl<$($name: TrackingSource),+> TrackingSources for ($($name,)+) {
             const SOURCE_COUNT: usize = [$(stringify!($name)),+].len();
 
-            fn source(&self, index: usize) -> Option<&dyn TrackingSource> {
-                match index {
-                    $($index => Some(&self.$index),)+
-                    _ => None,
-                }
+            const DIFFERENTIAL_COUNT: usize = 0 $(+ $name::DIFFERENTIAL_ENCODERS as usize)+;
+
+            fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
+                $(layout.register($index, &self.$index)?;)+
+                Ok(())
             }
 
-            fn source_mut(&mut self, index: usize) -> Option<&mut dyn TrackingSource> {
-                match index {
-                    $($index => Some(&mut self.$index),)+
-                    _ => None,
-                }
+            #[cfg(feature = "vex")]
+            fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking> {
+                None$(.or_else(|| self.$index.inertial()))+
             }
 
             fn initialization(&mut self) -> Vec<Startup<'_>> {
@@ -132,6 +145,36 @@ tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
+
+/// Startup geometry collected through concrete source types.
+#[doc(hidden)]
+#[derive(Default)]
+pub struct SourceLayout {
+    pub(super) ranges: arrayvec::ArrayVec<(usize, RangeSensorConfig), { crate::range::MAX_RANGES }>,
+    pub(super) wheels: Vec<(usize, DVec3)>,
+}
+
+impl SourceLayout {
+    pub fn register(
+        &mut self,
+        index: usize,
+        source: &impl TrackingSource,
+    ) -> Result<(), super::TrackingBuildError> {
+        use super::TrackingBuildError;
+        if let Some(mount) = source.range_mount() {
+            self.ranges
+                .try_push((index, mount))
+                .map_err(|_| TrackingBuildError::RangeLayout)?;
+        }
+        if let Some(projection) = source.wheel_projection() {
+            if !projection.is_finite() {
+                return Err(TrackingBuildError::WheelGeometry);
+            }
+            self.wheels.push((index, projection));
+        }
+        Ok(())
+    }
+}
 
 #[doc(hidden)]
 pub struct Capture<'a> {

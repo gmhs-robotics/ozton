@@ -81,10 +81,6 @@ where
                 return;
             }
             let _span = crate::profile::Span::new(crate::profile::Stage::HardwareReport);
-            let groups = self.model.motor_groups();
-            if groups.len() == 2 {
-                report_drive_feedback(frame, self.feedback(), self.wheel_diameter());
-            }
             // The central hardware sampler records all connected motors.
         }
         self.localization().report(frame);
@@ -96,8 +92,15 @@ impl ComponentReport for ozton_tracking::NoTracking {
     fn report(&self, _: Frame) {}
 }
 
-impl<S: ozton_tracking::TrackingSources, D> ComponentReport for ozton_tracking::Tracking<S, D> {
+impl<S: ozton_tracking::TrackingSources, D> ComponentReport for ozton_tracking::Tracking<S, D>
+where
+    Self: ozton_tracking::TrackingSystem,
+{
     fn report(&self, frame: Frame) {
+        #[cfg(feature = "logging")]
+        if let Some(source) = ozton_tracking::TrackingSystem::selected_drive(self) {
+            report_drive_feedback(frame, source.feedback(), source.wheels().diameter());
+        }
         if let Some(sample) = self.diagnostic_orientation() {
             let (rate, acceleration) = self.imu_telemetry();
             report_imu(
@@ -134,7 +137,7 @@ pub fn report_pose(frame: Frame, pose: ozton_math::geometry::Pose, trusted: bool
 
 /// Report the calibrated drive and its actual motor samples.
 #[cfg(feature = "logging")]
-pub fn report_differential<T: ozton_tracking::TrackingSystem, L>(
+pub fn report_differential<T: ozton_tracking::HasDriveWheels, L>(
     frame: Frame,
     drive: &ozton_drivetrain::Drivetrain<ozton_drivetrain::model::Differential, T, L>,
 ) {
@@ -149,7 +152,10 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
         ozton_tracking::Tracking<S, D>,
         L,
     >,
-) {
+)
+where
+    ozton_tracking::Tracking<S, D>: ozton_tracking::TrackingSystem,
+{
     if serial::sd_enabled() {
         let time = serial::now();
         if !claim_drive_sample(&drive.diagnostic_stamp(), time) {
@@ -162,7 +168,6 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
                 time,
             },
         };
-        report_differential(frame, drive);
         drive.tracking().report(frame);
     }
 }
@@ -171,12 +176,12 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
 pub(crate) fn report_drive_feedback(
     frame: Frame,
     feedback: [Option<ozton_drivetrain::WheelFeedback>; 2],
-    diameter: Option<Length>,
+    diameter: Length,
 ) {
     let [left, right] = feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.position.value));
     let [left_mps, right_mps] =
         feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.velocity.value));
-    let diameter = diameter.map_or(f64::NAN, |diameter| diameter.value);
+    let diameter = diameter.value;
     frame.row(
         "DRIVE",
         format_args!("left_m={left:.5},right_m={right:.5},left_mps={left_mps:.5},right_mps={right_mps:.5},wheel_dia_m={diameter:.6}"),

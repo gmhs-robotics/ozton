@@ -152,9 +152,7 @@ where
             feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.position.value));
         let [left_mps, right_mps] =
             feedback.map(|wheel| wheel.map_or(f64::NAN, |wheel| wheel.velocity.value));
-        let diameter = self
-            .wheel_diameter()
-            .map_or(f64::NAN, |diameter| diameter.value);
+        let diameter = self.wheel_diameter().value;
         frame.row("DRIVE", format_args!("left_m={left:.5},right_m={right:.5},left_mps={left_mps:.5},right_mps={right_mps:.5},wheel_dia_m={diameter:.6}"));
         let tracking = self.tracking();
         if let Some(sample) = tracking.diagnostic_orientation() {

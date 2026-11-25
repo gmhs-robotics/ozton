@@ -17,7 +17,6 @@ pub struct InertialSensorTracking {
     sensor: InertialSensor,
     bearing: Angle,
     position: Vec3<Length>,
-    cached: Option<Option<Orientation>>,
     last: Option<Orientation>,
     planar_acceleration: bool,
 }
@@ -29,7 +28,6 @@ impl InertialSensorTracking {
             sensor,
             bearing,
             position,
-            cached: None,
             last: None,
             planar_acceleration: false,
         }
@@ -182,10 +180,7 @@ impl crate::TrackingSource for InertialSensorTracking {
     fn sample(&mut self, sink: &mut crate::MeasurementSink<'_>) {
         use crate::{HeadingObservation, Measurement};
 
-        self.last = self
-            .cached
-            .take()
-            .unwrap_or_else(|| self.read_orientation(true));
+        self.last = self.read_orientation(true);
         if let Some(attitude) = self.last {
             if let Some(heading) = attitude.heading {
                 sink.push(Measurement::Heading(HeadingObservation::Compass(heading)));
@@ -219,20 +214,9 @@ impl crate::TrackingSource for InertialSensorTracking {
     fn inertial(&self) -> Option<&Self> {
         Some(self)
     }
-
-    fn inertial_mut(&mut self) -> Option<&mut Self> {
-        Some(self)
-    }
 }
 
 impl InertialSensorTracking {
-    pub(crate) fn refresh(&mut self, tilt: bool) -> Option<Orientation> {
-        let orientation = self.read_orientation(tilt);
-        self.last = orientation;
-        self.cached = Some(orientation);
-        orientation
-    }
-
     pub(crate) fn diagnostic_orientation(&self) -> Option<Orientation> {
         self.last
             .filter(|sample| sample.roll.is_some() || sample.pitch.is_some())
