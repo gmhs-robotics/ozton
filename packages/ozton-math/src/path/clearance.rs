@@ -5,7 +5,8 @@ use core::f64::consts::TAU;
 
 use glam::DVec2;
 pub use polygon::{ConvexPolygon, MAX_OBSTACLES, MAX_POLYGON_VERTICES, Obstacles};
-pub use rectangle::{AStar, DepartureArc, PointDeparture, RectangularClearance, approach_heading};
+pub use rectangle::RectangularClearance;
+use super::Path;
 use uom::si::f64::{Angle, Length};
 
 use crate::{
@@ -309,4 +310,36 @@ mod tests {
         );
         assert!(!chassis.can_turn(Pose::default(), &[wall], inches(0.0)));
     }
+}
+
+/// Validate the oriented footprint over each interpolated segment, including reverse travel.
+pub fn clear_path(path: &Path, reverse: bool, field: RectangularClearance) -> bool {
+    let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
+    let pose =
+        |sample: &super::PathSample| Pose::new(sample.pose.position, sample.pose.heading + facing);
+    path.samples()
+        .windows(2)
+        .all(|pair| field.contains_segment(pose(&pair[0]), pose(&pair[1])))
+}
+
+/// Check the swept footprint cooperatively, with a cancellation checkpoint
+/// between segments. The synchronous variant remains available to host tools.
+pub async fn clear_path_cooperative<F>(
+    path: &Path,
+    reverse: bool,
+    field: RectangularClearance,
+    mut checkpoint: F,
+) -> bool
+where
+    F: core::ops::AsyncFnMut() -> bool,
+{
+    let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
+    let pose =
+        |sample: &super::PathSample| Pose::new(sample.pose.position, sample.pose.heading + facing);
+    for pair in path.samples().windows(2) {
+        if !checkpoint().await || !field.contains_segment(pose(&pair[0]), pose(&pair[1])) {
+            return false;
+        }
+    }
+    true
 }
