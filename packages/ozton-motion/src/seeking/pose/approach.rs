@@ -55,7 +55,10 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
             target.position.x,
             target.position.y
         );
-        let result = session.prepare_replan().await.and(Err(PoseMotionError::NoRoute));
+        let result = session
+            .prepare_replan()
+            .await
+            .and(Err(PoseMotionError::NoRoute));
         return session.finish(result);
     }
     let result = approach(&mut session, clearance, target, final_heading, settings).await;
@@ -175,7 +178,9 @@ async fn lattice_approach<D: PoseDrive>(
     settings: Seeking,
 ) -> MotionResult<D> {
     let config = settings.config();
-    let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
+    let direction = settings
+        .travel
+        .map(|d| matches!(d, TravelDirection::Backward));
     let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
