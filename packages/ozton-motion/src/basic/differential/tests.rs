@@ -342,8 +342,7 @@ fn transit_point_does_not_apply_endpoint_braking_envelope() {
 
 #[test]
 fn point_direction_is_reacquired_after_terminal_reset() {
-    let options =
-        DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
     let mut controller = DifferentialFeedback::default();
     let tick = Duration::from_millis(10);
     let feedback = Feedback {
