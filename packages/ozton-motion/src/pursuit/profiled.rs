@@ -69,15 +69,17 @@ impl<'path> ProfiledFollower<'path> {
     }
 
     /// Wheel speeds in metres per second before shared physical constraints.
+    /// Measured body velocity is ordered as lateral (right), then forward.
     pub fn command(
         &mut self,
         pose: Pose,
         reverse: bool,
-        measured_speed: Velocity,
+        measured_velocity: [Velocity; 2],
         measured_yaw: AngularVelocity,
         brake_latency: core::time::Duration,
         dt: core::time::Duration,
     ) -> [f64; 2] {
+        let [measured_lateral, measured_speed] = measured_velocity;
         let path = self.progress.path();
         let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
         let limits = path.limits();
@@ -96,7 +98,7 @@ impl<'path> ProfiledFollower<'path> {
         let delay = (measured_speed.value.abs() * reaction).min(remaining);
         let reference = path.at_distance(ozton_math::qty!((self.geometric.distance + delay) m));
         let predicted = pose.integrate(BodyDelta {
-            translation: DVec2::new(0.0, measured_speed.value * reaction),
+            translation: DVec2::new(measured_lateral.value, measured_speed.value) * reaction,
             heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
         });
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
@@ -205,7 +207,7 @@ mod tests {
         let undamped = follower.command(
             pose,
             false,
-            qty!(0.3 m/s),
+            [qty!(0 m/s), qty!(0.3 m/s)],
             qty!(0 rad/s),
             latency,
             core::time::Duration::from_millis(10),
@@ -213,13 +215,46 @@ mod tests {
         let damped = follower.command(
             pose,
             false,
-            qty!(0.3 m/s),
+            [qty!(0 m/s), qty!(0.3 m/s)],
             qty!(0.5 rad/s),
             latency,
             core::time::Duration::from_millis(10),
         );
         assert!(undamped[1] > undamped[0]);
         assert!((damped[1] - damped[0]).abs() < (undamped[1] - undamped[0]).abs());
+    }
+
+    #[test]
+    fn lateral_slip_is_corrected_before_position_error_grows() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let mut follower =
+            ProfiledFollower::new(&path, qty!(0.19 m), Pid::new(3.0, 0.0, 0.4, None));
+        let pose = Pose::new(DVec2::new(0.0, 0.3), qty!(0 rad));
+        follower.observe(pose, qty!(0.3 m));
+        let wheels = follower.command(
+            pose,
+            false,
+            [qty!(0.2 m/s), qty!(0.5 m/s)],
+            qty!(0 rad/s),
+            core::time::Duration::from_millis(170),
+            core::time::Duration::from_millis(8),
+        );
+        assert!(wheels[1] > wheels[0], "{wheels:?}");
     }
 
     #[test]
@@ -246,7 +281,14 @@ mod tests {
         follower.observe(pose, qty!(0.3 m));
         let latency = core::time::Duration::from_millis(120);
         let dt = core::time::Duration::from_millis(10);
-        let forward = follower.command(pose, false, qty!(0.3 m/s), qty!(0 rad/s), latency, dt);
+        let forward = follower.command(
+            pose,
+            false,
+            [qty!(0 m/s), qty!(0.3 m/s)],
+            qty!(0 rad/s),
+            latency,
+            dt,
+        );
         follower.reset_feedback();
         let reverse = follower.command(
             Pose {
@@ -254,7 +296,7 @@ mod tests {
                 ..pose
             },
             true,
-            qty!(-0.3 m/s),
+            [qty!(0 m/s), qty!(-0.3 m/s)],
             qty!(0 rad/s),
             latency,
             dt,
@@ -293,7 +335,7 @@ mod tests {
             let wheels = follower.command(
                 pose,
                 reverse,
-                qty!(0.3 m/s),
+                [qty!(0 m/s), qty!(0.3 m/s)],
                 qty!(0 rad/s),
                 core::time::Duration::from_millis(100),
                 core::time::Duration::from_millis(10),
@@ -339,7 +381,7 @@ mod tests {
         let wheels = follower.command(
             pose,
             false,
-            qty!(0 m/s),
+            [qty!(0 m/s), qty!(0 m/s)],
             qty!(0 rad/s),
             latency,
             core::time::Duration::from_millis(10),
@@ -352,7 +394,7 @@ mod tests {
         let wheels = follower.command(
             reverse,
             true,
-            qty!(0 m/s),
+            [qty!(0 m/s), qty!(0 m/s)],
             qty!(0 rad/s),
             latency,
             core::time::Duration::from_millis(10),

@@ -495,7 +495,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                     let desired = follower.command(
                         feedback.pose,
                         reverse,
-                        feedback.forward_velocity,
+                        [feedback.lateral_velocity, feedback.forward_velocity],
                         feedback.angular_velocity,
                         config.limits.brake_latency,
                         dt,

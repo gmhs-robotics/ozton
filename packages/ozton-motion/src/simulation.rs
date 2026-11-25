@@ -193,7 +193,7 @@ pub fn simulate_path_with_lateral(
             let desired = follower.command(
                 pose,
                 reverse,
-                feedback.forward_velocity,
+                [feedback.lateral_velocity, feedback.forward_velocity],
                 feedback.angular_velocity,
                 config.limits.brake_latency,
                 tick,
