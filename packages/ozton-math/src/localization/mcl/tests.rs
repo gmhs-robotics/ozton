@@ -187,3 +187,40 @@ fn unexpected_short_return_cannot_relocate_local_tracking() {
     assert!(estimate.pose.position.y > before.0.y);
     assert!(estimate.pose.position.y.abs() < 0.2);
 }
+
+#[test]
+fn surveyed_flush_contact_conditions_particles_and_releases_without_reset() {
+    use crate::path::clearance::{Footprint, WallContact, WallContactConstraint};
+    let footprint = Footprint::new(crate::qty!(0.2 m), crate::qty!(0.4 m)).unwrap();
+    let pose = Pose::new(DVec2::new(0.0, -0.8), Angle::default());
+    let contact = WallContactConstraint::new(
+        WallContact::Rear,
+        footprint,
+        DVec2::ONE,
+        pose,
+        crate::qty!(1 in),
+    )
+    .unwrap();
+    let mut filter = ParticleFilter::new(pose, ParticleConfig::default()).unwrap();
+    filter.reset_at_contact(pose, contact);
+    let covariance = filter.position_covariance();
+    assert!(covariance.x_axis.x > 0.0);
+    assert!(covariance.y_axis.y < 1e-24);
+    assert!(filter.particles.iter().all(|p| p.pose.heading == pose.heading));
+    filter.predict(BodyDelta {
+        translation: DVec2::new(0.0, -0.0001),
+        heading: crate::qty!(0.001 rad),
+    });
+    assert!(filter.particles.iter().all(|p| {
+        let (min, _) = footprint.bounds(p.pose);
+        min.y >= -1.0 - 1e-12
+    }));
+    let before = filter.position_covariance();
+    filter.set_contact_constraint(None);
+    assert_eq!(filter.position_covariance(), before);
+    filter.predict(BodyDelta {
+        translation: DVec2::new(0.0, 0.2),
+        heading: Angle::default(),
+    });
+    assert!(filter.position_covariance().y_axis.y > 0.0);
+}
