@@ -415,7 +415,8 @@ impl DifferentialFeedback {
                 // only after nearly stopping, with a wide hysteresis band.
                 if !through
                     && distance
-                        <= config.approach.reversal_distance_factor * options.position_tolerance.value
+                        <= config.approach.reversal_distance_factor
+                            * options.position_tolerance.value
                     && heading.abs() > config.approach.reversal_heading.value
                     && forward_rate.abs() <= 2.0 * options.speed_tolerance.value
                     && yaw_rate.abs() <= config.approach.reversal_yaw_rate.value
@@ -498,12 +499,11 @@ impl DifferentialFeedback {
                 let reached = error.abs() <= options.position_tolerance.value;
                 let facing = heading.abs() <= options.heading_tolerance.value;
                 let limit = stopping_limit(error, maximum_speed.value);
-                let translation_error =
-                    if reached || heading.abs() > config.approach.realign_enter.value {
-                        0.0
-                    } else {
-                        error
-                    };
+                let translation_error = if reached {
+                    0.0
+                } else {
+                    error * heading.cos().max(0.0)
+                };
                 let speed = if reached && facing && slow {
                     0.0
                 } else {

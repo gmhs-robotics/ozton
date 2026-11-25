@@ -627,8 +627,9 @@ fn next_point(
 
 #[cfg(test)]
 mod chain_tests {
-    use super::next_point;
     use ozton_math::geometry::DVec2;
+
+    use super::next_point;
 
     #[test]
     fn intermediate_gate_advances_but_final_point_never_skips() {

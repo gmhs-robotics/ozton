@@ -94,7 +94,8 @@ impl<'path> ProfiledFollower<'path> {
         let (error, pursuit_curvature) = match self.guidance {
             crate::PathGuidance::Tangent => {
                 let cross = self.geometric.pose.to_local(pose.position).x;
-                let desired = self.geometric.pose.heading + facing
+                let desired = self.geometric.pose.heading
+                    + facing
                     + ozton_math::qty!((cross.atan2(lookahead)) rad);
                 (wrap_heading(desired - pose.heading).value, None)
             }

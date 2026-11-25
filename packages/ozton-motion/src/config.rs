@@ -376,8 +376,6 @@ impl PathConfig {
 pub struct ApproachConfig {
     /// Fraction of remaining distance projected behind the target pose.
     pub boomerang_lead: f64,
-    pub realign_enter: Angle,
-    pub realign_exit: Angle,
     pub reversal_heading: Angle,
     pub reversal_distance_factor: f64,
     pub reversal_yaw_rate: AngularVelocity,
@@ -394,8 +392,6 @@ impl Default for ApproachConfig {
 impl ApproachConfig {
     pub const DEFAULT: Self = Self {
         boomerang_lead: 0.6,
-        realign_enter: ozton_math::qty!(35 deg),
-        realign_exit: ozton_math::qty!(12 deg),
         reversal_heading: ozton_math::qty!(125 deg),
         reversal_distance_factor: 4.0,
         reversal_yaw_rate: ozton_math::units::qty!(0.5 rad/s),
@@ -410,18 +406,6 @@ impl ApproachConfig {
     #[must_use]
     pub const fn with_boomerang_lead(mut self, value: f64) -> Self {
         self.boomerang_lead = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_realign_enter(mut self, value: Angle) -> Self {
-        self.realign_enter = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_realign_exit(mut self, value: Angle) -> Self {
-        self.realign_exit = value;
         self
     }
 
@@ -555,8 +539,6 @@ impl MotionConfig {
                 self.settling.angular_velocity_tolerance.value,
                 self.path.lookahead.value,
                 self.path.maximum_cross_track_error.value,
-                self.approach.realign_enter.value,
-                self.approach.realign_exit.value,
                 self.approach.reversal_heading.value,
                 self.approach.reversal_distance_factor,
                 self.approach.reversal_yaw_rate.value,
@@ -584,8 +566,6 @@ impl MotionConfig {
                 .yaw_braking
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && (0.0..1.0).contains(&self.approach.boomerang_lead)
-            && self.approach.realign_exit < self.approach.realign_enter
-            && self.approach.realign_enter.value < core::f64::consts::FRAC_PI_2
             && self.approach.reversal_heading.value > core::f64::consts::FRAC_PI_2
             && self.approach.reversal_heading.value <= core::f64::consts::PI
             && !self.timing.period.is_zero()
