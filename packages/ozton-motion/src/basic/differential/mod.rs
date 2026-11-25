@@ -283,7 +283,11 @@ impl DifferentialFeedback {
             DifferentialTarget::Swing { heading, hold_left } => {
                 let error = error_at(*heading);
                 let ready = error.abs() <= options.heading_tolerance.value && slow;
-                let rate = if ready { 0.0 } else { angular(&mut self.pid, error) };
+                let rate = if ready {
+                    0.0
+                } else {
+                    angular(&mut self.pid, error)
+                };
                 let active = usize::from(*hold_left);
                 let sign = if *hold_left { 1.0 } else { -1.0 };
                 let width = options.track_width.value;
