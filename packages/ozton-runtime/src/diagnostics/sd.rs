@@ -41,6 +41,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             let mut last_sync = Instant::now();
             let mut last_summary = Instant::now();
             let mut was_autonomous = false;
+            let mut draining = false;
             let mut delay = Duration::from_millis(40);
             let mut bytes_written = 0usize;
             let mut writes = 0u64;
@@ -49,11 +50,11 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             let mut errors = 0u64;
             loop {
                 vexide::time::sleep(delay).await;
-                let autonomous = crate::competition::autonomous_active();
-                let sync_period = Duration::from_secs(if autonomous { 5 } else { 1 });
-                let sync = !autonomous && (last_sync.elapsed() >= sync_period || was_autonomous);
+                let autonomous = crate::competition::autonomous_active()
+                    && crate::competition::activation::route_running();
                 let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
+                draining |= autonomous_ended;
                 peak_queue = peak_queue.max(sd::queued_bytes());
                 if autonomous_ended || last_summary.elapsed() >= Duration::from_secs(5) {
                     ozton_diagnostics::profile::flush_summary();
@@ -79,14 +80,17 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                     delay = Duration::from_millis(40);
                     continue;
                 }
-                if sync {
-                    last_sync = Instant::now();
-                }
+                let chunk = if autonomous { 4096 } else { 32 * 1024 };
+                // Sync the initial post-route chunk and the final chunk, not
+                // just the first prefix of a multi-chunk backlog.
+                let sync = !autonomous
+                    && (last_sync.elapsed() >= Duration::from_secs(1)
+                        || autonomous_ended
+                        || (draining && sd::queued_bytes() <= chunk));
                 let started = Instant::now();
                 let span = ozton_diagnostics::profile::Span::new(
                     ozton_diagnostics::profile::Stage::SdFlush,
                 );
-                let chunk = if autonomous { 4096 } else { 32 * 1024 };
                 let result = sd::flush_chunk(chunk, sync);
                 drop(span);
                 let elapsed = started.elapsed();
@@ -98,7 +102,19 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 }
                 // A slow SDK call cannot be preempted. Reduce I/O duty cycle
                 // instead of scheduling back-to-back writes on the executor.
-                delay = (elapsed * 8).clamp(Duration::from_millis(40), Duration::from_millis(500));
+                if result.is_ok() && sync {
+                    last_sync = Instant::now();
+                    if draining && sd::queued_bytes() == 0 {
+                        draining = false;
+                        log_event!(Info, "SD", "Autonomous log drained and synced");
+                    }
+                }
+                let minimum_delay = if draining && !autonomous {
+                    Duration::from_millis(10)
+                } else {
+                    Duration::from_millis(40)
+                };
+                delay = (elapsed * 8).clamp(minimum_delay, Duration::from_millis(500));
                 match result {
                     Err(error) if !failed => {
                         log_event!(Warn, "SD", "Could not flush {path} ({error}). Retrying.");
