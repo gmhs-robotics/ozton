@@ -1,7 +1,11 @@
 //! IMU calibrated once before competition.
 
 use ozton_diagnostics::log_event;
-use ozton_math::uom::si::f64::{Angle, Length};
+use ozton_math::{
+    geometry::compass_heading,
+    localization::observation::{ReadHeading, ReadTilt},
+    uom::si::f64::{Angle, Length},
+};
 use vexide::{prelude::InertialSensor, smart::SmartDevice};
 
 pub use super::Orientation;
@@ -137,6 +141,32 @@ impl InertialSensorTracking {
             .map(|v| [v.x, v.y, v.z])
             .unwrap_or([f64::NAN; 3]);
         (rate, accel)
+    }
+}
+
+impl ReadHeading for InertialSensorTracking {
+    fn read_heading(&self) -> Option<Angle> {
+        self.read_orientation(false)?.heading.map(compass_heading)
+    }
+}
+
+impl ReadTilt for InertialSensorTracking {
+    fn read_tilt(&self) -> Option<[Angle; 2]> {
+        if self.sensor.is_calibrating().ok()? {
+            return None;
+        }
+        let euler = self.sensor.euler().ok()?;
+        let pitch = euler.a.as_radians();
+        let roll = euler.c.wrapped_half().as_radians();
+        if !pitch.is_finite() || !roll.is_finite() {
+            return None;
+        }
+        let (pitch, roll) = chassis_tilt(
+            ozton_math::qty!((pitch) rad),
+            ozton_math::qty!((roll) rad),
+            self.bearing,
+        );
+        Some([pitch, roll])
     }
 }
 

@@ -62,3 +62,23 @@ pub trait TracksForwardTravel {
     /// values indicate backwards movement from the origin.
     fn forward_travel(&self) -> f64;
 }
+
+/// Compile-time selection of a concrete installed source. A tuple index has an
+/// implementation only when that element exists; no dynamic capability lookup.
+pub trait SourceAt<const I: usize> {
+    type Source;
+
+    fn source_at(&self) -> &Self::Source;
+    fn source_at_mut(&mut self) -> &mut Self::Source;
+}
+
+/// A source capable of measuring heading in the library's CCW convention.
+/// None means the installed source is temporarily unavailable, not absent.
+pub trait ReadHeading {
+    fn read_heading(&self) -> Option<Angle>;
+}
+
+/// A source capable of measuring both chassis pitch and roll, in radians.
+pub trait ReadTilt {
+    fn read_tilt(&self) -> Option<[Angle; 2]>;
+}

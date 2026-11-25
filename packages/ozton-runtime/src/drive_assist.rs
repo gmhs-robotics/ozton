@@ -14,10 +14,7 @@ use ozton_math::{
         velocity::meter_per_second,
     },
 };
-use ozton_tracking::{
-    NoTracking, Tracking, TrackingSources, TrackingSystem, inertial::Orientation,
-    odometric::DriveEncoders,
-};
+use ozton_tracking::{TrackingSystem, odometric::DriveEncoders};
 use vexide::smart::PortError;
 
 mod collection;
@@ -27,29 +24,13 @@ pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssis
 
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
 
-/// Hardware observation used by assists that need orientation.
-pub trait AssistTracking: TrackingSystem {
-    fn assist_orientation(&mut self) -> Option<Orientation> {
-        None
-    }
-}
-
-impl AssistTracking for () {}
-impl AssistTracking for NoTracking {}
-
-impl<S: TrackingSources> AssistTracking for Tracking<S> {
-    fn assist_orientation(&mut self) -> Option<Orientation> {
-        self.refresh_orientation()
-    }
-}
-
 /// A temporary drive view over an assembled drivetrain and its installed assists.
 pub struct AssistedDrivetrain<'a, M: Drive, T: TrackingSystem, L, A> {
     drivetrain: &'a mut Drivetrain<M, T, L>,
     assists: &'a mut DriveAssists<A>,
 }
 
-impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {
+impl<'a, M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> AssistedDrivetrain<'a, M, T, L, A> {
     pub fn new(drivetrain: &'a mut Drivetrain<M, T, L>, assists: &'a mut DriveAssists<A>) -> Self {
         Self {
             drivetrain,
@@ -57,6 +38,9 @@ impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {
         }
     }
 
+}
+
+impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {
     pub fn drivetrain(&self) -> &Drivetrain<M, T, L> {
         self.drivetrain
     }
@@ -66,7 +50,7 @@ impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {
     }
 }
 
-impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> AssistedDrivetrain<'_, M, T, L, A> {
+impl<M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> AssistedDrivetrain<'_, M, T, L, A> {
     fn mix(
         &mut self,
         mut axes: [f64; 2],
@@ -84,19 +68,12 @@ impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> AssistedDrivetrain
                 Duration::ZERO
             }
         };
-        let orientation = self
-            .assists
-            .items
-            .needs_orientation()
-            .then(|| self.drivetrain.tracking_mut().assist_orientation())
-            .flatten();
         let tracking = self.drivetrain.tracking();
         let localization = self.drivetrain.localization();
         let context = AssistContext {
             model: &self.drivetrain.model,
             tracking: &*tracking,
             localization: &*localization,
-            orientation,
             elapsed,
             wheel_velocity,
         };
@@ -112,7 +89,7 @@ impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> AssistedDrivetrain
     }
 }
 
-impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> Drive
+impl<M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> Drive
     for AssistedDrivetrain<'_, M, T, L, A>
 {
     type Error = M::Error;
@@ -134,7 +111,7 @@ impl<M: Drive, T: AssistTracking, L, A: DriveAssist<M, T, L>> Drive
     }
 }
 
-impl<M: LateralDrive, T: AssistTracking, L, A: DriveAssist<M, T, L>> LateralDrive
+impl<M: LateralDrive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> LateralDrive
     for AssistedDrivetrain<'_, M, T, L, A>
 {
 }
@@ -165,7 +142,7 @@ where
 
 impl<
     M: Drive<Error = PortError> + MotorGroups<WheelSpeeds = [Velocity; 2]>,
-    T: AssistTracking,
+    T: TrackingSystem,
     L,
     A: DriveAssist<M, T, L>,
 > AssistedDrivetrain<'_, M, T, L, A>

@@ -73,7 +73,7 @@ impl TrackingSystem for () {}
 
 pub use ozton_math::localization::observation::{
     DisplacementObservation, HeadingObservation, Measurement, Observation, TracksForwardTravel,
-    TracksHeading, TracksPosition, TracksVelocity,
+    ReadHeading, ReadTilt, SourceAt, TracksHeading, TracksPosition, TracksVelocity,
 };
 
 pub mod mount;

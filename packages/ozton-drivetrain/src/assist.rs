@@ -1,7 +1,7 @@
 //! Hardware-independent drive assistance contract.
 use std::time::Duration;
 
-use ozton_math::{desaturate, localization::observation::Orientation};
+use ozton_math::desaturate;
 
 use crate::model::{Balancing, Drive};
 
@@ -10,7 +10,6 @@ pub struct AssistContext<'a, M, T, L> {
     pub model: &'a M,
     pub tracking: &'a T,
     pub localization: &'a L,
-    pub orientation: Option<Orientation>,
     pub elapsed: Duration,
     /// Whether the caller supplies physical wheel velocity targets.
     pub wheel_velocity: bool,
@@ -18,10 +17,6 @@ pub struct AssistContext<'a, M, T, L> {
 
 /// Transform forward/turn axes or adjust the resulting side commands.
 pub trait DriveAssist<M: Drive, T, L> {
-    fn needs_orientation(&self) -> bool {
-        false
-    }
-
     fn apply(&mut self, _axes: &mut [f64; 2], _context: &AssistContext<'_, M, T, L>) {}
 
     fn wheels(
@@ -57,10 +52,6 @@ macro_rules! tuple_assists {
         impl<M: Drive, T, L, $($assist: DriveAssist<M, T, L>),+> DriveAssist<M, T, L>
             for ($($assist,)+)
         {
-            fn needs_orientation(&self) -> bool {
-                false $(|| self.$index.needs_orientation())+
-            }
-
             fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
                 $(self.$index.apply(axes, context);)+
             }
