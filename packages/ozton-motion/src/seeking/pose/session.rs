@@ -387,13 +387,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 feedback.angular_velocity.value,
                 feedback.forward_travel.value,
                 wheels[0],
-                wheels[1],
-                dt.as_micros(),
-                requested[0],
-                requested[1],
-                feedback.forward_velocity.value,
-                feedback.lateral_velocity.value,
-                feedback.angular_velocity.value
+                wheels[1]
             );
             self.drive.log_step(self.started.elapsed(), dt);
             if complete {
@@ -608,7 +602,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 feedback.pose.position.y,
                 feedback.pose.heading.value,
                 wheels[0],
-                wheels[1]
+                wheels[1],
+                dt.as_micros(),
+                requested[0],
+                requested[1],
+                feedback.forward_velocity.value,
+                feedback.lateral_velocity.value,
+                feedback.angular_velocity.value
             );
             self.drive.log_step(self.started.elapsed(), dt);
             if complete {

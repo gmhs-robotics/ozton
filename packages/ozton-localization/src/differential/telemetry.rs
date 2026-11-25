@@ -117,7 +117,11 @@ impl Telemetry {
             ),
         );
         // Keep raw pod data independent of lower-priority range diagnostics.
-        let wheel_interval = if pressure { DETAIL_INTERVAL } else { WHEEL_INTERVAL };
+        let wheel_interval = if pressure {
+            DETAIL_INTERVAL
+        } else {
+            WHEEL_INTERVAL
+        };
         if self.last_wheels.is_none_or(|last| {
             frame.time < last || frame.time.saturating_sub(last) >= wheel_interval
         }) {
