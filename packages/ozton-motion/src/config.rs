@@ -281,7 +281,6 @@ pub struct ClearanceConfig {
     pub lateral_braking: Acceleration,
     /// Number of estimated standard deviations in the stopping-rate interval.
     pub braking_sigma: f64,
-    pub departure_reserve: Length,
     pub departure_speed: Velocity,
 }
 
@@ -302,7 +301,6 @@ impl ClearanceConfig {
         wall_preview: Duration::from_millis(150),
         lateral_braking: ozton_math::qty!(0.35 m/s^2),
         braking_sigma: 2.0,
-        departure_reserve: ozton_math::qty!(0.25 in),
         departure_speed: ozton_math::units::qty!(0.30 m/s),
     };
 
@@ -373,12 +371,6 @@ impl ClearanceConfig {
     #[must_use]
     pub const fn with_braking_sigma(mut self, value: f64) -> Self {
         self.braking_sigma = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_departure_reserve(mut self, value: Length) -> Self {
-        self.departure_reserve = value;
         self
     }
 
@@ -639,12 +631,8 @@ impl MotionConfig {
             && self.limits.minimum_linear_speed.value >= 0.0
             && self.limits.minimum_angular_speed.value.is_finite()
             && self.limits.minimum_angular_speed.value >= 0.0
-            && [
-                self.safety.clearance.value,
-                self.safety.departure_reserve.value,
-            ]
-            .into_iter()
-            .all(|v| v.is_finite() && v >= 0.0)
+            && self.safety.clearance.value.is_finite()
+            && self.safety.clearance.value >= 0.0
             && self
                 .safety
                 .forward_braking
@@ -700,7 +688,13 @@ impl MotionConfig {
         )
     }
 
-    pub const fn follower(self) -> crate::Follower {
+    pub const fn path_follower(self) -> crate::Follower {
+        crate::Follower::PurePursuit {
+            lookahead: self.path.lookahead,
+        }
+    }
+
+    pub const fn trajectory_follower(self) -> crate::Follower {
         crate::Follower::Ramsete {
             b: self.path.ramsete_b,
             zeta: self.path.ramsete_zeta,
