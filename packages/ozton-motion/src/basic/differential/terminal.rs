@@ -19,6 +19,7 @@ enum Phase {
 pub struct TerminalPose {
     phase: Phase,
     approach_reverse: Option<bool>,
+    aligning: bool,
 }
 
 impl TerminalPose {
@@ -75,6 +76,7 @@ impl TerminalPose {
             };
             if !slow
                 && (travel_error > core::f64::consts::FRAC_PI_4
+                    || feedback.angular_velocity.value.abs() > options.angular_speed_tolerance.value
                     || (feedback.forward_velocity.value < 0.0) != backing)
             {
                 self.phase = Phase::Brake(Duration::ZERO);
@@ -87,6 +89,7 @@ impl TerminalPose {
         }
         if matches!(self.phase, Phase::Approach) && inside {
             self.phase = Phase::Brake(Duration::ZERO);
+            self.aligning = false;
             controller.reset();
             changed = true;
         }
@@ -118,6 +121,34 @@ impl TerminalPose {
             changed = true;
         }
 
+        // Use the same stationary turn controller as Basic for large bearing
+        // errors. Hysteresis prevents switching between turn and translation
+        // every tick. Polar guidance retains its own coupled pose law.
+        if matches!(self.phase, Phase::Approach)
+            && !inside
+            && matches!(controller.config.path.terminal, crate::TerminalGuidance::Point)
+        {
+            let backing = controller.point_backing.unwrap_or(self.approach_reverse.unwrap_or(reverse));
+            let heading = bearing(target.position - feedback.pose.position)
+                + ozton_math::qty!((if backing { core::f64::consts::PI } else { 0.0 }) rad);
+            let error = wrap_heading(heading - feedback.pose.heading).value.abs();
+            if self.aligning || error > core::f64::consts::FRAC_PI_4 {
+                if !self.aligning {
+                    self.aligning = true;
+                    controller.reset_feedback();
+                    changed = true;
+                }
+                let (wheels, ready) = controller.step(
+                    DifferentialTarget::Turn { heading }, feedback, dt, options,
+                );
+                if ready {
+                    self.aligning = false;
+                    controller.reset_feedback();
+                    changed = true;
+                }
+                return (wheels, false, options.track_width.value * error * 0.5, changed);
+            }
+        }
         let turning = matches!(self.phase, Phase::Heading);
         let command = if turning {
             DifferentialTarget::Turn {
