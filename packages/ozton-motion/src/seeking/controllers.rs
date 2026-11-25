@@ -4,7 +4,7 @@ use std::time::Duration;
 use ozton_drivetrain::{MotionExecution, RangeResetDrive, WheelActuation};
 use ozton_math::{
     geometry::{DVec2, Pose},
-    path::{Path, PathSample, clearance::RectangularClearance},
+    path::{Path, PathSample},
     uom::si::f64::{Angle, Length, Velocity},
 };
 
@@ -279,7 +279,7 @@ impl MoveToPoint for Basic {
 
 impl MoveToPose for Basic {
     async fn move_to_pose<D: MotionExecution>(&self, drive: &mut D, pose: Pose) -> MotionResult<D> {
-        self.engine.move_to_pose_straight_checked(drive, pose).await
+        self.engine.move_to_pose_straight(drive, pose).await
     }
 }
 
@@ -421,18 +421,6 @@ pub fn prepare_path<D: MotionExecution>(
         travel: None,
     }
     .prepare_path(drive, samples, limits)
-}
-
-/// Build the configured physical clearance model without selecting a controller.
-pub fn clearance<D: MotionExecution>(
-    drive: &D,
-    config: MotionConfig,
-) -> MotionResult<D, Option<RectangularClearance>> {
-    Engine {
-        config,
-        travel: None,
-    }
-    .clearance(drive)
 }
 
 /// Hold the drivetrain stationary while the localization estimate settles.

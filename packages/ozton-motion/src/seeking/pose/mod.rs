@@ -1,11 +1,10 @@
-//! Clearance-aware pose seeking for a calibrated differential drivetrain.
+//! Pose feedback for a calibrated differential drivetrain.
 
 use std::time::{Duration, Instant};
 
 use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, Pose},
-    path::clearance::RectangularClearance,
     uom::si::f64::{Angle, Length},
 };
 
@@ -32,20 +31,8 @@ pub enum TravelDirection {
 }
 
 impl Engine {
-    /// Construct the clearance model configured for this motion template.
-    pub fn clearance<D: MotionExecution>(
-        &self,
-        drive: &D,
-    ) -> Result<Option<RectangularClearance>, PoseMotionError<D::Error>> {
-        approach::clearance(
-            drive,
-            self.config.safety.clearance,
-            self.config.safety.movable_obstacles,
-        )
-    }
-
     /// Hold a stopped drivetrain while localization settles. Warn once on low
-    /// confidence or invalid physical clearance; cancellation remains an error.
+    /// confidence; cancellation remains an error.
     pub async fn settle<D: MotionExecution>(
         &self,
         drive: &mut D,
@@ -53,24 +40,19 @@ impl Engine {
     ) -> Result<(), PoseMotionError<D::Error>> {
         self.options(drive).ok_or(PoseMotionError::Configuration)?;
         drive.brake().map_err(PoseMotionError::StopFailed)?;
-        let area = self.clearance(drive)?;
         let started = Instant::now();
         let mut warned = false;
         while started.elapsed() < duration {
             if !drive.motion_active() {
                 return Err(PoseMotionError::Cancelled);
             }
-            let uncertain = {
-                let loc = drive.localization();
-                !loc.pose_trusted()
-                    || area.is_some_and(|area| !area.contains_physical_pose(loc.pose()))
-            };
+            let uncertain = !drive.localization().pose_trusted();
             if !warned && uncertain {
                 warned = true;
                 ozton_diagnostics::log_event!(
                     Warn,
                     "localization",
-                    "Initial pose confidence or clearance is low"
+                    "Initial pose confidence is low"
                 );
             }
             drive
@@ -78,50 +60,6 @@ impl Engine {
                 .await;
         }
         Ok(())
-    }
-
-    /// Check an in-place turn, straight translation, and final turn before
-    /// executing the ordinary straight pose controller.
-    pub async fn move_to_pose_straight_checked<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        target: Pose,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        use ozton_math::geometry::{bearing, wrap_heading};
-
-        let start = drive.localization().pose();
-        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        if !start.is_finite() || !target.is_finite() {
-            return Err(PoseMotionError::Configuration);
-        }
-        if let Some(area) = self.clearance(drive)? {
-            let delta = target.position - start.position;
-            if delta.length() <= options.position_tolerance.value {
-                if !area.contains_turn(start, target.heading) {
-                    return Err(PoseMotionError::InsufficientClearance);
-                }
-            } else {
-                let bearing = bearing(delta);
-                let reverse = self.travel.map_or_else(
-                    || {
-                        wrap_heading(bearing - start.heading).value.abs()
-                            > core::f64::consts::FRAC_PI_2
-                    },
-                    |direction| direction == TravelDirection::Backward,
-                );
-                let heading = wrap_heading(
-                    bearing + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
-                );
-                if !area.contains_turn(start, heading)
-                    || !area
-                        .contains_translation(Pose::new(start.position, heading), target.position)
-                    || !area.contains_turn(Pose::new(target.position, heading), target.heading)
-                {
-                    return Err(PoseMotionError::InsufficientClearance);
-                }
-            }
-        }
-        self.move_to_pose_straight(drive, target).await
     }
 
     pub(super) fn options(
@@ -173,7 +111,6 @@ impl Engine {
     /// Chain straight legs, carrying speed through collinear transit points.
     /// At a direction change, settle translation and acquire the next bearing
     /// before accelerating. The caller supplies only positions, not turn angles.
-    /// Reject nominally obstructed translations and pivot turns before driving.
     pub async fn move_through_points_straight<D: MotionExecution>(
         &self,
         drive: &mut D,
@@ -200,23 +137,6 @@ impl Engine {
         let reverse = self.travel == Some(TravelDirection::Backward);
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let tolerance = options.heading_tolerance.value;
-        let field = self.clearance(drive)?;
-
-        let mut nominal = start;
-        for &point in points {
-            if nominal.position.distance(point) <= options.position_tolerance.value {
-                continue;
-            }
-            let heading = wrap_heading(bearing(point - nominal.position) + facing);
-            let aligned = Pose::new(nominal.position, heading);
-            if field.as_ref().is_some_and(|area| {
-                !area.contains_turn(nominal, heading) || !area.contains_translation(aligned, point)
-            }) {
-                return Err(PoseMotionError::InsufficientClearance);
-            }
-            nominal = Pose::new(point, heading);
-        }
-
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = async {
             let mut index = 0;
@@ -233,13 +153,6 @@ impl Engine {
                 };
                 let end = straight_run_end(origin, &points[index..], tolerance) + index;
                 let heading = wrap_heading(bearing(points[index] - pose.position) + facing);
-                let aligned = Pose::new(pose.position, heading);
-                if field.as_ref().is_some_and(|area| {
-                    !area.contains_turn(pose, heading)
-                        || !area.contains_translation(aligned, points[end])
-                }) {
-                    return Err(PoseMotionError::InsufficientClearance);
-                }
                 if wrap_heading(heading - pose.heading).value.abs() > tolerance {
                     session
                         .run(
@@ -270,10 +183,6 @@ impl Engine {
             return Err(PoseMotionError::Configuration);
         }
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let field = approach::clearance(drive, self.config.safety.clearance, false)?;
-        if field.is_some_and(|field| !field.contains_physical_pose(target)) {
-            ozton_diagnostics::log_event!(Warn, "motion", "Pose target outside nominal clearance");
-        }
         let reverse = self.travel.map_or_else(
             || {
                 ozton_math::geometry::wrap_heading(
@@ -343,78 +252,13 @@ impl Engine {
         drive: &mut D,
         distance: Length,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        let contact = drive.localization().wall_contact();
-        if let Some(wall) = contact {
-            self.drive_distance_from_contact(drive, distance, wall)
-                .await
-        } else {
-            self.drive_distance_inner(drive, distance, None).await
-        }
-    }
-
-    /// Leave a physically verified flush contact using the ordinary
-    /// distance PID and a one-shot unilateral wall constraint.
-    /// Register the surveyed contact pose before this command. Virtual
-    /// boundaries are never valid contact observations.
-    async fn drive_distance_from_contact<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        distance: Length,
-        wall: WallContact,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        if drive.localization().wall_contact() != Some(wall) {
-            return Err(PoseMotionError::Configuration);
-        }
-        let result = self.drive_distance_inner(drive, distance, Some(wall)).await;
-        drive.localization_mut().release_wall_contact();
-        result
-    }
-
-    async fn drive_distance_inner<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        distance: Length,
-        contact: Option<WallContact>,
-    ) -> Result<(), PoseMotionError<D::Error>> {
         let heading = drive.localization().pose().heading;
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if !distance.value.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
-        let field = approach::clearance(drive, self.config.safety.clearance, false)?;
-        let start = drive.localization().pose();
-        let end = Pose::new(
-            start.position + ozton_math::geometry::direction(heading) * distance.value,
-            heading,
-        );
-        if let Some(wall) = contact {
-            let field = field.ok_or(PoseMotionError::Configuration)?;
-            if distance.value == 0.0
-                || !field.contact_inward(wall, start, [0.0, distance.value, 0.0], [0.0; 3])
-                || wall.inward().dot(end.position - start.position) <= 0.0
-            {
-                return Err(PoseMotionError::InsufficientClearance);
-            }
-        }
-        if field.is_some_and(|f| !f.contains_translation(start, end.position)) {
-            ozton_diagnostics::log_row!(
-                Warn,
-                "CLEARANCE_FAULT",
-                "reason=planned_translation,x_m={:.5},y_m={:.5},end_x_m={:.5},end_y_m={:.5}",
-                start.position.x,
-                start.position.y,
-                end.position.x,
-                end.position.y
-            );
-            ozton_diagnostics::log_event!(
-                Warn,
-                "clearance",
-                "Planned straight translation violates nominal clearance; continuing feedback"
-            );
-        }
-        if contact.is_some() {
-            drive.localization_mut().release_wall_contact();
-        }
+        // The surveyed contact is a stationary localization prior, not a motion limit.
+        drive.localization_mut().release_wall_contact();
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .run(
@@ -429,7 +273,7 @@ impl Engine {
         session.finish(result)
     }
 
-    /// Execute a constant-radius forward arc with a checked swept footprint.
+    /// Execute a constant-radius forward arc.
     pub async fn drive_arc<D: MotionExecution>(
         &self,
         drive: &mut D,
@@ -443,30 +287,6 @@ impl Engine {
             || sweep.value.abs() > core::f64::consts::TAU
         {
             return Err(PoseMotionError::Configuration);
-        }
-        if let Some(field) = approach::clearance(drive, self.config.safety.clearance, false)? {
-            let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
-            let (min, max) = footprint
-                .forward_arc_bounds(drive.localization().pose(), radius, sweep)
-                .ok_or(PoseMotionError::Configuration)?;
-            if !field.contains_aabb(min, max) {
-                ozton_diagnostics::log_row!(
-                    Warn,
-                    "CLEARANCE_FAULT",
-                    "reason=planned_arc,min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5},radius_m={:.5},sweep_rad={:.5}",
-                    min.x,
-                    min.y,
-                    max.x,
-                    max.y,
-                    radius.value,
-                    sweep.value
-                );
-                ozton_diagnostics::log_event!(
-                    Warn,
-                    "clearance",
-                    "Planned arc violates nominal clearance; continuing feedback"
-                );
-            }
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
@@ -530,19 +350,6 @@ impl Engine {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let start = drive.localization().pose();
         let sweep = ozton_math::geometry::wrap_heading(heading - start.heading);
-        if let Some(field) = approach::clearance(drive, self.config.safety.clearance, false)? {
-            let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
-            let (min, max) = footprint
-                .forward_arc_bounds(start, options.track_width * 0.5, sweep)
-                .ok_or(PoseMotionError::Configuration)?;
-            if !field.contains_aabb(min, max) {
-                ozton_diagnostics::log_event!(
-                    Warn,
-                    "clearance",
-                    "Swing exceeds nominal clearance; continuing feedback"
-                );
-            }
-        }
         let hold_left = sweep.value >= 0.0;
         let held = usize::from(!hold_left);
         let mut session = PoseSession::new(drive, options, self.config)?;
@@ -566,22 +373,6 @@ impl Engine {
         target: crate::basic::differential::DifferentialTarget,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let heading = match target {
-            crate::basic::differential::DifferentialTarget::Turn { heading } => heading,
-            crate::basic::differential::DifferentialTarget::TurnToPoint { target } => {
-                ozton_math::geometry::bearing(target - drive.localization().pose().position)
-            }
-            _ => return Err(PoseMotionError::Configuration),
-        };
-        if approach::clearance(drive, self.config.safety.clearance, false)?
-            .is_some_and(|f| !f.contains_turn(drive.localization().pose(), heading))
-        {
-            ozton_diagnostics::log_event!(
-                Warn,
-                "clearance",
-                "Turn exceeds nominal clearance; continuing feedback"
-            );
-        }
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session.run(target, self.config.timing.stage_timeout).await;
         session.finish(result)
@@ -614,7 +405,6 @@ impl Engine {
             return Err(PoseMotionError::Configuration);
         }
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let field = approach::clearance(drive, self.config.safety.clearance, false)?;
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let start = path.start().pose;
         let actual = drive.localization().pose();
@@ -632,48 +422,6 @@ impl Engine {
                 "motion",
                 "Trajectory start offset exceeds tuning threshold; continuing feedback"
             );
-        }
-        if let Some(mut field) = field {
-            if self.config.safety.movable_obstacles {
-                for polygon in drive
-                    .localization()
-                    .movable_obstacles()
-                    .into_iter()
-                    .flatten()
-                {
-                    field = field
-                        .with_polygon(polygon)
-                        .ok_or(PoseMotionError::Configuration)?;
-                }
-            }
-            drive.brake().map_err(PoseMotionError::StopFailed)?;
-            let mut slice_started = std::time::Instant::now();
-            let clear = ozton_math::path::clearance::clear_path_cooperative(
-                path,
-                reverse,
-                field,
-                async || {
-                    if slice_started.elapsed() >= Duration::from_millis(2) {
-                        drive
-                            .wait_until(std::time::Instant::now() + Duration::from_millis(1))
-                            .await;
-                        slice_started = std::time::Instant::now();
-                    }
-                    drive.motion_active()
-                },
-            )
-            .await;
-            if !drive.motion_active() {
-                return Err(PoseMotionError::Cancelled);
-            }
-            if !clear {
-                ozton_diagnostics::log_event!(
-                    Warn,
-                    "clearance",
-                    "Planned trajectory violates clearance"
-                );
-                return Err(PoseMotionError::InsufficientClearance);
-            }
         }
         let end = path.end().pose;
         let target = Pose::new(end.position, end.heading + facing);

@@ -289,43 +289,6 @@ impl MotionTiming {
     }
 }
 
-/// Geometric clearance used to validate authored motions before execution.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ClearanceConfig {
-    pub clearance: Length,
-    /// Include movable field objects in the authored-path preflight check.
-    pub movable_obstacles: bool,
-}
-
-impl Default for ClearanceConfig {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
-
-impl ClearanceConfig {
-    pub const DEFAULT: Self = Self {
-        clearance: ozton_math::qty!(0.5 in),
-        movable_obstacles: false,
-    };
-
-    pub const fn new() -> Self {
-        Self::DEFAULT
-    }
-
-    #[must_use]
-    pub const fn with_clearance(mut self, value: Length) -> Self {
-        self.clearance = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_movable_obstacles(mut self, enabled: bool) -> Self {
-        self.movable_obstacles = enabled;
-        self
-    }
-}
-
 /// Trajectory follower parameters.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum PathGuidance {
@@ -564,7 +527,6 @@ pub struct MotionConfig {
     pub rates: RateFilters,
     pub settling: SettlingConfig,
     pub timing: MotionTiming,
-    pub safety: ClearanceConfig,
     pub path: PathConfig,
     pub approach: ApproachConfig,
 }
@@ -582,7 +544,6 @@ impl MotionConfig {
         rates: RateFilters::DEFAULT,
         settling: SettlingConfig::DEFAULT,
         timing: MotionTiming::DEFAULT,
-        safety: ClearanceConfig::DEFAULT,
         path: PathConfig::DEFAULT,
         approach: ApproachConfig::DEFAULT,
     };
@@ -612,12 +573,6 @@ impl MotionConfig {
     #[must_use]
     pub const fn with_timing(mut self, value: MotionTiming) -> Self {
         self.timing = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_safety(mut self, value: ClearanceConfig) -> Self {
-        self.safety = value;
         self
     }
 
@@ -675,8 +630,6 @@ impl MotionConfig {
             && self.limits.minimum_linear_speed.value >= 0.0
             && self.limits.minimum_angular_speed.value.is_finite()
             && self.limits.minimum_angular_speed.value >= 0.0
-            && self.safety.clearance.value.is_finite()
-            && self.safety.clearance.value >= 0.0
             && self
                 .limits
                 .forward_braking

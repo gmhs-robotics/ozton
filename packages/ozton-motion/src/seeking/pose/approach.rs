@@ -5,7 +5,6 @@ use std::time::Duration;
 use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, bearing, wrap_heading},
-    path::clearance::RectangularClearance,
     uom::si::f64::Angle,
 };
 
@@ -131,43 +130,4 @@ async fn turn<D: MotionExecution>(
     session
         .run(DifferentialTarget::Turn { heading }, timeout)
         .await
-}
-
-pub(super) fn clearance<D: MotionExecution>(
-    drive: &D,
-    margin: ozton_math::uom::si::f64::Length,
-    movable: bool,
-) -> MotionResult<D, Option<RectangularClearance>> {
-    let Some(footprint) = drive.footprint() else {
-        return Ok(None);
-    };
-    let bounds = drive
-        .localization()
-        .rectangular_half_extents()
-        .ok_or(PoseMotionError::Configuration)?;
-    let mut field = RectangularClearance::new(footprint, bounds, margin)
-        .ok_or(PoseMotionError::Configuration)?;
-    for polygon in drive
-        .localization()
-        .motion_obstacles()
-        .into_iter()
-        .flatten()
-    {
-        field = field
-            .with_polygon(polygon)
-            .ok_or(PoseMotionError::Configuration)?;
-    }
-    if movable {
-        for polygon in drive
-            .localization()
-            .movable_obstacles()
-            .into_iter()
-            .flatten()
-        {
-            field = field
-                .with_polygon(polygon)
-                .ok_or(PoseMotionError::Configuration)?;
-        }
-    }
-    Ok(Some(field))
 }
