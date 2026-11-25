@@ -301,10 +301,19 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         let mut follower = ProfiledFollower::new(path, self.config.path.lookahead);
         let mut config = self.config;
         let limits = path.limits();
-        config.limits.lateral_acceleration = config.limits.lateral_acceleration.min(limits.lateral_acceleration);
+        config.limits.lateral_acceleration = config
+            .limits
+            .lateral_acceleration
+            .min(limits.lateral_acceleration);
         config.limits.acceleration = config.limits.acceleration.min(limits.acceleration);
         config.limits.deceleration = config.limits.deceleration.min(limits.deceleration);
-        config.limits.wheel_acceleration = Some(config.limits.wheel_acceleration.unwrap_or(config.limits.acceleration).min(limits.wheel_acceleration));
+        config.limits.wheel_acceleration = Some(
+            config
+                .limits
+                .wheel_acceleration
+                .unwrap_or(config.limits.acceleration)
+                .min(limits.wheel_acceleration),
+        );
         let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
         let mut last = None;
         let mut fresh_at = Instant::now();

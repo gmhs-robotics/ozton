@@ -71,7 +71,9 @@ impl<'path> ProfiledFollower<'path> {
             // A short spatial preview starts the robot from a zero-speed
             // profile endpoint and begins braking ahead of corners.
             let remaining = (path.end().distance - self.geometric.distance).max(0.0);
-            let preview = (self.lookahead.value * 0.25).min(0.025).min(remaining * 0.5);
+            let preview = (self.lookahead.value * 0.25)
+                .min(0.025)
+                .min(remaining * 0.5);
             let speed = path
                 .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
                 .speed;

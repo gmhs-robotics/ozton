@@ -183,11 +183,19 @@ impl DifferentialFeedback {
         let slow = linear_rate_squared <= options.speed_tolerance.value.powi(2)
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let error_at = |heading| wrap_heading(heading - feedback.pose.heading).value;
-        let steering_priority = matches!(&target, DifferentialTarget::DriveToPoint { .. } | DifferentialTarget::DriveToPose { .. });
+        let steering_priority = matches!(
+            &target,
+            DifferentialTarget::DriveToPoint { .. } | DifferentialTarget::DriveToPose { .. }
+        );
         let drive = |linear: f64, angular: f64| {
             if !steering_priority {
                 return desaturate(
-                    wheel_speeds(Velocity::new::<meter_per_second>(linear), AngularVelocity::new::<radian_per_second>(angular), options.track_width).map(|speed| speed.value),
+                    wheel_speeds(
+                        Velocity::new::<meter_per_second>(linear),
+                        AngularVelocity::new::<radian_per_second>(angular),
+                        options.track_width,
+                    )
+                    .map(|speed| speed.value),
                     options.maximum_wheel_speed.value,
                 );
             }
@@ -581,7 +589,8 @@ impl DifferentialFeedback {
         }
         let width = options.track_width.value;
         let lateral_limit = self.config.limits.lateral_acceleration.value;
-        let desired = crate::pursuit::profiled::limit_lateral_acceleration(desired, width, lateral_limit);
+        let desired =
+            crate::pursuit::profiled::limit_lateral_acceleration(desired, width, lateral_limit);
         let current_v = (self.last_wheels[0] + self.last_wheels[1]) * 0.5;
         let current_w = (self.last_wheels[1] - self.last_wheels[0]) / width;
         let desired_v = (desired[0] + desired[1]) * 0.5;

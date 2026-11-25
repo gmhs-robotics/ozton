@@ -448,13 +448,8 @@ impl Seeking {
         path: &ozton_math::path::Path,
         reverse: bool,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.follow_with_actions(
-            drive,
-            path,
-            reverse,
-            &mut PathActions::new(),
-        )
-        .await
+        self.follow_with_actions(drive, path, reverse, &mut PathActions::new())
+            .await
     }
 
     /// Execute a continuous trajectory with nonblocking mechanism actions.

@@ -352,7 +352,6 @@ impl PathConfig {
         self.maximum_cross_track_error = value;
         self
     }
-
 }
 
 /// Point approach and terminal correction behavior.

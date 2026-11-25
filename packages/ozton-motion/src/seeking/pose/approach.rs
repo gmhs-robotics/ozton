@@ -36,18 +36,24 @@ pub(super) async fn drive_to_target<D: MotionExecution>(
     } else {
         let pose = session.drive.localization().pose();
         let reverse = settings.travel.map_or_else(
-            || wrap_heading(bearing(position - pose.position) - pose.heading)
-                .value.abs() > core::f64::consts::FRAC_PI_2,
+            || {
+                wrap_heading(bearing(position - pose.position) - pose.heading)
+                    .value
+                    .abs()
+                    > core::f64::consts::FRAC_PI_2
+            },
             |direction| direction == TravelDirection::Backward,
         );
-        session.run(
-            DifferentialTarget::DriveToPoint {
-                target: position,
-                maximum_speed: options.maximum_wheel_speed,
-                reverse,
-            },
-            settings.config.timing.stage_timeout,
-        ).await
+        session
+            .run(
+                DifferentialTarget::DriveToPoint {
+                    target: position,
+                    maximum_speed: options.maximum_wheel_speed,
+                    reverse,
+                },
+                settings.config.timing.stage_timeout,
+            )
+            .await
     };
     session.finish(result)
 }
