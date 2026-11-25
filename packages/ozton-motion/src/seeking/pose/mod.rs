@@ -197,7 +197,12 @@ impl Seeking {
         if self.config.safety.movable_obstacles
             && let Some(area) = &mut field
         {
-            for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+            for polygon in drive
+                .localization()
+                .movable_obstacles()
+                .into_iter()
+                .flatten()
+            {
                 *area = area
                     .with_polygon(polygon)
                     .ok_or(PoseMotionError::Configuration)?;
@@ -212,8 +217,7 @@ impl Seeking {
             let heading = wrap_heading(bearing(point - nominal.position) + facing);
             let aligned = Pose::new(nominal.position, heading);
             if field.as_ref().is_some_and(|area| {
-                !area.contains_turn(nominal, heading)
-                    || !area.contains_translation(aligned, point)
+                !area.contains_turn(nominal, heading) || !area.contains_translation(aligned, point)
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
