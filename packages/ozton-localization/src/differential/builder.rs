@@ -1,4 +1,4 @@
-use ozton_math::localization::observation::ObservationLayout;
+use ozton_math::localization::observation::{ObservationLayout, RangeLayoutSource};
 
 use super::*;
 use crate::{
@@ -113,14 +113,18 @@ impl OdometrySettings {
     }
 }
 
-/// Assemble an estimator from the measured tracking layout, without hardware.
-pub struct LocalizationBuilder<B = ()> {
+/// Builder state requiring statically installed range sources and a usable map.
+pub struct RangeRequired;
+
+/// Assemble an estimator from the measured tracking layout, without sampling hardware.
+pub struct LocalizationBuilder<B = (), R = ()> {
     field: FieldMap<B>,
     estimator: Estimator,
     odometry: OdometrySettings,
     ranges: RangeUsage,
     dsr: DsrConfig,
     velocity: crate::VelocityConfig,
+    range_requirement: R,
 }
 
 impl Default for LocalizationBuilder {
@@ -132,6 +136,7 @@ impl Default for LocalizationBuilder {
             ranges: RangeUsage::new(),
             dsr: DsrConfig::default(),
             velocity: crate::VelocityConfig::default(),
+            range_requirement: (),
         }
     }
 }
@@ -142,9 +147,12 @@ impl LocalizationBuilder {
     }
 }
 
-impl<B: Boundary> LocalizationBuilder<B> {
+impl<B: Boundary, R> LocalizationBuilder<B, R> {
     #[must_use]
-    pub fn with_field<C: Boundary>(self, field: impl Into<FieldMap<C>>) -> LocalizationBuilder<C> {
+    pub fn with_field<C: Boundary>(
+        self,
+        field: impl Into<FieldMap<C>>,
+    ) -> LocalizationBuilder<C, R> {
         LocalizationBuilder {
             field: field.into(),
             estimator: self.estimator,
@@ -152,13 +160,31 @@ impl<B: Boundary> LocalizationBuilder<B> {
             ranges: self.ranges,
             dsr: self.dsr,
             velocity: self.velocity,
+            range_requirement: self.range_requirement,
         }
     }
 
+    fn require_ranges(self) -> LocalizationBuilder<B, RangeRequired> {
+        LocalizationBuilder {
+            field: self.field,
+            estimator: self.estimator,
+            odometry: self.odometry,
+            ranges: self.ranges,
+            dsr: self.dsr,
+            velocity: self.velocity,
+            range_requirement: RangeRequired,
+        }
+    }
+
+    /// Select a range-capable estimator. For pure odometry, use the default builder.
+    /// A runtime estimator selection is conservatively treated as range-capable.
     #[must_use]
-    pub fn with_estimator(mut self, estimator: impl Into<Estimator>) -> Self {
+    pub fn with_estimator(
+        mut self,
+        estimator: impl Into<Estimator>,
+    ) -> LocalizationBuilder<B, RangeRequired> {
         self.estimator = estimator.into();
-        self
+        self.require_ranges()
     }
 
     #[must_use]
@@ -168,15 +194,15 @@ impl<B: Boundary> LocalizationBuilder<B> {
     }
 
     #[must_use]
-    pub fn with_ranges(mut self, ranges: RangeUsage) -> Self {
+    pub fn with_ranges(mut self, ranges: RangeUsage) -> LocalizationBuilder<B, RangeRequired> {
         self.ranges = ranges;
-        self
+        self.require_ranges()
     }
 
     #[must_use]
-    pub fn with_distance_reset(mut self, config: DsrConfig) -> Self {
+    pub fn with_distance_reset(mut self, config: DsrConfig) -> LocalizationBuilder<B, RangeRequired> {
         self.dsr = config;
-        self
+        self.require_ranges()
     }
 
     #[must_use]
@@ -185,11 +211,31 @@ impl<B: Boundary> LocalizationBuilder<B> {
         self
     }
 
-    /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
-    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization<B>> {
+    fn build_inner(
+        self,
+        layout: ObservationLayout<'_>,
+        require_ranges: bool,
+    ) -> Option<DifferentialLocalization<B>> {
         let projection = self.field.motion_projection()?;
-        let map = self.field.surfaces().collect();
-        let mounts = layout.ranges.iter().map(|&(_, mount)| mount).collect();
+        let map: Vec<_> = self.field.surfaces().collect();
+        let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
+        if require_ranges {
+            let eligible = mounts
+                .iter()
+                .take(MAX_RANGES)
+                .enumerate()
+                .fold(0u8, |mask, (index, mount)| {
+                    mask | (u8::from(mount.with_visible_surfaces(&map).surface_mask != 0) << index)
+                });
+            let configured = match self.estimator {
+                Estimator::Odometry => self.ranges.dsr | self.ranges.ekf | self.ranges.mcl,
+                Estimator::Ekf(_) => self.ranges.ekf,
+                Estimator::Mcl(_) => self.ranges.mcl,
+            };
+            if eligible & configured == 0 {
+                return None;
+            }
+        }
         let mut localizer = Localizer::new_owned(
             Config::new(
                 OdometryConfig::for_mounted_wheels(self.odometry.maximum_gap),
@@ -222,5 +268,84 @@ impl<B: Boundary> LocalizationBuilder<B> {
             #[cfg(feature = "logging")]
             telemetry: Default::default(),
         })
+    }
+}
+
+impl<B: Boundary> LocalizationBuilder<B> {
+    /// Build the default odometry estimator from a raw observation layout.
+    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization<B>> {
+        self.build_inner(layout, false)
+    }
+}
+
+impl<B: Boundary> LocalizationBuilder<B, RangeRequired> {
+    /// Build only with a tracking configuration that supplies ranges. The map and
+    /// configured sensor roles must also provide at least one eligible surface.
+    ///
+    /// ```compile_fail
+    /// use ozton_localization::differential::{LocalizationBuilder, RangeUsage};
+    /// use ozton_math::localization::observation::ObservationLayout;
+    /// let _ = LocalizationBuilder::new()
+    ///     .with_ranges(RangeUsage::new())
+    ///     .build(&ObservationLayout::default());
+    /// ```
+    pub fn build(self, tracking: &impl RangeLayoutSource) -> Option<DifferentialLocalization<B>> {
+        self.build_inner(tracking.observation_layout(), true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ozton_math::{
+        localization::observation::{HasRange, RangeSensorConfig},
+        position_xyzh,
+    };
+
+    use super::*;
+    use crate::field::Field;
+
+    struct Ranges([(usize, RangeSensorConfig); 1]);
+
+    impl HasRange for Ranges {}
+
+    impl RangeLayoutSource for Ranges {
+        fn observation_layout(&self) -> ObservationLayout<'_> {
+            ObservationLayout {
+                wheels: &[],
+                ranges: &self.0,
+            }
+        }
+    }
+
+    #[test]
+    fn range_builder_requires_a_visible_mapped_surface() {
+        let ranges = Ranges([(
+            0,
+            RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg)),
+        )]);
+        assert!(
+            LocalizationBuilder::new()
+                .with_ranges(RangeUsage::new())
+                .build(&ranges)
+                .is_none()
+        );
+        assert!(
+            LocalizationBuilder::new()
+                .with_field(Field::METAL)
+                .with_ranges(RangeUsage::new())
+                .build(&ranges)
+                .is_some()
+        );
+        let high = Ranges([(
+            0,
+            RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 20 in, 0 deg)),
+        )]);
+        assert!(
+            LocalizationBuilder::new()
+                .with_field(Field::METAL)
+                .with_ranges(RangeUsage::new())
+                .build(&high)
+                .is_none()
+        );
     }
 }

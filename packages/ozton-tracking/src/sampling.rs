@@ -5,7 +5,10 @@ use std::time::Duration;
 use futures_util::future::join_all;
 use glam::DVec3;
 pub use ozton_math::localization::observation::SensorSample;
-use ozton_math::{localization::observation::ObservationLayout, uom::si::f64::Length};
+use ozton_math::{
+    localization::observation::{ObservationLayout, RangeLayoutSource},
+    uom::si::f64::Length,
+};
 #[cfg(feature = "vex")]
 use vexide::time::LowResolutionTime;
 
@@ -104,6 +107,12 @@ impl<S: ReadTilt> ReadTilt for Tracking<S> {
 }
 
 impl<S: HasRange> HasRange for Tracking<S> {}
+
+impl<S: TrackingSources + HasRange> RangeLayoutSource for Tracking<S> {
+    fn observation_layout(&self) -> ObservationLayout<'_> {
+        Tracking::observation_layout(self)
+    }
+}
 
 impl<S: TrackingSources> Tracking<S> {
     /// Initialize the tuple or list of sources concurrently before the first sample.

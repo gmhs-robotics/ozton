@@ -31,7 +31,7 @@ mod builder;
 mod observations;
 #[cfg(feature = "logging")]
 mod telemetry;
-pub use builder::{LocalizationBuilder, OdometrySettings, RangeUsage, RangeUse};
+pub use builder::{LocalizationBuilder, OdometrySettings, RangeRequired, RangeUsage, RangeUse};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
 pub struct DifferentialLocalization<B = ()> {
