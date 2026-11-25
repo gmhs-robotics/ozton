@@ -26,6 +26,9 @@ pub trait OztonCompete: Sized + 'static {
 
     const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[];
 
+    /// Initial Brain menu selection. An absent or unknown label selects Disable.
+    const DEFAULT_ROUTE: Option<&'static str> = None;
+
     /// Create the localization worker once, after hardware initialization.
     fn start_localization(&self) -> Option<LocalizationWorker> {
         None
@@ -67,7 +70,7 @@ impl<R: OztonCompete> Runtime<R> {
             .iter()
             .map(|route| (route.label().into(), Some(*route)))
             .collect();
-        self.selector = TaskSelector::new(ui.build(None, routes));
+        self.selector = TaskSelector::new(ui.build_with_default(None, routes, R::DEFAULT_ROUTE));
         self
     }
 

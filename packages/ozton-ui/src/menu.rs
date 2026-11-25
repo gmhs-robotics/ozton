@@ -26,8 +26,20 @@ impl<A: Copy + 'static> Ui<A> {
     }
 
     pub fn build(self, disabled: A, routes: Vec<(String, A)>) -> Box<dyn RouteSelector<A>> {
+        self.build_with_default(disabled, routes, None)
+    }
+
+    /// Select a named initial route on the stock Brain menu; custom UIs own their selection.
+    pub fn build_with_default(
+        self,
+        disabled: A,
+        routes: Vec<(String, A)>,
+        default: Option<&str>,
+    ) -> Box<dyn RouteSelector<A>> {
         match self {
-            Self::Brain(display) => Box::new(RouteMenu::with_choices(display, disabled, routes)),
+            Self::Brain(display) => {
+                Box::new(RouteMenu::with_default(display, disabled, routes, default))
+            }
             Self::Custom(build) => {
                 let mut choices = vec![("Disable".into(), disabled)];
                 choices.extend(routes);
@@ -67,6 +79,16 @@ impl<A: Copy + 'static> RouteMenu<A> {
         disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
     ) -> Self {
+        Self::with_default(display, disabled, routes, None)
+    }
+
+    /// Keep Disable first while optionally selecting a named route at startup.
+    pub fn with_default(
+        display: Display,
+        disabled: A,
+        routes: impl IntoIterator<Item = (impl Into<String>, A)>,
+        default: Option<&str>,
+    ) -> Self {
         let mut choices = vec![Choice {
             label: "Disable".into(),
             action: disabled,
@@ -75,7 +97,10 @@ impl<A: Copy + 'static> RouteMenu<A> {
             label: label.into(),
             action,
         }));
-        let selector = Selector::new(display, choices, 0);
+        let selection = default
+            .and_then(|label| choices.iter().position(|choice| choice.label == label))
+            .unwrap_or_default();
+        let selector = Selector::new(display, choices, selection);
         let status = selector.status_handle();
         status.set_selection_enabled(
             vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,
@@ -83,7 +108,7 @@ impl<A: Copy + 'static> RouteMenu<A> {
         Self {
             _selector: selector,
             status,
-            last_selection: 0,
+            last_selection: selection,
             last_status: String::new(),
         }
     }
