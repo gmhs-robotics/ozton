@@ -266,6 +266,11 @@ pub struct ClearanceConfig {
     pub clearance: Length,
     /// Maximum actuator delay after a brake request, measured on hardware.
     pub brake_latency: Duration,
+    /// Measured maximum forward acceleration during the reaction interval.
+    /// None assumes an instantaneous transition to the requested rate.
+    pub forward_acceleration_bound: Option<Acceleration>,
+    /// Measured maximum yaw acceleration during the reaction interval.
+    pub yaw_acceleration_bound: Option<AngularAcceleration>,
     /// Independently measured minimum forward deceleration; None uses profile deceleration.
     pub forward_braking: Option<Acceleration>,
     /// Independently measured minimum yaw deceleration; None uses profile deceleration.
@@ -290,6 +295,8 @@ impl ClearanceConfig {
     pub const DEFAULT: Self = Self {
         clearance: ozton_math::qty!(0.5 in),
         brake_latency: Duration::from_millis(100),
+        forward_acceleration_bound: None,
+        yaw_acceleration_bound: None,
         forward_braking: None,
         yaw_braking: None,
         wall_preview: Duration::from_millis(150),
@@ -312,6 +319,18 @@ impl ClearanceConfig {
     #[must_use]
     pub const fn with_brake_latency(mut self, value: Duration) -> Self {
         self.brake_latency = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_forward_acceleration_bound(mut self, value: Acceleration) -> Self {
+        self.forward_acceleration_bound = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_yaw_acceleration_bound(mut self, value: AngularAcceleration) -> Self {
+        self.yaw_acceleration_bound = Some(value);
         self
     }
 
@@ -623,6 +642,14 @@ impl MotionConfig {
             && self
                 .safety
                 .yaw_braking
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self
+                .safety
+                .forward_acceleration_bound
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self
+                .safety
+                .yaw_acceleration_bound
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self.safety.braking_sigma.is_finite()
             && self.safety.braking_sigma >= 0.0

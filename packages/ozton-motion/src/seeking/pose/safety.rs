@@ -2,7 +2,10 @@
 use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
-    geometry::DVec2, path::clearance::RectangularClearance, qty, uom::si::f64::Velocity,
+    geometry::DVec2,
+    path::{braking::{RateBounds, position_padding}, clearance::RectangularClearance},
+    qty,
+    uom::si::f64::Velocity,
 };
 
 use crate::{MotionConfig, basic::differential::DriveOptions};
@@ -33,6 +36,7 @@ impl StoppingGovernor {
         &self,
         feedback: Feedback,
         uncertainty: [f64; 3],
+        covariance: Option<glam::DMat2>,
         requested: [Velocity; 2],
     ) -> Option<[Velocity; 2]> {
         if requested.iter().any(|v| !v.value.is_finite())
@@ -42,7 +46,7 @@ impl StoppingGovernor {
             || !feedback.angular_velocity.value.is_finite()
             || self
                 .field
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
         {
             return None;
         }
@@ -53,21 +57,10 @@ impl StoppingGovernor {
             self.options,
             self.config,
             uncertainty,
+            covariance,
         );
         Some(limited.map(|value| qty!((value) m/s)))
     }
-}
-
-/// Constant-speed reaction interval followed by bounded constant deceleration.
-fn stop(v: f64, deceleration: f64, reaction: f64) -> f64 {
-    v * reaction + v * v.abs() / (2.0 * deceleration)
-}
-
-fn interval(v: f64, sigma: f64, deceleration: f64, reaction: f64) -> [f64; 2] {
-    [
-        stop(v.min(0.0) - sigma, deceleration, reaction),
-        stop(v.max(0.0) + sigma, deceleration, reaction),
-    ]
 }
 
 fn bounds(
@@ -76,39 +69,37 @@ fn bounds(
     v: f64,
     w: f64,
     uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
     reaction: f64,
     config: MotionConfig,
 ) -> Option<(DVec2, DVec2)> {
-    if !uncertainty.into_iter().all(|s| s.is_finite() && s >= 0.0) {
-        return None;
-    }
     let [lateral, forward, yaw] = uncertainty.map(|s| s * config.safety.braking_sigma);
-    let forward = interval(
-        v,
-        forward,
-        config
-            .safety
-            .forward_braking
-            .unwrap_or(config.limits.deceleration)
-            .value,
-        reaction,
-    );
-    let lateral = interval(
-        feedback.lateral_velocity.value,
-        lateral,
-        config.safety.lateral_braking.value,
-        reaction,
-    );
-    let yaw = stop(
-        w.abs() + yaw,
-        config
-            .safety
-            .yaw_braking
-            .unwrap_or(config.limits.angular_deceleration)
-            .value,
-        reaction,
-    );
-    field.braking_bounds(feedback.pose, forward, lateral, qty!((yaw) rad))
+    let forward = RateBounds {
+        measured: feedback.forward_velocity.value,
+        requested: v,
+        uncertainty: forward,
+        acceleration: config.safety.forward_acceleration_bound.map(|a| a.value),
+        braking: config.safety.forward_braking.unwrap_or(config.limits.deceleration).value,
+    }.stopping_interval(reaction)?;
+    let lateral = RateBounds {
+        measured: feedback.lateral_velocity.value,
+        requested: feedback.lateral_velocity.value,
+        uncertainty: lateral,
+        acceleration: None,
+        braking: config.safety.lateral_braking.value,
+    }.stopping_interval(reaction)?;
+    let yaw = RateBounds {
+        measured: feedback.angular_velocity.value,
+        requested: w,
+        uncertainty: yaw,
+        acceleration: config.safety.yaw_acceleration_bound.map(|a| a.value),
+        braking: config.safety.yaw_braking.unwrap_or(config.limits.angular_deceleration).value,
+    }.stopping_interval(reaction)?;
+    let (min, max) = field.braking_bounds(
+        feedback.pose, forward, lateral, yaw.map(|a| qty!((a) rad)),
+    )?;
+    let padding = position_padding(covariance, config.safety.braking_sigma)?;
+    Some((min - padding, max + padding))
 }
 
 fn reaction(config: MotionConfig) -> f64 {
@@ -125,6 +116,7 @@ pub(super) fn limit_wall_command(
     options: DriveOptions,
     config: MotionConfig,
     uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
 ) -> [f64; 2] {
     let Some(field) = field else {
         return wheels;
@@ -139,6 +131,7 @@ pub(super) fn limit_wall_command(
             v * scale,
             w * scale,
             uncertainty,
+            covariance,
             delay,
             config,
         )
@@ -165,10 +158,11 @@ pub(super) fn safe_feedback(
     feedback: Feedback,
     config: MotionConfig,
     uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
 ) -> bool {
     let v = feedback.forward_velocity.value;
     let w = feedback.angular_velocity.value;
-    let projected = bounds(field, feedback, v, w, uncertainty, reaction(config), config);
+    let projected = bounds(field, feedback, v, w, uncertainty, covariance, reaction(config), config);
     let reason = if !field.contains_pose(feedback.pose) {
         "current_footprint"
     } else if !projected.is_some_and(|(min, max)| field.wall_contains_aabb(min, max)) {
@@ -235,18 +229,19 @@ mod tests {
         let field = field();
         let config = MotionConfig::DEFAULT
             .with_limits(crate::MotionLimits::DEFAULT.with_deceleration(qty!(0.55 m/s^2)));
-        assert!(!safe_feedback(field, sample(0.88620), config, [0.0; 3]));
-        assert!(safe_feedback(field, sample(0.549), config, [0.0; 3]));
+        assert!(!safe_feedback(field, sample(0.88620), config, [0.0; 3], None));
+        assert!(safe_feedback(field, sample(0.549), config, [0.0; 3], None));
         assert!(!safe_feedback(
             field,
             sample(0.549),
             config,
-            [0.0, 0.2, 0.0]
+            [0.0, 0.2, 0.0],
+            None,
         ));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
-        let mut near = sample(0.549);
+        let mut near = sample(0.10);
         near.pose.position.x = 0.55;
-        let limited = limit_wall_command(Some(field), near, [0.55; 2], options, config, [0.0; 3]);
+        let limited = limit_wall_command(Some(field), near, [0.55; 2], options, config, [0.0; 3], None);
         assert!(limited[0] > 0.0 && limited[0] < 0.55);
         assert_eq!(limited[0], limited[1]);
     }
@@ -274,7 +269,7 @@ mod tests {
                 .with_yaw_braking(qty!(3 rad/s^2)),
         );
         let uncertainty = [0.1117, 0.0607, 0.0474];
-        assert!(safe_feedback(field, feedback, config, uncertainty));
+        assert!(safe_feedback(field, feedback, config, uncertainty, None));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));
         let wheels = limit_wall_command(
             Some(field),
@@ -283,12 +278,13 @@ mod tests {
             options,
             config,
             uncertainty,
+            None,
         );
         assert!(wheels[1] > 0.04 && wheels[1] < 0.2);
         assert_eq!(wheels[0], -wheels[1]);
         // The same request near the physical boundary must still be rejected.
         feedback.pose.position.x = 0.85;
-        assert!(!safe_feedback(field, feedback, config, uncertainty));
+        assert!(!safe_feedback(field, feedback, config, uncertainty, None));
         assert_eq!(
             limit_wall_command(
                 Some(field),
@@ -297,6 +293,7 @@ mod tests {
                 options,
                 config,
                 uncertainty,
+                None,
             ),
             [0.0; 2]
         );
@@ -307,7 +304,7 @@ mod tests {
         let f = field();
         let pose = Pose::new(DVec2::new(0.5, 0.0), qty!(-45 deg));
         let (min, max) = f
-            .braking_bounds(pose, [0.0, 0.4], [-0.4, 0.0], qty!(30 deg))
+            .braking_bounds(pose, [0.0, 0.4], [-0.4, 0.0], [qty!(-30 deg), qty!(30 deg)])
             .unwrap();
         assert!(!f.wall_contains_aabb(min, max));
     }

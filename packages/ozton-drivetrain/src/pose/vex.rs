@@ -78,6 +78,10 @@ impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
             .map_err(DriveMotionFault::Tracking)
     }
 
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        self.localization().position_covariance()
+    }
+
     fn velocity_uncertainty(&self) -> [f64; 3] {
         self.localization().velocity_uncertainty()
     }

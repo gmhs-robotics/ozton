@@ -33,6 +33,10 @@ pub trait PoseDrive: DriveEncoders {
     }
     fn pose_trusted(&self) -> bool;
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
+    /// Estimated XY covariance in field coordinates, in square metres.
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        None
+    }
     /// Rate standard deviations in right, forward, yaw order (SI).
     fn velocity_uncertainty(&self) -> [f64; 3] {
         [0.0; 3]

@@ -7,6 +7,7 @@ use uom::si::f64::{Acceleration, Length, Time, Velocity};
 
 use crate::geometry::Pose;
 
+pub mod braking;
 mod chain;
 mod parameterization;
 pub use chain::PathChain;

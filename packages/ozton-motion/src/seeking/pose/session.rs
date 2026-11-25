@@ -180,8 +180,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let clearance = super::approach::clearance(self.drive, self.config.safety.clearance)?;
             let uncertainty = self.drive.velocity_uncertainty();
+            let covariance = self.drive.position_covariance();
             if clearance
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
             {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -193,6 +194,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.options,
                 self.config,
                 uncertainty,
+                covariance,
             );
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
@@ -320,8 +322,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::UntrustedPose);
             }
             let uncertainty = self.drive.velocity_uncertainty();
+            let covariance = self.drive.position_covariance();
             if clearance
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty))
+                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
             {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -396,6 +399,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 options,
                 self.config,
                 uncertainty,
+                covariance,
             );
             controller.record_applied_wheels(wheels);
             if phase_changed {

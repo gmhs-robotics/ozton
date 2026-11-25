@@ -48,6 +48,10 @@ where
         self.drivetrain().pose_feedback()
     }
 
+    fn position_covariance(&self) -> Option<glam::DMat2> {
+        self.drivetrain().position_covariance()
+    }
+
     fn velocity_uncertainty(&self) -> [f64; 3] {
         self.drivetrain().velocity_uncertainty()
     }

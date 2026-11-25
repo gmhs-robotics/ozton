@@ -88,7 +88,7 @@ impl RectangularClearance {
     }
 
     /// Bound a braking sweep with independent signed travel intervals and a
-    /// symmetric heading excursion. Each projected corner is bounded by the
+    /// signed heading excursion. Each projected corner is bounded by the
     /// exact support of its circular arc. Each traveled increment is bounded
     /// by the extreme projection of its direction over the same heading range.
     /// This avoids charging corner rotation twice when already near a diagonal.
@@ -97,19 +97,22 @@ impl RectangularClearance {
         pose: Pose,
         forward: [f64; 2],
         lateral: [f64; 2],
-        yaw: Angle,
+        yaw: [Angle; 2],
     ) -> Option<(DVec2, DVec2)> {
         if !pose.is_finite()
-            || !yaw.value.is_finite()
+            || !yaw.iter().all(|angle| angle.value.is_finite())
+            || yaw[0].value > 0.0
+            || yaw[1].value < 0.0
             || !forward.into_iter().chain(lateral).all(f64::is_finite)
             || forward[0] > forward[1]
             || lateral[0] > lateral[1]
         {
             return None;
         }
-        let angle = yaw.value.abs().min(core::f64::consts::PI);
-        let (sin, cos) = libm::sincos(angle);
-        let orientation = crate::geometry::rotation(pose.heading);
+        let half_span = ((yaw[1].value - yaw[0].value) * 0.5).min(core::f64::consts::PI);
+        let center = (yaw[0].value + yaw[1].value) * 0.5;
+        let (sin, cos) = libm::sincos(half_span);
+        let orientation = crate::geometry::rotation(pose.heading + crate::qty!((center) rad));
         let f = orientation.perp();
         let l = orientation;
         let half = self.footprint.half_extents;
@@ -352,7 +355,7 @@ mod tests {
         .unwrap();
         let start = Pose::new(DVec2::new(0.48862, 0.01052), crate::qty!(-0.89179 rad));
         let (min, max) = field
-            .braking_bounds(start, [0.0; 2], [0.0; 2], crate::qty!(180 deg))
+            .braking_bounds(start, [0.0; 2], [0.0; 2], [crate::qty!(-180 deg), crate::qty!(180 deg)])
             .unwrap();
         let radius = DVec2::splat(chassis.turn_radius());
         assert!((min - (start.position - radius)).length() < 1e-12);
@@ -372,7 +375,7 @@ mod tests {
         let pose = Pose::new(DVec2::new(0.1, -0.2), crate::qty!(-51 deg));
         let yaw = crate::qty!(35 deg);
         let (min, max) = field
-            .braking_bounds(pose, [-0.03, 0.2], [-0.08, 0.06], yaw)
+            .braking_bounds(pose, [-0.03, 0.2], [-0.08, 0.06], [-yaw, yaw])
             .unwrap();
         for i in -10..=10 {
             let heading = pose.heading + yaw * (f64::from(i) / 10.0);
