@@ -124,8 +124,7 @@ impl ManeuverSearch {
         let facing = crate::qty!((if reverse { core::f64::consts::PI } else { 0.0 }) rad);
         let a = self.start_direction * (sign * first);
         let b = self.end_direction * (sign * last);
-        let n = (libm::ceil(self.distance * (1.0 + first + last) / 0.008) as usize)
-            .clamp(24, 240);
+        let n = (libm::ceil(self.distance * (1.0 + first + last) / 0.008) as usize).clamp(24, 240);
         self.points.clear();
         self.points.reserve(n + 1);
         let inverse_n = 1.0 / n as f64;
