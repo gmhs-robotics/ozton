@@ -16,7 +16,10 @@ use vexide::{
 };
 use wheels::WheelSpeedError;
 
-use super::{BrakeMotors, Drive, Footprint, HasLocalization, LateralDrive, MotorAddress, WheelCommand, wheels};
+use super::{
+    BrakeMotors, Drive, Footprint, HasLocalization, LateralDrive, MotorAddress, WheelCommand,
+    wheels,
+};
 use crate::model::{Differential, MotionGeometry};
 
 /// Access the model's motor groups in their fixed wheel order.
