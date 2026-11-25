@@ -128,8 +128,12 @@ impl<'path> ProfiledFollower<'path> {
             .min(remaining * 0.5);
         // The spatial profile assumes immediate braking. Account for the
         // measured reaction interval before entering terminal pose capture.
-        let endpoint_limit = stoppable_speed(remaining, horizon, limits.deceleration.value)
-            .unwrap_or(0.0);
+        let endpoint_limit = stoppable_speed(
+            remaining,
+            horizon.max(brake_latency.as_secs_f64()),
+            limits.deceleration.value,
+        )
+        .unwrap_or(0.0);
         let speed = path
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
             .speed

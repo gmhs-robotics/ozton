@@ -76,7 +76,8 @@ impl TerminalPose {
             };
             if !slow
                 && (travel_error > core::f64::consts::FRAC_PI_4
-                    || feedback.angular_velocity.value.abs() > options.angular_speed_tolerance.value
+                    || feedback.angular_velocity.value.abs()
+                        > options.angular_speed_tolerance.value
                     || (feedback.forward_velocity.value < 0.0) != backing)
             {
                 self.phase = Phase::Brake(Duration::ZERO);
@@ -126,7 +127,10 @@ impl TerminalPose {
         // every tick. Polar guidance retains its own coupled pose law.
         if matches!(self.phase, Phase::Approach)
             && !inside
-            && matches!(controller.config.path.terminal, crate::TerminalGuidance::Point)
+            && matches!(
+                controller.config.path.terminal,
+                crate::TerminalGuidance::Point
+            )
         {
             let backing = controller
                 .point_backing
@@ -140,12 +144,8 @@ impl TerminalPose {
                     controller.reset_feedback();
                     changed = true;
                 }
-                let (wheels, ready) = controller.step(
-                    DifferentialTarget::Turn { heading },
-                    feedback,
-                    dt,
-                    options,
-                );
+                let (wheels, ready) =
+                    controller.step(DifferentialTarget::Turn { heading }, feedback, dt, options);
                 if ready {
                     self.aligning = false;
                     controller.reset_feedback();

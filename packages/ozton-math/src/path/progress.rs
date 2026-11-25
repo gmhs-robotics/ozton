@@ -44,7 +44,7 @@ impl<'path> Progress<'path> {
             });
         let mut best_error = position.distance_squared(current);
         let mut best_distance = self.distance;
-        for pair in path.samples[self.segment..].windows(2).take(64) {
+        for pair in path.samples[self.segment..].windows(2) {
             let (a, b) = (pair[0], pair[1]);
             if a.distance > maximum {
                 break;
@@ -84,7 +84,10 @@ impl<'path> Progress<'path> {
         let path = self.path;
         // Bound the search in metres, not samples: dense host-generated paths
         // must not shorten the geometric lookahead at speed.
-        let anchor = path.at_distance(crate::qty!((self.distance) m)).pose.position;
+        let anchor = path
+            .at_distance(crate::qty!((self.distance) m))
+            .pose
+            .position;
         let maximum = self.distance + position.distance(anchor) + 2.0 * radius;
         for pair in path.samples[self.segment..].windows(2) {
             if pair[0].distance > maximum {
