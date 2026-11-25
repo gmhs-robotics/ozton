@@ -130,6 +130,58 @@ mod tests {
     use crate::{position_xyh, qty};
 
     #[test]
+    fn cooperative_and_precomputed_paths_match_synchronous_generation() {
+        use core::task::{Context, Poll, Waker};
+
+        let limits = Limits::from_units(
+            qty!(13 in),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let chain = || {
+            PathChain::new(Pose::default())
+                .then(position_xyh!(1 in, 12 in, 0 deg))
+                .then(position_xyh!(0 in, 24 in, 0 deg))
+        };
+        let expected = chain().build(limits).unwrap();
+        let mut future = core::pin::pin!(chain().build_cooperative(limits, async || {
+            let mut yielded = false;
+            core::future::poll_fn(|cx| {
+                if yielded {
+                    Poll::Ready(true)
+                } else {
+                    yielded = true;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            })
+            .await
+        }));
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut yields = 0;
+        let actual = loop {
+            match core::future::Future::poll(future.as_mut(), &mut cx) {
+                Poll::Ready(result) => break result.unwrap(),
+                Poll::Pending => yields += 1,
+            }
+        };
+        assert!(yields > 1);
+        assert_eq!(actual.samples(), expected.samples());
+        let samples = alloc::boxed::Box::leak(actual.samples().to_vec().into_boxed_slice());
+        let borrowed = Path::from_precomputed(samples, limits).unwrap();
+        assert_eq!(borrowed.samples(), expected.samples());
+        assert_eq!(borrowed.samples().as_ptr(), samples.as_ptr());
+        let cancelled = super::super::complete_ready(chain().build_cooperative(
+            limits,
+            async || false,
+        ));
+        assert_eq!(cancelled.unwrap_err(), PathError::Cancelled);
+    }
+
+    #[test]
     fn chain_passes_middle_knot_with_nonzero_speed() {
         let limits = Limits::from_units(
             qty!(13 in),
