@@ -597,10 +597,8 @@ mod tests {
         )
         .unwrap();
         let mut feedback = sample(-0.0178);
-        feedback.pose = ozton_math::geometry::Pose::new(
-            DVec2::new(-0.65876, -0.42692),
-            qty!(0.07625 rad),
-        );
+        feedback.pose =
+            ozton_math::geometry::Pose::new(DVec2::new(-0.65876, -0.42692), qty!(0.07625 rad));
         feedback.angular_velocity = qty!(0.927 rad/s);
         feedback.lateral_velocity = qty!(-0.0073 m/s);
         let config = MotionConfig::DEFAULT.with_safety(
