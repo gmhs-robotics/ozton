@@ -10,11 +10,13 @@ use ozton_math::{
 use crate::localizer::{DistanceReset, Localizer, MAX_RANGES, MotionObservations, Update};
 
 const DETAIL_INTERVAL: Duration = Duration::from_millis(50);
+const WHEEL_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Default)]
 pub(super) struct Telemetry {
     sequence: u64,
     last_detail: Option<Duration>,
+    last_wheels: Option<Duration>,
     last_reset: Option<&'static str>,
 }
 
@@ -49,9 +51,18 @@ impl Telemetry {
             update.correction, update.distance_reset_axes, localizer.range_count(),
             update.forward_velocity, update.lateral_velocity, update.angular_velocity,
         ));
+        #[cfg(all(feature = "logging", target_os = "vexos"))]
+        let pressure = ozton_diagnostics::sd::under_pressure();
+        #[cfg(not(all(feature = "logging", target_os = "vexos")))]
+        let pressure = false;
+        let detail_interval = if pressure {
+            Duration::from_millis(200)
+        } else {
+            DETAIL_INTERVAL
+        };
         let detailed = self.last_reset != Some(reset)
             || self.last_detail.is_none_or(|last| {
-                frame.time < last || frame.time.saturating_sub(last) >= DETAIL_INTERVAL
+                frame.time < last || frame.time.saturating_sub(last) >= detail_interval
             });
         self.last_reset = Some(reset);
         if detailed {
@@ -105,15 +116,22 @@ impl Telemetry {
                 rates.acceleration.map_or(f64::NAN, |a| a.y),
             ),
         );
+        // Keep raw pod data independent of lower-priority range diagnostics.
+        let wheel_interval = if pressure { DETAIL_INTERVAL } else { WHEEL_INTERVAL };
+        if self.last_wheels.is_none_or(|last| {
+            frame.time < last || frame.time.saturating_sub(last) >= wheel_interval
+        }) {
+            self.last_wheels = Some(frame.time);
+            for (index, travel) in wheels.iter().copied().enumerate() {
+                frame.record(
+                    Level::Trace,
+                    "TRACKING_WHEEL",
+                    format_args!("index={index},travel_m={:.5}", meters(travel)),
+                );
+            }
+        }
         if !detailed {
             return;
-        }
-        for (index, travel) in wheels.iter().copied().enumerate() {
-            frame.record(
-                Level::Trace,
-                "TRACKING_WHEEL",
-                format_args!("index={index},travel_m={:.5}", meters(travel)),
-            );
         }
         for (index, &reading) in readings.iter().enumerate().take(localizer.range_count()) {
             let report = update.ranges[index];

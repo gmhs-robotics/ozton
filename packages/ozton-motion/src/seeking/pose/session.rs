@@ -387,7 +387,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 feedback.angular_velocity.value,
                 feedback.forward_travel.value,
                 wheels[0],
-                wheels[1]
+                wheels[1],
+                dt.as_micros(),
+                requested[0],
+                requested[1],
+                feedback.forward_velocity.value,
+                feedback.lateral_velocity.value,
+                feedback.angular_velocity.value
             );
             self.drive.log_step(self.started.elapsed(), dt);
             if complete {
@@ -595,7 +601,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             log_row!(
                 Trace,
                 "PATH_TICK",
-                "sample_ms={},reference_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete}",
+                "sample_ms={},reference_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
                 feedback.time.as_millis(),
                 observation.distance,
                 feedback.pose.position.x,
