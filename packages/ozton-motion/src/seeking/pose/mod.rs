@@ -16,7 +16,9 @@ mod safety;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
-pub use ozton_drivetrain::{BrakeMode, PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive};
+pub use ozton_drivetrain::{
+    BrakeMode, PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive,
+};
 pub use ozton_math::path::clearance::WallContact;
 pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
