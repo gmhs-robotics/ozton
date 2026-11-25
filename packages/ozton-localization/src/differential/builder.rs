@@ -1,4 +1,6 @@
-use ozton_math::localization::observation::{ObservationLayout, RangeLayoutSource};
+use ozton_math::localization::observation::{
+    ObservationLayout, ObservationLayoutSource, RangeLayoutSource,
+};
 
 use super::*;
 use crate::{
@@ -277,9 +279,12 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
 }
 
 impl<B: Boundary> LocalizationBuilder<B> {
-    /// Build the default odometry estimator from a raw observation layout.
-    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization<B>> {
-        self.build_inner(layout, false)
+    /// Build odometry from the configured tracking sources or a supplied layout.
+    pub fn build(
+        self,
+        tracking: &impl ObservationLayoutSource,
+    ) -> Option<DifferentialLocalization<B>> {
+        self.build_inner(tracking.observation_layout(), false)
     }
 }
 
@@ -313,7 +318,7 @@ mod tests {
 
     impl HasRange for Ranges {}
 
-    impl RangeLayoutSource for Ranges {
+    impl ObservationLayoutSource for Ranges {
         fn observation_layout(&self) -> ObservationLayout<'_> {
             ObservationLayout {
                 wheels: &[],

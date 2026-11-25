@@ -31,10 +31,21 @@ pub struct ObservationLayout<'a> {
     pub ranges: &'a [(usize, RangeSensorConfig)],
 }
 
-/// A range-capable tracking system exposing its validated mount layout.
-pub trait RangeLayoutSource: HasRange {
+/// A tracking configuration or a supplied observation layout.
+pub trait ObservationLayoutSource {
     fn observation_layout(&self) -> ObservationLayout<'_>;
 }
+
+impl ObservationLayoutSource for ObservationLayout<'_> {
+    fn observation_layout(&self) -> ObservationLayout<'_> {
+        *self
+    }
+}
+
+/// A tracking configuration with statically installed range sources.
+pub trait RangeLayoutSource: ObservationLayoutSource + HasRange {}
+
+impl<T: ObservationLayoutSource + HasRange + ?Sized> RangeLayoutSource for T {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum DisplacementObservation {

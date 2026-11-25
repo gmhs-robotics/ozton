@@ -366,7 +366,7 @@ mod tests {
         let ranges = [(0, mount)];
         let localization = crate::differential::LocalizationBuilder::new()
             .with_field(field)
-            .build(ObservationLayout {
+            .build(&ObservationLayout {
                 wheels: &[],
                 ranges: &ranges,
             })

@@ -6,7 +6,7 @@ use futures_util::future::join_all;
 use glam::DVec3;
 pub use ozton_math::localization::observation::SensorSample;
 use ozton_math::{
-    localization::observation::{ObservationLayout, RangeLayoutSource},
+    localization::observation::{ObservationLayout, ObservationLayoutSource},
     uom::si::f64::Length,
 };
 #[cfg(feature = "vex")]
@@ -110,7 +110,7 @@ impl<S: TiltSources> ReadTilt for Tracking<S> {
 
 impl<S: RangeSources> HasRange for Tracking<S> {}
 
-impl<S: TrackingSources + RangeSources> RangeLayoutSource for Tracking<S> {
+impl<S: TrackingSources> ObservationLayoutSource for Tracking<S> {
     fn observation_layout(&self) -> ObservationLayout<'_> {
         Tracking::observation_layout(self)
     }

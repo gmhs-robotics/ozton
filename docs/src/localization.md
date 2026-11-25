@@ -8,37 +8,26 @@ Create the motor groups once with shared_motors!, then use Differential::from_sh
 
 Distance trackers already carry a default acceptance gate, zero bias and 25 mm measurement noise. Construct them directly with `DistanceTracker::at_mount(sensor, mount)`; add `.with_bias(...)`, `.with_sigma(...)` or `.with_gate(...)` on that tracker only when calibration requires it.
 
-Register sources by role with Tracking::new and Sources. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
+Pass a heterogeneous tuple of mounted sources to `Tracking::new`. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
 
 ```rust
 use ozton::{
     drivetrain::Drivetrain,
-    localization::{Estimator, differential::{LocalizationBuilder, DriveEncoderUse, OdometrySettings}},
-    tracking::{Sources, Tracking},
+    localization::differential::LocalizationBuilder,
+    tracking::Tracking,
 };
 
-let tracking = Tracking::new(
-    Sources::new()
-        .with_drive(drive_encoders)
-        .with_orientation(imu)
-        .with_ranges((front_range,))
-        .with_extra((lateral_wheel,)),
-)
-.await?;
+let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range)).await?;
 let localization = LocalizationBuilder::new()
     .with_field(field)
-    .with_estimator(Estimator::Odometry)
-    .with_odometry(OdometrySettings::new()
-        .with_imu_heading(true)
-        .with_drive_encoders(DriveEncoderUse::ForwardAndHeading))
-    .build(tracking.observation_layout())
+    .build(&tracking)
     .expect("check tracking geometry");
 let drivetrain = Drivetrain::new(model.with_footprint(footprint), tracking, localization);
 ```
 
-Named roles provide compile-time capabilities without public sensor indices. The drive role requires calibrated differential encoders; the orientation role exposes heading or tilt only when its source implements the relevant trait; a nonempty range bank grants HasRange. A tracking configuration without a differential encoder source can still be sampled and localized with other sources. Additional custom sources can be grouped in the extra role. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time. Geometry supplied by custom runtime-configured sources is still checked at assembly.
+The source types automatically determine the tracking capabilities, regardless of tuple order. A calibrated differential encoder source grants `HasDriveWheels`; an orientation source grants `ReadHeading` or `ReadTilt` when it implements the corresponding interface; at least one statically declared range source grants `HasRange`. No sensor indices are needed in application code. Custom sources declare their interfaces with `TrackingSource::Capabilities`. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time; geometry is validated during assembly. Named source groups remain available when explicit role selection or a range array is useful.
 
-The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
+The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Pass the assembled tracking configuration directly to `LocalizationBuilder::build`. Odometry is the default; selecting MCL or EKF with `with_estimator` adds a compile-time range capability requirement and a startup check for visible mapped surfaces. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
 ## Choose an estimator
 

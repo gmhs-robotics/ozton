@@ -646,7 +646,7 @@ fn setting_field_zero_rebaselines_imu_heading() {
     };
 
     let mut localization = LocalizationBuilder::default()
-        .build(Default::default())
+        .build(&ozton_math::localization::observation::ObservationLayout::default())
         .unwrap();
     let sample = |localization: &mut ozton_localization::differential::DifferentialLocalization,
                   millis,
