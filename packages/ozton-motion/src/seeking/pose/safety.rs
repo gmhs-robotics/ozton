@@ -217,7 +217,39 @@ pub(super) fn limit_wall_command_at_contact(
         return wheels;
     }
     let baseline = projected(0.0, 0.0);
+    // The prior command must be included throughout the physical reaction
+    // interval, but need not be held for the optional look-ahead interval.
+    // Otherwise an already issued command can make every candidate,
+    // including a smaller continuation, fail the preview on the next tick.
+    let predict = |v, w, prior, horizon| {
+        bounds(
+            field,
+            feedback,
+            v,
+            w,
+            prior,
+            uncertainty,
+            covariance,
+            horizon,
+            config,
+        )
+    };
+    let preview_baseline = predict(0.0, 0.0, [0.0; 2], delay);
     let clear = |v, w| {
+        if nominal_clear && contact.is_none() {
+            let preview = predict(v, w, [0.0; 2], delay);
+            let preview_clear = preview.is_some_and(|(min, max)| {
+                fits(min, max)
+                    || preview_baseline.is_some_and(|(base_min, base_max)| {
+                        // If measured momentum already consumes the preview,
+                        // only allow commands that do not expand that envelope.
+                        min.cmpge(base_min).all() && max.cmple(base_max).all()
+                    })
+            });
+            return preview_clear
+                && predict(v, w, previous, reaction(config))
+                    .is_some_and(|(min, max)| fits(min, max));
+        }
         projected(v, w).is_some_and(|(min, max)| {
             fits(min, max)
                 || baseline.is_some_and(|(base_min, base_max)| {
@@ -547,6 +579,69 @@ mod tests {
             ),
             [0.0; 2]
         );
+    }
+
+    #[test]
+    fn previous_command_does_not_force_zero_when_physical_reaction_is_clear() {
+        // Reproduce the stop/start transition from the bidirectional spin.
+        let field = RectangularClearance::new(
+            Footprint::from_extents(
+                qty!(7.55 in),
+                qty!(7.55 in),
+                qty!(7.761804 in),
+                qty!(7.238196 in),
+            )
+            .unwrap(),
+            DVec2::new(1.1557, 1.2319),
+            qty!(1 in),
+        )
+        .unwrap();
+        let mut feedback = sample(-0.0178);
+        feedback.pose = ozton_math::geometry::Pose::new(
+            DVec2::new(-0.65876, -0.42692),
+            qty!(0.07625 rad),
+        );
+        feedback.angular_velocity = qty!(0.927 rad/s);
+        feedback.lateral_velocity = qty!(-0.0073 m/s);
+        let config = MotionConfig::DEFAULT.with_safety(
+            crate::ClearanceConfig::DEFAULT
+                .with_forward_braking(qty!(0.55 m/s^2))
+                .with_yaw_braking(qty!(3 rad/s^2))
+                .with_pivot_forward_offset(qty!(-1.32 in)),
+        );
+        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(1.2 m/s));
+        let uncertainty = [0.11169, 0.06077, 0.04741];
+        let covariance = Some(glam::DMat2::from_cols(
+            DVec2::new(0.000129, -0.0000223),
+            DVec2::new(-0.0000223, 0.0001416),
+        ));
+        let previous = [-0.15785, 0.15785];
+        let limited = limit_wall_command(
+            Some(field),
+            feedback,
+            [-0.16213, 0.16213],
+            options,
+            config,
+            uncertainty,
+            covariance,
+            previous,
+        );
+        assert!(limited[1] > 0.0);
+        let [v, w] = body_rates(limited, options.track_width.value);
+        let (min, max) = bounds(
+            field,
+            feedback,
+            v,
+            w,
+            body_rates(previous, options.track_width.value),
+            uncertainty,
+            covariance,
+            reaction(config),
+            config,
+        )
+        .unwrap();
+        assert!(field.physical_wall_contains_aabb(min, max));
+        assert!(field.obstacle_free_aabb(min, max));
     }
 
     #[test]
