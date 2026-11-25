@@ -165,6 +165,34 @@ impl<
             )
             .and(adjustment.map_err(WheelSpeedError::Port))
     }
+
+    /// Preserve explicit stops while applying the ordinary drive assists to
+    /// moving wheels. A stopped side cannot be reactivated by an assist.
+    pub fn command_wheels(
+        &mut self,
+        commands: [ozton_drivetrain::WheelCommand; 2],
+    ) -> Result<(), WheelSpeedError> {
+        use ozton_drivetrain::WheelCommand;
+        let speeds = commands.map(|command| command.velocity().get::<meter_per_second>());
+        let scale = speeds[0].abs().max(speeds[1].abs());
+        if !commands.iter().all(|command| command.is_valid()) || scale == 0.0 {
+            self.reset();
+            return self.drivetrain.command_wheels(commands);
+        }
+        let (forward, turn) = tank_axes(speeds.map(|speed| speed / scale));
+        let (wheels, adjustment) = self.mix([forward, turn], true);
+        let wheels = desaturate(wheels, 1.0);
+        let applied = core::array::from_fn(|side| match commands[side] {
+            WheelCommand::Brake(mode) => WheelCommand::Brake(mode),
+            WheelCommand::Velocity(_) => {
+                WheelCommand::Velocity(Velocity::new::<meter_per_second>(wheels[side] * scale))
+            }
+        });
+        self.drivetrain
+            .command_wheels(applied)
+            .and(adjustment.map_err(WheelSpeedError::Port))
+    }
+
 }
 
 #[cfg(test)]
