@@ -1,13 +1,26 @@
 name: Rust
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
 jobs:
   host:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
         with:
@@ -17,26 +30,33 @@ jobs:
           profile: minimal
           toolchain: nightly-2026-11-07
           components: rust-src, rustfmt
+      - run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          cache-bin: 'false'
+          cache-on-failure: 'true'
       - name: Verify platform-independent dependency boundaries
         run: |
           for package in ozton-math ozton-localization ozton-motion ozton-diagnostics ozton-tools; do
-            if cargo tree --locked -p "$package" --all-features -e normal | grep -E 'vexide v|vex-sdk v'; then
+            tree="$(cargo tree --locked -p "$package" --all-features -e normal)"
+            if grep -E 'vexide v|vex-sdk v' <<< "$tree"; then
               echo "$package must not depend on the VEX SDK"
               exit 1
             fi
           done
           cargo check --locked -p ozton-motion --all-features
           cargo check --locked -p ozton-localization --all-features
-      - run: cargo fmt --all --check
-      - run: cargo check --workspace --all-targets --locked
+      # Tests compile the workspace and test targets. Check non-test binaries and
+      # examples separately because they can have different cfg(test) code.
       - run: cargo test --workspace --all-targets --locked
       - run: cargo test --workspace --doc --locked
-
+      - run: cargo check --workspace --bins --examples --locked
       - run: cargo check -p ozton --locked --all-features
       - run: cargo check -p ozton --locked --no-default-features
 
   v5:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
         with:
@@ -46,4 +66,17 @@ jobs:
           profile: minimal
           toolchain: nightly-2026-11-07
           components: rust-src
+      # Keep build-std artifacts: metadata-based Rust caches can prune the
+      # custom target's sysroot crates because they are not workspace dependencies.
+      - uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/git/checkouts
+            target
+          key: v5-check-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml') }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            v5-check-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/rust.yml') }}-
       - run: cargo check -p ozton --examples --locked --target thumbv7a-vex-v5
