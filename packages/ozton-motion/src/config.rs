@@ -19,6 +19,12 @@ pub struct MotionLimits {
     pub minimum_angular_speed: AngularVelocity,
     pub acceleration: Acceleration,
     pub deceleration: Acceleration,
+    /// Measured actuator delay used by endpoint braking feedback.
+    pub brake_latency: Duration,
+    /// Measured forward braking, or the profile deceleration if unspecified.
+    pub forward_braking: Option<Acceleration>,
+    /// Measured yaw braking, or the profile angular deceleration if unspecified.
+    pub yaw_braking: Option<AngularAcceleration>,
     pub lateral_acceleration: Acceleration,
     pub angular_speed: AngularVelocity,
     /// rad/s²
@@ -41,6 +47,9 @@ impl MotionLimits {
         minimum_angular_speed: ozton_math::qty!(0 rad/s),
         acceleration: ozton_math::units::qty!(0.8 m/s^2),
         deceleration: ozton_math::units::qty!(2.0 m/s^2),
+        brake_latency: Duration::from_millis(100),
+        forward_braking: None,
+        yaw_braking: None,
         lateral_acceleration: ozton_math::units::qty!(0.8 m/s^2),
         angular_speed: ozton_math::units::qty!(5.0 rad/s),
         angular_acceleration: ozton_math::qty!(8.0 rad/s^2),
@@ -84,6 +93,24 @@ impl MotionLimits {
     #[must_use]
     pub const fn with_deceleration(mut self, value: Acceleration) -> Self {
         self.deceleration = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_brake_latency(mut self, value: Duration) -> Self {
+        self.brake_latency = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_forward_braking(mut self, value: Acceleration) -> Self {
+        self.forward_braking = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_yaw_braking(mut self, value: AngularAcceleration) -> Self {
+        self.yaw_braking = Some(value);
         self
     }
 
@@ -547,6 +574,14 @@ impl MotionConfig {
             && self.limits.minimum_angular_speed.value >= 0.0
             && self.safety.clearance.value.is_finite()
             && self.safety.clearance.value >= 0.0
+            && self
+                .limits
+                .forward_braking
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
+            && self
+                .limits
+                .yaw_braking
+                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
             && self.path.ramsete_zeta <= 1.0
             && (0.0..1.0).contains(&self.approach.boomerang_lead)
             && self.approach.realign_exit < self.approach.realign_enter

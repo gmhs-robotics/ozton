@@ -200,15 +200,15 @@ impl DifferentialFeedback {
         let yaw_limit = (2.0 * options.maximum_wheel_speed.value / options.track_width.value)
             .min(config.limits.angular_speed.value);
         let reaction =
-            config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
+            config.timing.maximum_gap.as_secs_f64() + config.limits.brake_latency.as_secs_f64();
         let forward_braking = config
-            .safety
+            .limits
             .forward_braking
             .unwrap_or(config.limits.deceleration)
             .value
             .min(config.limits.deceleration.value);
         let yaw_braking = config
-            .safety
+            .limits
             .yaw_braking
             .unwrap_or(config.limits.angular_deceleration)
             .value
@@ -533,7 +533,7 @@ impl DifferentialFeedback {
                                     .unwrap_or(f64::INFINITY),
                             ),
                             config
-                                .safety
+                                .limits
                                 .yaw_braking
                                 .unwrap_or(config.limits.angular_deceleration)
                                 .value
