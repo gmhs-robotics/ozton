@@ -94,6 +94,7 @@ pub enum PathError {
     TooFewPoints,
     TooManyPoints,
     BlockedSegment(usize),
+    Cancelled,
 }
 
 pub const MAX_POINTS: usize = 4096;
@@ -116,6 +117,19 @@ pub struct Path {
 impl Path {
     /// Precomputes arc length, curvature and a forward/backward velocity pass.
     pub fn new(points: &[Waypoint], limits: Limits) -> Result<Self, PathError> {
+        complete_ready(Self::new_cooperative(points, limits, async || true))
+    }
+
+    /// Parameterize a path while letting a cooperative runtime service
+    /// tracking between bounded batches of samples.
+    pub async fn new_cooperative<F>(
+        points: &[Waypoint],
+        limits: Limits,
+        mut checkpoint: F,
+    ) -> Result<Self, PathError>
+    where
+        F: core::ops::AsyncFnMut() -> bool,
+    {
         if !limits.is_valid() {
             return Err(PathError::InvalidLimits);
         }
@@ -123,6 +137,9 @@ impl Path {
             return Err(PathError::TooManyPoints);
         }
         for (index, point) in points.iter().enumerate() {
+            if index % 32 == 0 && !checkpoint().await {
+                return Err(PathError::Cancelled);
+            }
             if !point.position.is_finite()
                 || !(0.0..=1.0).contains(&point.speed_fraction)
                 || (index > 0
@@ -151,6 +168,9 @@ impl Path {
         let last = points.len() - 1;
         let mut incoming_length = 0.0;
         for (index, point) in points.iter().enumerate() {
+            if index % 32 == 0 && !checkpoint().await {
+                return Err(PathError::Cancelled);
+            }
             let before = points[index.saturating_sub(1)].position;
             let after = points[(index + 1).min(last)].position;
             let incoming = point.position - before;
@@ -205,6 +225,9 @@ impl Path {
             incoming_length = outgoing_length;
         }
         for index in (0..last).rev() {
+            if index % 32 == 0 && !checkpoint().await {
+                return Err(PathError::Cancelled);
+            }
             let next = samples[index + 1];
             let current = &mut samples[index];
             current.speed = current.speed.min(reachable(
@@ -213,8 +236,11 @@ impl Path {
                 next.distance - current.distance,
             ));
         }
-        parameterization::limit_wheels(&mut samples, limits)?;
+        parameterization::limit_wheels(&mut samples, limits, &mut checkpoint).await?;
         for index in 1..=last {
+            if index % 32 == 0 && !checkpoint().await {
+                return Err(PathError::Cancelled);
+            }
             let previous = samples[index - 1];
             let current = &mut samples[index];
             let speed_sum = current.speed + previous.speed;
@@ -318,6 +344,17 @@ impl Path {
         let upper = self.samples.partition_point(|sample| key(*sample) < query);
         (0 < upper && upper < self.samples.len())
             .then(|| (self.samples[upper - 1], self.samples[upper]))
+    }
+}
+
+/// Synchronous algorithms supply an always-ready checkpoint. They share
+/// the implementation with cooperative callers without requiring an executor.
+pub(super) fn complete_ready<F: core::future::Future>(future: F) -> F::Output {
+    let mut future = core::pin::pin!(future);
+    let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+    match core::future::Future::poll(future.as_mut(), &mut context) {
+        core::task::Poll::Ready(output) => output,
+        core::task::Poll::Pending => unreachable!("ready checkpoint suspended"),
     }
 }
 
