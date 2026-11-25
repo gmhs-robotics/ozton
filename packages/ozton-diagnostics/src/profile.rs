@@ -14,9 +14,11 @@ pub enum Stage {
     Planner,
     HardwareReport,
     SdFlush,
+    LocalizationTick,
+    LocalizationInterval,
 }
 #[cfg(feature = "logging")]
-const STAGES: [Stage; 10] = [
+const STAGES: [Stage; 12] = [
     Stage::Tracking,
     Stage::Localization,
     Stage::LocalizationLog,
@@ -27,6 +29,8 @@ const STAGES: [Stage; 10] = [
     Stage::Planner,
     Stage::HardwareReport,
     Stage::SdFlush,
+    Stage::LocalizationTick,
+    Stage::LocalizationInterval,
 ];
 #[cfg(any(feature = "logging", test))]
 const BOUNDS: [u64; 12] = [
@@ -85,18 +89,28 @@ pub struct Span {
     started: Option<std::time::Instant>,
     #[cfg(feature = "logging")]
     stage: Stage,
+    #[cfg(feature = "logging")]
+    budget: Duration,
 }
 
 impl Span {
     #[inline]
     pub fn new(stage: Stage) -> Self {
+        Self::with_budget(stage, Duration::from_millis(10))
+    }
+
+    /// Measure synchronous work against a caller-supplied deadline.
+    #[inline]
+    pub fn with_budget(stage: Stage, budget: Duration) -> Self {
         #[cfg(not(feature = "logging"))]
-        let _ = stage;
+        let _ = (stage, budget);
         Self {
             #[cfg(feature = "logging")]
             started: crate::serial::sd_enabled().then(std::time::Instant::now),
             #[cfg(feature = "logging")]
             stage,
+            #[cfg(feature = "logging")]
+            budget,
         }
     }
 }
@@ -106,7 +120,7 @@ impl Drop for Span {
     fn drop(&mut self) {
         #[cfg(feature = "logging")]
         if let Some(started) = self.started {
-            record(self.stage, started.elapsed(), Duration::from_millis(10));
+            record(self.stage, started.elapsed(), self.budget);
         }
     }
 }

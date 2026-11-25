@@ -168,7 +168,7 @@ pub fn ray_distance(
 /// Iterate the mask in native-sized words on 32-bit CPUs, preserving surface order.
 /// Avoid a multiword trailing-zero search and subtraction for each visible face.
 #[inline]
-fn masked_indices(mask: u128) -> impl Iterator<Item = usize> {
+pub(super) fn masked_indices(mask: u128) -> impl Iterator<Item = usize> {
     let words = [mask as usize, (mask >> usize::BITS) as usize];
     #[cfg(target_pointer_width = "32")]
     let words = [

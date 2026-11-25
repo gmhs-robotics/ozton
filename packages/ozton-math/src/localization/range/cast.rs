@@ -2,39 +2,47 @@
 
 use glam::DVec2;
 
-use super::{Hit, Surface};
+use super::{Hit, Surface, prepared::masked_indices};
 use crate::geometry::{Pose, direction, rotation};
 
 pub fn cast(pose: Pose, mount: Pose, surfaces: &[Surface]) -> Option<Hit> {
-    cast_inner(pose, mount, surfaces, None)
+    cast_inner(pose, mount, surfaces, 0..surfaces.len())
 }
 
 /// Casts against eligible surfaces among the first 128 map entries. Hit indices
 /// always refer to the original map, including when nearer surfaces are masked.
 pub fn cast_masked(pose: Pose, mount: Pose, surfaces: &[Surface], mask: u128) -> Option<Hit> {
-    cast_inner(pose, mount, surfaces, Some(mask))
+    cast_inner(
+        pose,
+        mount,
+        surfaces,
+        masked_indices(mask).take_while(|&index| index < surfaces.len()),
+    )
 }
 
-fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>) -> Option<Hit> {
+fn cast_inner(
+    pose: Pose,
+    mount: Pose,
+    surfaces: &[Surface],
+    indices: impl Iterator<Item = usize>,
+) -> Option<Hit> {
     let orientation = rotation(pose.heading);
     let origin = pose.position + orientation.rotate(mount.position);
     let beam = orientation.rotate(direction(mount.heading));
     let mut nearest = None;
     let mut nearest_distance = f64::INFINITY;
-    for (index, surface) in surfaces.iter().enumerate() {
-        if mask.is_some_and(|mask| index >= u128::BITS as usize || mask & (1u128 << index) == 0) {
-            continue;
-        }
+    for index in indices {
+        let surface = &surfaces[index];
+        let segment = surface.end - surface.start;
+        let length_squared = segment.length_squared();
         let Some((distance, fraction)) =
-            intersection(origin, beam, surface.start, surface.end - surface.start)
+            intersection(origin, beam, surface.start, segment, length_squared)
         else {
             continue;
         };
         if distance >= nearest_distance {
             continue;
         }
-        let segment = surface.end - surface.start;
-        let length_squared = segment.length_squared();
         nearest_distance = distance;
         nearest = Some((index, segment, length_squared, fraction));
     }
@@ -50,8 +58,13 @@ fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>)
     })
 }
 
-fn intersection(origin: DVec2, beam: DVec2, start: DVec2, segment: DVec2) -> Option<(f64, f64)> {
-    let length_squared = segment.length_squared();
+fn intersection(
+    origin: DVec2,
+    beam: DVec2,
+    start: DVec2,
+    segment: DVec2,
+    length_squared: f64,
+) -> Option<(f64, f64)> {
     let denominator = beam.perp_dot(segment);
     if length_squared <= 1e-12 || denominator * denominator <= length_squared * 1e-18 {
         return None;

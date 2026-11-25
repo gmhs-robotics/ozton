@@ -58,6 +58,8 @@ impl LocalizationWorker {
         };
         let sampling = Cell::new(Sampling::Running);
         let previous_activation = Cell::new(None);
+        #[cfg(feature = "logging")]
+        let previous_sample: Cell<Option<Instant>> = Cell::new(None);
         let synchronize = Rc::new(move |mode, sample| {
             let enabled = schedule.runs_in(mode);
             if !sample {
@@ -88,12 +90,31 @@ impl LocalizationWorker {
             if let Ok(mut state) = state.try_borrow_mut() {
                 let (tracking, localization) = &mut *state;
                 if sampling.get() == Sampling::PausePending {
+                    #[cfg(feature = "logging")]
+                    previous_sample.set(None);
                     localization.pause();
                     sampling.set(Sampling::Paused);
                 }
                 if enabled {
                     sampling.set(Sampling::Running);
                     if sample {
+                        #[cfg(feature = "logging")]
+                        if ozton_diagnostics::serial::sd_enabled() {
+                            let now = Instant::now();
+                            if let Some(previous) = previous_sample.replace(Some(now)) {
+                                crate::profile::record(
+                                    crate::profile::Stage::LocalizationInterval,
+                                    now.saturating_duration_since(previous),
+                                    period.saturating_add(Duration::from_millis(1)),
+                                );
+                            }
+                        } else {
+                            previous_sample.set(None);
+                        }
+                        let _span = crate::profile::Span::with_budget(
+                            crate::profile::Stage::LocalizationTick,
+                            period,
+                        );
                         localization.sample(tracking);
                     }
                 }
