@@ -11,6 +11,7 @@ pub(crate) fn view(
     let mut session = 0;
     let mut schema_2 = false;
     let mut found = false;
+    let mut compact = CompactRows::default();
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
@@ -19,7 +20,18 @@ pub(crate) fn view(
         if !line.ends_with('\n') {
             break;
         }
-        let Some(record) = line.trim_end().strip_prefix("DBG,") else {
+        let decoded;
+        let line = line.trim_end();
+        let record_line = if line.starts_with("DBG,") {
+            line
+        } else {
+            decoded = compact.decode(line);
+            let Some(decoded) = decoded.as_deref() else {
+                continue;
+            };
+            decoded
+        };
+        let Some(record) = record_line.strip_prefix("DBG,") else {
             continue;
         };
         let Some((kind, payload)) = record.split_once(',') else {
@@ -27,7 +39,10 @@ pub(crate) fn view(
         };
         found = true;
         if kind == "SESSION" {
-            schema_2 = payload.split(',').any(|field| field == "schema=2");
+            compact = CompactRows::default();
+            schema_2 = payload
+                .split(',')
+                .any(|field| matches!(field, "schema=2" | "schema=4"));
             session += 1;
             if session > 1 {
                 writeln!(out)?;
@@ -89,6 +104,71 @@ pub(crate) fn view(
     Ok(())
 }
 
+// Schema 4 keeps separate field lists and previous values for each stream.
+#[derive(Default)]
+struct CompactRows {
+    streams: Vec<Option<CompactStream>>,
+}
+
+struct CompactStream {
+    kind: String,
+    keys: Vec<String>,
+    values: Option<Vec<String>>,
+}
+
+impl CompactRows {
+    fn decode(&mut self, line: &str) -> Option<String> {
+        let mut parts = line.split(',');
+        let tag = parts.next()?;
+        let index: usize = parts.next()?.parse().ok()?;
+        if index >= 128 {
+            return None;
+        }
+        if tag == "S" {
+            let kind = parts.next()?.to_owned();
+            let keys = parts.map(str::to_owned).collect();
+            self.streams
+                .resize_with(self.streams.len().max(index + 1), || None);
+            self.streams[index] = Some(CompactStream {
+                kind,
+                keys,
+                values: None,
+            });
+            return None;
+        }
+        let stream = self.streams.get_mut(index)?.as_mut()?;
+        match tag {
+            "R" => {
+                let values: Vec<_> = parts.map(str::to_owned).collect();
+                stream.values = (values.len() == stream.keys.len()).then_some(values);
+            }
+            "D" => {
+                let mask = u64::from_str_radix(parts.next()?, 16).ok()?;
+                let values = stream.values.as_mut()?;
+                if values.len() > 64
+                    || (values.len() < 64 && mask >> values.len() != 0)
+                    || parts.clone().count() != mask.count_ones() as usize
+                {
+                    stream.values = None;
+                    return None;
+                }
+                for (i, value) in values.iter_mut().enumerate() {
+                    if mask & (1 << i) != 0 {
+                        *value = parts.next()?.to_owned();
+                    }
+                }
+            }
+            _ => return None,
+        }
+        let mut row = format!("DBG,{}", stream.kind);
+        for (key, value) in stream.keys.iter().zip(stream.values.as_ref()?) {
+            use std::fmt::Write as _;
+            write!(row, ",{key}={value}").ok()?;
+        }
+        Some(row)
+    }
+}
+
 fn strip_field<'a>(payload: &'a str, prefix: &str) -> (Option<&'a str>, &'a str) {
     payload
         .strip_prefix(prefix)
@@ -127,6 +207,17 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "Session 1\n      1.234s  #7         MOTOR          name=lift, rpm=42\n"
         );
+    }
+
+    #[test]
+    fn decodes_compact_rows_even_when_other_streams_are_filtered() {
+        let input = b"DBG,SESSION,t_ms=0,schema=4,level=INFO\nS,0,MOTOR,t_ms,port,rpm,level\nR,0,100,11,42,TRACE\nD,0,5,120,43\nS,1,MODE,t_ms,mode,level\nR,1,120,Autonomous,DEBUG\n";
+        let mut output = Vec::new();
+        view(&input[..], &mut output, Some("motor")).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("port=11, rpm=42"));
+        assert!(output.contains("port=11, rpm=43"));
+        assert!(!output.contains("MODE"));
     }
 
     #[test]
