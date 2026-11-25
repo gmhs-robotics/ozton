@@ -159,7 +159,12 @@ impl Seeking {
         distance: Length,
         wall: WallContact,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.drive_distance_inner(drive, distance, Some(wall)).await
+        if drive.wall_contact() != Some(wall) {
+            return Err(PoseMotionError::Configuration);
+        }
+        let result = self.drive_distance_inner(drive, distance, Some(wall)).await;
+        drive.release_wall_contact();
+        result
     }
 
     async fn drive_distance_inner<D: PoseDrive>(
