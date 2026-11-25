@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Decode schema 3/4 Ozton logs to JSON Lines or schema-2-compatible DBG rows.
 
-Usage: python3 tools/decode_log.py OZTON3.LOG > telemetry.jsonl
-       python3 tools/decode_log.py OZTON3.LOG --legacy > telemetry.log
+Usage: python3 tools/decode_log.py 1.log > telemetry.jsonl
+       python3 tools/decode_log.py 1.log --legacy > telemetry.log
 """
 import argparse
 import json

@@ -42,7 +42,7 @@ motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 24 in, 0 deg)).await?;
 - [Calibration and logs](docs/src/calibration.md): tune the robot from measured results.
 - [API map](docs/src/api.md): find types, modules and examples.
 
-Enable the `logging` feature to record detailed telemetry and profiling to `OZTON3.LOG` on a writable SD card. Decode it with `python3 tools/decode_log.py OZTON3.LOG`. See [logging and profiling](docs/src/recording.md) for the record format and interpretation.
+Enable the `logging` feature to record detailed telemetry and profiling to a new numbered log (`1.log`, `2.log`, …) on a writable SD card. Decode it with `python3 tools/decode_log.py 1.log`. See [logging and profiling](docs/src/recording.md) for the record format and interpretation.
 
 Build the documentation locally with `mdbook build docs`, or preview changes with `mdbook serve docs --open`.
 

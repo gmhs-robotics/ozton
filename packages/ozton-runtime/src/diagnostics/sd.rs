@@ -17,25 +17,26 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             // synchronous SD open can then overlap hardware IMU calibration.
             vexide::time::sleep(Duration::from_millis(1)).await;
             let started = Instant::now();
-            match sd::enable_at_startup() {
-                Some(Ok(())) => log_event!(
-                    Info,
-                    "SD",
-                    "Recording all levels to {} (open {} ms)",
-                    sd::PATH,
-                    started.elapsed().as_millis()
-                ),
+            let path = match sd::enable_at_startup() {
+                Some(Ok(path)) => {
+                    log_event!(
+                        Info,
+                        "SD",
+                        "Recording all levels to {path} (open {} ms)",
+                        started.elapsed().as_millis()
+                    );
+                    path
+                }
                 Some(Err(error)) => {
                     log_event!(
                         Warn,
                         "SD",
-                        "Could not open {} ({error}). USB logging active.",
-                        sd::PATH
+                        "Could not create numbered log ({error}). USB logging active."
                     );
                     return;
                 }
                 None => return,
-            }
+            };
             let mut failed = false;
             let mut last_sync = Instant::now();
             let mut last_summary = Instant::now();
@@ -94,13 +95,12 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                         log_event!(
                             Warn,
                             "SD",
-                            "Could not flush {} ({error}). Retrying.",
-                            sd::PATH
+                            "Could not flush {path} ({error}). Retrying."
                         );
                         failed = true;
                     }
                     Ok(_) if failed => {
-                        log_event!(Info, "SD", "Recording resumed on {}", sd::PATH);
+                        log_event!(Info, "SD", "Recording resumed on {path}");
                         failed = false;
                     }
                     _ => {}

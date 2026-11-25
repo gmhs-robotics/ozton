@@ -1,11 +1,11 @@
 # Logging and profiling
 
-Build firmware with the logging feature and insert a writable SD card before starting the program. USB shows operational messages. The SD sink records detailed telemetry in OZTON3.LOG, using the lossless schema-4 delta format. Logging is optional; normal competition firmware can omit it.
+Build firmware with the logging feature and insert a writable SD card before starting the program. USB shows operational messages. The SD sink records detailed telemetry in a new numbered log (`1.log`, `2.log`, …), using the lossless schema-4 delta format. The SD card's `index.log` stores the highest allocated number. Keep this file even when deleting old logs; existing numbered files are never reopened. Logging is optional; normal competition firmware can omit it.
 
 ```sh
 cargo build --release --features logging
-python3 tools/decode_log.py OZTON3.LOG > telemetry.jsonl
-python3 tools/decode_log.py OZTON3.LOG --legacy > telemetry.log
+python3 tools/decode_log.py 1.log > telemetry.jsonl
+python3 tools/decode_log.py 1.log --legacy > telemetry.log
 ```
 
 The Python decoder is in the Ozton repository, not necessarily your application directory. Copy the SD file to your computer first. The older ozton-tools view-log command expects decoded DBG rows; use --legacy first.

@@ -21,7 +21,7 @@
 
 Initialize devices before `.compete().await`. At Override startup, keep the mechanism stowed and the chassis still while references are established, the IMU calibrates, and the distance sensors become ready. Give each device one owner.
 
-The default firmware performs no logging. The `logging` feature emits USB diagnostics and automatically appends to `OZTON3.LOG` when the Brain has an SD card. The competition writer flushes in batches roughly once a second and retries after card errors. Decode a copied log using `python3 tools/decode_log.py /path/to/OZTON3.LOG --legacy` before using ozton-tools view-log. PROFILE rows contain inclusive per-stage timing summaries. Wheel and IMU logs help verify tuning and geometry, while clearance, polarity, loaded stability, and contact thresholds require a robot.
+The default firmware performs no logging. The `logging` feature emits USB diagnostics and automatically creates a new numbered `.log` file when the Brain has an SD card. The competition writer flushes in batches roughly once a second and retries after card errors. Decode a copied log using `python3 tools/decode_log.py /path/to/1.log --legacy` before using ozton-tools view-log. PROFILE rows contain inclusive per-stage timing summaries. Wheel and IMU logs help verify tuning and geometry, while clearance, polarity, loaded stability, and contact thresholds require a robot.
 
 ## Drivetrain and tracking
 

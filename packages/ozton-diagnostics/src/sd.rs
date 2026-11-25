@@ -1,13 +1,15 @@
-//! Append-only VEX Brain telemetry with a bounded staging buffer.
+//! Per-run VEX Brain telemetry with a bounded staging buffer.
 
 use std::{
     fmt::{self, Write as _},
-    fs::{File, OpenOptions},
+    fs::File,
     io::{self, Write},
     sync::Mutex,
 };
 
-pub const PATH: &str = "OZTON3.LOG";
+mod index;
+
+use index::open_log;
 const BUFFER_BYTES: usize = 512 * 1024;
 const SESSION: &[u8] = b"DBG,SESSION,t_ms=0,schema=4,level=INFO\n";
 #[cfg(target_os = "vexos")]
@@ -32,7 +34,6 @@ struct Pending {
     schema: String,
     identity: String,
     values: String,
-    #[cfg(target_os = "vexos")]
     file: Option<File>,
     #[cfg(target_os = "vexos")]
     probed: bool,
@@ -51,7 +52,6 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     schema: String::new(),
     identity: String::new(),
     values: String::new(),
-    #[cfg(target_os = "vexos")]
     file: None,
     #[cfg(target_os = "vexos")]
     probed: false,
@@ -88,7 +88,7 @@ pub fn prepare_startup() -> bool {
 /// Open the card once, after device initialization has been polled.
 /// Early startup records are already queued.
 #[cfg(target_os = "vexos")]
-pub fn enable_at_startup() -> Option<io::Result<()>> {
+pub fn enable_at_startup() -> Option<io::Result<String>> {
     let mut pending = match PENDING.lock() {
         Ok(pending) => pending,
         Err(_) => return Some(Err(io::Error::other("SD log lock poisoned"))),
@@ -97,11 +97,10 @@ pub fn enable_at_startup() -> Option<io::Result<()>> {
         return None;
     }
     pending.probed = true;
-    let result = if pending.file.is_some() {
-        Ok(())
-    } else {
-        open_log().map(|file| pending.file = Some(file))
-    };
+    let result = open_log(std::path::Path::new("")).map(|(name, file)| {
+        pending.file = Some(file);
+        name
+    });
     if result.is_ok() {
         let additional = BUFFER_BYTES.saturating_sub(pending.bytes.len());
         pending.bytes.reserve(additional);
@@ -113,10 +112,6 @@ pub fn enable_at_startup() -> Option<io::Result<()>> {
         pending.reset_streams();
     }
     Some(result)
-}
-
-fn open_log() -> io::Result<File> {
-    OpenOptions::new().create(true).append(true).open(PATH)
 }
 
 #[cfg(target_os = "vexos")]
@@ -183,18 +178,13 @@ pub fn flush_chunk(max_bytes: usize, sync: bool) -> io::Result<usize> {
     if pending.queued_bytes() == 0 && !sync {
         return Ok(0);
     }
-    #[cfg(target_os = "vexos")]
-    let mut file = match pending.file.take() {
-        Some(file) => file,
-        None => open_log()?,
+    let Some(mut file) = pending.file.take() else {
+        // Startup is the only place where a run file is allocated.
+        return Ok(0);
     };
-    #[cfg(not(target_os = "vexos"))]
-    let mut file = open_log()?;
-    let result = pending.append_chunk(&mut file, max_bytes, sync);
-    #[cfg(target_os = "vexos")]
-    if result.is_ok() {
-        pending.file = Some(file);
-    }
+    let result = pending.write_chunk(&mut file, max_bytes, sync);
+    // Keep the same handle on failure: never reopen an existing log.
+    pending.file = Some(file);
     result
 }
 
@@ -319,11 +309,11 @@ impl Pending {
     }
 
     #[cfg(test)]
-    fn append(&mut self, mut file: impl Write) -> io::Result<()> {
-        self.append_chunk(&mut file, usize::MAX, true).map(|_| ())
+    fn write(&mut self, mut file: impl Write) -> io::Result<()> {
+        self.write_chunk(&mut file, usize::MAX, true).map(|_| ())
     }
 
-    fn append_chunk(
+    fn write_chunk(
         &mut self,
         file: &mut impl Write,
         max_bytes: usize,
@@ -345,7 +335,7 @@ impl Pending {
                 })
         };
         let result = (|| -> io::Result<()> {
-            if !self.session_started || self.uncertain_bytes != 0 {
+            if self.uncertain_bytes != 0 {
                 file.write_all(b"\n")?;
             }
             if !self.session_started {
@@ -422,21 +412,21 @@ mod tests {
     }
 
     #[test]
-    fn log_appends_one_session_and_reports_a_gap() {
+    fn fresh_log_writes_one_session_and_reports_a_gap() {
         let mut pending = Pending {
             bytes: b"DBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\n".to_vec(),
             dropped_rows: 3,
             ..Pending::default()
         };
-        let mut output = b"partial previous row".to_vec();
-        pending.append(&mut output).unwrap();
+        let mut output = Vec::new();
+        pending.write(&mut output).unwrap();
         pending.push(format_args!(
             "DBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO"
         ));
-        pending.append(&mut output).unwrap();
+        pending.write(&mut output).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "partial previous row\nDBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
+            "DBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
         );
     }
 
@@ -474,11 +464,11 @@ mod tests {
         }
         let mut output = Vec::new();
         while pending.queued_bytes() != 0 {
-            pending.append_chunk(&mut output, 32, false).unwrap();
+            pending.write_chunk(&mut output, 32, false).unwrap();
         }
-        pending.append_chunk(&mut output, 32, true).unwrap();
+        pending.write_chunk(&mut output, 32, true).unwrap();
         pending.push(format_args!("DBG,TEST,value=11,level=TRACE"));
-        pending.append(&mut output).unwrap();
+        pending.write(&mut output).unwrap();
         let output = String::from_utf8(output).unwrap();
         assert_eq!(output.matches("DBG,SESSION").count(), 1);
         assert_eq!(output.matches("S,0,TEST").count(), 2);
@@ -489,13 +479,13 @@ mod tests {
     fn failed_batch_does_not_create_a_second_session() {
         let mut pending = Pending::default();
         pending.push(format_args!("DBG,TEST,t_ms=1,level=TRACE"));
-        let mut header = [0; SESSION.len() + 1];
-        assert!(pending.append(header.as_mut_slice()).is_err());
+        let mut header = [0; SESSION.len()];
+        assert!(pending.write(header.as_mut_slice()).is_err());
         let mut output = header.to_vec();
         assert!(pending.uncertain_bytes > 0);
 
         pending.push(format_args!("DBG,TEST,t_ms=2,level=TRACE"));
-        pending.append(&mut output).unwrap();
+        pending.write(&mut output).unwrap();
         let output = String::from_utf8(output).unwrap();
         assert_eq!(output.matches("DBG,SESSION").count(), 1);
         assert!(output.contains("DBG,SD_GAP"));
