@@ -89,8 +89,7 @@ pub struct FieldBoundary(DVec2);
 
 impl FieldBoundary {
     pub fn new(half_extents: DVec2) -> Option<Self> {
-        (half_extents.is_finite() && half_extents.min_element() > 0.0)
-            .then_some(Self(half_extents))
+        (half_extents.is_finite() && half_extents.min_element() > 0.0).then_some(Self(half_extents))
     }
 
     pub const fn half_extents(self) -> DVec2 {

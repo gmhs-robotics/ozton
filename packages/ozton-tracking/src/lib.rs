@@ -81,8 +81,8 @@ impl TrackingSystem for NoTracking {}
 impl TrackingSystem for () {}
 
 pub use ozton_math::localization::observation::{
-    DisplacementObservation, HeadingObservation, HasRange, Measurement, Observation, ReadHeading, ReadTilt,
-    TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+    DisplacementObservation, HasRange, HeadingObservation, Measurement, Observation, ReadHeading,
+    ReadTilt, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 
 pub mod mount;

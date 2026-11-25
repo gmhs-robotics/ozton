@@ -35,8 +35,7 @@ impl HeadingHoldAssist {
     }
 }
 
-impl<M: Drive, T: ReadHeading, L> DriveAssist<M, T, L> for HeadingHoldAssist
-{
+impl<M: Drive, T: ReadHeading, L> DriveAssist<M, T, L> for HeadingHoldAssist {
     fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
         if context.wheel_velocity {
             self.0.reset();
@@ -45,10 +44,7 @@ impl<M: Drive, T: ReadHeading, L> DriveAssist<M, T, L> for HeadingHoldAssist
         axes[1] = self.0.turn_with_period(
             axes[0],
             axes[1],
-            context
-                .tracking
-                .read_heading()
-                .map(|heading| -heading),
+            context.tracking.read_heading().map(|heading| -heading),
             context.elapsed,
         );
     }
@@ -86,8 +82,7 @@ impl AntiTipAssist {
     }
 }
 
-impl<M: Drive, T: ReadTilt, L> DriveAssist<M, T, L> for AntiTipAssist
-{
+impl<M: Drive, T: ReadTilt, L> DriveAssist<M, T, L> for AntiTipAssist {
     fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
         let tilt = context
             .tracking

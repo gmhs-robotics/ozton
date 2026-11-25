@@ -3,7 +3,9 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use ozton_localization::{Fault, Feedback, differential::DifferentialLocalization, field::Boundary};
+use ozton_localization::{
+    Fault, Feedback, differential::DifferentialLocalization, field::Boundary,
+};
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::Obstacles,

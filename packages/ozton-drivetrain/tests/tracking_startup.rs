@@ -74,8 +74,12 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
         ),
     );
     let mut tracking = block_on(Tracking::new(
-        Sources::new().with_drive(encoders).with_ranges((range,)).with_extra((FieldFix,)),
-    )).unwrap();
+        Sources::new()
+            .with_drive(encoders)
+            .with_ranges((range,))
+            .with_extra((FieldFix,)),
+    ))
+    .unwrap();
     assert_eq!(tracking.calibrated_drive().track_width().value, 0.30);
 
     assert_eq!(tracking.observation_layout().ranges.len(), 1);

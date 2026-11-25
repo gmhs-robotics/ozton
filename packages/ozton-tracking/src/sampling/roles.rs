@@ -41,28 +41,54 @@ impl Default for Sources {
 
 impl Sources {
     pub const fn new() -> Self {
-        Self { drive: (), orientation: (), ranges: (), extra: () }
+        Self {
+            drive: (),
+            orientation: (),
+            ranges: (),
+            extra: (),
+        }
     }
 }
 
 impl<D, H, R, E> Sources<D, H, R, E> {
     #[cfg(feature = "vex")]
-    pub fn with_drive(self, drive: crate::odometric::DifferentialTracking)
-        -> Sources<(crate::odometric::DifferentialTracking,), H, R, E>
-    {
-        Sources { drive: (drive,), orientation: self.orientation, ranges: self.ranges, extra: self.extra }
+    pub fn with_drive(
+        self,
+        drive: crate::odometric::DifferentialTracking,
+    ) -> Sources<(crate::odometric::DifferentialTracking,), H, R, E> {
+        Sources {
+            drive: (drive,),
+            orientation: self.orientation,
+            ranges: self.ranges,
+            extra: self.extra,
+        }
     }
 
     pub fn with_orientation<T: TrackingSource>(self, orientation: T) -> Sources<D, (T,), R, E> {
-        Sources { drive: self.drive, orientation: (orientation,), ranges: self.ranges, extra: self.extra }
+        Sources {
+            drive: self.drive,
+            orientation: (orientation,),
+            ranges: self.ranges,
+            extra: self.extra,
+        }
     }
 
     pub fn with_ranges<T: RangeBank>(self, ranges: T) -> Sources<D, H, T, E> {
-        Sources { drive: self.drive, orientation: self.orientation, ranges, extra: self.extra }
+        Sources {
+            drive: self.drive,
+            orientation: self.orientation,
+            ranges,
+            extra: self.extra,
+        }
     }
 
     pub fn with_extra<T: TrackingSources>(self, extra: T) -> Sources<D, H, R, T> {
-        Sources { drive: self.drive, orientation: self.orientation, ranges: self.ranges, extra }
+        Sources {
+            drive: self.drive,
+            orientation: self.orientation,
+            ranges: self.ranges,
+            extra,
+        }
     }
 }
 
@@ -110,9 +136,16 @@ impl DriveBank for (crate::odometric::DifferentialTracking,) {
 impl<D: DriveBank, H: TrackingSources, R: TrackingSources, E: TrackingSources> TrackingSources
     for Sources<D, H, R, E>
 {
-    const SOURCE_COUNT: usize = D::SOURCE_COUNT + E::SOURCE_COUNT + H::SOURCE_COUNT + R::SOURCE_COUNT;
-    const DIFFERENTIAL_COUNT: usize = D::DIFFERENTIAL_COUNT + E::DIFFERENTIAL_COUNT + H::DIFFERENTIAL_COUNT + R::DIFFERENTIAL_COUNT;
-    const GUARANTEED_RANGE_COUNT: usize = D::GUARANTEED_RANGE_COUNT + E::GUARANTEED_RANGE_COUNT + H::GUARANTEED_RANGE_COUNT + R::GUARANTEED_RANGE_COUNT;
+    const SOURCE_COUNT: usize =
+        D::SOURCE_COUNT + E::SOURCE_COUNT + H::SOURCE_COUNT + R::SOURCE_COUNT;
+    const DIFFERENTIAL_COUNT: usize = D::DIFFERENTIAL_COUNT
+        + E::DIFFERENTIAL_COUNT
+        + H::DIFFERENTIAL_COUNT
+        + R::DIFFERENTIAL_COUNT;
+    const GUARANTEED_RANGE_COUNT: usize = D::GUARANTEED_RANGE_COUNT
+        + E::GUARANTEED_RANGE_COUNT
+        + H::GUARANTEED_RANGE_COUNT
+        + R::GUARANTEED_RANGE_COUNT;
     const HAS_SELECTED_DRIVE: bool = D::SELECTED;
 
     #[cfg(feature = "vex")]
@@ -129,7 +162,8 @@ impl<D: DriveBank, H: TrackingSources, R: TrackingSources, E: TrackingSources> T
 
     #[cfg(feature = "vex")]
     fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking> {
-        self.orientation.diagnostic_imu()
+        self.orientation
+            .diagnostic_imu()
             .or_else(|| self.extra.diagnostic_imu())
             .or_else(|| self.ranges.diagnostic_imu())
     }
