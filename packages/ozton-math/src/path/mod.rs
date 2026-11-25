@@ -15,9 +15,9 @@ pub mod braking;
 mod chain;
 #[cfg(not(target_os = "vexos"))]
 pub use chain::PathChain;
+pub mod clearance;
 #[cfg(not(target_os = "vexos"))]
 mod parameterization;
-pub mod clearance;
 pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
