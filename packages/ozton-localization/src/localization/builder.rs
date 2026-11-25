@@ -258,6 +258,34 @@ mod tests {
     }
 
     #[test]
+    fn builder_excludes_movable_faces_only_when_requested() {
+        use ozton_math::{geometry::DVec2, qty};
+
+        let ranges = Ranges([(
+            0,
+            RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg)),
+        )]);
+        for exclude in [false, true] {
+            let mut field = FieldMap::from(Field::METAL);
+            assert!(field.add_movable_box(
+                DVec2::new(-0.1, 0.4),
+                DVec2::new(0.1, 0.6),
+                qty!(10 in),
+            ));
+            if exclude {
+                field = field.without_movable_range_landmarks();
+            }
+            let localization = LocalizationBuilder::new()
+                .with_field(field)
+                .build(&ranges)
+                .unwrap();
+            let mask = localization.localizer.range_config(0).unwrap().surface_mask;
+            assert_eq!(mask, if exclude { 0b1111 } else { 0xff });
+            assert!(localization.movable_obstacles().into_iter().any(|item| item.is_some()));
+        }
+    }
+
+    #[test]
     fn range_builder_requires_a_visible_mapped_surface() {
         let ranges = Ranges([(
             0,
