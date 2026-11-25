@@ -112,14 +112,22 @@ impl<'path> Progress<'path> {
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
     use alloc::vec::Vec;
+
     use super::*;
-    use crate::{path::{Limits, Waypoint}, qty};
+    use crate::{
+        path::{Limits, Waypoint},
+        qty,
+    };
 
     #[test]
     fn dense_path_lookahead_reaches_the_circle() {
         let limits = Limits::from_units(
-            qty!(0.33 m), qty!(1 m/s), qty!(1 m/s),
-            qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2),
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
         );
         let points: Vec<_> = (0..=100)
             .map(|i| Waypoint::new(DVec2::new(0.0, i as f64 * 0.002), 1.0))
