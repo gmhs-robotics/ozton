@@ -457,8 +457,12 @@ mod tests {
         let before = field.range_config(sensor);
         let initial_faces: Vec<_> = field.surfaces().collect();
         let initial_hit = cast_masked(
-            Pose::default(), before.mount, &initial_faces, before.surface_mask,
-        ).unwrap();
+            Pose::default(),
+            before.mount,
+            &initial_faces,
+            before.surface_mask,
+        )
+        .unwrap();
         let min = DVec2::new(-0.5, 0.4);
         let max = DVec2::new(0.5, 0.5);
         assert!(field.add_motion_box(min, max));
@@ -475,7 +479,8 @@ mod tests {
             Footprint::new(qty!(6 in), qty!(6 in)).unwrap(),
             projection.boundary.half_extents(),
             qty!(0 in),
-        ).unwrap();
+        )
+        .unwrap();
         for polygon in projection.fixed.into_iter().flatten() {
             clearance = clearance.with_polygon(polygon).unwrap();
         }
