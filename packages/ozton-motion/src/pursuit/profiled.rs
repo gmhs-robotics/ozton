@@ -60,39 +60,53 @@ impl<'path> ProfiledFollower<'path> {
         pose: Pose,
         reverse: bool,
         measured_speed: Velocity,
+        measured_yaw: AngularVelocity,
         brake_latency: core::time::Duration,
     ) -> [f64; 2] {
         let path = self.progress.path();
         let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
         let limits = path.limits();
+        let remaining = (path.end().distance - self.geometric.distance).max(0.0);
+        // Use a spatial carrot, independent of the number of samples per metre.
+        // Increase the preview with speed so that a fast straight does not chase
+        // centimetre-scale localization corrections.
+        let reaction = brake_latency.as_secs_f64();
+        let lookahead = self.lookahead.value.max(measured_speed.value.abs() * reaction * 2.0);
+        let point = path
+            .at_distance(ozton_math::qty!((self.geometric.distance + lookahead) m))
+            .pose
+            .position;
+        // Predict heading through the actuator delay. This is equivalent to
+        // damping heading error by measured yaw, without differentiating MCL.
         let travel = Pose {
-            heading: pose.heading + facing,
+            heading: pose.heading + facing
+                + ozton_math::qty!((measured_yaw.value * reaction) rad),
             ..pose
         };
-        let point = self.progress.lookahead(pose.position, self.lookahead.value);
         let target = travel.to_local(point);
+        let bearing = ozton_math::geometry::bearing(target).value;
         let (linear, angular) = if target.y <= 0.0 {
-            (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
+            (0.0, 2.0 * bearing)
         } else {
-            // A short spatial preview starts the robot from a zero-speed
-            // profile endpoint and begins braking ahead of corners.
-            let remaining = (path.end().distance - self.geometric.distance).max(0.0);
-            let preview = (self.lookahead.value * 0.25)
-                .min(0.025)
-                .min(remaining * 0.5);
+            let preview = (lookahead * 0.25).min(0.025).min(remaining * 0.5);
             let speed = path
                 .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
                 .speed;
-            let delay =
-                (measured_speed.value.abs() * brake_latency.as_secs_f64()).min(remaining * 0.5);
+            let delay = (measured_speed.value.abs() * reaction).min(remaining * 0.5);
             let speed = speed.min(
                 path.at_distance(
                     ozton_math::qty!((self.geometric.distance + preview.max(delay)) m),
                 )
                 .speed,
             );
+            // Do not drive rapidly toward a carrot far from the travel heading.
+            // Preserve curvature while reducing the speed for recovery.
+            let speed = speed * bearing.cos().max(0.0);
             PurePursuit::new().twist(
-                pose,
+                Pose {
+                    heading: travel.heading - facing,
+                    ..pose
+                },
                 point,
                 Velocity::new::<meter_per_second>(speed),
                 reverse,
@@ -116,6 +130,34 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn measured_yaw_damps_steering_before_heading_overshoots() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let mut follower = ProfiledFollower::new(&path, qty!(0.15 m));
+        let pose = Pose::new(DVec2::new(0.035, 0.2), qty!(0 rad));
+        follower.observe(pose, qty!(0.3 m));
+        let latency = core::time::Duration::from_millis(100);
+        let undamped = follower.command(pose, false, qty!(0.3 m/s), qty!(0 rad/s), latency);
+        let damped = follower.command(pose, false, qty!(0.3 m/s), qty!(2 rad/s), latency);
+        assert!(undamped[1] > undamped[0]);
+        assert!((damped[1] - damped[0]).abs() < (undamped[1] - undamped[0]).abs());
+    }
 
     #[test]
     fn stationary_reference_does_not_advance_and_can_start_in_both_directions() {
@@ -144,13 +186,13 @@ mod tests {
             assert_eq!(current.nominal_progress_time, initial.nominal_progress_time);
         }
         let latency = core::time::Duration::from_millis(100);
-        let wheels = follower.command(pose, false, qty!(0 m/s), latency);
+        let wheels = follower.command(pose, false, qty!(0 m/s), qty!(0 rad/s), latency);
         assert!(wheels.iter().all(|v| *v > 0.0));
         let reverse = Pose {
             heading: pose.heading + qty!(180 deg),
             ..pose
         };
-        let wheels = follower.command(reverse, true, qty!(0 m/s), latency);
+        let wheels = follower.command(reverse, true, qty!(0 m/s), qty!(0 rad/s), latency);
         assert!(wheels.iter().all(|v| *v < 0.0));
         assert!(!follower.is_terminal(0.02));
         let moved = follower.observe(Pose::new(DVec2::new(0.0, 0.03), pose.heading), qty!(0.04 m));
