@@ -34,3 +34,18 @@ fn controller_templates_are_const() {
         PathGuidance::LQR
     );
 }
+
+#[test]
+fn controller_capabilities_are_independent() {
+    use ozton_motion::{Basic, Boomerang, LtvLqr, PurePursuit, Ramsete, Tangent, capabilities::*};
+    fn distance<T: DriveDistance>() {}
+    fn pose<T: MoveToPose>() {}
+    fn trajectory<T: FollowPath>() {}
+    distance::<Basic>();
+    pose::<Basic>();
+    pose::<Boomerang>();
+    trajectory::<Tangent>();
+    trajectory::<PurePursuit>();
+    trajectory::<Ramsete>();
+    trajectory::<LtvLqr>();
+}

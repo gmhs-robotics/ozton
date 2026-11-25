@@ -602,26 +602,6 @@ impl Engine {
             .map_err(|_| PoseMotionError::Configuration)
     }
 
-    /// Follow a prepared path using the direction selected by the builder.
-    pub async fn follow<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        path: &ozton_math::path::Path,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        self.follow_path(drive, path, self.travel == Some(TravelDirection::Backward))
-            .await
-    }
-
-    pub async fn follow_path<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        path: &ozton_math::path::Path,
-        reverse: bool,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        self.follow_with_actions(drive, path, reverse, &mut PathActions::new())
-            .await
-    }
-
     /// Execute a continuous trajectory with nonblocking mechanism actions.
     pub async fn follow_with_actions<D: MotionExecution>(
         &self,

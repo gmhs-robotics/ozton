@@ -2,14 +2,14 @@
 
 Ozton is a Rust library for VEX V5 robots built on vexide. Start with ordinary driver control, then add sensors and autonomous movement as your robot grows. You can use the motion algorithms without adopting a particular robot layout.
 
-[Read the documentation](https://ozton.eli.best) · [First robot example](https://github.com/gmhs-robotics/ozton/blob/fix/motion-convergence/packages/ozton/examples/first_robot.rs)
+[Read the documentation](https://ozton.eli.best) · [First robot example](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton/examples/first_robot.rs)
 
 ## Get started
 
 Create a working vexide project first. The development branch uses vexide 0.9.0-beta.1 and the nightly toolchain pinned in this repository. Add Ozton to your project's dependencies:
 
 ```toml
-ozton = { git = "https://github.com/gmhs-robotics/ozton", branch = "fix/motion-convergence" }
+ozton = { git = "https://github.com/gmhs-robotics/ozton", branch = "main" }
 ```
 
 This is the development API. Pin a tested commit for competition firmware. The repository includes a toolchain file and V5 build configuration; follow the [getting started guide](docs/src/getting-started.md) to build the examples.
@@ -17,11 +17,11 @@ This is the development API. Pin a tested commit for competition firmware. The r
 Driver control needs only a drive model. Add calibrated wheel travel and an IMU when you want reliable autonomous movement. For position-based movement, register a known starting pose before issuing commands:
 
 ```rust
-use ozton::{qty, position_xyh, motion::{Seeking, MotionLimits, SettlingConfig}};
+use ozton::{qty, position_xyh, motion::{Basic, MotionLimits, SettlingConfig, capabilities::*}};
 
 // drivetrain is an assembled, localized differential drive.
 // Run inside an enabled autonomous route.
-let motion = Seeking::new()
+let motion = Basic::new()
     .with_limits(MotionLimits::new()
         .with_wheel_speed(qty!(1.2 m/s))
         .with_angular_acceleration(qty!(12 rad/s^2)))

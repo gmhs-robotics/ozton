@@ -4,15 +4,15 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Prepared paths default to spatial tangent tracking with curvature-dependent physical velocity constraints. Pure pursuit, RAMSETE and gain-scheduled LQR are selectable alternatives.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `Tangent`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, field clearance and cancellation handling.
 
 ## A first closed-loop move
 
 MotionExecution requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. A footprint-equipped drivetrain implements MotionExecution only when its localization carries a validated FieldBoundary. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
-use ozton::{qty, position_xyh, motion::{Seeking, SettlingConfig}};
-let motion = Seeking::new().with_settling(
+use ozton::{qty, position_xyh, motion::{Basic, Boomerang, SettlingConfig, capabilities::*}};
+let motion = Basic::new().with_settling(
     SettlingConfig::new()
         .with_position_tolerance(qty!(0.75 in))
         .with_heading_tolerance(qty!(2 deg)),
@@ -21,10 +21,11 @@ let motion = Seeking::new().with_settling(
 motion.drive_distance(&mut drivetrain, qty!(12 in)).await?;
 motion.turn_to_heading(&mut drivetrain, qty!(90 deg)).await?;
 motion.move_to_point(&mut drivetrain, ozton::position_xy!(8 in, 12 in)).await?;
-motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
+Boomerang::new().with_config(motion.config())
+    .move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
 
-Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` uses allocation-free Boomerang feedback toward a final heading. Use `move_to_pose_straight` or `follow_poses` for settled straight legs and stationary turns. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
+Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `Boomerang::move_to_pose` uses allocation-free continuous Boomerang feedback toward a final heading. `Basic::move_to_pose` and `follow_poses` use straight legs and stationary turns. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
 
 ## Typed driver assistance
 
@@ -51,7 +52,7 @@ sensor observation resets that controller rather than pretending a zero angle.
 Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
 
 ```rust,ignore
-use ozton::{qty, motion::{Seeking, MotionConfig, MotionLimits, DriveTuning}};
+use ozton::{qty, motion::{Basic, MotionConfig, MotionLimits, DriveTuning}};
 use ozton::math::control::Pid;
 
 const MOTION: MotionConfig = MotionConfig::new()
@@ -61,21 +62,23 @@ const MOTION: MotionConfig = MotionConfig::new()
             .with_angular_controller(Pid::new(3.0, 0.0, 0.22, None)),
     )
     .with_limits(MotionLimits::new().with_wheel_speed(qty!(1.2 m/s)));
-const SEEKING: Seeking = Seeking::new().with_config(MOTION);
+const BASIC: Basic = Basic::new().with_config(MOTION);
 ```
 
-A command finishes when the applicable error and velocity tolerances remain satisfied for the required settle duration. Seeking returns an error on timeout, invalid feedback or insufficient clearance. Tune physical velocity gains and braking rates on the actual robot.
+A command finishes when the applicable error and velocity tolerances remain satisfied for the required settle duration. Commands return errors on invalid feedback, cancellation or rejected clearance checks; progress and stage timeouts are diagnostic thresholds in the current executor. Tune physical velocity gains and braking rates on the actual robot.
 
 ## Following a prepared path
 
-Build a `Path` on the host with the robot's physical limits, then embed the samples and `limits.as_array()`. Use `Seeking::prepare_path` to validate that the generated limits match the live calibration and `Seeking::follow` to execute it. `follow_with_actions` adds nonblocking mechanism callbacks. The final stage settles against pose feedback.
+Build a `Path` on the host with the robot's physical limits, then embed the samples and `limits.as_array()`. Use `motion::prepare_path` to validate the generated limits against the live calibration and `FollowPath::follow_path` on a selected controller to execute it. `follow_path_with_actions` adds nonblocking mechanism callbacks. The final stage settles against pose feedback.
 
 ```rust,ignore
-let path = motion.prepare_path(&drivetrain, SAMPLES, GENERATED_LIMITS)?;
-motion.follow(&mut drivetrain, &path).await?;
+use ozton::motion::{PurePursuit, capabilities::FollowPath, prepare_path};
+let path = prepare_path(&drivetrain, MOTION, SAMPLES, GENERATED_LIMITS)?;
+PurePursuit::new().with_config(MOTION)
+    .follow_path(&mut drivetrain, &path).await?;
 ```
 
-Select a controller once with `Seeking::with_guidance(PathGuidance::PurePursuit)` or `PathGuidance::ramsete(Ramsete::default())`. `LtvLqr` is a continuous-time straight-reference gain-scheduled approximation, not a full discrete curved-reference LTV controller. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` is a continuous-time straight-reference gain-scheduled approximation, not a full discrete curved-reference LTV controller. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
 ## Wheel-constrained trajectories
@@ -138,10 +141,9 @@ MotionConfig is a const-friendly collection of typed sub-configurations:
 DriveTuning, MotionLimits, RateFilters, SettlingConfig, MotionTiming,
 ClearanceConfig, PathConfig and ApproachConfig. Each supports defaults and
 const builder methods; configure only the differences from defaults. Pass a
-complete configuration with Seeking::with_config, or change one group with
-with_limits, with_safety, with_settling and the other group setters. Copy a configuration group and adjust only the settings needed for a per-route override. The public fields are now grouped (for example,
-config.limits.wheel_speed and config.safety.forward_braking).
+complete configuration with the controller's `with_config`, or change limits and settling with the controller's builder methods. Copy a configuration group and adjust only the settings needed for a per-route override. The public fields are now grouped (for example,
+config.limits.wheel_speed and config.limits.forward_braking).
 
-Swing turns require both `PoseDrive` and `WheelActuation`. Ordinary
+Swing turns require both `MotionExecution` and `WheelActuation`. Ordinary
 wheel actuation is independent of localization; the swing controller composes
 these capabilities instead of requiring a particular drivetrain or motor type.
