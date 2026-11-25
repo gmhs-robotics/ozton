@@ -480,6 +480,10 @@ impl DifferentialFeedback {
         self.limit_step(wheels, ready, dt, options)
     }
 
+    pub(crate) fn applied_wheels(&self) -> [f64; 2] {
+        self.last_wheels
+    }
+
     /// Feed the actual applied wheel targets back to the slew limiter.
     /// A downstream safety governor may have scaled the requested targets.
     pub fn record_applied_wheels(&mut self, wheels: [f64; 2]) {

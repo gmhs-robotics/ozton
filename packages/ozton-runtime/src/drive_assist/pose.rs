@@ -65,6 +65,10 @@ where
         self.stop_now().map_err(DriveMotionFault::Brake)
     }
 
+    fn emergency_brake(&mut self) -> Result<(), Self::Error> {
+        self.drivetrain_mut().emergency_brake()
+    }
+
     fn pose_trusted(&self) -> bool {
         self.drivetrain().pose_trusted()
     }

@@ -42,7 +42,10 @@ pub trait PoseDrive: DriveEncoders {
         [0.0; 3]
     }
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error>;
+    /// Resting stop, which may use passive coast.
     fn brake(&mut self) -> Result<(), Self::Error>;
+    /// Immediate active stop. Implementations must not silently coast.
+    fn emergency_brake(&mut self) -> Result<(), Self::Error>;
     fn request_distance_reset(&mut self);
     fn cancel_distance_reset(&mut self);
 

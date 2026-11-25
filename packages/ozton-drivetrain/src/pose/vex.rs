@@ -13,7 +13,7 @@ use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
 
 use super::PoseDrive;
 use crate::{
-    Drive, Drivetrain, Footprint,
+    Drive, Drivetrain, Footprint, MotorGroups,
     model::{Differential, WheelSpeedError},
 };
 
@@ -95,6 +95,21 @@ where
 
     fn brake(&mut self) -> Result<(), Self::Error> {
         self.stop_now().map_err(DriveMotionFault::Brake)
+    }
+
+    fn emergency_brake(&mut self) -> Result<(), Self::Error> {
+        // The characterized native zero-speed response is active, unlike
+        // the model's normal zero-voltage coast. On an output fault, try
+        // electrical braking on every motor before reporting the failure.
+        let result = self.drive_wheel_speeds([ozton_math::qty!(0 m/s); 2]);
+        if result.is_err() {
+            for group in self.model.motor_groups() {
+                let _ = crate::vex::each_motor(&mut group.borrow_mut(), |motor| {
+                    motor.brake(vexide::smart::motor::BrakeMode::Brake)
+                });
+            }
+        }
+        result.map_err(Into::into)
     }
 
     fn pose_trusted(&self) -> bool {

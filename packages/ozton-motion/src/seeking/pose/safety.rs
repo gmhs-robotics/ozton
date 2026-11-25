@@ -1,4 +1,6 @@
 //! Predictive stopping envelope and curvature-preserving command governor.
+use std::cell::Cell;
+
 use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
@@ -18,6 +20,7 @@ pub struct StoppingGovernor {
     field: Option<RectangularClearance>,
     options: DriveOptions,
     config: MotionConfig,
+    previous: Cell<[f64; 2]>,
 }
 
 impl StoppingGovernor {
@@ -30,6 +33,7 @@ impl StoppingGovernor {
             field,
             options,
             config,
+            previous: Cell::new([0.0; 2]),
         }
     }
 
@@ -42,13 +46,21 @@ impl StoppingGovernor {
         covariance: Option<glam::DMat2>,
         requested: [Velocity; 2],
     ) -> Option<[Velocity; 2]> {
+        let previous = self.previous.get();
         if requested.iter().any(|v| !v.value.is_finite())
             || !feedback.pose.is_finite()
             || !feedback.forward_velocity.value.is_finite()
             || !feedback.lateral_velocity.value.is_finite()
             || !feedback.angular_velocity.value.is_finite()
             || self.field.is_some_and(|field| {
-                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+                !safe_feedback(
+                    field,
+                    feedback,
+                    self.config,
+                    uncertainty,
+                    covariance,
+                    body_rates(previous, self.options.track_width.value),
+                )
             })
         {
             return None;
@@ -61,9 +73,15 @@ impl StoppingGovernor {
             self.config,
             uncertainty,
             covariance,
+            previous,
         );
+        self.previous.set(limited);
         Some(limited.map(|value| qty!((value) m/s)))
     }
+}
+
+pub(super) fn body_rates([left, right]: [f64; 2], track: f64) -> [f64; 2] {
+    [(left + right) * 0.5, (right - left) / track]
 }
 
 fn bounds(
@@ -71,6 +89,7 @@ fn bounds(
     feedback: Feedback,
     v: f64,
     w: f64,
+    previous: [f64; 2],
     uncertainty: [f64; 3],
     covariance: Option<glam::DMat2>,
     reaction: f64,
@@ -80,6 +99,7 @@ fn bounds(
     let forward = RateBounds {
         measured: feedback.forward_velocity.value,
         requested: v,
+        previous: previous[0],
         uncertainty: forward,
         acceleration: config.safety.forward_acceleration_bound.map(|a| a.value),
         braking: config
@@ -92,6 +112,7 @@ fn bounds(
     let lateral = RateBounds {
         measured: feedback.lateral_velocity.value,
         requested: feedback.lateral_velocity.value,
+        previous: feedback.lateral_velocity.value,
         uncertainty: lateral,
         acceleration: None,
         braking: config.safety.lateral_braking.value,
@@ -100,6 +121,7 @@ fn bounds(
     let yaw = RateBounds {
         measured: feedback.angular_velocity.value,
         requested: w,
+        previous: previous[1],
         uncertainty: yaw,
         acceleration: config.safety.yaw_acceleration_bound.map(|a| a.value),
         braking: config
@@ -130,12 +152,13 @@ pub(super) fn limit_wall_command(
     config: MotionConfig,
     uncertainty: [f64; 3],
     covariance: Option<glam::DMat2>,
+    previous: [f64; 2],
 ) -> [f64; 2] {
     let Some(field) = field else {
         return wheels;
     };
-    let v = (wheels[0] + wheels[1]) * 0.5;
-    let w = (wheels[1] - wheels[0]) / options.track_width.value;
+    let [v, w] = body_rates(wheels, options.track_width.value);
+    let previous = body_rates(previous, options.track_width.value);
     let delay = reaction(config) + config.safety.wall_preview.as_secs_f64();
     let clear = |scale| {
         bounds(
@@ -143,6 +166,7 @@ pub(super) fn limit_wall_command(
             feedback,
             v * scale,
             w * scale,
+            previous,
             uncertainty,
             covariance,
             delay,
@@ -172,6 +196,7 @@ pub(super) fn safe_feedback(
     config: MotionConfig,
     uncertainty: [f64; 3],
     covariance: Option<glam::DMat2>,
+    previous: [f64; 2],
 ) -> bool {
     let v = feedback.forward_velocity.value;
     let w = feedback.angular_velocity.value;
@@ -180,6 +205,7 @@ pub(super) fn safe_feedback(
         feedback,
         v,
         w,
+        previous,
         uncertainty,
         covariance,
         reaction(config),
@@ -256,15 +282,17 @@ mod tests {
             sample(0.88620),
             config,
             [0.0; 3],
-            None
+            None,
+            [0.0; 2]
         ));
-        assert!(safe_feedback(field, sample(0.549), config, [0.0; 3], None));
+        assert!(safe_feedback(field, sample(0.549), config, [0.0; 3], None, [0.0; 2]));
         assert!(!safe_feedback(
             field,
             sample(0.549),
             config,
             [0.0, 0.2, 0.0],
             None,
+            [0.0; 2],
         ));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
         let mut near = sample(0.10);
@@ -277,6 +305,7 @@ mod tests {
             config,
             [0.0; 3],
             None,
+            [0.0; 2],
         );
         assert!(limited[0] > 0.0 && limited[0] < 0.55);
         assert_eq!(limited[0], limited[1]);
@@ -305,7 +334,7 @@ mod tests {
                 .with_yaw_braking(qty!(3 rad/s^2)),
         );
         let uncertainty = [0.1117, 0.0607, 0.0474];
-        assert!(safe_feedback(field, feedback, config, uncertainty, None));
+        assert!(safe_feedback(field, feedback, config, uncertainty, None, [0.0; 2]));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));
         let wheels = limit_wall_command(
             Some(field),
@@ -320,7 +349,7 @@ mod tests {
         assert_eq!(wheels[0], -wheels[1]);
         // The same request near the physical boundary must still be rejected.
         feedback.pose.position.x = 0.85;
-        assert!(!safe_feedback(field, feedback, config, uncertainty, None));
+        assert!(!safe_feedback(field, feedback, config, uncertainty, None, [0.0; 2]));
         assert_eq!(
             limit_wall_command(
                 Some(field),
@@ -330,6 +359,7 @@ mod tests {
                 config,
                 uncertainty,
                 None,
+                [0.0; 2],
             ),
             [0.0; 2]
         );

@@ -6,6 +6,8 @@ use glam::{DMat2, DVec2};
 pub struct RateBounds {
     pub measured: f64,
     pub requested: f64,
+    /// The command already in flight during the actuator reaction interval.
+    pub previous: f64,
     pub uncertainty: f64,
     /// Optional physical upper acceleration bound; not a trajectory tuning gain.
     pub acceleration: Option<f64>,
@@ -21,6 +23,7 @@ impl RateBounds {
         if ![
             self.measured,
             self.requested,
+            self.previous,
             self.uncertainty,
             self.braking,
             reaction,
@@ -38,7 +41,9 @@ impl RateBounds {
         }
         let extent = |sign: f64| {
             let initial = (sign * self.measured + self.uncertainty).max(0.0);
-            let ceiling = (sign * self.requested + self.uncertainty).max(initial);
+            let ceiling = (sign * self.requested + self.uncertainty)
+                .max(sign * self.previous + self.uncertainty)
+                .max(initial);
             let (travel, speed) = if let Some(a) = self.acceleration {
                 let t = ((ceiling - initial) / a).min(reaction);
                 let speed = initial + a * t;
@@ -105,6 +110,7 @@ mod tests {
         let rates = RateBounds {
             measured: 0.0,
             requested: 1.0,
+            previous: 0.0,
             uncertainty: 0.0,
             acceleration: Some(2.0),
             braking: 2.0,
@@ -117,6 +123,7 @@ mod tests {
         let rates = RateBounds {
             measured: 0.5,
             requested: -0.3,
+            previous: 0.0,
             uncertainty: 0.0,
             acceleration: None,
             braking: 1.0,
@@ -124,6 +131,21 @@ mod tests {
         let [negative, positive] = rates.stopping_interval(0.1).unwrap();
         assert!((negative + 0.075).abs() < 1e-12);
         assert!((positive - 0.175).abs() < 1e-12);
+    }
+
+    #[test]
+    fn in_flight_command_is_not_erased_by_a_new_stop_request() {
+        let rates = RateBounds {
+            measured: 0.2,
+            requested: 0.0,
+            previous: 0.8,
+            uncertainty: 0.0,
+            acceleration: Some(2.0),
+            braking: 1.0,
+        };
+        let [negative, positive] = rates.stopping_interval(0.2).unwrap();
+        assert_eq!(negative, 0.0);
+        assert!((positive - 0.26).abs() < 1e-12);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use ozton_math::{
 
 use super::{
     PathActions, PoseDrive, PoseMotionError,
-    safety::{limit_wall_command, safe_feedback},
+    safety::{body_rates, limit_wall_command, safe_feedback},
 };
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
@@ -149,7 +149,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     "command={status},source=tracking_initializing,elapsed_ms={}",
                     started.elapsed().as_millis()
                 );
-                self.drive.brake().map_err(PoseMotionError::StopFailed)?;
+                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
                 controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
@@ -196,8 +196,16 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let clearance = super::approach::clearance(self.drive, self.config.safety.clearance)?;
             let uncertainty = self.drive.velocity_uncertainty();
             let covariance = self.drive.position_covariance();
+            let previous = controller.applied_wheels();
             if clearance.is_some_and(|field| {
-                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+                !safe_feedback(
+                    field,
+                    feedback,
+                    self.config,
+                    uncertainty,
+                    covariance,
+                    body_rates(previous, self.options.track_width.value),
+                )
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -210,6 +218,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config,
                 uncertainty,
                 covariance,
+                previous,
             );
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
@@ -315,7 +324,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::StageTimeout);
             }
             let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
-                self.drive.brake().map_err(PoseMotionError::StopFailed)?;
+                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+                controller.reset();
                 if fresh_at.elapsed() > self.config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
@@ -350,8 +360,16 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let uncertainty = self.drive.velocity_uncertainty();
             let covariance = self.drive.position_covariance();
+            let previous = controller.applied_wheels();
             if clearance.is_some_and(|field| {
-                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+                !safe_feedback(
+                    field,
+                    feedback,
+                    self.config,
+                    uncertainty,
+                    covariance,
+                    body_rates(previous, self.options.track_width.value),
+                )
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
@@ -416,6 +434,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config,
                 uncertainty,
                 covariance,
+                previous,
             );
             controller.record_applied_wheels(wheels);
             if phase_changed {
@@ -434,7 +453,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
-            if complete || (terminal && (terminal_pose.is_braking() || ready)) {
+            if terminal && terminal_pose.is_braking() {
+                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+            } else if complete || (terminal && ready) {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
                 self.drive
@@ -511,7 +532,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         outcome: Result<T, PoseMotionError<D::Error>>,
     ) -> Result<T, PoseMotionError<D::Error>> {
         self.drive.cancel_distance_reset();
-        let result = match (outcome, self.drive.brake()) {
+        let stop = if outcome.is_ok() {
+            self.drive.brake()
+        } else {
+            self.drive.emergency_brake()
+        };
+        let result = match (outcome, stop) {
             (outcome, Ok(())) => outcome,
             (Ok(_), Err(stop)) => Err(PoseMotionError::StopFailed(stop)),
             (Err(cause), Err(stop)) => Err(PoseMotionError::StopFailedAfter {
@@ -531,7 +557,7 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     fn drop(&mut self) {
         if !self.finished {
             self.drive.cancel_distance_reset();
-            let stopped = self.drive.brake();
+            let stopped = self.drive.emergency_brake();
             if stopped.is_ok() {
                 log_event!(Info, "motion", "Motion interrupted; brake requested");
             } else {
