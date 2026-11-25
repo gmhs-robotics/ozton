@@ -20,7 +20,10 @@ pub mod autonomous;
 pub mod prelude {
     pub use crate::{
         autonomous::{ControlError, ControlResult},
-        drivetrain::{Drive, Drivetrain, HasLocalization, LateralDrive, model::DriveConfigError},
+        drivetrain::{
+            BrakeMode, BrakeMotors, Drive, Drivetrain, HasLocalization, LateralDrive, MotorAddress,
+            WheelCommand, WheelCommandDrive, model::DriveConfigError,
+        },
         motion::{
             Arcade, DriveTuning, Follower, Holonomic, Seeking, Tank, arcade::ArcadeInput,
             seeking::TravelDirection,
