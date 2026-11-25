@@ -199,14 +199,25 @@ pub(super) fn limit_wall_command_at_contact(
             config,
         )
     };
+    // The planning reserve is not an additional physical wall. If the
+    // nominal chassis is still in the reserved area, a predictive envelope
+    // may consume the reserve but must remain within the physical perimeter.
+    // Otherwise retain the non-worsening recovery policy for the chassis.
+    let nominal_clear = field.contains_pose(feedback.pose);
+    let fits = |min, max| {
+        field.contains_aabb(min, max)
+            || (nominal_clear
+                && field.physical_wall_contains_aabb(min, max)
+                && field.obstacle_free_aabb(min, max))
+    };
     let full = projected(v, w);
-    if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
+    if full.is_some_and(|(min, max)| fits(min, max)) {
         return wheels;
     }
     let baseline = projected(0.0, 0.0);
     let clear = |v, w| {
         projected(v, w).is_some_and(|(min, max)| {
-            field.contains_aabb(min, max)
+            fits(min, max)
                 || baseline.is_some_and(|(base_min, base_max)| {
                     let permitted = field.wall_recovery_contains(min, max, base_min, base_max)
                         || contact.is_some_and(|wall| {
@@ -248,7 +259,7 @@ pub(super) fn limit_wall_command_at_contact(
     let (min, max) = full.unwrap_or((DVec2::splat(f64::NAN), DVec2::splat(f64::NAN)));
     let reason = if full.is_none() {
         "invalid_envelope"
-    } else if !field.wall_contains_aabb(min, max) {
+    } else if !field.physical_wall_contains_aabb(min, max) {
         "wall"
     } else {
         "obstacle"
@@ -534,6 +545,58 @@ mod tests {
             ),
             [0.0; 2]
         );
+    }
+
+    #[test]
+    fn nominally_clear_pivot_can_use_the_predictive_wall_reserve() {
+        let field = RectangularClearance::new(
+            Footprint::from_extents(
+                qty!(7.55 in),
+                qty!(7.55 in),
+                qty!(7.761804 in),
+                qty!(7.238196 in),
+            )
+            .unwrap(),
+            DVec2::new(1.1557, 1.2319),
+            qty!(1 in),
+        )
+        .unwrap();
+        let mut feedback = sample(0.0);
+        feedback.pose = Pose::new(DVec2::new(-0.6303, -0.7617), qty!(-0.7655 rad));
+        feedback.angular_velocity = qty!(0 rad/s);
+        let config = MotionConfig::DEFAULT.with_safety(
+            crate::ClearanceConfig::DEFAULT
+                .with_forward_braking(qty!(0.55 m/s^2))
+                .with_yaw_braking(qty!(3 rad/s^2)),
+        );
+        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));
+        assert!(field.contains_pose(feedback.pose));
+        let command = [0.075, -0.075];
+        let allowed = limit_wall_command(
+            Some(field),
+            feedback,
+            command,
+            options,
+            config,
+            [0.1107, 0.0608, 0.0474],
+            Some(glam::DMat2::from_diagonal(DVec2::splat(0.0001))),
+            [0.0; 2],
+        );
+        assert!(allowed[0] > 0.0);
+        let [v, w] = body_rates(allowed, options.track_width.value);
+        let (min, max) = bounds(
+            field,
+            feedback,
+            v,
+            w,
+            [0.0; 2],
+            [0.1107, 0.0608, 0.0474],
+            Some(glam::DMat2::from_diagonal(DVec2::splat(0.0001))),
+            reaction(config) + config.safety.wall_preview.as_secs_f64(),
+            config,
+        )
+        .unwrap();
+        assert!(field.physical_wall_contains_aabb(min, max));
     }
 
     #[test]
