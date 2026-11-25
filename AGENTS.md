@@ -1,5 +1,14 @@
 # Ozton and Override
 
+## Production-quality engineering (mandatory for Ozton and Override)
+
+- Every change must be designed as a production-quality, maintainable solution. Do not commit temporary fixes, symptom-masking workarounds, ad hoc control loops, magic constants, or calibration-only substitutes for algorithms that belong in the reusable library.
+- Diagnose root causes using logs, source inspection, hardware specifications, and reproducible tests. Prefer established, appropriate algorithms and idiomatic Rust. Fix defects at the owning abstraction rather than patching individual callers. Keep robot-specific configuration in Override and general algorithms in Ozton; avoid unnecessary abstractions or broad rewrites.
+- Calibration must exercise the same production actuation, localization, motion-control, and safety implementations used in competition, except for deliberate, explicitly identified characterization tests. Characterize and document hardware-specific tuning; do not present provisional gains as validated.
+- Preserve genuine safety invariants, competition cancellation, field containment, and hardware fault handling. Do not suppress errors or relax safeguards merely to make a test pass.
+- Review changes for correctness, API consistency, latency, resource usage, and edge cases. Add focused tests for behavior and failure modes; run the relevant builds, tests, lint and formatting checks. Check CI and disclose any missing physical validation. Never claim production readiness when required verification is unavailable.
+- If a root cause or necessary hardware evidence is missing, report the blocker and what evidence is needed rather than shipping a guessed workaround. Temporary diagnostic instrumentation must be clearly identified and must not replace the production solution.
+
 ## Working in these repositories
 
 - Split files approaching 200 lines into sibling modules when they contain distinct responsibilities. Keep shared algorithms and hardware conversions in one implementation.
