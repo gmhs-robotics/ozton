@@ -219,8 +219,7 @@ impl RectangularClearance {
     /// Check the uncertainty-expanded envelope against hard obstacles with
     /// the configured reserve. Virtual obstacles never receive wall recovery.
     pub fn obstacle_free_aabb(&self, min: DVec2, max: DVec2) -> bool {
-        min.is_finite() && max.is_finite() && min.cmple(max).all()
-            && self.obstacles_clear(min, max)
+        min.is_finite() && max.is_finite() && min.cmple(max).all() && self.obstacles_clear(min, max)
     }
 
     /// Physical wall containment with the normal obstacle clearance.
