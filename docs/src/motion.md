@@ -105,11 +105,13 @@ or MCL expands the projected bounds by the configured sigma multiplier.
 Odometry-only or custom estimators without covariance use the configured
 clearance margin, not invented covariance. Test the resulting AABB against
 the physical perimeter and hard obstacles. The configured clearance is also a
-preferred wall reserve. If the current stopping envelope already occupies this
-reserve, commands may leave the deficit unchanged or reduce it, never increase
-it. Corner velocity checks forbid further motion toward the affected wall.
-The uncertainty-expanded envelope must fit inside the physical perimeter in
-ordinary operation. For a physically surveyed flush starting pose, register
+preferred planning reserve at the wall. When the nominal chassis fits within
+that reserve, its predictive stopping envelope may consume the reserve as long
+as it remains within the physical wall and clears hard obstacles. When the
+nominal chassis already occupies the reserve, recovery may leave the deficit
+unchanged or reduce it, and corner velocity checks forbid further outward
+motion. The uncertainty-expanded envelope must fit inside the physical perimeter
+in ordinary operation. For a physically surveyed flush starting pose, register
 `set_pose_at_contact` and use `drive_distance_from_contact`. The estimator
 conditions its prior on the contacted wall, and the governor permits only
 inward or tangential motion that does not worsen the existing envelope overlap
