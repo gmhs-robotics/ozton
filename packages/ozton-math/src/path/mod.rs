@@ -99,7 +99,7 @@ pub enum PathError {
 
 pub const MAX_POINTS: usize = 4096;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathSample {
     pub pose: Pose,
     pub curvature: f64,
