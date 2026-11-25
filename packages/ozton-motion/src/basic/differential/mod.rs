@@ -6,6 +6,7 @@ use ozton_localization::Feedback;
 use ozton_math::{
     desaturate,
     geometry::{DVec2, wheel_speeds, wrap_heading},
+    path::braking::stoppable_speed,
     uom::{
         ConstZero,
         si::{
@@ -194,16 +195,17 @@ impl DifferentialFeedback {
         let config = self.config;
         let yaw_limit = (2.0 * options.maximum_wheel_speed.value / options.track_width.value)
             .min(config.limits.angular_speed.value);
-        // Leave braking authority even inside the arrival band.
-        // Conservative default deceleration in SI units; characterize per robot.
-        let stopping_limit = |distance: f64, maximum: f64| {
-            (2.0 * config.limits.deceleration.value * distance.abs())
-                .sqrt()
-                .max(options.speed_tolerance.value * 3.0)
-                .min(maximum)
-        };
         let reaction =
             config.timing.maximum_gap.as_secs_f64() + config.safety.brake_latency.as_secs_f64();
+        let forward_braking = config.safety.forward_braking
+            .unwrap_or(config.limits.deceleration).value.min(config.limits.deceleration.value);
+        let yaw_braking = config.safety.yaw_braking
+            .unwrap_or(config.limits.angular_deceleration).value.min(config.limits.angular_deceleration.value);
+        // Keep bounded damping authority inside the arrival tolerance.
+        let stopping_limit = |distance: f64, maximum: f64| {
+            stoppable_speed(distance.abs().max(options.position_tolerance.value), reaction, forward_braking)
+                .unwrap_or(0.0).min(maximum)
+        };
         let forward = |pid: &mut MotionPid, error: f64, limit: f64| {
             let output = pid.forward(error, forward_rate, limit, dt);
             compensate_breakaway(
@@ -224,10 +226,8 @@ impl DifferentialFeedback {
             )
         };
         let angular = |pid: &mut MotionPid, error: f64| {
-            let limit = (2.0 * config.limits.angular_deceleration.value * error.abs())
-                .sqrt()
-                .max(options.angular_speed_tolerance.value * 4.0)
-                .min(yaw_limit);
+            let limit = stoppable_speed(error.abs().max(options.heading_tolerance.value), reaction, yaw_braking)
+                .unwrap_or(0.0).min(yaw_limit);
             let output = pid.yaw(error, yaw_rate, 0.0, limit, dt);
             compensate_breakaway(
                 output,
@@ -509,10 +509,18 @@ impl DifferentialFeedback {
             self.config.limits.angular_acceleration.value,
             self.config.limits.angular_deceleration.value,
         );
-        self.last_wheels = desaturate(
+        let desired = desaturate(
             [v - w * width * 0.5, v + w * width * 0.5],
             options.maximum_wheel_speed.value,
         );
+        let scale = self.config.limits.wheel_acceleration.map_or(1.0, |limit| {
+            let delta = (desired[0] - self.last_wheels[0]).abs()
+                .max((desired[1] - self.last_wheels[1]).abs());
+            if delta > 0.0 { (limit.value * seconds / delta).min(1.0) } else { 1.0 }
+        });
+        self.last_wheels = core::array::from_fn(|i| {
+            self.last_wheels[i] + scale * (desired[i] - self.last_wheels[i])
+        });
         (self.last_wheels, false)
     }
 }
@@ -543,7 +551,6 @@ fn compensate_breakaway(
     }
     // Invert d = v*T + v^2/(2*a) without subtracting nearly equal values.
     let distance = error.abs() - tolerance;
-    let stoppable =
-        2.0 * distance / (reaction + (reaction * reaction + 2.0 * distance / deceleration).sqrt());
+    let stoppable = stoppable_speed(distance, reaction, deceleration).unwrap_or(0.0);
     output.signum() * output.abs().max(minimum.min(limit).min(stoppable))
 }

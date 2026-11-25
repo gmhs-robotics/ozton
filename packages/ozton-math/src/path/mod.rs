@@ -213,7 +213,7 @@ impl Path {
                 next.distance - current.distance,
             ));
         }
-        parameterization::limit_wheels(&mut samples, limits);
+        parameterization::limit_wheels(&mut samples, limits)?;
         for index in 1..=last {
             let previous = samples[index - 1];
             let current = &mut samples[index];

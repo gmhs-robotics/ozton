@@ -393,6 +393,8 @@ impl ClearanceConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathConfig {
     pub lookahead: Length,
+    /// Maximum permitted deviation from the projected path.
+    pub maximum_cross_track_error: Length,
     pub ramsete_b: f64,
     pub ramsete_zeta: f64,
 }
@@ -406,6 +408,7 @@ impl Default for PathConfig {
 impl PathConfig {
     pub const DEFAULT: Self = Self {
         lookahead: ozton_math::qty!(0.16 m),
+        maximum_cross_track_error: ozton_math::qty!(0.20 m),
         ramsete_b: 2.0,
         ramsete_zeta: 0.7,
     };
@@ -417,6 +420,12 @@ impl PathConfig {
     #[must_use]
     pub const fn with_lookahead(mut self, value: Length) -> Self {
         self.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_maximum_cross_track_error(mut self, value: Length) -> Self {
+        self.maximum_cross_track_error = value;
         self
     }
 
@@ -609,6 +618,7 @@ impl MotionConfig {
                 self.settling.angular_velocity_tolerance.value,
                 self.safety.departure_speed.value,
                 self.path.lookahead.value,
+                self.path.maximum_cross_track_error.value,
                 self.path.ramsete_b,
                 self.path.ramsete_zeta,
                 self.approach.realign_enter.value,

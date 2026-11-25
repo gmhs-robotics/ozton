@@ -334,7 +334,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             );
             let geometric = path.at_distance(ozton_math::qty!((progress.distance()) m));
             let cross = geometric.pose.position.distance(feedback.pose.position);
-            if cross > 0.20 {
+            if cross > self.config.path.maximum_cross_track_error.value {
                 return Err(PoseMotionError::PositionUnsettled);
             }
             actions
@@ -348,13 +348,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             reference_time = profiled::advance_reference_time(
                 reference_time,
                 dt.as_secs_f64(),
-                geometric,
-                end,
-                self.config
-                    .path
-                    .lookahead
-                    .value
-                    .max(self.options.position_tolerance.value * 2.0),
+                &progress,
+                self.config.path.lookahead,
             );
             let sample = FollowerSample {
                 pose: feedback.pose,
@@ -387,7 +382,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     &progress,
                     sample,
                     reverse,
-                    self.options.position_tolerance,
                 );
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - progress.distance(), false)
