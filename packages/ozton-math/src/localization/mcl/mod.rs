@@ -10,7 +10,10 @@ pub use sensor::BeamModel;
 use uom::si::f64::{Angle, AngularVelocity, Length};
 
 use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
-use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
+use crate::{
+    geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading},
+    path::clearance::WallContact,
+};
 
 const MAX_PARTICLES: usize = 128;
 
@@ -171,13 +174,27 @@ impl ParticleFilter {
     }
 
     pub fn reset(&mut self, pose: Pose) {
+        self.reset_with_spread(pose, self.config.initial_spread);
+    }
+
+    /// A verified flush contact fixes wall-normal position and heading at
+    /// initialization. Tangential placement retains its configured uncertainty.
+    /// Normal prediction diffusion resumes with the next measured motion.
+    pub fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
+        let mut spread = self.config.initial_spread;
+        spread[wall.axis()] = 0.0;
+        spread.z = 0.0;
+        self.reset_with_spread(pose, spread);
+    }
+
+    fn reset_with_spread(&mut self, pose: Pose, spread: DVec3) {
         if !pose.is_finite() {
             return;
         }
         self.particles.clear();
         let weight = 1.0 / self.config.count as f64;
         for _ in 0..self.config.count {
-            let noise = self.random.normal3() * self.config.initial_spread;
+            let noise = self.random.normal3() * spread;
             self.particles.push(Particle {
                 pose: Pose::new(
                     pose.position + noise.truncate(),
