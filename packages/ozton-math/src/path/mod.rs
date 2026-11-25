@@ -1,6 +1,6 @@
 //! Prepared differential paths shared by importers and followers.
 
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 use glam::DVec2;
 use uom::si::f64::{Acceleration, Length, Time, Velocity};
@@ -109,7 +109,7 @@ pub struct PathSample {
 
 #[derive(Debug)]
 pub struct Path {
-    samples: Vec<PathSample>,
+    samples: Cow<'static, [PathSample]>,
     limits: Limits,
 }
 
@@ -226,7 +226,48 @@ impl Path {
                 return Err(PathError::InvalidPoint(index));
             }
         }
-        Ok(Self { samples, limits })
+        Ok(Self {
+            samples: Cow::Owned(samples),
+            limits,
+        })
+    }
+
+    /// Borrow a host-generated trajectory without allocating or parameterizing
+    /// it on the controller. The producer must use the same physical limits
+    /// and path algorithm; this checks the serialized sample invariants.
+    pub fn from_precomputed(
+        samples: &'static [PathSample],
+        limits: Limits,
+    ) -> Result<Self, PathError> {
+        if !limits.is_valid() {
+            return Err(PathError::InvalidLimits);
+        }
+        if samples.len() < 3 {
+            return Err(PathError::TooFewPoints);
+        }
+        if samples.len() > MAX_POINTS {
+            return Err(PathError::TooManyPoints);
+        }
+        for (i, sample) in samples.iter().enumerate() {
+            if !sample.pose.is_finite()
+                || !sample.curvature.is_finite()
+                || !sample.distance.is_finite()
+                || !sample.time.is_finite()
+                || !sample.speed.is_finite()
+                || sample.speed < 0.0
+                || (i == 0 && (sample.distance != 0.0 || sample.time != 0.0))
+                || ((i == 0 || i + 1 == samples.len()) && sample.speed != 0.0)
+                || (i > 0
+                    && (sample.distance <= samples[i - 1].distance
+                        || sample.time <= samples[i - 1].time))
+            {
+                return Err(PathError::InvalidPoint(i));
+            }
+        }
+        Ok(Self {
+            samples: Cow::Borrowed(samples),
+            limits,
+        })
     }
 
     /// Samples of the prepared path in increasing arc length.
