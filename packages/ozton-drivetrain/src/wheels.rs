@@ -5,6 +5,8 @@ use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::odometric::{SharedMotors, Wheels};
 use vexide::smart::PortError;
 
+use crate::WheelCommand;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelSpeedError {
     InvalidCommand,
@@ -29,27 +31,28 @@ impl Error for WheelSpeedError {
     }
 }
 
-pub(crate) fn drive_speed(
+pub(crate) fn drive_commands(
     wheels: &Wheels,
     motors: &mut [SharedMotors],
-    speeds: &[Velocity],
+    commands: &[WheelCommand],
 ) -> Result<(), WheelSpeedError> {
-    if speeds.len() != motors.len()
+    if commands.len() != motors.len()
         || !wheels.matches(motors)
-        || speeds.iter().any(|speed| !speed.value.is_finite())
+        || !commands.iter().all(|command| command.is_valid())
     {
         return Err(WheelSpeedError::InvalidCommand);
     }
     let mut result = Ok(());
-    for (group, (motors, speed)) in motors.iter_mut().zip(speeds).enumerate() {
+    for (group, (motors, command)) in motors.iter_mut().zip(commands).enumerate() {
         for (index, motor) in motors.borrow_mut().iter_mut().enumerate() {
-            // A velocity setpoint (including zero) is not a request to coast.
-            // Explicit stop_now() remains responsible for the resting brake mode.
-            let written = wheels
-                .meters_per_turn(group, index, motor)
-                .and_then(|travel| {
-                    motor.set_velocity((speed.value * 60.0 / travel).round() as i32)
-                });
+            let written = match *command {
+                WheelCommand::Brake(mode) => motor.brake(mode.into()),
+                WheelCommand::Velocity(speed) => wheels
+                    .meters_per_turn(group, index, motor)
+                    .and_then(|travel| {
+                        motor.set_velocity((speed.value * 60.0 / travel).round() as i32)
+                    }),
+            };
             result = result.and(written);
         }
     }
