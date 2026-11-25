@@ -134,7 +134,17 @@ impl Footprint {
         Some(footprint)
     }
 
-    /// Field-aligned minimum and maximum corners in metres at a center-of-rotation pose.
+    /// Express the same physical envelope relative to a different body-frame
+    /// reference point, without changing its dimensions or world geometry.
+    pub fn with_reference_offset(mut self, offset: DVec2) -> Option<Self> {
+        if !offset.is_finite() {
+            return None;
+        }
+        self.center_offset -= offset;
+        self.center_offset.is_finite().then_some(self)
+    }
+
+    /// Field-aligned minimum and maximum corners in metres at the tracked pose.
     pub fn bounds(self, pose: Pose) -> (DVec2, DVec2) {
         let rotation = rotation(pose.heading);
         let center = pose.position + rotation.rotate(self.center_offset);

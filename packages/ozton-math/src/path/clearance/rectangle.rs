@@ -36,6 +36,13 @@ impl RectangularClearance {
         })
     }
 
+    /// Re-express the physical chassis about a different body-frame reference.
+    /// Walls and obstacles stay in the original world frame.
+    pub fn with_reference_offset(mut self, offset: DVec2) -> Option<Self> {
+        self.footprint = self.footprint.with_reference_offset(offset)?;
+        Some(self)
+    }
+
     /// Add a rectangle through the same convex geometry as all other obstacles.
     pub fn with_obstacle(self, min: DVec2, max: DVec2) -> Option<Self> {
         self.with_polygon(ConvexPolygon::rectangle(min, max)?)
@@ -521,6 +528,20 @@ fn rotated_support(vector: DVec2, radius: f64, axis: DVec2, sin: f64, cos: f64) 
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn displaced_turn_checks_same_physical_chassis_about_actual_pivot() {
+        let footprint = Footprint::new(crate::qty!(0.4 m), crate::qty!(0.4 m)).unwrap();
+        let field = RectangularClearance::new(footprint, DVec2::ONE, Length::default()).unwrap();
+        let pose = Pose::new(DVec2::new(0.68, 0.0), Angle::default());
+        let offset = DVec2::new(0.0, -0.1);
+        let shifted = field.with_reference_offset(offset).unwrap();
+        let pivot = Pose::new(pose.transform_point(offset), pose.heading);
+        assert!(field.contains_pose(pose));
+        assert!(shifted.contains_pose(pivot));
+        assert!(field.contains_turn(pose, crate::qty!(-90 deg)));
+        assert!(!shifted.contains_turn(pivot, crate::qty!(-90 deg)));
+    }
 
     #[test]
     fn straight_departure_can_restore_wall_reserve_without_crossing_perimeter() {
