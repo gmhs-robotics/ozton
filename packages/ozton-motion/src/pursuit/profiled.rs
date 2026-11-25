@@ -132,23 +132,60 @@ impl<'path> ProfiledFollower<'path> {
                 reverse,
             ),
         };
-        // The host profile constrains nominal curvature, not live feedback.
-        // Scale both components together so a corrective turn cannot request
-        // more lateral acceleration than the calibrated drivetrain allows.
-        let lateral = (linear * angular).abs();
-        let scale = if lateral > limits.lateral_acceleration.value {
-            (limits.lateral_acceleration.value / lateral).sqrt()
-        } else {
-            1.0
-        };
-        desaturate(
-            wheel_speeds(
-                Velocity::new::<meter_per_second>(linear * scale),
-                AngularVelocity::new::<radian_per_second>(angular * scale),
-                limits.track_width,
-            )
-            .map(|speed| speed.value),
-            limits.wheel_speed.value,
+        limit_lateral_acceleration(
+            desaturate(
+                wheel_speeds(
+                    Velocity::new::<meter_per_second>(linear),
+                    AngularVelocity::new::<radian_per_second>(angular),
+                    limits.track_width,
+                )
+                .map(|speed| speed.value),
+                limits.wheel_speed.value,
+            ),
+            limits.track_width.value,
+            limits.lateral_acceleration.value,
         )
+    }
+}
+
+/// Bound lateral acceleration of a differential wheel command while preserving
+/// curvature. The same bound is needed after independent linear/yaw slew.
+pub(crate) fn limit_lateral_acceleration(
+    wheels: [f64; 2],
+    track_width: f64,
+    maximum: f64,
+) -> [f64; 2] {
+    let linear = (wheels[0] + wheels[1]) * 0.5;
+    let angular = (wheels[1] - wheels[0]) / track_width;
+    let lateral = (linear * angular).abs();
+    if lateral <= maximum {
+        return wheels;
+    }
+    let scale = (maximum / lateral).sqrt();
+    wheels.map(|speed| speed * scale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::limit_lateral_acceleration;
+
+    #[test]
+    fn lateral_limit_preserves_curvature_and_turn_direction() {
+        let width = 0.33;
+        let maximum = 0.55;
+        for wheels in [[0.4, 1.4], [1.4, 0.4], [-0.4, -1.4], [-1.4, -0.4]] {
+            let limited = limit_lateral_acceleration(wheels, width, maximum);
+            let v = (limited[0] + limited[1]) * 0.5;
+            let w = (limited[1] - limited[0]) / width;
+            assert!(((v * w).abs() - maximum).abs() < 1e-12);
+            assert!((limited[0] * wheels[1] - limited[1] * wheels[0]).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn lateral_limit_leaves_straight_and_stationary_turn_commands_unchanged() {
+        for wheels in [[1.0, 1.0], [-1.0, -1.0], [-0.5, 0.5], [0.0, 0.0]] {
+            assert_eq!(limit_lateral_acceleration(wheels, 0.33, 0.55), wheels);
+        }
     }
 }
