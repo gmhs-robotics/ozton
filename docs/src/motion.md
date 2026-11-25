@@ -51,59 +51,62 @@ A command finishes when the applicable error and velocity tolerances remain sati
 Create a Path from waypoints and physical limits in ozton::math::path. Use Seeking::follow_path with a profiled Follower (RAMSETE or PurePursuit). The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
+## Wheel-constrained trajectories
+
+Path construction applies forward and backward reachability in squared speed. For each
+segment, curvature and squared speed are interpolated in arc length. The differential
+wheel acceleration constraints are linear in the two endpoint squared speeds, so
+the backward pass projects a small set of inequalities and the forward pass chooses
+the greatest attainable successor. This limits both wheels across the whole segment,
+including curvature changes. Use MotionLimits::with_wheel_acceleration (or
+path::Limits::with_wheel_acceleration) to supply a characterized wheel acceleration
+limit. When unspecified, path construction uses the nominal linear acceleration.
+The live controller also constrains feedback wheel slew when explicitly configured.
+
+The moving RAMSETE reference is limited by arc-length lead over geometric progress.
+The same terminal pose controller handles convergence for both followers. Use
+PathConfig::with_maximum_cross_track_error to set the allowed tracking deviation.
+
 ## Predictive stopping and wall approach
 
 The hard boundary is checked against the entire chassis and its reachable
-braking sweep. For a signed rate v, a minimum measured braking deceleration
-a and maximum reaction interval T, the signed stopping displacement is
-d = v T + v |v| / (2 a). The reaction interval combines the maximum control
-gap and configured actuator brake latency. The command governor adds a
-configurable preview interval; its scalar bisection scales both wheels
-together, preserving their differential curvature.
+braking sweep. The reaction interval combines maximum control gap and brake
+latency. The command governor adds preview and scales both wheel requests
+together. It bounds each signed rate using measured and requested velocities,
+including estimated rate uncertainty. With a characterized maximum physical
+acceleration, integrate the acceleration ramp during the reaction interval;
+otherwise conservatively allow an immediate transition to the larger rate.
+After reaction, integrate braking using the minimum physical deceleration.
 
-The velocity estimate's covariance defines an interval v ± k sigma for
-each axis. Propagate the endpoints through the monotone stopping equation,
-including zero; forward and lateral displacement bounds are combined
-independently, so lateral motion cannot cancel a potential forward wall
-crossing. For a yaw excursion theta, compute the maximum projection of each
-rotated chassis corner and each signed travel interval onto the four
-field axes. The support of a vector r along unit axis n is |r| if the
-aligned direction is within the heading interval; otherwise it is
-(r dot n) cos(theta) + |r cross n| sin(theta). Sum independent travel
-supports and the maximum corner support. This conservatively bounds the
-sweep without inflating the chassis beyond its actual turning disk.
-Test the resulting AABB against the perimeter and hard obstacles. Loose landmarks are not hard
-obstacles.
+Signed yaw intervals determine the extreme projections of chassis corners
+and independent forward/lateral travel. XY covariance from the active EKF
+or MCL expands the projected bounds by the configured sigma multiplier.
+Odometry-only or custom estimators without covariance use the configured
+clearance margin, not invented covariance. Test the resulting AABB against
+the perimeter and hard obstacles.
 
-The braking model is conditional on its physical assumptions: the reaction
-interval, minimum forward/lateral/angular braking rates, estimation error
-and localization margin must cover the actual robot. Covariance is a model
-uncertainty, not a deterministic guarantee against slip or bad sensors.
-The default latency and lateral braking values are initial estimates.
-Characterize them with measured stopping distances before increasing speed.
-Configure the latency, preview, lateral braking and uncertainty in ClearanceConfig.
+These bounds are conditional on the physical model. In particular, command
+overshoot, slip, battery variation, sensor bias and underestimated covariance
+can invalidate the assumed rate and error intervals. Do not treat a covariance
+ellipse as a deterministic containment guarantee. Characterize forward/yaw
+acceleration bounds, braking, latency and lateral stopping with physical tests.
+Configure these independently of the nominal trajectory limits.
 
+## Orientation-aware routing
 
-## Movable-obstacle routing
-
-RectangularClearance::plan_soft_route uses a visibility graph over the corners
-of obstacle boxes inflated by the chassis turning radius and clearance.
-Each edge is clipped against inflated rectangles by the slab algorithm.
-Dijkstra minimizes the total length inside soft-obstacle boxes first and the
-travel length second, while hard obstacles and perimeter cannot be crossed.
-This permits escape from a moved object that already overlaps the chassis
-without treating that object as a hard boundary. The graph assumes the robot
-can pivot at each waypoint. If a start is too close to a wall to pivot, the
-regular clearance-aware departure planner is required.
-
-The minimum braking deceleration can be configured independently of nominal
-trajectory acceleration/deceleration using ClearanceConfig::with_forward_braking and with_yaw_braking. Never
-infer guaranteed physical stopping performance from a commanded profile limit.
+Seeking first tries a continuous Hermite maneuver for a pose goal. If none is
+feasible, LatticePlanner searches position and heading with bounded A-star,
+using swept straight translations and actual shortest in-place rotations.
+Exact connectors reach the requested pose without grid snapping. Adjacent
+straight edges are merged. The discrete planner is bounded and can miss
+feasible curved routes; the existing wall departure arc remains a recovery
+option. Prefer plans avoiding movable objects, but never turn them into hard
+runtime clearance constraints. The standalone visibility-graph AStar remains
+available for position-only planning.
 
 The command slew limiter records the wheel targets actually sent after wall
 governance. Releasing a safety limit therefore resumes from the constrained
 speed rather than the unconstrained internal target.
-
 
 ## Optional breakaway compensation
 
