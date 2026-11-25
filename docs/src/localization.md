@@ -17,7 +17,9 @@ use ozton::{
     tracking::Tracking,
 };
 
-let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range)).await?;
+let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range))
+    .await?
+    .with_drive_source::<0>();
 let localization = LocalizationBuilder::new()
     .with_field(field)
     .with_estimator(Estimator::Odometry)
@@ -28,6 +30,8 @@ let localization = LocalizationBuilder::new()
     .expect("check tracking geometry");
 let drivetrain = Drivetrain::new(model, tracking, localization);
 ```
+
+The drive-source selection requires a concrete calibrated differential source at tuple index 0. This is a compile-time capability, not a runtime geometry lookup. A tracking configuration without that selection can still be sampled and localized but cannot command calibrated wheel speeds or use differential pose seeking.
 
 The fragment is not a complete robot; field, model and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 

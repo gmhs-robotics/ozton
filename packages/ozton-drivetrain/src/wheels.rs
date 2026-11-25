@@ -8,7 +8,6 @@ use vexide::smart::PortError;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelSpeedError {
     InvalidCommand,
-    MissingWheelGeometry,
     Port(PortError),
 }
 
@@ -16,7 +15,6 @@ impl fmt::Display for WheelSpeedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidCommand => f.write_str("Invalid wheel speed command"),
-            Self::MissingWheelGeometry => f.write_str("Missing wheel geometry"),
             Self::Port(error) => error.fmt(f),
         }
     }

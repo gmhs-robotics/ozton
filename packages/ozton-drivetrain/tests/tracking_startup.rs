@@ -12,7 +12,7 @@ use ozton_math::{
     },
 };
 use ozton_tracking::{
-    DisplacementObservation, HeadingObservation, Measurement, MeasurementSink, Tracking,
+    DisplacementObservation, HasDriveWheels, HeadingObservation, Measurement, MeasurementSink, Tracking,
     TrackingSource,
     absolute::PoseObservation,
     mount::Vec3,
@@ -73,7 +73,10 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
             Angle::ZERO,
         ),
     );
-    let mut tracking = block_on(Tracking::new((encoders, range, FieldFix))).unwrap();
+    let mut tracking = block_on(Tracking::new((encoders, range, FieldFix)))
+        .unwrap()
+        .with_drive_source::<0>();
+    assert_eq!(tracking.calibrated_drive().track_width().value, 0.30);
 
     assert_eq!(tracking.observation_layout().ranges.len(), 1);
     assert_eq!(tracking.observation_layout().ranges[0].0, 1);

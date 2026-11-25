@@ -26,6 +26,26 @@ motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 
 Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` requires a final heading and can plan a continuous trajectory. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
 
+## Typed driver assistance
+
+Select a source by its tuple index, preferably a named constant declared next to
+the robot's hardware layout. HeadingHoldAssist requires ReadHeading; AntiTipAssist
+requires ReadTilt, which supplies pitch and roll in that order. A source without
+the required trait prevents constructing AssistedDrivetrain. Custom sensors may
+implement either capability without depending on VEX.
+
+```rust,ignore
+let mut assists = DriveAssists::new((
+    HeadingHoldAssist::<IMU_SOURCE>::new(1.5, 0.2),
+    AntiTipAssist::<IMU_SOURCE>::new(TiltAxis::Pitch, anti_tip_controller),
+    MotorBalanceAssist,
+));
+let mut drive = AssistedDrivetrain::new(&mut drivetrain, &mut assists);
+```
+
+Only installed assists read the corresponding capability. A temporarily unavailable
+sensor observation resets that controller rather than pretending a zero angle.
+
 ## Configure once
 
 Declare a reusable controller with a const builder. Configure the controller before issuing a command; command futures only execute the selected settings. For a one-off change, use a modified copy of your constant. Every modifier returns the configured template, so no setup function or global tuning struct is needed.
@@ -73,7 +93,8 @@ The hard boundary is checked against the entire chassis and its reachable
 braking sweep. The reaction interval combines maximum control gap and brake
 latency. The command governor adds preview and scales both wheel requests
 together. It bounds each signed rate using measured and requested velocities,
-including estimated rate uncertainty. With a characterized maximum physical
+including the preceding applied command while it may still be in flight and
+estimated rate uncertainty. With a characterized maximum physical
 acceleration, integrate the acceleration ramp during the reaction interval;
 otherwise conservatively allow an immediate transition to the larger rate.
 After reaction, integrate braking using the minimum physical deceleration.
@@ -84,6 +105,11 @@ or MCL expands the projected bounds by the configured sigma multiplier.
 Odometry-only or custom estimators without covariance use the configured
 clearance margin, not invented covariance. Test the resulting AABB against
 the perimeter and hard obstacles.
+
+Interrupted motions, terminal capture and feedback faults request an active
+zero-speed stop rather than the normal resting coast. The VEX adapter attempts
+motor electrical braking if a zero-speed command fails. Calibrate the active
+response separately from coast.
 
 These bounds are conditional on the physical model. In particular, command
 overshoot, slip, battery variation, sensor bias and underestimated covariance

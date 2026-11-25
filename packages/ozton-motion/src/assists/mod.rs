@@ -11,6 +11,15 @@ use ozton_math::{
 };
 
 /// Heading hold using the heading-capable source at tuple index I.
+///
+/// ```compile_fail
+/// use ozton_drivetrain::{Drive, assist::DriveAssist};
+/// use ozton_motion::assists::HeadingHoldAssist;
+/// fn require<M: Drive, A: DriveAssist<M, (), ()>>() {}
+/// fn missing_heading<M: Drive>() {
+///     require::<M, HeadingHoldAssist<0>>();
+/// }
+/// ```
 pub struct HeadingHoldAssist<const I: usize>(HeadingCorrector);
 
 impl<const I: usize> HeadingHoldAssist<I> {
