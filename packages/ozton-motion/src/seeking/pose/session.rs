@@ -181,9 +181,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let clearance = super::approach::clearance(self.drive, self.config.safety.clearance)?;
             let uncertainty = self.drive.velocity_uncertainty();
             let covariance = self.drive.position_covariance();
-            if clearance
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
-            {
+            if clearance.is_some_and(|field| {
+                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+            }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (requested, ready) = controller.step(target, feedback, dt, self.options);
@@ -323,9 +323,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             let uncertainty = self.drive.velocity_uncertainty();
             let covariance = self.drive.position_covariance();
-            if clearance
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
-            {
+            if clearance.is_some_and(|field| {
+                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+            }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             progress.update(

@@ -48,7 +48,7 @@ where
         self.drivetrain().pose_feedback()
     }
 
-    fn position_covariance(&self) -> Option<glam::DMat2> {
+    fn position_covariance(&self) -> Option<ozton_localization::PositionCovariance> {
         self.drivetrain().position_covariance()
     }
 

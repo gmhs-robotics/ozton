@@ -18,13 +18,21 @@ impl RateBounds {
     /// interval and all travel before stopping. No deceleration is assumed
     /// before braking begins, even when the target rate is smaller.
     pub fn stopping_interval(self, reaction: f64) -> Option<[f64; 2]> {
-        if ![self.measured, self.requested, self.uncertainty, self.braking, reaction]
-            .into_iter()
-            .all(f64::is_finite)
+        if ![
+            self.measured,
+            self.requested,
+            self.uncertainty,
+            self.braking,
+            reaction,
+        ]
+        .into_iter()
+        .all(f64::is_finite)
             || self.uncertainty < 0.0
             || self.braking <= 0.0
             || reaction < 0.0
-            || self.acceleration.is_some_and(|a| !a.is_finite() || a <= 0.0)
+            || self
+                .acceleration
+                .is_some_and(|a| !a.is_finite() || a <= 0.0)
         {
             return None;
         }
@@ -58,7 +66,8 @@ pub fn position_padding(covariance: Option<DMat2>, sigma: f64) -> Option<DVec2> 
         return Some(DVec2::ZERO);
     };
     let diagonal = DVec2::new(p.x_axis.x, p.y_axis.y);
-    if !p.is_finite() || diagonal.min_element() < 0.0
+    if !p.is_finite()
+        || diagonal.min_element() < 0.0
         || (p.x_axis.y - p.y_axis.x).abs() > 1e-9
         || p.determinant() < -1e-12
     {

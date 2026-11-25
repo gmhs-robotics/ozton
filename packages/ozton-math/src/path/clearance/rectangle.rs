@@ -355,7 +355,12 @@ mod tests {
         .unwrap();
         let start = Pose::new(DVec2::new(0.48862, 0.01052), crate::qty!(-0.89179 rad));
         let (min, max) = field
-            .braking_bounds(start, [0.0; 2], [0.0; 2], [crate::qty!(-180 deg), crate::qty!(180 deg)])
+            .braking_bounds(
+                start,
+                [0.0; 2],
+                [0.0; 2],
+                [crate::qty!(-180 deg), crate::qty!(180 deg)],
+            )
             .unwrap();
         let radius = DVec2::splat(chassis.turn_radius());
         assert!((min - (start.position - radius)).length() < 1e-12);

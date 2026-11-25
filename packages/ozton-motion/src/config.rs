@@ -684,7 +684,9 @@ impl MotionConfig {
             self.limits.lateral_acceleration,
         )
         .with_wheel_acceleration(
-            self.limits.wheel_acceleration.unwrap_or(self.limits.acceleration),
+            self.limits
+                .wheel_acceleration
+                .unwrap_or(self.limits.acceleration),
         )
     }
 

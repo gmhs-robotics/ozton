@@ -3,7 +3,10 @@ use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::DVec2,
-    path::{braking::{RateBounds, position_padding}, clearance::RectangularClearance},
+    path::{
+        braking::{RateBounds, position_padding},
+        clearance::RectangularClearance,
+    },
     qty,
     uom::si::f64::Velocity,
 };
@@ -44,9 +47,9 @@ impl StoppingGovernor {
             || !feedback.forward_velocity.value.is_finite()
             || !feedback.lateral_velocity.value.is_finite()
             || !feedback.angular_velocity.value.is_finite()
-            || self
-                .field
-                .is_some_and(|field| !safe_feedback(field, feedback, self.config, uncertainty, covariance))
+            || self.field.is_some_and(|field| {
+                !safe_feedback(field, feedback, self.config, uncertainty, covariance)
+            })
         {
             return None;
         }
@@ -79,25 +82,35 @@ fn bounds(
         requested: v,
         uncertainty: forward,
         acceleration: config.safety.forward_acceleration_bound.map(|a| a.value),
-        braking: config.safety.forward_braking.unwrap_or(config.limits.deceleration).value,
-    }.stopping_interval(reaction)?;
+        braking: config
+            .safety
+            .forward_braking
+            .unwrap_or(config.limits.deceleration)
+            .value,
+    }
+    .stopping_interval(reaction)?;
     let lateral = RateBounds {
         measured: feedback.lateral_velocity.value,
         requested: feedback.lateral_velocity.value,
         uncertainty: lateral,
         acceleration: None,
         braking: config.safety.lateral_braking.value,
-    }.stopping_interval(reaction)?;
+    }
+    .stopping_interval(reaction)?;
     let yaw = RateBounds {
         measured: feedback.angular_velocity.value,
         requested: w,
         uncertainty: yaw,
         acceleration: config.safety.yaw_acceleration_bound.map(|a| a.value),
-        braking: config.safety.yaw_braking.unwrap_or(config.limits.angular_deceleration).value,
-    }.stopping_interval(reaction)?;
-    let (min, max) = field.braking_bounds(
-        feedback.pose, forward, lateral, yaw.map(|a| qty!((a) rad)),
-    )?;
+        braking: config
+            .safety
+            .yaw_braking
+            .unwrap_or(config.limits.angular_deceleration)
+            .value,
+    }
+    .stopping_interval(reaction)?;
+    let (min, max) =
+        field.braking_bounds(feedback.pose, forward, lateral, yaw.map(|a| qty!((a) rad)))?;
     let padding = position_padding(covariance, config.safety.braking_sigma)?;
     Some((min - padding, max + padding))
 }
@@ -162,7 +175,16 @@ pub(super) fn safe_feedback(
 ) -> bool {
     let v = feedback.forward_velocity.value;
     let w = feedback.angular_velocity.value;
-    let projected = bounds(field, feedback, v, w, uncertainty, covariance, reaction(config), config);
+    let projected = bounds(
+        field,
+        feedback,
+        v,
+        w,
+        uncertainty,
+        covariance,
+        reaction(config),
+        config,
+    );
     let reason = if !field.contains_pose(feedback.pose) {
         "current_footprint"
     } else if !projected.is_some_and(|(min, max)| field.wall_contains_aabb(min, max)) {
@@ -229,7 +251,13 @@ mod tests {
         let field = field();
         let config = MotionConfig::DEFAULT
             .with_limits(crate::MotionLimits::DEFAULT.with_deceleration(qty!(0.55 m/s^2)));
-        assert!(!safe_feedback(field, sample(0.88620), config, [0.0; 3], None));
+        assert!(!safe_feedback(
+            field,
+            sample(0.88620),
+            config,
+            [0.0; 3],
+            None
+        ));
         assert!(safe_feedback(field, sample(0.549), config, [0.0; 3], None));
         assert!(!safe_feedback(
             field,
@@ -241,7 +269,15 @@ mod tests {
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
         let mut near = sample(0.10);
         near.pose.position.x = 0.55;
-        let limited = limit_wall_command(Some(field), near, [0.55; 2], options, config, [0.0; 3], None);
+        let limited = limit_wall_command(
+            Some(field),
+            near,
+            [0.55; 2],
+            options,
+            config,
+            [0.0; 3],
+            None,
+        );
         assert!(limited[0] > 0.0 && limited[0] < 0.55);
         assert_eq!(limited[0], limited[1]);
     }
