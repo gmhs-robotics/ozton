@@ -32,7 +32,9 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
         return Err(PoseMotionError::Configuration);
     }
     let field = clearance(drive, settings.config.safety.clearance)?;
-    let options = settings.options(drive).ok_or(PoseMotionError::Configuration)?;
+    let options = settings
+        .options(drive)
+        .ok_or(PoseMotionError::Configuration)?;
     let mut session = PoseSession::new(drive, options, settings.config())?;
     let result = direct(&mut session, field, position, final_heading, settings).await;
     session.finish(result)
@@ -50,8 +52,12 @@ async fn direct<D: PoseDrive>(
     let start = session.drive.pose();
     let displacement = position - start.position;
     let reverse = settings.travel.map_or_else(
-        || wrap_heading(bearing(displacement) - start.heading).value.abs()
-            > core::f64::consts::FRAC_PI_2,
+        || {
+            wrap_heading(bearing(displacement) - start.heading)
+                .value
+                .abs()
+                > core::f64::consts::FRAC_PI_2
+        },
         |direction| direction == TravelDirection::Backward,
     );
     if displacement.length() > options.position_tolerance.value {
@@ -64,7 +70,8 @@ async fn direct<D: PoseDrive>(
         if field.is_some_and(|f| {
             !f.contains_turn(start, heading)
                 || !f.contains_translation(aligned, position)
-                || final_heading.is_some_and(|end| !f.contains_turn(Pose::new(position, heading), end))
+                || final_heading
+                    .is_some_and(|end| !f.contains_turn(Pose::new(position, heading), end))
         }) {
             return Err(PoseMotionError::InsufficientClearance);
         }
@@ -83,7 +90,9 @@ async fn direct<D: PoseDrive>(
             .await?;
     }
     if let Some(heading) = final_heading {
-        if wrap_heading(heading - session.drive.pose().heading).value.abs()
+        if wrap_heading(heading - session.drive.pose().heading)
+            .value
+            .abs()
             > options.heading_tolerance.value
         {
             turn_checked(session, field, heading, timeout).await?;
@@ -246,7 +255,15 @@ async fn approach<D: PoseDrive>(
         }
     }
     // Fallback is permitted before any motion, never after execution fails.
-    lattice_approach(session, clearance, preferred, target, final_heading, settings).await
+    lattice_approach(
+        session,
+        clearance,
+        preferred,
+        target,
+        final_heading,
+        settings,
+    )
+    .await
 }
 
 async fn lattice_approach<D: PoseDrive>(
@@ -375,7 +392,9 @@ async fn lattice_plan<D: PoseDrive>(
                 track_width,
                 async || {
                     if slice_started.elapsed() >= Duration::from_millis(2) {
-                        drive.wait_until(Instant::now() + Duration::from_millis(1)).await;
+                        drive
+                            .wait_until(Instant::now() + Duration::from_millis(1))
+                            .await;
                         slice_started = Instant::now();
                     }
                     drive.motion_active()
