@@ -35,7 +35,13 @@ impl AxisResponse {
 
     fn step(self, current: f64, own: f64, other: f64, dt: Duration) -> f64 {
         let alpha = 1.0 - (-dt.as_secs_f64() / self.time_constant.as_secs_f64()).exp();
-        let target = self.gain * own + self.cross_gain * other + self.bias;
+        // The fitted moving-response bias is not a force at rest. A zero
+        // wheel command must decay toward rest instead of drifting indefinitely.
+        let target = if own == 0.0 && other == 0.0 {
+            0.0
+        } else {
+            self.gain * own + self.cross_gain * other + self.bias
+        };
         current + alpha * (target - current)
     }
 }
@@ -269,6 +275,22 @@ mod tests {
         assert_eq!(lateral.velocity(1.0, 0.0), 0.0);
         assert!((lateral.velocity(1.0, 2.0) - 0.12).abs() < 1e-12);
         assert!((lateral.velocity(-1.0, -2.0) + 0.12).abs() < 1e-12);
+    }
+
+    #[test]
+    fn zero_wheel_command_does_not_create_motion_from_bias() {
+        let axis = AxisResponse {
+            delay: Duration::ZERO,
+            time_constant: Duration::from_millis(100),
+            gain: 1.0,
+            cross_gain: 0.0,
+            bias: -0.1,
+        };
+        let dt = Duration::from_millis(10);
+        assert_eq!(axis.step(0.0, 0.0, 0.0, dt), 0.0);
+        assert!(axis.step(0.2, 0.0, 0.0, dt) > 0.0);
+        assert!(axis.step(0.2, 0.0, 0.0, dt) < 0.2);
+        assert!(axis.step(0.0, 0.0, 0.5, dt) < 0.0);
     }
 
     #[test]
