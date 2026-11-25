@@ -78,7 +78,9 @@ impl PoseEstimator for Ekf {
     fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
         self.contact = Some(contact);
         let mut variance = self.config.initial_variance;
-        variance[contact.wall().axis()] = 0.0;
+        let axis = contact.wall().axis();
+        variance[axis] = 0.0;
+        variance[1 - axis] = contact.tangential_sigma().value.powi(2);
         variance.z = 0.0;
         if let Some(filter) = PoseEkf::new(pose, variance) {
             self.filter = filter;
