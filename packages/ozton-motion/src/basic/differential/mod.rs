@@ -301,7 +301,12 @@ impl DifferentialFeedback {
                     (2.0 * config.limits.deceleration.value)
                         .min(width * config.limits.angular_deceleration.value)
                 }
-                .min(config.limits.wheel_acceleration.map_or(f64::INFINITY, |v| v.value));
+                .min(
+                    config
+                        .limits
+                        .wheel_acceleration
+                        .map_or(f64::INFINITY, |v| v.value),
+                );
                 let step = limit * dt.as_secs_f64();
                 let mut wheels = [0.0; 2];
                 if !ready {
