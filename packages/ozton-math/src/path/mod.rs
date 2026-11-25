@@ -330,7 +330,8 @@ impl Path {
         };
         let travel = distance - a.distance;
         let acceleration = (b.speed - a.speed) / (b.time - a.time);
-        let speed = crate::numeric::sqrt((a.speed * a.speed + 2.0 * acceleration * travel).max(0.0));
+        let speed =
+            crate::numeric::sqrt((a.speed * a.speed + 2.0 * acceleration * travel).max(0.0));
         let time = a.time + 2.0 * travel / (a.speed + speed);
         blend(a, b, distance, time, speed)
     }

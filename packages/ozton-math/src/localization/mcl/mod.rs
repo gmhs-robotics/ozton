@@ -233,7 +233,8 @@ impl ParticleFilter {
         if !delta.is_finite() {
             return;
         }
-        let magnitude = crate::numeric::sqrt(delta.translation.length_squared()) + delta.heading.value.abs();
+        let magnitude =
+            crate::numeric::sqrt(delta.translation.length_squared()) + delta.heading.value.abs();
         if magnitude == 0.0 || !magnitude.is_finite() {
             return;
         }
@@ -463,7 +464,10 @@ impl ParticleFilter {
         });
         (
             position,
-            DVec2::new(crate::numeric::sqrt(variance.x), crate::numeric::sqrt(variance.y)),
+            DVec2::new(
+                crate::numeric::sqrt(variance.x),
+                crate::numeric::sqrt(variance.y),
+            ),
         )
     }
 

@@ -147,12 +147,7 @@ pub(in crate::localization) fn prepared_ray_distance(
 
 /// Nearest eligible distance for a world-space ray with a unit direction.
 /// Iterate only visible faces and skip normal/edge calculations used by DSR.
-pub fn ray_distance(
-    origin: DVec2,
-    beam: DVec2,
-    surfaces: &[Surface],
-    mask: u128,
-) -> Option<f64> {
+pub fn ray_distance(origin: DVec2, beam: DVec2, surfaces: &[Surface], mask: u128) -> Option<f64> {
     let mut nearest = f64::INFINITY;
     for index in masked_indices(mask) {
         let Some(surface) = surfaces.get(index) else {
@@ -196,9 +191,21 @@ mod tests {
     #[test]
     fn directed_faces_match_general_rays() {
         let surfaces = [
-            Surface::new(DVec2::new(-1.0, 1.0), DVec2::new(1.0, 1.0), crate::qty!(1 m)),
-            Surface::new(DVec2::new(1.0, 1.0), DVec2::new(1.0, -1.0), crate::qty!(1 m)),
-            Surface::new(DVec2::new(1.0, -1.0), DVec2::new(-1.0, -1.0), crate::qty!(1 m)),
+            Surface::new(
+                DVec2::new(-1.0, 1.0),
+                DVec2::new(1.0, 1.0),
+                crate::qty!(1 m),
+            ),
+            Surface::new(
+                DVec2::new(1.0, 1.0),
+                DVec2::new(1.0, -1.0),
+                crate::qty!(1 m),
+            ),
+            Surface::new(
+                DVec2::new(1.0, -1.0),
+                DVec2::new(-1.0, -1.0),
+                crate::qty!(1 m),
+            ),
         ];
         let mut faces = alloc::vec::Vec::new();
         let mut directed = alloc::vec::Vec::new();

@@ -96,8 +96,8 @@ impl PreparedBeam {
             * (saturated_erf((self.maximum - predicted) / self.root_two_sigma)
                 - saturated_erf((self.minimum - predicted) / self.root_two_sigma));
         let residual = (self.measured - predicted) / self.sigma;
-        let hit = self.hit_prior * libm::exp(-0.5 * residual * residual)
-            / (self.hit_scale * normalizer);
+        let hit =
+            self.hit_prior * libm::exp(-0.5 * residual * residual) / (self.hit_scale * normalizer);
         let short = if self.measured < predicted && predicted > self.minimum {
             self.short_numerator
                 / (self.scale * -libm::expm1(-(predicted - self.minimum) / self.scale))

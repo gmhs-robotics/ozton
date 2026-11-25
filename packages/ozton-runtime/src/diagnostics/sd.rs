@@ -92,11 +92,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 delay = (elapsed * 8).clamp(Duration::from_millis(40), Duration::from_millis(500));
                 match result {
                     Err(error) if !failed => {
-                        log_event!(
-                            Warn,
-                            "SD",
-                            "Could not flush {path} ({error}). Retrying."
-                        );
+                        log_event!(Warn, "SD", "Could not flush {path} ({error}). Retrying.");
                         failed = true;
                     }
                     Ok(_) if failed => {

@@ -150,7 +150,11 @@ mod tests {
             let f = DMat3::from_cols(DVec3::X, DVec3::Y, DVec3::new(-travel.y, travel.x, 1.0));
             let reference = f * covariance * f.transpose();
             let actual = predict_covariance(covariance, travel);
-            for (a, b) in actual.to_cols_array().into_iter().zip(reference.to_cols_array()) {
+            for (a, b) in actual
+                .to_cols_array()
+                .into_iter()
+                .zip(reference.to_cols_array())
+            {
                 assert!((a - b).abs() < 1e-14);
             }
         }

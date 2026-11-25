@@ -77,7 +77,8 @@ pub fn stoppable_speed(distance: f64, reaction: f64, deceleration: f64) -> Optio
     }
     Some(
         2.0 * distance
-            / (reaction + crate::numeric::sqrt(reaction * reaction + 2.0 * distance / deceleration)),
+            / (reaction
+                + crate::numeric::sqrt(reaction * reaction + 2.0 * distance / deceleration)),
     )
 }
 
@@ -98,7 +99,12 @@ pub fn position_padding(covariance: Option<DMat2>, sigma: f64) -> Option<DVec2> 
     {
         return None;
     }
-    Some(DVec2::new(crate::numeric::sqrt(diagonal.x), crate::numeric::sqrt(diagonal.y)) * sigma)
+    Some(
+        DVec2::new(
+            crate::numeric::sqrt(diagonal.x),
+            crate::numeric::sqrt(diagonal.y),
+        ) * sigma,
+    )
 }
 
 #[cfg(test)]

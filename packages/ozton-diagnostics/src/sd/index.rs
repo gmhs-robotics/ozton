@@ -47,11 +47,12 @@ pub(super) fn open_log(directory: &Path) -> io::Result<(String, File)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::{
         path::PathBuf,
         sync::atomic::{AtomicUsize, Ordering},
     };
+
+    use super::*;
 
     struct TempDir(PathBuf);
 

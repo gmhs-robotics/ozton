@@ -1,7 +1,10 @@
 //! Math utilities & types.
 
 #![no_std]
-#![cfg_attr(all(target_arch = "arm", target_os = "vexos"), feature(core_float_math))]
+#![cfg_attr(
+    all(target_arch = "arm", target_os = "vexos"),
+    feature(core_float_math)
+)]
 extern crate alloc;
 
 pub mod control;
