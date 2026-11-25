@@ -8,9 +8,7 @@ use ozton_math::{
     uom::si::f64::Angle,
 };
 
-use super::{
-    PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession,
-};
+use super::{PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
 use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
