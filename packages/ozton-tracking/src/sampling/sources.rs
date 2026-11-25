@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use glam::DVec3;
-
 use ozton_math::localization::observation::SourceAt;
 
 use crate::{

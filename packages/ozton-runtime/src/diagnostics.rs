@@ -152,8 +152,7 @@ pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
         ozton_tracking::Tracking<S, D>,
         L,
     >,
-)
-where
+) where
     ozton_tracking::Tracking<S, D>: ozton_tracking::TrackingSystem,
 {
     if serial::sd_enabled() {
