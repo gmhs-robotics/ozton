@@ -66,7 +66,7 @@ impl BeamModel {
             maximum,
             sigma,
             root_two_sigma: core::f64::consts::SQRT_2 * sigma,
-            hit_scale: libm::sqrt(core::f64::consts::TAU) * sigma,
+            hit_scale: crate::numeric::sqrt(core::f64::consts::TAU) * sigma,
             hit_prior: 1.0 - outlier,
             random: outlier * (1.0 - self.short_fraction) / span,
             scale,

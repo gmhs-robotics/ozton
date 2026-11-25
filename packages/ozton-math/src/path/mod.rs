@@ -207,7 +207,7 @@ impl Path {
                 limits.wheel_speed.value / (1.0 + curvature.abs() * limits.track_width.value / 2.0),
             );
             if curvature != 0.0 {
-                speed = speed.min(libm::sqrt(
+                speed = speed.min(crate::numeric::sqrt(
                     limits.lateral_acceleration.value / curvature.abs(),
                 ));
             }
@@ -330,7 +330,7 @@ impl Path {
         };
         let travel = distance - a.distance;
         let acceleration = (b.speed - a.speed) / (b.time - a.time);
-        let speed = libm::sqrt((a.speed * a.speed + 2.0 * acceleration * travel).max(0.0));
+        let speed = crate::numeric::sqrt((a.speed * a.speed + 2.0 * acceleration * travel).max(0.0));
         let time = a.time + 2.0 * travel / (a.speed + speed);
         blend(a, b, distance, time, speed)
     }
@@ -381,5 +381,5 @@ fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> 
 
 #[cfg(not(target_os = "vexos"))]
 fn reachable(speed: f64, acceleration: f64, distance: f64) -> f64 {
-    libm::sqrt(speed * speed + 2.0 * acceleration * distance)
+    crate::numeric::sqrt(speed * speed + 2.0 * acceleration * distance)
 }

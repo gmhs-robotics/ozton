@@ -14,7 +14,7 @@ impl Random {
     }
 
     fn normal_pair(&mut self) -> DVec2 {
-        let radius = libm::sqrt(-2.0 * libm::log(self.uniform()));
+        let radius = crate::numeric::sqrt(-2.0 * libm::log(self.uniform()));
         let angle = core::f64::consts::TAU * self.uniform();
         let (sin, cos) = libm::sincos(angle);
         DVec2::new(cos, sin) * radius

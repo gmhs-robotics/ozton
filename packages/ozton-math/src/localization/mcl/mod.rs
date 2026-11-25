@@ -233,11 +233,11 @@ impl ParticleFilter {
         if !delta.is_finite() {
             return;
         }
-        let magnitude = delta.translation.length() + delta.heading.value.abs();
+        let magnitude = crate::numeric::sqrt(delta.translation.length_squared()) + delta.heading.value.abs();
         if magnitude == 0.0 || !magnitude.is_finite() {
             return;
         }
-        let spread = self.config.motion_noise * libm::sqrt(magnitude);
+        let spread = self.config.motion_noise * crate::numeric::sqrt(magnitude);
         for particle in &mut self.particles {
             let noise = self.random.normal3() * spread;
             particle.pose = particle.pose.integrate(BodyDelta {
@@ -463,7 +463,7 @@ impl ParticleFilter {
         });
         (
             position,
-            DVec2::new(libm::sqrt(variance.x), libm::sqrt(variance.y)),
+            DVec2::new(crate::numeric::sqrt(variance.x), crate::numeric::sqrt(variance.y)),
         )
     }
 
@@ -488,9 +488,9 @@ impl ParticleFilter {
         Estimate {
             pose: Pose { position, heading },
             standard_deviation: DVec3::new(
-                libm::sqrt(variance.x),
-                libm::sqrt(variance.y),
-                libm::sqrt(variance.z),
+                crate::numeric::sqrt(variance.x),
+                crate::numeric::sqrt(variance.y),
+                crate::numeric::sqrt(variance.z),
             ),
         }
     }

@@ -39,7 +39,7 @@ fn cast_inner(pose: Pose, mount: Pose, surfaces: &[Surface], mask: Option<u128>)
         nearest = Some((index, segment, length_squared, fraction));
     }
     let (surface, segment, length_squared, fraction) = nearest?;
-    let length = libm::sqrt(length_squared);
+    let length = crate::numeric::sqrt(length_squared);
     let normal = segment.perp() / length;
     Some(Hit {
         surface,

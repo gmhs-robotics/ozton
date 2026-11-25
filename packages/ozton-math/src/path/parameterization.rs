@@ -184,7 +184,7 @@ where
         {
             return Err(PathError::BlockedSegment(i + 1));
         }
-        samples[i + 1].speed = libm::sqrt(y);
+        samples[i + 1].speed = crate::numeric::sqrt(y);
         x = y;
     }
     Ok(())

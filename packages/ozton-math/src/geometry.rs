@@ -161,7 +161,7 @@ pub fn circle_segment_fractions(
     if length_squared <= 0.0 || discriminant < 0.0 {
         return [None; 2];
     }
-    let root = libm::sqrt(discriminant);
+    let root = crate::numeric::sqrt(discriminant);
     [-root, root].map(|root| {
         let fraction = (-projection + root) / length_squared;
         (0.0..=1.0).contains(&fraction).then_some(fraction)

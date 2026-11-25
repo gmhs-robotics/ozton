@@ -1,6 +1,7 @@
 //! Math utilities & types.
 
 #![no_std]
+#![cfg_attr(all(target_arch = "arm", target_os = "vexos"), feature(core_float_math))]
 extern crate alloc;
 
 pub mod control;
@@ -8,6 +9,7 @@ pub mod curve;
 pub mod following;
 pub mod geometry;
 pub mod localization;
+mod numeric;
 pub mod path;
 pub mod units;
 
