@@ -1,7 +1,7 @@
 use ozton_math::localization::observation::ObservationLayout;
 
 use super::*;
-use crate::{Config, DsrConfig, OdometryConfig, field::FieldMap};
+use crate::{Config, DsrConfig, OdometryConfig, field::{Boundary, FieldMap}};
 
 /// Which estimator or reset may consume the installed distance sensors.
 #[derive(Clone, Copy)]
@@ -111,8 +111,8 @@ impl OdometrySettings {
 }
 
 /// Assemble an estimator from the measured tracking layout, without hardware.
-pub struct LocalizationBuilder {
-    field: FieldMap,
+pub struct LocalizationBuilder<B = ()> {
+    field: FieldMap<B>,
     estimator: Estimator,
     odometry: OdometrySettings,
     ranges: RangeUsage,
@@ -138,10 +138,19 @@ impl LocalizationBuilder {
         Self::default()
     }
 
+}
+
+impl<B: Boundary> LocalizationBuilder<B> {
     #[must_use]
-    pub fn with_field(mut self, field: impl Into<FieldMap>) -> Self {
-        self.field = field.into();
-        self
+    pub fn with_field<C: Boundary>(self, field: impl Into<FieldMap<C>>) -> LocalizationBuilder<C> {
+        LocalizationBuilder {
+            field: field.into(),
+            estimator: self.estimator,
+            odometry: self.odometry,
+            ranges: self.ranges,
+            dsr: self.dsr,
+            velocity: self.velocity,
+        }
     }
 
     #[must_use]
@@ -175,7 +184,7 @@ impl LocalizationBuilder {
     }
 
     /// Use the tracker's mount geometry. No sensors are sampled or initialized here.
-    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization> {
+    pub fn build(self, layout: ObservationLayout<'_>) -> Option<DifferentialLocalization<B>> {
         let projection = self.field.motion_projection()?;
         let map = self.field.surfaces().collect();
         let mounts = layout.ranges.iter().map(|&(_, mount)| mount).collect();
@@ -195,7 +204,7 @@ impl LocalizationBuilder {
         self.ranges.apply(&mut localizer);
         Some(DifferentialLocalization {
             localizer,
-            rectangular_half_extents: projection.bounds,
+            boundary: projection.boundary,
             motion_obstacles: projection.fixed,
             movable_obstacles: projection.movable,
             wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),

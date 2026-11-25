@@ -77,40 +77,72 @@ struct Object {
 
 /// Derived, height-independent motion geometry. The containment boundary is
 /// a safety policy, even when a section of the physical perimeter is open.
-pub(crate) struct MotionProjection {
-    pub(crate) bounds: Option<DVec2>,
+pub(crate) struct MotionProjection<B> {
+    pub(crate) boundary: B,
     pub(crate) fixed: Obstacles,
     pub(crate) movable: Obstacles,
+}
+
+/// A validated closed rectangular containment boundary.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FieldBoundary(DVec2);
+
+impl FieldBoundary {
+    pub fn new(half_extents: DVec2) -> Option<Self> {
+        (half_extents.is_finite() && half_extents.min_element() > 0.0)
+            .then_some(Self(half_extents))
+    }
+
+    pub const fn half_extents(self) -> DVec2 {
+        self.0
+    }
+}
+
+/// Boundary state carried from the surveyed map to the estimator.
+pub trait Boundary: Copy {
+    fn bounds(self) -> Option<DVec2>;
+}
+
+impl Boundary for () {
+    fn bounds(self) -> Option<DVec2> {
+        None
+    }
+}
+
+impl Boundary for FieldBoundary {
+    fn bounds(self) -> Option<DVec2> {
+        Some(self.0)
+    }
 }
 
 /// Unified 2.5D field geometry. Range masks and XY obstacle footprints are
 /// derived from the same faces; object groups carry policy, not duplicate coordinates.
 #[derive(Default)]
-pub struct FieldMap {
+pub struct FieldMap<B = ()> {
     faces: Vec<Surface>,
     objects: Vec<Object>,
-    motion_bounds: Option<DVec2>,
+    boundary: B,
 }
 
-impl From<Field> for FieldMap {
+impl From<Field> for FieldMap<FieldBoundary> {
     fn from(field: Field) -> Self {
         Self {
             faces: field.surfaces().into(),
-            motion_bounds: Some(point(field.max.right, field.max.forward)),
+            boundary: FieldBoundary(point(field.max.right, field.max.forward)),
             objects: Vec::new(),
         }
     }
 }
 
-impl FieldMap {
+impl<B: Boundary> FieldMap<B> {
     /// Configure the closed motion perimeter without creating reflecting walls.
     /// Useful when physical walls have openings or are too low for the sensors.
-    pub fn with_motion_bounds(mut self, half_extents: DVec2) -> Option<Self> {
-        if !half_extents.is_finite() || half_extents.min_element() <= 0.0 {
-            return None;
-        }
-        self.motion_bounds = Some(half_extents);
-        Some(self)
+    pub fn with_motion_bounds(self, half_extents: DVec2) -> Option<FieldMap<FieldBoundary>> {
+        Some(FieldMap {
+            faces: self.faces,
+            objects: self.objects,
+            boundary: FieldBoundary::new(half_extents)?,
+        })
     }
 
     /// Add one physical wall or interior face. Perimeter faces are covered by
@@ -183,7 +215,7 @@ impl FieldMap {
 
     /// True for a physical wall segment lying on the containment boundary.
     fn on_perimeter(&self, face: Surface) -> bool {
-        let Some(bounds) = self.motion_bounds else {
+        let Some(bounds) = self.boundary.bounds() else {
             return false;
         };
         (0..2).any(|axis| {
@@ -195,9 +227,9 @@ impl FieldMap {
 
     /// Compute motion footprints solely from the same XY endpoints raycasting
     /// uses. Reject capacity overflow rather than silently omit geometry.
-    pub(crate) fn motion_projection(&self) -> Option<MotionProjection> {
+    pub(crate) fn motion_projection(&self) -> Option<MotionProjection<B>> {
         let mut projection = MotionProjection {
-            bounds: self.motion_bounds,
+            boundary: self.boundary,
             fixed: [None; MAX_OBSTACLES],
             movable: [None; MAX_OBSTACLES],
         };
@@ -340,7 +372,7 @@ mod tests {
                 ranges: &ranges,
             })
             .unwrap();
-        let bounds = localization.rectangular_half_extents().unwrap();
+        let bounds = localization.boundary().half_extents();
         let mut clearance = RectangularClearance::new(
             Footprint::new(qty!(6 in), qty!(6 in)).unwrap(),
             bounds,
@@ -357,7 +389,7 @@ mod tests {
     fn motion_projection_uses_same_faces_as_height_filtered_ranges() {
         use ozton_math::qty;
 
-        let mut field = FieldMap::default()
+        let mut field = FieldMap::<()>::default()
             .with_motion_bounds(DVec2::new(1.0, 1.5))
             .unwrap();
         assert!(field.add(Surface::new(
@@ -372,7 +404,7 @@ mod tests {
         let high = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 8.125 in, 0 deg));
         assert_eq!(field.range_config(high).surface_mask, 0b111100000);
         let projection = field.motion_projection().unwrap();
-        assert_eq!(projection.bounds, Some(DVec2::new(1.0, 1.5)));
+        assert_eq!(projection.boundary.half_extents(), DVec2::new(1.0, 1.5));
         assert_eq!(projection.fixed[0].unwrap().bounds(), fixed);
         assert_eq!(projection.movable[0].unwrap().bounds(), movable);
     }

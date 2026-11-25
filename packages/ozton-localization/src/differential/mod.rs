@@ -23,6 +23,7 @@ mod wheel_odometry;
 
 use crate::{
     Feedback, RangeFeedback,
+    field::{Boundary, FieldBoundary},
     localizer::{DistanceReset, Estimator, Fault, Localizer, PoseTrust},
 };
 
@@ -33,9 +34,9 @@ mod telemetry;
 pub use builder::{LocalizationBuilder, OdometrySettings, RangeUsage, RangeUse};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
-pub struct DifferentialLocalization {
+pub struct DifferentialLocalization<B = ()> {
     localizer: Localizer<'static>,
-    rectangular_half_extents: Option<DVec2>,
+    boundary: B,
     motion_obstacles: Obstacles,
     movable_obstacles: Obstacles,
     wheels: WheelOdometry,
@@ -57,19 +58,20 @@ impl DifferentialLocalization {
         LocalizationBuilder::new()
     }
 
-    /// Half extents of the configured field if it has only a rectangular perimeter.
-    pub fn rectangular_half_extents(&self) -> Option<DVec2> {
-        self.rectangular_half_extents
-    }
+}
 
-    /// Override the motion boundary without changing the surveyed range map.
-    /// Use with odometry and suspended range corrections in a wall-free test area.
-    pub fn set_motion_bounds(&mut self, bounds: Option<DVec2>) -> bool {
-        if bounds.is_some_and(|b| !b.is_finite() || b.min_element() <= 0.0) {
-            return false;
-        }
-        self.rectangular_half_extents = bounds;
-        true
+impl DifferentialLocalization<FieldBoundary> {
+    /// Update containment dimensions without removing the boundary.
+    /// The new dimensions must already have been validated.
+    pub fn set_motion_bounds(&mut self, boundary: FieldBoundary) {
+        self.boundary = boundary;
+    }
+}
+
+impl<B: Boundary> DifferentialLocalization<B> {
+    /// The validated boundary state, or unit for an unbounded estimator.
+    pub fn boundary(&self) -> B {
+        self.boundary
     }
 
     /// Fixed footprints projected from the unified field geometry.
@@ -287,22 +289,22 @@ impl DifferentialLocalization {
     }
 }
 
-impl TracksPosition for DifferentialLocalization {
+impl<B: Boundary> TracksPosition for DifferentialLocalization<B> {
     fn position(&self) -> glam::DVec2 {
         self.localizer.position()
     }
 }
-impl TracksHeading for DifferentialLocalization {
+impl<B: Boundary> TracksHeading for DifferentialLocalization<B> {
     fn heading(&self) -> Angle {
         self.localizer.heading()
     }
 }
-impl TracksForwardTravel for DifferentialLocalization {
+impl<B: Boundary> TracksForwardTravel for DifferentialLocalization<B> {
     fn forward_travel(&self) -> f64 {
         self.localizer.forward_travel()
     }
 }
-impl TracksVelocity for DifferentialLocalization {
+impl<B: Boundary> TracksVelocity for DifferentialLocalization<B> {
     fn linear_velocity(&self) -> f64 {
         self.localizer.linear_velocity()
     }

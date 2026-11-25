@@ -58,7 +58,7 @@ pub trait ComponentReport {
     fn report(&self, frame: Frame);
 }
 
-impl ComponentReport for ozton_localization::differential::DifferentialLocalization {
+impl<B: ozton_localization::field::Boundary> ComponentReport for ozton_localization::differential::DifferentialLocalization<B> {
     fn report(&self, frame: Frame) {
         report_pose(frame, self.pose(), self.pose_trusted());
     }

@@ -5,9 +5,9 @@ use std::time::Instant;
 
 use ozton_drivetrain::{
     Drive, DriveMotionFault, Footprint, PoseDrive, RangeResetDrive,
-    model::{Differential, MotionGeometry},
+    model::{Differential, MotionGeometryFor},
 };
-use ozton_localization::{Feedback, differential::DifferentialLocalization};
+use ozton_localization::{Feedback, differential::DifferentialLocalization, field::Boundary};
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::Obstacles,
@@ -17,15 +17,16 @@ use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range:
 
 use super::{AssistedDrivetrain, DriveAssist};
 
-type AssistedTrackedDrive<'a, G, S, D, A> =
-    AssistedDrivetrain<'a, Differential<G>, Tracking<S, D>, DifferentialLocalization, A>;
+type AssistedTrackedDrive<'a, G, S, D, B, A> =
+    AssistedDrivetrain<'a, Differential<G>, Tracking<S, D>, DifferentialLocalization<B>, A>;
 
-impl<G, S, D, A> PoseDrive for AssistedTrackedDrive<'_, G, S, D, A>
+impl<G, S, D, B, A> PoseDrive for AssistedTrackedDrive<'_, G, S, D, B, A>
 where
-    G: MotionGeometry,
+    B: Boundary,
+    G: MotionGeometryFor<B>,
     S: TrackingSources,
     Tracking<S, D>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization>,
+    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>,
 {
     type Error = DriveMotionFault;
 
@@ -95,13 +96,14 @@ where
     }
 }
 
-impl<G, S, D, A, const I: usize> RangeResetDrive<I> for AssistedTrackedDrive<'_, G, S, D, A>
+impl<G, S, D, B, A, const I: usize> RangeResetDrive<I> for AssistedTrackedDrive<'_, G, S, D, B, A>
 where
-    G: MotionGeometry,
+    B: Boundary,
+    G: MotionGeometryFor<B>,
     S: TrackingSources,
     Tracking<S, D>: HasDriveWheels + SourceAt<I>,
     <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,
-    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization>,
+    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>,
 {
     fn request_distance_reset(&mut self) {
         <_ as RangeResetDrive<I>>::request_distance_reset(self.drivetrain_mut());

@@ -3,7 +3,7 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use ozton_localization::{Fault, Feedback, differential::DifferentialLocalization};
+use ozton_localization::{Fault, Feedback, differential::DifferentialLocalization, field::Boundary};
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::Obstacles,
@@ -14,11 +14,11 @@ use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range:
 use super::{PoseDrive, RangeResetDrive};
 use crate::{
     Drive, Drivetrain, Footprint, MotorGroups,
-    model::{Differential, MotionGeometry, WheelSpeedError},
+    model::{Differential, MotionGeometryFor, WheelSpeedError},
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<G, S, D> = Drivetrain<Differential<G>, Tracking<S, D>, DifferentialLocalization>;
+type TrackedDrive<G, S, D, B> = Drivetrain<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
@@ -49,7 +49,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<G: MotionGeometry, S: TrackingSources, D> PoseDrive for TrackedDrive<G, S, D>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources, D> PoseDrive for TrackedDrive<G, S, D, B>
 where
     Tracking<S, D>: HasDriveWheels,
 {
@@ -64,7 +64,7 @@ where
     }
 
     fn rectangular_half_extents(&self) -> Option<DVec2> {
-        self.localization().rectangular_half_extents()
+        self.localization().boundary().bounds()
     }
 
     fn motion_obstacles(&self) -> Obstacles {
@@ -168,8 +168,8 @@ where
     }
 }
 
-impl<G: MotionGeometry, S: TrackingSources, D, const I: usize> RangeResetDrive<I>
-    for TrackedDrive<G, S, D>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources, D, const I: usize> RangeResetDrive<I>
+    for TrackedDrive<G, S, D, B>
 where
     Tracking<S, D>: HasDriveWheels + SourceAt<I>,
     <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,

@@ -82,3 +82,16 @@ pub fn arcade_mix(throttle: f64, turn: f64) -> [f64; 2] {
 pub fn tank_axes([left, right]: [f64; 2]) -> (f64, f64) {
     (left * 0.5 + right * 0.5, left * 0.5 - right * 0.5)
 }
+
+/// A geometry policy compatible with the localization's boundary state.
+/// A footprint requires a validated boundary; unbounded motion is explicit.
+///
+/// ```compile_fail
+/// use ozton_drivetrain::{Footprint, model::MotionGeometryFor};
+/// fn require<G: MotionGeometryFor<()>>() {}
+/// require::<Footprint>();
+/// ```
+pub trait MotionGeometryFor<B: ozton_localization::field::Boundary>: MotionGeometry {}
+
+impl MotionGeometryFor<ozton_localization::field::FieldBoundary> for crate::Footprint {}
+impl<B: ozton_localization::field::Boundary> MotionGeometryFor<B> for UnboundedMotion {}
