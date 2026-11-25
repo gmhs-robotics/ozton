@@ -12,7 +12,7 @@ use uom::si::f64::{Angle, AngularVelocity, Length};
 use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
 use crate::{
     geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading},
-    path::clearance::WallContact,
+    path::clearance::WallContactConstraint,
 };
 
 const MAX_PARTICLES: usize = 128;
@@ -117,6 +117,7 @@ pub struct ParticleFilter {
     scratch: Vec<Particle>,
     random: Random,
     ray_faces: Vec<RayFace>,
+    contact: Option<WallContactConstraint>,
 }
 
 impl Clone for ParticleFilter {
@@ -129,6 +130,7 @@ impl Clone for ParticleFilter {
             scratch,
             random: self.random.clone(),
             ray_faces: Vec::with_capacity(self.ray_faces.capacity()),
+            contact: self.contact,
         }
     }
 
@@ -137,6 +139,7 @@ impl Clone for ParticleFilter {
         self.particles.clone_from(&source.particles);
         self.scratch.clone_from(&source.scratch);
         self.random.clone_from(&source.random);
+        self.contact = source.contact;
     }
 }
 
@@ -168,23 +171,36 @@ impl ParticleFilter {
             scratch: Vec::with_capacity(config.count),
             random: Random::seeded(config.seed),
             ray_faces: Vec::new(),
+            contact: None,
         };
         filter.reset(pose);
         Some(filter)
     }
 
     pub fn reset(&mut self, pose: Pose) {
+        self.contact = None;
         self.reset_with_spread(pose, self.config.initial_spread);
     }
 
     /// A verified flush contact fixes wall-normal position and heading at
     /// initialization. Tangential placement retains its configured uncertainty.
     /// Normal prediction diffusion resumes with the next measured motion.
-    pub fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
+    pub fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
+        self.contact = Some(contact);
         let mut spread = self.config.initial_spread;
-        spread[wall.axis()] = 0.0;
+        spread[contact.wall().axis()] = 0.0;
         spread.z = 0.0;
         self.reset_with_spread(pose, spread);
+        self.set_contact_constraint(Some(contact));
+    }
+
+    pub fn set_contact_constraint(&mut self, contact: Option<WallContactConstraint>) {
+        self.contact = contact;
+        if let Some(contact) = contact {
+            for particle in &mut self.particles {
+                particle.pose = contact.project(particle.pose);
+            }
+        }
     }
 
     fn reset_with_spread(&mut self, pose: Pose, spread: DVec3) {
@@ -220,6 +236,9 @@ impl ParticleFilter {
                 translation: delta.translation + DVec2::new(noise.x, noise.y),
                 heading: delta.heading + crate::qty!((noise.z) rad),
             });
+            if let Some(contact) = self.contact {
+                particle.pose = contact.project(particle.pose);
+            }
         }
     }
 
@@ -238,6 +257,9 @@ impl ParticleFilter {
         let heading = wrap_heading(heading);
         for particle in &mut self.particles {
             particle.pose.heading = heading;
+            if let Some(contact) = self.contact {
+                particle.pose = contact.project(particle.pose);
+            }
         }
         self.observe_beams(beams, map, Some(rotation(heading)), None)
     }
@@ -261,6 +283,9 @@ impl ParticleFilter {
         let heading = wrap_heading(heading);
         for particle in &mut self.particles {
             particle.pose.heading = heading;
+            if let Some(contact) = self.contact {
+                particle.pose = contact.project(particle.pose);
+            }
         }
         self.observe_beams(beams, map, Some(rotation(heading)), Some(quality))
     }
@@ -371,7 +396,7 @@ impl ParticleFilter {
         if !used {
             return None;
         }
-        let estimate = if fixed_rotation.is_some() {
+        let mut estimate = if fixed_rotation.is_some() {
             let (position, deviation) = self.position_moments();
             Estimate {
                 pose: Pose::new(position, self.particles[0].pose.heading),
@@ -380,6 +405,9 @@ impl ParticleFilter {
         } else {
             self.estimate()
         };
+        if let Some(contact) = self.contact {
+            estimate.pose = contact.project(estimate.pose);
+        }
         let squared_weight = self
             .particles
             .iter()
