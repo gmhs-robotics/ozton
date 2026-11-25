@@ -328,12 +328,14 @@ fn transit_point_does_not_apply_endpoint_braking_envelope() {
         ranges: [None; _],
         reset_accepted: false,
     };
-    let mut terminal = DifferentialFeedback::default();
-    let mut transit = DifferentialFeedback::default();
+    let tuning = DriveTuning::STANDARD
+        .with_linear_controller(ozton_math::control::Pid::new(20.0, 0.0, 0.0, None));
+    let mut terminal = DifferentialFeedback::new(tuning);
+    let mut transit = DifferentialFeedback::new(tuning);
     terminal.record_applied_wheels([0.5; 2]);
     transit.record_applied_wheels([0.5; 2]);
     let (stopping, _) = terminal.step(target, feedback, tick, options);
     let (passing, ready) = transit.step_through(target, feedback, tick, options);
     assert!(!ready);
-    assert!(passing[0] >= stopping[0]);
+    assert!(passing[0] > stopping[0], "{passing:?} vs {stopping:?}");
 }
