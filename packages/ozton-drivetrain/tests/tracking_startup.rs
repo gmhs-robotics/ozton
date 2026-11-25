@@ -12,8 +12,8 @@ use ozton_math::{
     },
 };
 use ozton_tracking::{
-    DisplacementObservation, HasDriveWheels, HeadingObservation, Measurement, MeasurementSink, Tracking,
-    TrackingSource,
+    DisplacementObservation, HasDriveWheels, HeadingObservation, Measurement, MeasurementSink,
+    Tracking, TrackingSource,
     absolute::PoseObservation,
     mount::Vec3,
     odometric::{DifferentialTracking, WheelGearing},

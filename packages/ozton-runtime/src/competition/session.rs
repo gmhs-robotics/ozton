@@ -142,7 +142,11 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
         if let Some(Err(error)) = result {
             activation.renew();
             if let Err(_error) = self.0.robot.fault_stop() {
-                crate::log_event!(Error, "competition", "Could not stop robot outputs ({_error})");
+                crate::log_event!(
+                    Error,
+                    "competition",
+                    "Could not stop robot outputs ({_error})"
+                );
             }
             crate::log_event!(Error, "driver", "Control fault ({error})");
             self.0.selector.status(&error.to_string());
