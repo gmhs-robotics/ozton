@@ -209,17 +209,12 @@ macro_rules! controller {
 controller!(
     /// Conventional distance, point, heading and straight-pose PID.
     Basic,
-    PathGuidance::Tangent
+    PathGuidance::PurePursuit
 );
 controller!(
     /// Continuous Boomerang pose feedback.
     Boomerang,
-    PathGuidance::Tangent
-);
-controller!(
-    /// Spatial tangent trajectory tracking.
-    Tangent,
-    PathGuidance::Tangent
+    PathGuidance::PurePursuit
 );
 controller!(
     /// Geometric lookahead trajectory tracking.
@@ -232,7 +227,7 @@ controller!(
     PathGuidance::RAMSETE
 );
 controller!(
-    /// Continuous-time speed-scheduled LQR trajectory tracking.
+    /// Finite-horizon discrete LTV-LQR trajectory tracking.
     LtvLqr,
     PathGuidance::LQR
 );
@@ -407,7 +402,7 @@ macro_rules! path_follower {
     )+};
 }
 
-path_follower!(Tangent, PurePursuit, Ramsete, LtvLqr);
+path_follower!(PurePursuit, Ramsete, LtvLqr);
 
 /// Validate host-generated path samples against the configured physical limits.
 pub fn prepare_path<D: MotionExecution>(

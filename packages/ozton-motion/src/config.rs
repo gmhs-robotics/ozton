@@ -292,14 +292,12 @@ impl MotionTiming {
 /// Trajectory follower parameters.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum PathGuidance {
-    /// Spatial tangent feedback with measured yaw damping.
+    /// Geometric pursuit of a robot-centered lookahead circle.
     #[default]
-    Tangent,
-    /// Geometric pursuit of an arc-length lookahead point.
     PurePursuit,
     /// Nonlinear unicycle trajectory tracking (Kanayama/RAMSETE).
     Ramsete { b: f64, zeta: f64 },
-    /// Continuous-time, speed-scheduled LQR about a straight unicycle reference.
+    /// Finite-horizon discrete LTV-LQR along the timed unicycle reference.
     /// Weights are inverse squared acceptable state and input errors.
     Lqr { state: [f64; 3], input: [f64; 2] },
 }
@@ -325,7 +323,7 @@ impl PathGuidance {
     fn valid(self) -> bool {
         use ozton_math::following::{LtvLqr, Ramsete};
         match self {
-            Self::Tangent | Self::PurePursuit => true,
+            Self::PurePursuit => true,
             Self::Ramsete { b, zeta } => Ramsete::new(b, zeta).is_some(),
             Self::Lqr { state, input } => LtvLqr::new(state, input).is_some(),
         }
@@ -401,7 +399,7 @@ impl Default for PathConfig {
 
 impl PathConfig {
     pub const DEFAULT: Self = Self {
-        guidance: PathGuidance::Tangent,
+        guidance: PathGuidance::PurePursuit,
         terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
         lookahead_time_scale: 2.0,

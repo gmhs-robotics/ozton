@@ -26,7 +26,7 @@ pub mod prelude {
         },
         motion::{
             Arcade, Basic, Boomerang, DriveTuning, Holonomic, LtvLqr, PurePursuit, Ramsete,
-            Tangent, Tank, TravelDirection, arcade::ArcadeInput, capabilities::*,
+            Tank, TravelDirection, arcade::ArcadeInput, capabilities::*,
         },
         runtime::{
             OztonCompete, Runtime,

@@ -1,10 +1,8 @@
 //! Hardware-independent path tracking laws.
 mod boomerang;
-mod tangent;
 mod unicycle;
 pub use boomerang::Boomerang;
-pub use tangent::Tangent;
-pub use unicycle::{LtvLqr, PolarPose, Ramsete};
+pub use unicycle::{LqrSchedule, LtvLqr, PolarPose, Ramsete};
 
 use crate::{
     geometry::{Pose, pursuit_curvature},

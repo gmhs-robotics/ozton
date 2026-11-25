@@ -1,10 +1,10 @@
-//! Spatial path-tangent feedback with a host-generated velocity envelope.
+//! Geometric pure pursuit and time-indexed trajectory tracking.
 
 use core::f64::consts::PI;
 
 use ozton_math::{
     control::Pid,
-    following::{PurePursuit, Tangent},
+    following::{LqrSchedule, PurePursuit},
     geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
     path::{Path, PathSample, braking::stoppable_speed, progress::Progress},
     uom::si::{
@@ -24,7 +24,7 @@ pub(crate) struct PathObservation {
     pub nominal_progress_time: f64,
 }
 
-/// The reference is determined solely by measured spatial progress.
+/// Pure pursuit uses spatial progress; trajectory controllers use elapsed time.
 pub(crate) struct ProfiledFollower<'path> {
     progress: Progress<'path>,
     geometric: PathSample,
@@ -33,6 +33,8 @@ pub(crate) struct ProfiledFollower<'path> {
     guidance: Guidance,
     prediction_latency: Option<[core::time::Duration; 2]>,
     lookahead_time_scale: f64,
+    elapsed: f64,
+    lqr: Option<LqrSchedule>,
 }
 
 impl<'path> ProfiledFollower<'path> {
@@ -43,9 +45,11 @@ impl<'path> ProfiledFollower<'path> {
             geometric: path.start(),
             lookahead,
             yaw,
-            guidance: Guidance::Tangent,
+            guidance: Guidance::PurePursuit,
             prediction_latency: None,
             lookahead_time_scale: 2.0,
+            elapsed: 0.0,
+            lqr: None,
         }
     }
 
@@ -59,6 +63,18 @@ impl<'path> ProfiledFollower<'path> {
         self.guidance = config.guidance.into();
         self.prediction_latency = config.prediction_latency;
         self.lookahead_time_scale = config.lookahead_time_scale;
+        self
+    }
+
+    pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Self {
+        if let Guidance::Lqr(controller) = self.guidance {
+            let path = self.progress.path();
+            self.lqr = controller.prepare(path.end().time, period.as_secs_f64(), |t| {
+                let sample = path.at_time(ozton_math::qty!((t) s));
+                let v = if reverse { -sample.speed } else { sample.speed };
+                [v, sample.speed * sample.curvature]
+            });
+        }
         self
     }
 
@@ -80,7 +96,11 @@ impl<'path> ProfiledFollower<'path> {
     }
 
     pub fn is_terminal(&self, position_tolerance: f64) -> bool {
-        self.progress.distance() >= self.progress.path().end().distance - position_tolerance
+        if matches!(self.guidance, Guidance::PurePursuit) {
+            self.progress.distance() >= self.progress.path().end().distance - position_tolerance
+        } else {
+            self.elapsed >= self.progress.path().end().time
+        }
     }
 
     /// Wheel speeds in metres per second before shared physical constraints.
@@ -99,9 +119,29 @@ impl<'path> ProfiledFollower<'path> {
         let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
         let limits = path.limits();
         let remaining = (path.end().distance - self.geometric.distance).max(0.0);
-        // The path tangent supplies the nominal heading. Correct lateral
-        // deviation over a speed-dependent spatial horizon without cutting
-        // across the next curve to chase a point.
+        // Trajectory controllers track a timed reference, not a nearest-point
+        // projection. The geometric cursor remains available for mechanisms.
+        if !matches!(self.guidance, Guidance::PurePursuit) {
+            let t = self.elapsed.min(path.end().time);
+            self.elapsed += dt.as_secs_f64();
+            let reference = path.at_time(ozton_math::qty!((t) s));
+            let local = pose.to_local(reference.pose.position);
+            let heading = wrap_heading(reference.pose.heading + facing - pose.heading).value;
+            let velocity = if reverse { -reference.speed } else { reference.speed };
+            let twist = [velocity, reference.speed * reference.curvature];
+            let error = [local.y, -local.x, heading];
+            let [linear, angular] = match self.guidance {
+                Guidance::Ramsete(controller) => controller.calculate(error, twist),
+                Guidance::Lqr(_) => self.lqr.as_ref().expect("LQR schedule").calculate(t, error, twist),
+                Guidance::PurePursuit => unreachable!(),
+            };
+            return wheel_speeds(
+                Velocity::new::<meter_per_second>(linear),
+                AngularVelocity::new::<radian_per_second>(angular),
+                limits.track_width,
+            )
+            .map(|speed| speed.value);
+        }
         let [forward_delay, yaw_delay] = self.prediction_latency.unwrap_or([brake_latency; 2]);
         let reaction = yaw_delay.as_secs_f64();
         let lookahead = self
@@ -111,8 +151,6 @@ impl<'path> ProfiledFollower<'path> {
         // Align the feedback and feedforward reference with the same actuator
         // response horizon. Predict the body pose with the measured twist,
         // without advancing the actual geometric progress cursor.
-        let delay = (measured_speed.value.abs() * reaction).min(remaining);
-        let reference = path.at_distance(ozton_math::qty!((self.geometric.distance + delay) m));
         let predicted = pose.integrate(BodyDelta {
             translation: DVec2::new(measured_lateral.value, measured_speed.value) * reaction,
             heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
@@ -138,71 +176,22 @@ impl<'path> ProfiledFollower<'path> {
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
             .speed
             .min(endpoint_limit);
-        // The trajectory controllers receive signed body-frame errors. Spatial
-        // progress (rather than wall time) selects the reference, preventing
-        // runaway schedule error after localization corrections or saturation.
-        if matches!(self.guidance, Guidance::Ramsete(_) | Guidance::Lqr(_)) {
-            let local = predicted.to_local(reference.pose.position);
-            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
-            let velocity = if reverse { -speed } else { speed };
-            let yaw_rate = speed * reference.curvature;
-            let [linear, angular] = self
-                .guidance
-                .calculate([local.y, -local.x, heading], [velocity, yaw_rate])
-                .unwrap();
-            // Preserve the commanded curvature when feedback requests more
-            // forward speed than the endpoint braking envelope permits.
-            let scale = if linear.abs() > endpoint_limit {
-                endpoint_limit / linear.abs()
-            } else {
-                1.0
-            };
-            return wheel_speeds(
-                Velocity::new::<meter_per_second>(linear * scale),
-                AngularVelocity::new::<radian_per_second>(angular * scale),
-                limits.track_width,
-            )
-            .map(|speed| speed.value);
-        }
         let travel_pose = Pose::new(predicted.position, predicted.heading - facing);
-        let (error, pursuit_curvature) = match self.guidance {
-            Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => (
-                Tangent::new().heading_error(predicted, reference.pose, facing, lookahead),
-                None,
-            ),
-            Guidance::PurePursuit => {
-                // Classical pure pursuit uses the forward intersection of
-                // the path and a robot-centered lookahead circle. Evaluate it
-                // at the same actuator-response horizon as the other laws.
-                let carrot = self.progress.lookahead(predicted.position, lookahead);
-                let local = travel_pose.to_local(carrot);
-                let error = bearing(local).value;
-                let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
-                (error, curvature)
-            }
-        };
-
-        // A valid pursuit arc already aligns the motion with the carrot.
-        // Its curvature is constrained by the shared wheel/lateral limits.
-        // Heading projection is needed only for heading-feedback recovery.
-        let speed = if pursuit_curvature.is_some() {
-            speed
-        } else {
-            speed * error.cos().max(0.0)
-        };
-        let curvature = reference.curvature;
-        let feedforward = speed * curvature;
-        let angular = match (self.guidance, pursuit_curvature) {
-            (Guidance::PurePursuit, Some(curvature)) => speed * curvature,
-            _ => {
-                feedforward
-                    + self.yaw.update_with_rate(
-                        error,
-                        feedforward - measured_yaw.value,
-                        dt,
-                        core::time::Duration::ZERO,
-                        0.0,
-                    )
+        let carrot = self.progress.lookahead(predicted.position, lookahead);
+        let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
+        let (speed, angular) = match curvature {
+            Some(curvature) => (speed, speed * curvature),
+            None => {
+                // If the carrot is behind the robot, turn in place to
+                // reacquire it; do not substitute another path controller.
+                let error = bearing(travel_pose.to_local(carrot)).value;
+                (0.0, self.yaw.update_with_rate(
+                    error,
+                    -measured_yaw.value,
+                    dt,
+                    core::time::Duration::ZERO,
+                    0.0,
+                ))
             }
         };
         let linear = if reverse { -speed } else { speed };
@@ -226,7 +215,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn measured_yaw_damps_steering_before_heading_overshoots() {
+    fn predicted_yaw_changes_pursuit_curvature() {
         let limits = Limits::from_units(
             qty!(0.33 m),
             qty!(1 m/s),

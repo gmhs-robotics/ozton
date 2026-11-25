@@ -4,7 +4,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `Tangent`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
 
 ## A first closed-loop move
 
