@@ -247,8 +247,11 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             } else if command.complete || command.brake {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
-                output(self.drive, command.wheels.map(Velocity::new::<meter_per_second>))
-                    .map_err(PoseMotionError::Drive)?;
+                output(
+                    self.drive,
+                    command.wheels.map(Velocity::new::<meter_per_second>),
+                )
+                .map_err(PoseMotionError::Drive)?;
             }
             self.drive.log_step(self.started.elapsed(), dt);
             if command.complete {

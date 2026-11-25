@@ -649,13 +649,8 @@ impl DifferentialFeedback {
         let candidate = core::array::from_fn(|i| {
             self.last_wheels[i] + scale * (desired[i] - self.last_wheels[i])
         });
-        self.last_wheels = limit_transition(
-            self.last_wheels,
-            candidate,
-            width,
-            maximum,
-            lateral_limit,
-        );
+        self.last_wheels =
+            limit_transition(self.last_wheels, candidate, width, maximum, lateral_limit);
         (self.last_wheels, false)
     }
 }
