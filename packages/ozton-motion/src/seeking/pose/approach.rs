@@ -132,12 +132,12 @@ pub(super) async fn navigate_to_target<D: PoseDrive>(
             target.position.y
         );
         let result = session
-            .prepare_replan()
+            .await_stationary()
             .await
             .and(Err(PoseMotionError::NoRoute));
         return session.finish(result);
     }
-    let result = match session.prepare_replan().await {
+    let result = match session.await_stationary().await {
         Ok(()) => approach(&mut session, clearance, target, final_heading, settings).await,
         Err(error) => Err(error),
     };
@@ -264,10 +264,25 @@ async fn lattice_approach<D: PoseDrive>(
     let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
+    let start = session.drive.pose();
     let route = lattice_plan(
         session, planner, preferred, clearance, target, final_heading, direction,
     )
     .await?;
+    session
+        .drive
+        .wait_until(Instant::now() + config.timing.period)
+        .await;
+    if !session.drive.motion_active() {
+        return Err(PoseMotionError::Cancelled);
+    }
+    let measured = session.drive.pose();
+    if measured.position.distance(start.position) > options.position_tolerance.value
+        || wrap_heading(measured.heading - start.heading).value.abs()
+            > options.heading_tolerance.value
+    {
+        return Err(PoseMotionError::PositionUnsettled);
+    }
     for step in route.ok_or(PoseMotionError::NoRoute)? {
         match step {
             LatticeStep::Turn(heading) => {
