@@ -13,7 +13,7 @@ use ozton_math::{
     },
 };
 
-use super::unicycle;
+use super::unicycle::Guidance;
 
 /// Progress and nominal remaining duration for nonblocking mechanism actions.
 pub(crate) struct PathObservation {
@@ -29,7 +29,7 @@ pub(crate) struct ProfiledFollower<'path> {
     geometric: PathSample,
     lookahead: Length,
     yaw: Pid,
-    guidance: crate::PathGuidance,
+    guidance: Guidance,
 }
 
 impl<'path> ProfiledFollower<'path> {
@@ -40,12 +40,12 @@ impl<'path> ProfiledFollower<'path> {
             geometric: path.start(),
             lookahead,
             yaw,
-            guidance: crate::PathGuidance::Tangent,
+            guidance: Guidance::Tangent,
         }
     }
 
     pub fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
-        self.guidance = guidance;
+        self.guidance = guidance.into();
         self
     }
 
@@ -105,16 +105,14 @@ impl<'path> ProfiledFollower<'path> {
         });
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
-            crate::PathGuidance::Tangent
-            | crate::PathGuidance::Ramsete { .. }
-            | crate::PathGuidance::Lqr { .. } => {
+            Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => {
                 let cross = reference.pose.to_local(predicted.position).x;
                 let desired = reference.pose.heading
                     + facing
                     + ozton_math::qty!((cross.atan2(lookahead)) rad);
                 (wrap_heading(desired - predicted.heading).value, None)
             }
-            crate::PathGuidance::PurePursuit => {
+            Guidance::PurePursuit => {
                 // Classical pure pursuit uses the forward intersection of
                 // the path and a robot-centered lookahead circle.
                 let carrot = self.progress.lookahead(pose.position, lookahead);
@@ -147,17 +145,16 @@ impl<'path> ProfiledFollower<'path> {
         // runaway schedule error after localization corrections or saturation.
         if matches!(
             self.guidance,
-            crate::PathGuidance::Ramsete { .. } | crate::PathGuidance::Lqr { .. }
+            Guidance::Ramsete(_) | Guidance::Lqr(_)
         ) {
             let local = predicted.to_local(reference.pose.position);
             let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
             let velocity = if reverse { -speed } else { speed };
             let yaw_rate = speed * reference.curvature;
-            let [linear, angular] = unicycle::track(
-                self.guidance,
-                [local.y, -local.x, heading],
-                [velocity, yaw_rate],
-            );
+            let [linear, angular] = self
+                .guidance
+                .calculate([local.y, -local.x, heading], [velocity, yaw_rate])
+                .unwrap();
             return wheel_speeds(
                 Velocity::new::<meter_per_second>(linear),
                 AngularVelocity::new::<radian_per_second>(angular),
@@ -176,7 +173,7 @@ impl<'path> ProfiledFollower<'path> {
         let curvature = reference.curvature;
         let feedforward = speed * curvature;
         let angular = match (self.guidance, pursuit_curvature) {
-            (crate::PathGuidance::PurePursuit, Some(curvature)) => speed * curvature,
+            (Guidance::PurePursuit, Some(curvature)) => speed * curvature,
             _ => {
                 feedforward
                     + self.yaw.update_with_rate(

@@ -340,14 +340,22 @@ impl PathGuidance {
         input: [1.0, 1.0],
     };
 
+    pub const fn ramsete(controller: ozton_math::following::Ramsete) -> Self {
+        let (b, zeta) = controller.parameters();
+        Self::Ramsete { b, zeta }
+    }
+
+    pub const fn ltv_lqr(controller: ozton_math::following::LtvLqr) -> Self {
+        let (state, input) = controller.weights();
+        Self::Lqr { state, input }
+    }
+
     fn valid(self) -> bool {
+        use ozton_math::following::{LtvLqr, Ramsete};
         match self {
             Self::Tangent | Self::PurePursuit => true,
-            Self::Ramsete { b, zeta } => b.is_finite() && b > 0.0 && zeta > 0.0 && zeta <= 1.0,
-            Self::Lqr { state, input } => state
-                .into_iter()
-                .chain(input)
-                .all(|weight| weight.is_finite() && weight > 0.0),
+            Self::Ramsete { b, zeta } => Ramsete::new(b, zeta).is_some(),
+            Self::Lqr { state, input } => LtvLqr::new(state, input).is_some(),
         }
     }
 }

@@ -114,6 +114,9 @@ pub struct Estimate {
     pub standard_deviation: DVec3,
 }
 
+/// Conventional short name for the Monte Carlo localizer.
+pub type Mcl = ParticleFilter;
+
 pub struct ParticleFilter {
     config: ParticleConfig,
     particles: Vec<Particle>,
