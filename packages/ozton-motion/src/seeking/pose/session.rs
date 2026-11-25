@@ -322,6 +322,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 })
             {
                 self.contact = None;
+                self.drive.release_wall_contact();
                 log_event!(Info, "clearance", "Surveyed contact departure cleared; ordinary governor restored");
             }
             if clearance.is_some_and(|field| {
@@ -652,6 +653,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         outcome: Result<T, PoseMotionError<D::Error>>,
     ) -> Result<T, PoseMotionError<D::Error>> {
         self.drive.cancel_distance_reset();
+        if self.contact.take().is_some() {
+            self.drive.release_wall_contact();
+        }
         let stop = if outcome.is_ok() {
             self.drive.brake()
         } else {
@@ -677,6 +681,9 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     fn drop(&mut self) {
         if !self.finished {
             self.drive.cancel_distance_reset();
+            if self.contact.take().is_some() {
+                self.drive.release_wall_contact();
+            }
             let stopped = self.drive.emergency_brake();
             if stopped.is_ok() {
                 log_event!(Info, "motion", "Motion interrupted; brake requested");
