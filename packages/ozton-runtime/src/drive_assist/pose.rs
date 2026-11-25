@@ -7,7 +7,7 @@ use ozton_drivetrain::{
     Drive, DriveMotionFault, Footprint, PoseDrive, RangeResetDrive,
     model::{Differential, MotionGeometryFor},
 };
-use ozton_localization::{Feedback, differential::DifferentialLocalization, field::Boundary};
+use ozton_localization::{Feedback, Localization, field::Boundary};
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::{Obstacles, WallContact},
@@ -18,7 +18,7 @@ use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 use super::{AssistedDrivetrain, DriveAssist};
 
 type AssistedTrackedDrive<'a, G, S, B, A> =
-    AssistedDrivetrain<'a, Differential<G>, Tracking<S>, DifferentialLocalization<B>, A>;
+    AssistedDrivetrain<'a, Differential<G>, Tracking<S>, Localization<B>, A>;
 
 impl<G, S, B, A> PoseDrive for AssistedTrackedDrive<'_, G, S, B, A>
 where
@@ -26,7 +26,7 @@ where
     G: MotionGeometryFor<B>,
     S: TrackingSources,
     Tracking<S>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
+    A: DriveAssist<Differential<G>, Tracking<S>, Localization<B>>,
 {
     type Error = DriveMotionFault;
 
@@ -110,7 +110,7 @@ where
     G: MotionGeometryFor<B>,
     S: TrackingSources,
     Tracking<S>: HasDriveWheels + HasRange,
-    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
+    A: DriveAssist<Differential<G>, Tracking<S>, Localization<B>>,
 {
     fn request_distance_reset(&mut self) {
         <_ as RangeResetDrive>::request_distance_reset(self.drivetrain_mut());

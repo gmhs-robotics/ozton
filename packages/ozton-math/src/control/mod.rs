@@ -6,7 +6,6 @@ pub mod controller;
 pub mod drive;
 mod feedforward;
 pub mod heading_corrector;
-pub mod lift;
 pub mod limits;
 mod pid;
 pub mod protection;

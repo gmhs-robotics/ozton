@@ -1,4 +1,4 @@
-//! Convert timestamped tracking observations into differential robot pose and motion.
+//! Convert timestamped tracking observations into robot pose and motion.
 use std::time::Duration;
 
 #[cfg(feature = "logging")]
@@ -34,7 +34,7 @@ mod telemetry;
 pub use builder::{LocalizationBuilder, OdometrySettings, RangeRequired};
 
 /// Pose estimator state. Accepts observations without owning or reading hardware.
-pub struct DifferentialLocalization<B = ()> {
+pub struct Localization<B = ()> {
     localizer: Localizer<'static>,
     boundary: B,
     motion_obstacles: Obstacles,
@@ -52,13 +52,13 @@ pub struct DifferentialLocalization<B = ()> {
     telemetry: telemetry::Telemetry,
 }
 
-impl DifferentialLocalization {
+impl Localization {
     pub fn builder() -> LocalizationBuilder {
         LocalizationBuilder::new()
     }
 }
 
-impl DifferentialLocalization<FieldBoundary> {
+impl Localization<FieldBoundary> {
     /// Register the surveyed pose of a chassis flush against a real wall.
     /// The caller verifies physical contact; a virtual motion exclusion is
     /// not a valid contact observation.
@@ -94,7 +94,7 @@ impl DifferentialLocalization<FieldBoundary> {
     }
 }
 
-impl<B: Boundary> DifferentialLocalization<B> {
+impl<B: Boundary> Localization<B> {
     /// The validated boundary state, or unit for an unbounded estimator.
     pub fn boundary(&self) -> B {
         self.boundary
@@ -331,22 +331,22 @@ impl<B: Boundary> DifferentialLocalization<B> {
     }
 }
 
-impl<B: Boundary> TracksPosition for DifferentialLocalization<B> {
+impl<B: Boundary> TracksPosition for Localization<B> {
     fn position(&self) -> glam::DVec2 {
         self.localizer.position()
     }
 }
-impl<B: Boundary> TracksHeading for DifferentialLocalization<B> {
+impl<B: Boundary> TracksHeading for Localization<B> {
     fn heading(&self) -> Angle {
         self.localizer.heading()
     }
 }
-impl<B: Boundary> TracksForwardTravel for DifferentialLocalization<B> {
+impl<B: Boundary> TracksForwardTravel for Localization<B> {
     fn forward_travel(&self) -> f64 {
         self.localizer.forward_travel()
     }
 }
-impl<B: Boundary> TracksVelocity for DifferentialLocalization<B> {
+impl<B: Boundary> TracksVelocity for Localization<B> {
     fn linear_velocity(&self) -> f64 {
         self.localizer.linear_velocity()
     }

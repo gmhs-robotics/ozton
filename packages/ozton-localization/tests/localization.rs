@@ -650,7 +650,7 @@ fn range_usage_selects_filter_and_reset_observations_independently() {
 
 #[test]
 fn setting_field_zero_rebaselines_imu_heading() {
-    use ozton_localization::differential::LocalizationBuilder;
+    use ozton_localization::LocalizationBuilder;
     use ozton_math::localization::observation::{
         HeadingObservation, Measurement, Observation, SensorSample,
     };
@@ -658,7 +658,7 @@ fn setting_field_zero_rebaselines_imu_heading() {
     let mut localization = LocalizationBuilder::default()
         .build(&ozton_math::localization::observation::ObservationLayout::default())
         .unwrap();
-    let sample = |localization: &mut ozton_localization::differential::DifferentialLocalization,
+    let sample = |localization: &mut ozton_localization::Localization,
                   millis,
                   degrees| {
         let time = Duration::from_millis(millis);

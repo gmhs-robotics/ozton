@@ -13,7 +13,7 @@ Pass a heterogeneous tuple of mounted sources to `Tracking::new`. This fragment 
 ```rust
 use ozton::{
     drivetrain::Drivetrain,
-    localization::differential::LocalizationBuilder,
+    localization::LocalizationBuilder,
     tracking::Tracking,
 };
 

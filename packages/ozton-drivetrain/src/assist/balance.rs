@@ -2,9 +2,8 @@
 
 use ozton_math::desaturate;
 
-use crate::model::Balancing;
-
 use super::{AssistContext, DriveAssist};
+use crate::model::Balancing;
 
 /// Use the drivetrain model's motor-loss policy before writing outputs.
 #[derive(Clone, Copy, Default)]

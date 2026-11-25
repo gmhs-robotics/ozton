@@ -151,7 +151,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         self,
         layout: ObservationLayout<'_>,
         require_ranges: bool,
-    ) -> Option<DifferentialLocalization<B>> {
+    ) -> Option<Localization<B>> {
         let projection = self.field.motion_projection()?;
         let map: Vec<_> = self.field.surfaces().collect();
         let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
@@ -186,7 +186,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         if matches!(self.estimator, Estimator::Odometry) {
             localizer.disable_range_inspection();
         }
-        Some(DifferentialLocalization {
+        Some(Localization {
             localizer,
             boundary: projection.boundary,
             motion_obstacles: projection.fixed,
@@ -211,7 +211,7 @@ impl<B: Boundary> LocalizationBuilder<B> {
     pub fn build(
         self,
         tracking: &impl ObservationLayoutSource,
-    ) -> Option<DifferentialLocalization<B>> {
+    ) -> Option<Localization<B>> {
         self.build_inner(tracking.observation_layout(), false)
     }
 }
@@ -221,13 +221,13 @@ impl<B: Boundary> LocalizationBuilder<B, RangeRequired> {
     /// configured sensor roles must also provide at least one eligible surface.
     ///
     /// ```compile_fail
-    /// use ozton_localization::{DsrConfig, differential::LocalizationBuilder};
+    /// use ozton_localization::{DsrConfig, LocalizationBuilder};
     /// use ozton_math::localization::observation::ObservationLayout;
     /// let _ = LocalizationBuilder::new()
     ///     .with_distance_reset(DsrConfig::default())
     ///     .build(&ObservationLayout::default());
     /// ```
-    pub fn build(self, tracking: &impl RangeLayoutSource) -> Option<DifferentialLocalization<B>> {
+    pub fn build(self, tracking: &impl RangeLayoutSource) -> Option<Localization<B>> {
         self.build_inner(tracking.observation_layout(), true)
     }
 }

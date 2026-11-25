@@ -3,9 +3,7 @@
 use std::time::Duration;
 use std::time::Instant;
 
-use ozton_localization::{
-    Fault, Feedback, differential::DifferentialLocalization, field::Boundary,
-};
+use ozton_localization::{Fault, Feedback, Localization, field::Boundary};
 use ozton_math::{
     geometry::{DVec2, Pose},
     path::clearance::{Obstacles, WallContact},
@@ -20,7 +18,7 @@ use crate::{
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<G, S, B> = Drivetrain<Differential<G>, Tracking<S>, DifferentialLocalization<B>>;
+type TrackedDrive<G, S, B> = Drivetrain<Differential<G>, Tracking<S>, Localization<B>>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),

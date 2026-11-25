@@ -1,6 +1,6 @@
 //! Run a drivetrain's localization at the robot's control period.
 
-use ozton_localization::{differential::DifferentialLocalization, field::Boundary};
+use ozton_localization::{Localization, field::Boundary};
 use ozton_tracking::{Tracking, TrackingSources, TrackingSystem};
 use vexide::competition::CompetitionMode;
 mod worker;
@@ -31,7 +31,7 @@ pub trait LocalizationInput<T> {
     fn report(&self, _tracking: &T, _frame: crate::diagnostics::Frame) {}
 }
 
-impl<S: TrackingSources, B: Boundary> LocalizationInput<Tracking<S>> for DifferentialLocalization<B>
+impl<S: TrackingSources, B: Boundary> LocalizationInput<Tracking<S>> for Localization<B>
 where
     Tracking<S>: TrackingSystem,
 {
@@ -59,7 +59,7 @@ where
 
     fn pause(&mut self) {
         self.cancel_distance_reset();
-        DifferentialLocalization::pause(self);
+        Localization::pause(self);
     }
 }
 
