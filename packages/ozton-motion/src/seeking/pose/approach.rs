@@ -79,7 +79,8 @@ async fn approach<D: PoseDrive>(
         Some(field)
     });
     // Prefer a continuous maneuver that avoids fixed and movable objects.
-    // A planned trajectory failure is not silently retried as a different command.
+    // If a feasible continuous approach is blocked during execution, stop
+    // safely and replan using the orientation-aware lattice from the live pose.
     if let Some(heading) = final_heading {
         let target = Pose::new(target.position, heading);
         let direction = settings
@@ -100,7 +101,7 @@ async fn approach<D: PoseDrive>(
         };
         drop(span);
         if let Some(plan) = plan {
-            return session
+            let result = session
                 .follow(
                     Trajectory {
                         path: &plan.path,
@@ -113,6 +114,11 @@ async fn approach<D: PoseDrive>(
                     &mut PathActions::new(),
                 )
                 .await;
+            match result {
+                Ok(()) => return Ok(()),
+                Err(error) if replannable(&error) => session.prepare_replan().await?,
+                Err(error) => return Err(error),
+            }
         }
     }
     // A bounded A* search represents orientation explicitly. Prefer a route
@@ -122,93 +128,130 @@ async fn approach<D: PoseDrive>(
         .travel
         .map(|d| matches!(d, TravelDirection::Backward));
     let tolerance = options.position_tolerance.value;
-    for _ in 0..2 {
-        let find = |start| {
-            let plan = |field| {
-                planner.plan(
-                    field,
-                    start,
-                    target.position,
-                    final_heading,
-                    direction,
-                    options.track_width,
-                )
-            };
-            preferred
-                .as_ref()
-                .and_then(|field| plan(Some(field)))
-                .or_else(|| plan(clearance.as_ref()))
-        };
-        let mut route = find(session.drive.pose());
-        if route.is_none() {
-            if let Some(field) = clearance.filter(|field| !field.can_turn(session.drive.pose())) {
-                depart_wall(session, field, target, config.timing.stage_timeout, config).await?;
-                route = find(session.drive.pose());
-            }
-        }
-        for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
-            match step {
-                LatticeStep::Turn(heading) => {
-                    turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
-                }
-                LatticeStep::Translate {
-                    target: point,
-                    reverse,
-                } => {
-                    let start = session.drive.pose();
-                    let displacement = point - start.position;
-                    if displacement.length() <= tolerance {
-                        continue;
-                    }
-                    let heading = wrap_heading(
-                        bearing(displacement)
-                            + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
-                    );
-                    if clearance.is_some_and(|field| {
-                        !field.contains_translation(Pose::new(start.position, heading), point)
-                    }) {
-                        return Err(PoseMotionError::InsufficientClearance);
-                    }
-                    if wrap_heading(heading - start.heading).value.abs()
-                        > options.heading_tolerance.value
-                    {
-                        turn_checked(session, clearance, heading, config.timing.stage_timeout)
-                            .await?;
-                    }
-                    session
-                        .run(
-                            DifferentialTarget::DriveToPoint {
-                                target: point,
-                                maximum_speed: options.maximum_wheel_speed,
-                                reverse,
-                            },
-                            config.timing.stage_timeout,
-                        )
-                        .await?;
+    // A new plan is bounded by the existing progress deadline and must start
+    // from verified rest. Never retry hardware, cancellation or tracking faults.
+    let replan_started = std::time::Instant::now();
+    loop {
+        let before = session.drive.pose();
+        let result = lattice_approach(session, clearance, preferred, target, final_heading, direction, &planner, config).await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) if replannable(&error) => {
+                session.prepare_replan().await?;
+                let after = session.drive.pose();
+                // No changed state means the deterministic planner would
+                // return the same route. Do not loop indefinitely.
+                if (after.position.distance(before.position) <= tolerance
+                    && wrap_heading(after.heading - before.heading).value.abs() <= options.heading_tolerance.value)
+                    || replan_started.elapsed() >= config.timing.stage_timeout
+                {
+                    return Err(error);
                 }
             }
+            Err(error) => return Err(error),
         }
-        if let Some(heading) = final_heading {
-            if wrap_heading(heading - session.drive.pose().heading)
-                .value
-                .abs()
-                > options.heading_tolerance.value
-            {
-                turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
-            }
-        }
-        let error = session.drive.pose().position.distance(target.position);
-        if error <= tolerance {
-            return Ok(());
-        }
-        ozton_diagnostics::log_event!(
-            Warn,
-            "path",
-            "Position error after approach: {:.3} m",
-            error
-        );
     }
-    Err(PoseMotionError::PositionUnsettled)
+}
+
+fn replannable<E>(error: &PoseMotionError<E>) -> bool {
+    matches!(error, PoseMotionError::InsufficientClearance | PoseMotionError::PositionUnsettled)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn lattice_approach<D: PoseDrive>(
+    session: &mut PoseSession<'_, D>,
+    clearance: Option<RectangularClearance>,
+    preferred: Option<RectangularClearance>,
+    target: Pose,
+    final_heading: Option<Angle>,
+    direction: Option<bool>,
+    planner: &LatticePlanner,
+    config: crate::MotionConfig,
+) -> MotionResult<D> {
+    let options = session.options;
+    let tolerance = options.position_tolerance.value;
+    let find = |start| {
+        let plan = |field| {
+        planner.plan(
+            field,
+            start,
+            target.position,
+            final_heading,
+            direction,
+            options.track_width,
+        )
+        };
+        preferred
+        .as_ref()
+        .and_then(|field| plan(Some(field)))
+        .or_else(|| plan(clearance.as_ref()))
+    };
+    let mut route = find(session.drive.pose());
+    if route.is_none() {
+        if let Some(field) = clearance.filter(|field| !field.can_turn(session.drive.pose())) {
+        depart_wall(session, field, target, config.timing.stage_timeout, config).await?;
+        route = find(session.drive.pose());
+        }
+    }
+    for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
+        match step {
+        LatticeStep::Turn(heading) => {
+            turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+        }
+        LatticeStep::Translate {
+            target: point,
+            reverse,
+        } => {
+            let start = session.drive.pose();
+            let displacement = point - start.position;
+            if displacement.length() <= tolerance {
+            continue;
+            }
+            let heading = wrap_heading(
+            bearing(displacement)
+                + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
+            );
+            if clearance.is_some_and(|field| {
+            !field.contains_translation(Pose::new(start.position, heading), point)
+            }) {
+            return Err(PoseMotionError::InsufficientClearance);
+            }
+            if wrap_heading(heading - start.heading).value.abs()
+            > options.heading_tolerance.value
+            {
+            turn_checked(session, clearance, heading, config.timing.stage_timeout)
+                .await?;
+            }
+            session
+            .run(
+                DifferentialTarget::DriveToPoint {
+                target: point,
+                maximum_speed: options.maximum_wheel_speed,
+                reverse,
+                },
+                config.timing.stage_timeout,
+            )
+            .await?;
+        }
+        }
+    }
+    if let Some(heading) = final_heading {
+        if wrap_heading(heading - session.drive.pose().heading)
+        .value
+        .abs()
+        > options.heading_tolerance.value
+        {
+        turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+        }
+    }
+
+    let error = session.drive.pose().position.distance(target.position);
+    if error <= tolerance {
+        Ok(())
+    } else {
+        ozton_diagnostics::log_event!(Warn, "path", "Position error after approach: {:.3} m", error);
+        Err(PoseMotionError::PositionUnsettled)
+    }
 }
 
 async fn depart_wall<D: PoseDrive>(
