@@ -1,6 +1,8 @@
 //! Two sides of motors driven by normalized voltage.
+use std::{cell::RefCell, rc::Rc};
+
 use glam::DVec2;
-use ozton_tracking::odometric::SharedMotors;
+use ozton_tracking::odometric::{SharedMotors, register_motor_group};
 use vexide::{
     prelude::Motor,
     smart::{PortError, SmartDevice, motor::MotorType},
@@ -16,19 +18,23 @@ pub struct Differential<G = ()> {
 }
 
 impl Differential {
-    pub fn new(
-        left: impl IntoIterator<Item = Motor>,
-        right: impl IntoIterator<Item = Motor>,
+    pub fn new<const LEFT: usize, const RIGHT: usize>(
+        left: [Motor; LEFT],
+        right: [Motor; RIGHT],
     ) -> Self {
-        Self::from_shared(
-            left.into_iter().collect::<SharedMotors>(),
-            right.into_iter().collect::<SharedMotors>(),
-        )
+        Self::from_shared(Rc::new(RefCell::new(left)), Rc::new(RefCell::new(right)))
     }
 
-    pub fn from_shared(left: impl Into<SharedMotors>, right: impl Into<SharedMotors>) -> Self {
+    pub fn from_shared<const LEFT: usize, const RIGHT: usize>(
+        left: Rc<RefCell<[Motor; LEFT]>>,
+        right: Rc<RefCell<[Motor; RIGHT]>>,
+    ) -> Self {
+        let sides: [SharedMotors; 2] = [left, right];
+        for group in &sides {
+            register_motor_group(group);
+        }
         Self {
-            sides: [left.into(), right.into()],
+            sides,
             geometry: (),
         }
     }

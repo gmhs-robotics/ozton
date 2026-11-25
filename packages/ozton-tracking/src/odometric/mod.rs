@@ -26,7 +26,7 @@ mod gearing;
 #[cfg(feature = "vex")]
 mod motors;
 #[cfg(feature = "vex")]
-pub use motors::SharedMotors;
+pub use motors::{SharedMotors, register_motor_group};
 #[cfg(all(feature = "vex", feature = "logging"))]
 pub(crate) use motors::command_targets;
 mod projection;

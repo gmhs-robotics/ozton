@@ -1,5 +1,7 @@
+use std::{cell::RefCell, rc::Rc};
+
 use glam::DVec2;
-use ozton_tracking::odometric::SharedMotors;
+use ozton_tracking::odometric::{SharedMotors, register_motor_group};
 use vexide::{prelude::Motor, smart::PortError};
 
 use super::{Drive, LateralDrive};
@@ -11,20 +13,22 @@ pub struct Mecanum {
 }
 
 impl Mecanum {
-    pub fn new(
-        front_left: impl IntoIterator<Item = Motor>,
-        front_right: impl IntoIterator<Item = Motor>,
-        back_left: impl IntoIterator<Item = Motor>,
-        back_right: impl IntoIterator<Item = Motor>,
+    pub fn new<const FL: usize, const FR: usize, const BL: usize, const BR: usize>(
+        front_left: [Motor; FL],
+        front_right: [Motor; FR],
+        back_left: [Motor; BL],
+        back_right: [Motor; BR],
     ) -> Self {
-        Self {
-            motors: [
-                front_left.into_iter().collect(),
-                front_right.into_iter().collect(),
-                back_left.into_iter().collect(),
-                back_right.into_iter().collect(),
-            ],
+        let motors: [SharedMotors; 4] = [
+            Rc::new(RefCell::new(front_left)),
+            Rc::new(RefCell::new(front_right)),
+            Rc::new(RefCell::new(back_left)),
+            Rc::new(RefCell::new(back_right)),
+        ];
+        for group in &motors {
+            register_motor_group(group);
         }
+        Self { motors }
     }
 }
 

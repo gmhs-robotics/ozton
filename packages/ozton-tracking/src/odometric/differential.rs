@@ -6,7 +6,7 @@ use vexide::prelude::Motor;
 
 use super::{
     DriveConfigError, SharedMotors, WheelFeedback, WheelGearing, Wheels,
-    consensus::MAX_SIDE_MOTORS, positive,
+    consensus::MAX_SIDE_MOTORS, positive, register_motor_group,
 };
 use crate::{DisplacementObservation, Measurement, MeasurementSink, TrackingSource};
 
@@ -53,8 +53,10 @@ impl DifferentialTracking {
                 "invalid right motor count"
             );
         }
+        let left: SharedMotors = left.clone();
+        let right: SharedMotors = right.clone();
         Self::new(
-            &[left.clone().into(), right.clone().into()],
+            &[left, right],
             track_width,
             diameter,
             &[&left_gearing, &right_gearing],
@@ -95,6 +97,9 @@ impl DifferentialTracking {
         wheels: Wheels,
     ) -> Result<Self, DriveConfigError> {
         positive(track_width.value, DriveConfigError::TrackWidth)?;
+        for group in &motors {
+            register_motor_group(group);
+        }
         Ok(Self {
             track_width,
             wheels,
