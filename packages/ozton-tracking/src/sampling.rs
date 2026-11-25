@@ -68,9 +68,9 @@ impl std::error::Error for TrackingBuildError {}
 mod sources;
 pub use sources::TrackingSources;
 mod roles;
-pub use roles::{RangeBank, Sources};
 #[doc(hidden)]
 pub use roles::RangeRole;
+pub use roles::{RangeBank, Sources};
 #[doc(hidden)]
 pub use sources::{Capture, SourceLayout};
 
@@ -274,5 +274,4 @@ mod tests {
         assert_eq!([ranges[0].0, ranges[1].0], [0, 1]);
         tracking.sample_at(Duration::ZERO, 0);
     }
-
 }
