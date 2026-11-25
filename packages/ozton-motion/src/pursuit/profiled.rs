@@ -79,7 +79,10 @@ impl<'path> ProfiledFollower<'path> {
         // deviation over a speed-dependent spatial horizon without cutting
         // across the next curve to chase a point.
         let reaction = brake_latency.as_secs_f64();
-        let lookahead = self.lookahead.value.max(measured_speed.value.abs() * reaction * 2.0);
+        let lookahead = self
+            .lookahead
+            .value
+            .max(measured_speed.value.abs() * reaction * 2.0);
         let cross = self.geometric.pose.to_local(pose.position).x;
         let desired_heading =
             self.geometric.pose.heading + facing + ozton_math::qty!((cross.atan2(lookahead)) rad);
@@ -235,8 +238,7 @@ mod tests {
             limits,
         )
         .unwrap();
-        let mut follower =
-            ProfiledFollower::new(&path, qty!(0.1 m), Pid::new(4.0, 0.0, 0.4, None));
+        let mut follower = ProfiledFollower::new(&path, qty!(0.1 m), Pid::new(4.0, 0.0, 0.4, None));
         let pose = path.start().pose;
         let initial = follower.observe(pose, qty!(0.04 m));
         for _ in 0..100 {

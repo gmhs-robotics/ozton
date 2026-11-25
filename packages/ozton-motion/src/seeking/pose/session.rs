@@ -352,11 +352,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         } = trajectory;
 
         use crate::pursuit::profiled::ProfiledFollower;
-        let mut follower = ProfiledFollower::new(
-            path,
-            self.config.path.lookahead,
-            self.config.tuning.angular,
-        );
+        let mut follower =
+            ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular);
         let mut config = self.config;
         let limits = path.limits();
         config.limits.lateral_acceleration = config

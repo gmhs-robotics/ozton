@@ -115,8 +115,10 @@ pub fn simulate_path_with_lateral(
 ) -> Option<SimulationReport> {
     let limits = path.limits();
     let mut config = config;
-    config.limits.lateral_acceleration =
-        config.limits.lateral_acceleration.min(limits.lateral_acceleration);
+    config.limits.lateral_acceleration = config
+        .limits
+        .lateral_acceleration
+        .min(limits.lateral_acceleration);
     config.limits.acceleration = config.limits.acceleration.min(limits.acceleration);
     config.limits.deceleration = config.limits.deceleration.min(limits.deceleration);
     config.limits.wheel_acceleration = Some(
@@ -171,10 +173,8 @@ pub fn simulate_path_with_lateral(
     let mut first_violation = (!clear(pose)).then_some(elapsed);
 
     while elapsed < maximum_time {
-        let observation = follower.observe(
-            pose,
-            qty!((options.maximum_wheel_speed.value * dt * 2.0) m),
-        );
+        let observation =
+            follower.observe(pose, qty!((options.maximum_wheel_speed.value * dt * 2.0) m));
         progress = observation.distance;
         if !terminal && follower.is_terminal(options.position_tolerance.value) {
             terminal = true;
@@ -232,7 +232,9 @@ pub fn simulate_path_with_lateral(
         ]);
         let forward = commands[delays[0]];
         let angular = commands[delays[1]];
-        let next_v = response.forward.step(velocity, forward[0], forward[1], tick);
+        let next_v = response
+            .forward
+            .step(velocity, forward[0], forward[1], tick);
         let next_w = response.yaw.step(yaw, angular[1], angular[0], tick);
         let ds = (velocity + next_v) * 0.5 * dt;
         let dh = (yaw + next_w) * 0.5 * dt;
