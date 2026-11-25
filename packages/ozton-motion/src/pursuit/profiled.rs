@@ -69,11 +69,13 @@ impl<'path> ProfiledFollower<'path> {
     pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Option<Self> {
         if let Guidance::Lqr(controller) = self.guidance {
             let path = self.progress.path();
-            self.lqr = Some(controller.prepare(path.end().time, period.as_secs_f64(), |t| {
-                let sample = path.at_time(ozton_math::qty!((t) s));
-                let v = if reverse { -sample.speed } else { sample.speed };
-                [v, sample.speed * sample.curvature]
-            })?);
+            self.lqr = Some(
+                controller.prepare(path.end().time, period.as_secs_f64(), |t| {
+                    let sample = path.at_time(ozton_math::qty!((t) s));
+                    let v = if reverse { -sample.speed } else { sample.speed };
+                    [v, sample.speed * sample.curvature]
+                })?,
+            );
         }
         Some(self)
     }
@@ -448,5 +450,56 @@ mod tests {
         let moved = follower.observe(Pose::new(DVec2::new(0.0, 0.03), pose.heading), qty!(0.04 m));
         assert!(moved.distance > initial.distance);
         assert!(moved.remaining_time < initial.remaining_time);
+    }
+
+    #[test]
+    fn trajectory_reference_advances_with_time_even_without_spatial_progress() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let tick = core::time::Duration::from_millis(10);
+        for guidance in [crate::PathGuidance::RAMSETE, crate::PathGuidance::LQR] {
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None))
+                    .with_guidance(guidance)
+                    .prepare(tick, false)
+                    .unwrap();
+            let pose = path.start().pose;
+            for _ in 0..50 {
+                let progress = follower.observe(pose, qty!(0.02 m));
+                assert_eq!(progress.distance, 0.0);
+                follower.command(
+                    pose,
+                    false,
+                    [qty!(0 m/s), qty!(0 m/s)],
+                    qty!(0 rad/s),
+                    core::time::Duration::ZERO,
+                    tick,
+                );
+            }
+            assert!((follower.elapsed - 0.5).abs() < 1e-12);
+            let wheels = follower.command(
+                pose,
+                false,
+                [qty!(0 m/s), qty!(0 m/s)],
+                qty!(0 rad/s),
+                core::time::Duration::ZERO,
+                tick,
+            );
+            assert!(wheels.iter().all(|v| *v > 0.0));
+        }
     }
 }
