@@ -1,4 +1,4 @@
-//! Vexide actuator adapter for a reusable Ozton control axis.
+//! Portable actuator adapter for a reusable Ozton control axis.
 
 use std::time::Duration;
 
@@ -6,28 +6,25 @@ use ozton_math::{
     control::axis::{AxisController, AxisSample, Target},
     uom::si::{electric_potential::volt, f64::ElectricPotential},
 };
-use vexide::{
-    prelude::Motor,
-    smart::{PortError, motor::BrakeMode},
-};
+use ozton_drivetrain::BrakeMode;
 
-use crate::device::{MotorDevice, VelocityMotor};
+use crate::device::{MotorOutput, ReadPosition, ReadVelocity, VoltageOutput};
 
 #[derive(Debug)]
-pub enum MotorError {
-    Port(PortError),
+pub enum MotorError<E> {
+    Device(E),
     InvalidFeedback,
 }
 
 /// Controls a motor in output radians and radians per second.
-pub struct PidMotor<M: MotorDevice = Motor> {
+pub struct PidMotor<M: MotorOutput> {
     pub motor: M,
     controller: AxisController,
     output_per_motor: f64,
     brake: BrakeMode,
 }
 
-impl<M: MotorDevice> PidMotor<M> {
+impl<M: MotorOutput> PidMotor<M> {
     pub fn new(
         motor: M,
         controller: AxisController,
@@ -56,28 +53,33 @@ impl<M: MotorDevice> PidMotor<M> {
         sample: AxisSample,
         target: Target,
         dt: Duration,
-    ) -> Result<ElectricPotential, MotorError> {
+    ) -> Result<ElectricPotential, MotorError<<M as VoltageOutput>::Error>> {
         let Some(volts) = self.controller.update(sample, target, dt) else {
-            self.stop().map_err(MotorError::Port)?;
+            self.stop().map_err(MotorError::Device)?;
             return Err(MotorError::InvalidFeedback);
         };
         let maximum = self.motor.max_voltage();
         if !maximum.value.is_finite() || maximum.value <= 0.0 {
-            self.stop().map_err(MotorError::Port)?;
+            self.stop().map_err(MotorError::Device)?;
             return Err(MotorError::InvalidFeedback);
         }
         let voltage =
             ElectricPotential::new::<volt>(volts.value.clamp(-maximum.value, maximum.value));
         if let Err(error) = self.motor.set_voltage(voltage) {
             let _ = self.stop();
-            return Err(MotorError::Port(error));
+            return Err(MotorError::Device(error));
         }
         Ok(voltage)
     }
 
-    pub fn update(&mut self, target: Target, dt: Duration) -> Result<ElectricPotential, MotorError>
+    pub fn update(
+        &mut self,
+        target: Target,
+        dt: Duration,
+    ) -> Result<ElectricPotential, MotorError<<M as VoltageOutput>::Error>>
     where
-        M: VelocityMotor,
+        M: ReadPosition<Error = <M as VoltageOutput>::Error>
+            + ReadVelocity<Error = <M as VoltageOutput>::Error>,
     {
         let sample = self.motor.position().and_then(|position| {
             self.motor.velocity().map(|velocity| AxisSample {
@@ -89,27 +91,27 @@ impl<M: MotorDevice> PidMotor<M> {
             Ok(sample) => self.apply(sample, target, dt),
             Err(error) => {
                 let _ = self.stop();
-                Err(MotorError::Port(error))
+                Err(MotorError::Device(error))
             }
         }
     }
 
-    pub fn stop(&mut self) -> Result<(), PortError> {
+    pub fn stop(&mut self) -> Result<(), <M as VoltageOutput>::Error> {
         self.controller.reset();
-        self.motor.brake(self.brake)
+        self.motor.apply_brake(self.brake)
     }
 }
 
 /// Configures device gearing and stop behavior before creating an actuator.
 /// Use Coast for mechanisms that must not actively press against a stowed stop.
-pub struct PidMotorBuilder<M: MotorDevice> {
+pub struct PidMotorBuilder<M: MotorOutput> {
     motor: M,
     controller: AxisController,
     output_per_motor: f64,
     brake: BrakeMode,
 }
 
-impl<M: MotorDevice> PidMotorBuilder<M> {
+impl<M: MotorOutput> PidMotorBuilder<M> {
     pub fn new(motor: M, controller: AxisController) -> Self {
         Self {
             motor,
@@ -164,30 +166,41 @@ mod tests {
         brake: Option<BrakeMode>,
     }
 
-    impl MotorDevice for FakeMotor {
-        fn position(&self) -> Result<Angle, PortError> {
+    impl ReadPosition for FakeMotor {
+        type Error = core::convert::Infallible;
+
+        fn position(&self) -> Result<Angle, Self::Error> {
             Ok(ozton_math::qty!((self.position) rad))
         }
-        fn set_position(&mut self, position: Angle) -> Result<(), PortError> {
-            self.position = position.value;
-            Ok(())
-        }
-        fn brake(&mut self, mode: BrakeMode) -> Result<(), PortError> {
+    }
+
+    impl ozton_drivetrain::HasBraking for FakeMotor {
+        type BrakeError = core::convert::Infallible;
+
+        fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
             self.voltage = 0.0;
             self.brake = Some(mode);
             Ok(())
         }
+    }
+
+    impl VoltageOutput for FakeMotor {
+        type Error = core::convert::Infallible;
+
         fn max_voltage(&self) -> ElectricPotential {
             ElectricPotential::new::<volt>(self.maximum)
         }
-        fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), PortError> {
+
+        fn set_voltage(&mut self, voltage: ElectricPotential) -> Result<(), Self::Error> {
             self.voltage = voltage.value;
             Ok(())
         }
     }
 
-    impl VelocityMotor for FakeMotor {
-        fn velocity(&self) -> Result<AngularVelocity, PortError> {
+    impl ReadVelocity for FakeMotor {
+        type Error = core::convert::Infallible;
+
+        fn velocity(&self) -> Result<AngularVelocity, Self::Error> {
             Ok(AngularVelocity::new::<radian_per_second>(
                 self.rpm * (core::f64::consts::TAU / 60.0),
             ))

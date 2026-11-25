@@ -96,17 +96,9 @@ impl<G> HasBraking for Differential<G> {
 impl<G> BrakeMotors for Differential<G> {
     fn brake_motors(
         &mut self,
-        mut select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
+        select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
     ) -> Result<(), Self::BrakeError> {
-        let mut result = Ok(());
-        for (group, motors) in self.sides.iter_mut().enumerate() {
-            for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
-                if let Some(mode) = select(MotorAddress { group, motor }) {
-                    result = result.and(device.apply_brake(mode));
-                }
-            }
-        }
-        result
+        crate::vex::brake_groups(&mut self.sides, select)
     }
 }
 

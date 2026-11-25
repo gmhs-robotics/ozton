@@ -3,7 +3,7 @@ use ozton_tracking::odometric::SharedMotors;
 use vexide::{prelude::Motor, smart::PortError};
 
 use super::{Drive, LateralDrive};
-use crate::MotorGroups;
+use crate::{BrakeMode, BrakeMotors, HasBraking, MotorAddress, MotorGroups};
 
 /// Motor groups in front-left, front-right, back-left, back-right order.
 pub struct Mecanum {
@@ -46,6 +46,23 @@ impl Drive for Mecanum {
 
     fn drive_vector(&mut self, vector: DVec2, turn: f64) -> Result<(), PortError> {
         crate::normalized_voltage(&mut self.motors, mix(vector.x, vector.y, turn))
+    }
+}
+
+impl HasBraking for Mecanum {
+    type BrakeError = PortError;
+
+    fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
+        self.brake_motors(|_| Some(mode))
+    }
+}
+
+impl BrakeMotors for Mecanum {
+    fn brake_motors(
+        &mut self,
+        select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
+    ) -> Result<(), Self::BrakeError> {
+        crate::vex::brake_groups(&mut self.motors, select)
     }
 }
 

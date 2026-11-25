@@ -150,20 +150,7 @@ impl<
 {
     /// Apply assists to a two-sided physical wheel velocity command.
     pub fn drive_wheel_speeds(&mut self, speeds: [Velocity; 2]) -> Result<(), WheelSpeedError> {
-        let speeds_raw = speeds.map(|speed| speed.get::<meter_per_second>());
-        let scale = speeds_raw[0].abs().max(speeds_raw[1].abs());
-        if !speeds_raw.iter().all(|speed| speed.is_finite()) || scale == 0.0 {
-            self.reset();
-            return self.drivetrain.drive_wheel_speeds(speeds);
-        }
-        let (forward, turn) = tank_axes(speeds_raw.map(|speed| speed / scale));
-        let (wheels, adjustment) = self.mix([forward, turn], true);
-        self.drivetrain
-            .drive_wheel_speeds(
-                desaturate(wheels, 1.0)
-                    .map(|speed| Velocity::new::<meter_per_second>(speed * scale)),
-            )
-            .and(adjustment.map_err(WheelSpeedError::Port))
+        self.command_wheels(speeds.map(ozton_drivetrain::WheelCommand::Velocity))
     }
 
     /// Preserve explicit stops while applying the ordinary drive assists to

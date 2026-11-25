@@ -22,6 +22,8 @@ use super::{
 };
 use crate::model::{Differential, MotionGeometry};
 
+mod device;
+
 /// Access the model's motor groups in their fixed wheel order.
 pub trait MotorGroups {
     /// Physical wheel-speed commands, one entry per group in model order.
@@ -132,6 +134,22 @@ impl HasBraking for Motor {
     fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
         self.brake(mode.into())
     }
+}
+
+/// Apply selective stops without duplicating the iteration in each model.
+pub(crate) fn brake_groups(
+    groups: &mut [SharedMotors],
+    mut select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
+) -> Result<(), PortError> {
+    let mut result = Ok(());
+    for (group, motors) in groups.iter_mut().enumerate() {
+        for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
+            if let Some(mode) = select(MotorAddress { group, motor }) {
+                result = result.and(device.apply_brake(mode));
+            }
+        }
+    }
+    result
 }
 
 impl<M: Drive + HasBraking, T, L> HasBraking for Drivetrain<M, T, L> {

@@ -3,7 +3,7 @@
 pub mod clock;
 pub mod competition;
 pub mod control_error;
-pub mod device;
+pub use ozton_drivetrain::device;
 pub mod diagnostics;
 pub mod drive_assist;
 pub mod mechanism;

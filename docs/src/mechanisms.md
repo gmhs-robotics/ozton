@@ -8,3 +8,10 @@ TaskSlot work belongs to the current competition activation. It cannot keep runn
 
 Use the stop hook to define disabled and fault behavior, and mode_changed to clear transient software state. Do not treat a mode switch as a guarantee that a latched motor command is cleared when moving directly between enabled modes. The driver must take ownership of its outputs.
 
+
+The device capabilities live in `ozton::drivetrain::device` (also exposed through
+`runtime::device`). `VoltageOutput`, `ReadPosition`, `SetPosition`,
+`ReadVelocity`, `ReadTorque` and `HasBraking` are independent interfaces.
+`MotorOutput` combines voltage output and braking with matching device error
+types. `PidMotor::apply` accepts external feedback, while `update` additionally
+requires position and velocity readers. Neither interface requires a VEX motor.
