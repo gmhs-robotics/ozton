@@ -48,8 +48,22 @@ fn sample_sources(frame: Frame) {
 pub(crate) fn start_diagnostics() -> Task<()> {
     spawn(async move {
         let mut sequence = 0u64;
+        let mut previous_status = None;
         loop {
             sleep(HARDWARE_SAMPLE_INTERVAL).await;
+            let status = competition::status();
+            if previous_status != Some(status) {
+                crate::log_event!(
+                    Info,
+                    "competition_status",
+                    "VEXos flags=0x{:08x} mode={:?} connected={} system={:?}",
+                    status.bits(),
+                    status.mode(),
+                    status.is_connected(),
+                    status.system()
+                );
+                previous_status = Some(status);
+            }
             #[cfg(target_os = "vexos")]
             if ozton_diagnostics::sd::under_pressure() {
                 continue;
@@ -64,7 +78,16 @@ pub(crate) fn start_diagnostics() -> Task<()> {
                     time: vexide::time::user_uptime(),
                 },
             };
-            frame.row("MODE", format_args!("mode={:?}", competition::mode()));
+            frame.row("MODE", format_args!("mode={:?}", status.mode()));
+            frame.row(
+                "COMPETITION_STATUS",
+                format_args!(
+                    "flags=0x{:08x},connected={},system={:?}",
+                    status.bits(),
+                    status.is_connected(),
+                    status.system()
+                ),
+            );
             frame.row(
                 "BATTERY",
                 format_args!(
