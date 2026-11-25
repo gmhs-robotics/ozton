@@ -42,6 +42,55 @@ impl WallContact {
     }
 }
 
+/// The unilateral state constraint obtained from a verified flush placement
+/// against a surveyed physical wall. Only the contacted plane is constrained;
+/// virtual motion geometry is never included in this localization prior.
+#[derive(Clone, Copy, Debug)]
+pub struct WallContactConstraint {
+    wall: WallContact,
+    footprint: Footprint,
+    plane: f64,
+}
+
+impl WallContactConstraint {
+    pub fn new(
+        wall: WallContact,
+        footprint: Footprint,
+        half_extents: DVec2,
+        pose: Pose,
+    ) -> Option<Self> {
+        let field = RectangularClearance::new(footprint, half_extents, Length::default())?;
+        let right = rotation(pose.heading);
+        // A corner touching a wall is not evidence of flush alignment.
+        if right.abs().min_element() > 8.0 * f64::EPSILON || !field.touches_wall(pose, wall) {
+            return None;
+        }
+        Some(Self {
+            wall,
+            footprint,
+            plane: -half_extents[wall.axis()],
+        })
+    }
+
+    pub const fn wall(self) -> WallContact {
+        self.wall
+    }
+
+    /// Orthogonal projection onto the physically feasible half-space at the
+    /// measured heading. This conditions an estimate, never an actuator target.
+    pub fn project(self, mut pose: Pose) -> Pose {
+        let (min, max) = self.footprint.bounds(pose);
+        let axis = self.wall.axis();
+        let edge = if self.wall.inward()[axis] > 0.0 {
+            min[axis]
+        } else {
+            -max[axis]
+        };
+        pose.position += self.wall.inward() * (self.plane - edge).max(0.0);
+        pose
+    }
+}
+
 /// A rectangular horizontal envelope measured from the center of rotation.
 #[derive(Clone, Copy, Debug)]
 pub struct Footprint {
