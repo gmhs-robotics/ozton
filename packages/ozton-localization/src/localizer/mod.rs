@@ -512,7 +512,9 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         } else {
             self.pose.integrate(movement)
         };
-        let predicted = self.contact.map_or(predicted, |contact| contact.project(predicted));
+        let predicted = self
+            .contact
+            .map_or(predicted, |contact| contact.project(predicted));
         // Odometry and an uncorrected filter share the same pose in the common
         // path. Reuse integration rather than evaluating the same trig again.
         let filter_prediction = if !self.corrections_enabled || self.filter_pose == self.pose {
@@ -520,7 +522,9 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         } else {
             self.filter_pose.integrate(movement)
         };
-        let filter_prediction = self.contact.map_or(filter_prediction, |contact| contact.project(filter_prediction));
+        let filter_prediction = self.contact.map_or(filter_prediction, |contact| {
+            contact.project(filter_prediction)
+        });
         if !odometry.is_finite()
             || !predicted.is_finite()
             || !filter_prediction.is_finite()
@@ -626,7 +630,9 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 map: &self.map,
             });
             if let Some(estimate) = candidate {
-                let estimate = self.contact.map_or(estimate, |contact| contact.project(estimate));
+                let estimate = self
+                    .contact
+                    .map_or(estimate, |contact| contact.project(estimate));
                 self.filter_pose = estimate;
                 if self.config.shadow {
                     correction = Correction::Shadow;
