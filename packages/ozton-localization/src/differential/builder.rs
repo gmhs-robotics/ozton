@@ -200,7 +200,10 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
     }
 
     #[must_use]
-    pub fn with_distance_reset(mut self, config: DsrConfig) -> LocalizationBuilder<B, RangeRequired> {
+    pub fn with_distance_reset(
+        mut self,
+        config: DsrConfig,
+    ) -> LocalizationBuilder<B, RangeRequired> {
         self.dsr = config;
         self.require_ranges()
     }
@@ -220,13 +223,15 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         let map: Vec<_> = self.field.surfaces().collect();
         let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
         if require_ranges {
-            let eligible = mounts
-                .iter()
-                .take(MAX_RANGES)
-                .enumerate()
-                .fold(0u8, |mask, (index, mount)| {
-                    mask | (u8::from(mount.with_visible_surfaces(&map).surface_mask != 0) << index)
-                });
+            let eligible =
+                mounts
+                    .iter()
+                    .take(MAX_RANGES)
+                    .enumerate()
+                    .fold(0u8, |mask, (index, mount)| {
+                        mask | (u8::from(mount.with_visible_surfaces(&map).surface_mask != 0)
+                            << index)
+                    });
             let configured = match self.estimator {
                 Estimator::Odometry => self.ranges.dsr | self.ranges.ekf | self.ranges.mcl,
                 Estimator::Ekf(_) => self.ranges.ekf,
