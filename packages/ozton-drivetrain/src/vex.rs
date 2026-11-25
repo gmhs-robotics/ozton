@@ -16,7 +16,7 @@ use vexide::{
 };
 use wheels::WheelSpeedError;
 
-use super::{Drive, Footprint, HasLocalization, LateralDrive, wheels};
+use super::{BrakeMotors, Drive, Footprint, HasLocalization, LateralDrive, MotorAddress, WheelCommand, wheels};
 use crate::model::{Differential, MotionGeometry};
 
 /// Access the model's motor groups in their fixed wheel order.
@@ -98,11 +98,35 @@ impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
     /// Apply physical wheel velocity targets in model group order.
     /// Conversion to motor RPM uses the same geometry as odometry.
     pub fn drive_wheel_speeds(&mut self, speeds: M::WheelSpeeds) -> Result<(), WheelSpeedError> {
+        self.command_wheels(speeds.map(WheelCommand::Velocity))
+    }
+
+    /// Apply calibrated velocities and explicit braking modes in group order.
+    pub fn command_wheels(&mut self, commands: [WheelCommand; 2]) -> Result<(), WheelSpeedError> {
         let groups = self.model.motor_groups_mut();
         let state = self.state.borrow();
-        let result = wheels::drive_speed(state.0.calibrated_drive().wheels(), groups, &speeds);
+        let result = wheels::drive_commands(state.0.calibrated_drive().wheels(), groups, &commands);
         if matches!(result, Err(WheelSpeedError::InvalidCommand)) {
             let _ = coast(groups);
+        }
+        result
+    }
+}
+
+impl<M: Drive + MotorGroups, T, L> BrakeMotors for Drivetrain<M, T, L> {
+    type BrakeError = PortError;
+
+    fn brake_motors(
+        &mut self,
+        mut select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
+    ) -> Result<(), Self::BrakeError> {
+        let mut result = Ok(());
+        for (group, motors) in self.model.motor_groups_mut().iter_mut().enumerate() {
+            for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
+                if let Some(mode) = select(MotorAddress { group, motor }) {
+                    result = result.and(device.brake(mode.into()));
+                }
+            }
         }
         result
     }
