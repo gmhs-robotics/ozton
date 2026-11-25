@@ -163,6 +163,101 @@ impl Seeking {
         session.finish(result)
     }
 
+    /// Chain straight legs, carrying speed through collinear transit points.
+    /// At a direction change, settle translation and acquire the next bearing
+    /// before accelerating. The caller supplies only positions, not turn angles.
+    /// Reject nominally obstructed translations and pivot turns before driving.
+    pub async fn move_through_points_straight<D: MotionExecution>(
+        &self,
+        drive: &mut D,
+        points: &[DVec2],
+        handoff_radius: Length,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        use ozton_math::geometry::{bearing, wrap_heading};
+
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let radius = handoff_radius.value;
+        let start = drive.localization().pose();
+        if points.is_empty()
+            || !start.is_finite()
+            || !radius.is_finite()
+            || radius <= options.position_tolerance.value
+            || points.iter().any(|point| !point.is_finite())
+            || points
+                .windows(2)
+                .any(|pair| pair[0].distance(pair[1]) <= 2.0 * radius)
+        {
+            return Err(PoseMotionError::Configuration);
+        }
+
+        let reverse = self.travel == Some(TravelDirection::Backward);
+        let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
+        let tolerance = options.heading_tolerance.value;
+        let mut field = approach::clearance(drive, self.config.safety.clearance)?;
+        if self.config.safety.movable_obstacles
+            && let Some(area) = &mut field
+        {
+            for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+                *area = area
+                    .with_polygon(polygon)
+                    .ok_or(PoseMotionError::Configuration)?;
+            }
+        }
+
+        let mut nominal = start;
+        for &point in points {
+            if nominal.position.distance(point) <= options.position_tolerance.value {
+                continue;
+            }
+            let heading = wrap_heading(bearing(point - nominal.position) + facing);
+            let aligned = Pose::new(nominal.position, heading);
+            if field.as_ref().is_some_and(|area| {
+                !area.contains_turn(nominal, heading)
+                    || !area.contains_translation(aligned, point)
+            }) {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+            nominal = Pose::new(point, heading);
+        }
+
+        let mut session = PoseSession::new(drive, options, self.config)?;
+        let result = async {
+            let mut index = 0;
+            while index < points.len() {
+                let pose = session.drive.localization().pose();
+                if pose.position.distance(points[index]) <= options.position_tolerance.value {
+                    index += 1;
+                    continue;
+                }
+                let end = straight_run_end(pose.position, &points[index..], tolerance) + index;
+                let heading = wrap_heading(bearing(points[index] - pose.position) + facing);
+                let aligned = Pose::new(pose.position, heading);
+                if field.as_ref().is_some_and(|area| {
+                    !area.contains_turn(pose, heading)
+                        || !area.contains_translation(aligned, points[end])
+                }) {
+                    return Err(PoseMotionError::InsufficientClearance);
+                }
+                if wrap_heading(heading - pose.heading).value.abs() > tolerance {
+                    session
+                        .run(
+                            crate::basic::differential::DifferentialTarget::Turn { heading },
+                            self.config.timing.stage_timeout,
+                        )
+                        .await?;
+                }
+                ozton_diagnostics::log_row!(Info, "STRAIGHT_CHAIN", "first={index},last={end}");
+                session
+                    .through_points(&points[index..=end], radius, reverse)
+                    .await?;
+                index = end + 1;
+            }
+            Ok(())
+        }
+        .await;
+        session.finish(result)
+    }
+
     /// Approach an absolute pose using continuous Boomerang feedback.
     pub async fn move_to_pose<D: MotionExecution>(
         &self,
@@ -620,5 +715,40 @@ impl Seeking {
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session.try_distance_reset(timeout).await;
         session.finish(result)
+    }
+}
+
+/// The last consecutive point on the current straight leg.
+fn straight_run_end(start: DVec2, points: &[DVec2], tolerance: f64) -> usize {
+    use ozton_math::geometry::{bearing, wrap_heading};
+
+    let heading = bearing(points[0] - start);
+    let mut end = 0;
+    for (index, pair) in points.windows(2).enumerate() {
+        let next = bearing(pair[1] - pair[0]);
+        if wrap_heading(next - heading).value.abs() > tolerance {
+            break;
+        }
+        end = index + 1;
+    }
+    end
+}
+
+#[cfg(test)]
+mod straight_chain_tests {
+    use super::*;
+
+    #[test]
+    fn collinear_transit_points_chain_but_right_angles_and_reversals_stop() {
+        let points = [
+            DVec2::new(0.0, 1.0),
+            DVec2::new(0.0, 2.0),
+            DVec2::new(-1.0, 2.0),
+            DVec2::new(-2.0, 2.0),
+            DVec2::new(-1.0, 2.0),
+        ];
+        assert_eq!(straight_run_end(DVec2::ZERO, &points, 0.03), 1);
+        assert_eq!(straight_run_end(points[1], &points[2..], 0.03), 1);
+        assert_eq!(straight_run_end(points[3], &points[4..], 0.03), 0);
     }
 }
