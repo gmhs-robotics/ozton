@@ -9,8 +9,8 @@ pub mod assists;
 mod basic;
 pub mod config;
 pub use config::{
-    ApproachConfig, MotionConfig, MotionLimits, MotionTiming, PathConfig, PathGuidance, RateFilters,
-    SettlingConfig, TerminalGuidance,
+    ApproachConfig, MotionConfig, MotionLimits, MotionTiming, PathConfig, PathGuidance,
+    RateFilters, SettlingConfig, TerminalGuidance,
 };
 mod pursuit;
 mod seeking;

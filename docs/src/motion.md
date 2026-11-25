@@ -4,11 +4,11 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `Tangent`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, field clearance and cancellation handling.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `Tangent`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
 
 ## A first closed-loop move
 
-MotionExecution requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. A footprint-equipped drivetrain implements MotionExecution only when its localization carries a validated FieldBoundary. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
+MotionExecution requires calibrated drive encoders and localization. A normal Differential model supports manual drive; attach the physical footprint with `.with_footprint(footprint)` for surveyed pose registration, or use `.with_unbounded_motion()` when no footprint is needed. Neither option enables obstacle checking. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
 use ozton::{qty, position_xyh, motion::{Basic, Boomerang, SettlingConfig, capabilities::*}};
@@ -65,7 +65,7 @@ const MOTION: MotionConfig = MotionConfig::new()
 const BASIC: Basic = Basic::new().with_config(MOTION);
 ```
 
-A command finishes when the applicable error and velocity tolerances remain satisfied for the required settle duration. Commands return errors on invalid feedback, cancellation or rejected clearance checks; progress and stage timeouts are diagnostic thresholds in the current executor. Tune physical velocity gains and braking rates on the actual robot.
+A command finishes when the applicable error and velocity tolerances remain satisfied for the required settle duration. Commands return errors on invalid feedback or cancellation; progress and stage timeouts are diagnostic thresholds in the current executor. Tune physical velocity gains and braking rates on the actual robot.
 
 ## Following a prepared path
 
@@ -97,14 +97,15 @@ The reference follows measured geometric progress, not elapsed time. Host-profil
 The terminal controller handles convergence for all followers. Use
 PathConfig::with_maximum_cross_track_error to set a diagnostic warning threshold. It does not abort the path.
 
-## Braking and field clearance
+## Braking and motion policy
 
-Prepared paths are checked against the oriented footprint and field before
-execution. Include surveyed movable obstacles using
-`ClearanceConfig::with_movable_obstacles(true)` if they must be part of this
-preflight check. This is not an online collision-avoidance planner or a
-predictive wall governor. Runtime feedback is constrained by the configured
-wheel speeds, acceleration and lateral acceleration limits.
+Motion controllers execute the requested targets without implicit obstacle,
+wall-clearance, or swept-footprint checks. Field geometry is an observation
+model for localization, not a motion-stop policy. Do not introduce automatic
+collision preflight or clearance governors into ordinary motion commands.
+Explicit competition exclusion boundaries belong in a separately configured
+policy; none are enabled by default. Runtime feedback remains constrained by
+the configured wheel speeds, acceleration and lateral acceleration limits.
 
 Interrupted motions, terminal capture and feedback faults request explicit
 motor electrical braking rather than normal resting coast. A zero-RPM
@@ -113,7 +114,7 @@ active response, actuator latency and traction on the physical robot.
 
 ## Authored routes
 
-No command searches for another geometric route. Direct feedback follows the selected target; prepared trajectories preserve the supplied curve and speed profile. A clearance failure is reported rather than retried as a different maneuver. Choose explicit straight poses when stationary turns are required, and build a single continuous PathChain or authored curve on the host when uninterrupted motion is required.
+No command searches for another geometric route. Direct feedback follows the selected target; prepared trajectories preserve the supplied curve and speed profile. Choose explicit straight poses when stationary turns are required, and build a single continuous PathChain or authored curve on the host when uninterrupted motion is required.
 
 The command slew limiter records the applied wheel targets so subsequent
 commands begin from the previous constrained output.
@@ -126,7 +127,7 @@ raises a nonzero error-reducing command when its measured axis is nearly at
 rest and outside the arrival tolerance. Compensation is capped by the PID and
 route limits and by the stopping speed obtained from d = v*T + v^2/(2*a),
 where d is the remaining error outside the arrival band. Slew and curvature desaturation still apply afterward. Inside the arrival
-band, during braking, or when the safety governor requires it, the output can
+band, or during braking, the output can
 be below the configured minimum or zero. Profiled path tracking is unchanged
 until terminal feedback takes over. Characterize linear and rotational
 breakaway rates on the actual chassis rather than assuming universal values.
@@ -139,7 +140,7 @@ feedback skips the moving-reference calculation when it will not be used.
 
 MotionConfig is a const-friendly collection of typed sub-configurations:
 DriveTuning, MotionLimits, RateFilters, SettlingConfig, MotionTiming,
-ClearanceConfig, PathConfig and ApproachConfig. Each supports defaults and
+PathConfig and ApproachConfig. Each supports defaults and
 const builder methods; configure only the differences from defaults. Pass a
 complete configuration with the controller's `with_config`, or change limits and settling with the controller's builder methods. Copy a configuration group and adjust only the settings needed for a per-route override. The public fields are now grouped (for example,
 config.limits.wheel_speed and config.limits.forward_braking).
