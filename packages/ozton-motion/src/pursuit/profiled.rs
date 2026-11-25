@@ -148,7 +148,7 @@ impl<'path> ProfiledFollower<'path> {
             )
             .map(|speed| speed.value);
         }
-        let travel_pose = Pose::new(pose.position, pose.heading - facing);
+        let travel_pose = Pose::new(predicted.position, predicted.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
             Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => (
                 Tangent::new().heading_error(predicted, reference.pose, facing, lookahead),
@@ -156,8 +156,9 @@ impl<'path> ProfiledFollower<'path> {
             ),
             Guidance::PurePursuit => {
                 // Classical pure pursuit uses the forward intersection of
-                // the path and a robot-centered lookahead circle.
-                let carrot = self.progress.lookahead(pose.position, lookahead);
+                // the path and a robot-centered lookahead circle. Evaluate it
+                // at the same actuator-response horizon as the other laws.
+                let carrot = self.progress.lookahead(predicted.position, lookahead);
                 let local = travel_pose.to_local(carrot);
                 let error = bearing(local).value;
                 let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
@@ -362,7 +363,7 @@ mod tests {
             let wheels = follower.command(
                 pose,
                 reverse,
-                [qty!(0 m/s), qty!(0.3 m/s)],
+                [qty!(0 m/s), qty!((if reverse { -0.3 } else { 0.3 }) m/s)],
                 qty!(0 rad/s),
                 core::time::Duration::from_millis(100),
                 core::time::Duration::from_millis(10),
