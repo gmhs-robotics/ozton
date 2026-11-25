@@ -450,7 +450,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         let mut follower =
             ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular)
                 .with_config(self.config.path)
-                .prepare(self.config.timing.period, reverse);
+                .prepare(self.config.timing.period, reverse)
+                .ok_or(PoseMotionError::Configuration)?;
         let (config, options) = self
             .config
             .constrained_for_path(self.options, path.limits());

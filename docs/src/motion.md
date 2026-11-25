@@ -94,7 +94,7 @@ limit. When unspecified, path construction uses the nominal linear acceleration.
 The live controller also constrains feedback wheel slew when explicitly configured.
 
 Pure Pursuit uses measured geometric progress. RAMSETE and LTV-LQR track the time-parameterized trajectory. Mechanism progress callbacks still use measured geometric progress.
-The terminal controller handles convergence for all followers. Use
+The terminal controller uses a rotate-drive-rotate PID sequence, or optional polar-coordinate pose feedback, for convergence after tracking. Use
 PathConfig::with_maximum_cross_track_error to set a diagnostic warning threshold. It does not abort the path.
 
 ## Braking and motion policy

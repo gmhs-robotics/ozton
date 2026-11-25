@@ -8,6 +8,8 @@ use super::*;
 #[derive(Default)]
 enum Phase {
     #[default]
+    Acquire,
+    Align,
     Approach,
     Brake(Duration),
     Heading,
@@ -19,7 +21,6 @@ enum Phase {
 pub struct TerminalPose {
     phase: Phase,
     approach_reverse: Option<bool>,
-    aligning: bool,
 }
 
 impl TerminalPose {
@@ -49,48 +50,22 @@ impl TerminalPose {
             <= options.speed_tolerance.value.powi(2)
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let mut changed = false;
-        // An already settled pose needs only the caller's arrival dwell.
-        if matches!(self.phase, Phase::Approach)
-            && inside
-            && slow
-            && heading_error <= options.heading_tolerance.value
-        {
-            self.phase = Phase::Heading;
-            controller.reset();
-            return ([0.0; 2], true, distance, true);
-        }
-        // On entering terminal capture, do not carry forward momentum into a
-        // point correction that requires a substantial change of direction.
-        // Once stationary, pick the nearer travel direction independently of
-        // the direction used on the authored path.
-        if matches!(self.phase, Phase::Approach) && self.approach_reverse.is_none() {
-            let bearing_error = wrap_heading(
-                bearing(target.position - feedback.pose.position) - feedback.pose.heading,
-            )
-            .value;
-            let backing = bearing_error.abs() > core::f64::consts::FRAC_PI_2;
-            let travel_error = if backing {
-                core::f64::consts::PI - bearing_error.abs()
-            } else {
-                bearing_error.abs()
-            };
-            if !slow
-                && (travel_error > core::f64::consts::FRAC_PI_4
-                    || feedback.angular_velocity.value.abs()
-                        > options.angular_speed_tolerance.value
-                    || (feedback.forward_velocity.value < 0.0) != backing)
-            {
+        // A point terminal uses the conventional rotate-drive-rotate
+        // sequence. Brake before changing the motion primitive.
+        if matches!(self.phase, Phase::Acquire) {
+            if inside && slow && heading_error <= options.heading_tolerance.value {
+                self.phase = Phase::Heading;
+                controller.reset();
+                return ([0.0; 2], true, distance, true);
+            }
+            if !slow || inside {
                 self.phase = Phase::Brake(Duration::ZERO);
                 controller.reset();
                 changed = true;
-            } else {
-                self.approach_reverse = Some(if inside { reverse } else { backing });
-                controller.point_backing = None;
             }
         }
         if matches!(self.phase, Phase::Approach) && inside {
             self.phase = Phase::Brake(Duration::ZERO);
-            self.aligning = false;
             controller.reset();
             changed = true;
         }
@@ -106,58 +81,57 @@ impl TerminalPose {
             self.phase = if inside {
                 Phase::Heading
             } else {
-                Phase::Approach
-            };
-            // Recover short overshoots in the closer travel direction.
-            self.approach_reverse = if !inside {
-                let error = wrap_heading(
-                    bearing(target.position - feedback.pose.position) - feedback.pose.heading,
-                );
-                Some(error.value.abs() > core::f64::consts::FRAC_PI_2)
-            } else {
-                None
+                Phase::Acquire
             };
             controller.reset();
-            controller.point_backing = None;
             changed = true;
         }
-
-        // Use the same stationary turn controller as Basic for large bearing
-        // errors. Hysteresis prevents switching between turn and translation
-        // every tick. Polar guidance retains its own coupled pose law.
-        if matches!(self.phase, Phase::Approach)
-            && !inside
-            && matches!(
+        if matches!(self.phase, Phase::Acquire) {
+            let error = wrap_heading(
+                bearing(target.position - feedback.pose.position) - feedback.pose.heading,
+            )
+            .value;
+            let backing = error.abs() > core::f64::consts::FRAC_PI_2;
+            self.approach_reverse = Some(backing);
+            let travel_error = if backing {
+                core::f64::consts::PI - error.abs()
+            } else {
+                error.abs()
+            };
+            self.phase = if matches!(
                 controller.config.path.terminal,
                 crate::TerminalGuidance::Point
-            )
-        {
-            let backing = controller
-                .point_backing
-                .unwrap_or(self.approach_reverse.unwrap_or(reverse));
-            let heading = bearing(target.position - feedback.pose.position)
-                + ozton_math::qty!((if backing { core::f64::consts::PI } else { 0.0 }) rad);
-            let error = wrap_heading(heading - feedback.pose.heading).value.abs();
-            if self.aligning || error > core::f64::consts::FRAC_PI_4 {
-                if !self.aligning {
-                    self.aligning = true;
-                    controller.reset_feedback();
-                    changed = true;
-                }
-                let (wheels, ready) =
-                    controller.step(DifferentialTarget::Turn { heading }, feedback, dt, options);
-                if ready {
-                    self.aligning = false;
-                    controller.reset_feedback();
-                    changed = true;
-                }
-                return (
-                    wheels,
-                    false,
-                    options.track_width.value * error * 0.5,
-                    changed,
-                );
+            ) && travel_error > options.heading_tolerance.value
+            {
+                Phase::Align
+            } else {
+                Phase::Approach
+            };
+            controller.reset();
+            changed = true;
+        }
+        if matches!(self.phase, Phase::Align) {
+            if inside {
+                self.phase = Phase::Brake(Duration::ZERO);
+                controller.reset();
+                return ([0.0; 2], false, distance, true);
             }
+            let heading = bearing(target.position - feedback.pose.position)
+                + ozton_math::qty!((if self.approach_reverse.unwrap_or(reverse) { core::f64::consts::PI } else { 0.0 }) rad);
+            let error = wrap_heading(heading - feedback.pose.heading).value.abs();
+            let (wheels, ready) =
+                controller.step(DifferentialTarget::Turn { heading }, feedback, dt, options);
+            if ready {
+                self.phase = Phase::Approach;
+                controller.reset();
+                changed = true;
+            }
+            return (
+                wheels,
+                false,
+                options.track_width.value * error * 0.5,
+                changed,
+            );
         }
         let turning = matches!(self.phase, Phase::Heading);
         let command = if turning {
@@ -376,7 +350,7 @@ mod tests {
             tick,
             options,
         );
-        assert!(changed && !ready && terminal.aligning);
+        assert!(changed && !ready && matches!(terminal.phase, Phase::Align));
         assert!(wheels[0].abs() > 0.0);
         assert!((wheels[0] + wheels[1]).abs() < 1e-9, "{wheels:?}");
     }

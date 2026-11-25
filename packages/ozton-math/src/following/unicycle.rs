@@ -102,7 +102,9 @@ impl LtvLqr {
         if count == 0 {
             return None;
         }
-        let mut gains = alloc::vec![[DVec3::ZERO; 2]; count];
+        let mut gains = alloc::vec::Vec::new();
+        gains.try_reserve_exact(count).ok()?;
+        gains.resize(count, [DVec3::ZERO; 2]);
         let q = DMat3::from_diagonal(DVec3::from_array(self.state));
         let mut p = q;
         for i in (0..count).rev() {

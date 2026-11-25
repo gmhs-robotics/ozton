@@ -66,16 +66,16 @@ impl<'path> ProfiledFollower<'path> {
         self
     }
 
-    pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Self {
+    pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Option<Self> {
         if let Guidance::Lqr(controller) = self.guidance {
             let path = self.progress.path();
-            self.lqr = controller.prepare(path.end().time, period.as_secs_f64(), |t| {
+            self.lqr = Some(controller.prepare(path.end().time, period.as_secs_f64(), |t| {
                 let sample = path.at_time(ozton_math::qty!((t) s));
                 let v = if reverse { -sample.speed } else { sample.speed };
                 [v, sample.speed * sample.curvature]
-            });
+            })?);
         }
-        self
+        Some(self)
     }
 
     pub fn observe(&mut self, pose: Pose, advance_limit: Length) -> PathObservation {
