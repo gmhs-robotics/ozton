@@ -206,7 +206,12 @@ fn surveyed_flush_contact_conditions_particles_and_releases_without_reset() {
     let covariance = filter.position_covariance();
     assert!(covariance.x_axis.x > 0.0);
     assert!(covariance.y_axis.y < 1e-24);
-    assert!(filter.particles.iter().all(|p| p.pose.heading == pose.heading));
+    assert!(
+        filter
+            .particles
+            .iter()
+            .all(|p| p.pose.heading == pose.heading)
+    );
     filter.predict(BodyDelta {
         translation: DVec2::new(0.0, -0.0001),
         heading: crate::qty!(0.001 rad),
