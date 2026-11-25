@@ -3,7 +3,7 @@
 use glam::DVec2;
 use uom::si::f64::{Angle, Length};
 
-use super::{ConvexPolygon, Footprint, MAX_OBSTACLES, Obstacles, forward_arc_end};
+use super::{ConvexPolygon, Footprint, MAX_OBSTACLES, Obstacles, WallContact, forward_arc_end};
 use crate::geometry::{Pose, direction};
 
 mod approach;
@@ -159,11 +159,97 @@ impl RectangularClearance {
     /// The physical perimeter, without the additional desired clearance.
     pub fn physical_wall_contains_aabb(&self, min: DVec2, max: DVec2) -> bool {
         let physical = self.usable + DVec2::splat(self.margin);
+        let physical = physical * (1.0 + 8.0 * f64::EPSILON);
         min.is_finite()
             && max.is_finite()
             && min.cmple(max).all()
             && min.cmpge(-physical).all()
             && max.cmple(physical).all()
+    }
+
+    /// Check the explicitly surveyed contact against the actual footprint.
+    /// Numerical roundoff is tolerated, not a physical starting gap.
+    pub fn touches_wall(&self, pose: Pose, contact: WallContact) -> bool {
+        let (min, max) = self.footprint.bounds(pose);
+        let physical = self.usable + DVec2::splat(self.margin);
+        let axis = contact.axis();
+        let edge = if contact.inward()[axis] > 0.0 {
+            min[axis]
+        } else {
+            -max[axis]
+        };
+        self.contains_physical_pose(pose)
+            && (edge + physical[axis]).abs() <= 8.0 * f64::EPSILON * physical[axis]
+    }
+
+    /// Compare the swept envelope with its zero-command baseline on a
+    /// surveyed contact wall. All other walls retain their physical bounds,
+    /// and no new preferred-reserve deficit may be introduced on any wall.
+    /// The caller must also check obstacles and inward corner motion.
+    pub fn contact_recovery_contains(
+        &self,
+        contact: WallContact,
+        min: DVec2,
+        max: DVec2,
+        baseline_min: DVec2,
+        baseline_max: DVec2,
+    ) -> bool {
+        if !min.is_finite()
+            || !max.is_finite()
+            || !baseline_min.is_finite()
+            || !baseline_max.is_finite()
+            || !min.cmple(max).all()
+            || !baseline_min.cmple(baseline_max).all()
+        {
+            return false;
+        }
+        let physical = self.usable + DVec2::splat(self.margin);
+        let mut lower = -physical;
+        let mut upper = physical;
+        let axis = contact.axis();
+        if contact.inward()[axis] > 0.0 {
+            lower[axis] = lower[axis].min(baseline_min[axis]);
+        } else {
+            upper[axis] = upper[axis].max(baseline_max[axis]);
+        }
+        min.cmpge(lower.max((-self.usable).min(baseline_min))).all()
+            && max.cmple(upper.min(self.usable.max(baseline_max))).all()
+    }
+
+    /// True when a measured body twist is consistent with non-outward motion
+    /// at the surveyed wall within the supplied rate uncertainty. For command
+    /// validation use zero uncertainty: every corner must move inward or tangent.
+    pub fn contact_inward(
+        &self,
+        contact: WallContact,
+        pose: Pose,
+        rates: [f64; 3],
+        uncertainty: [f64; 3],
+    ) -> bool {
+        if !pose.is_finite()
+            || !rates.into_iter().all(f64::is_finite)
+            || !uncertainty.into_iter().all(|v| v.is_finite() && v >= 0.0)
+        {
+            return false;
+        }
+        let [lateral, forward, yaw] = rates;
+        let normal = contact.inward();
+        let rotation = crate::geometry::rotation(pose.heading);
+        let translation = rotation.rotate(DVec2::new(lateral, forward));
+        let rate_error = normal.dot(rotation).abs() * uncertainty[0]
+            + normal.dot(rotation.perp()).abs() * uncertainty[1];
+        let half = self.footprint.half_extents;
+        for x in [-half.x, half.x] {
+            for y in [-half.y, half.y] {
+                let offset = rotation.rotate(self.footprint.center_offset + DVec2::new(x, y));
+                let arm = normal.dot(offset.perp());
+                let velocity = normal.dot(translation) + arm * yaw;
+                if velocity + rate_error + arm.abs() * uncertainty[2] < 0.0 {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// Hard containment is unchanged. A sweep starting within the desired
