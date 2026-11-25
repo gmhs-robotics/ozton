@@ -160,7 +160,7 @@ pub(super) fn limit_wall_command(
     let [v, w] = body_rates(wheels, options.track_width.value);
     let previous = body_rates(previous, options.track_width.value);
     let delay = reaction(config) + config.safety.wall_preview.as_secs_f64();
-    let clear = |scale| {
+    let projected = |scale| {
         bounds(
             field,
             feedback,
@@ -172,11 +172,14 @@ pub(super) fn limit_wall_command(
             delay,
             config,
         )
-        .is_some_and(|(min, max)| field.contains_aabb(min, max))
     };
-    if clear(1.0) {
+    let full = projected(1.0);
+    if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
         return wheels;
     }
+    let clear = |scale| {
+        projected(scale).is_some_and(|(min, max)| field.contains_aabb(min, max))
+    };
     let mut low = 0.0;
     let mut high = 1.0;
     for _ in 0..12 {
@@ -187,6 +190,31 @@ pub(super) fn limit_wall_command(
             high = middle;
         }
     }
+    let (min, max) = full.unwrap_or((DVec2::splat(f64::NAN), DVec2::splat(f64::NAN)));
+    let reason = if full.is_none() {
+        "invalid_envelope"
+    } else if !field.wall_contains_aabb(min, max) {
+        "wall"
+    } else {
+        "obstacle"
+    };
+    log_row!(
+        Trace,
+        "GOVERNOR_LIMIT",
+        "reason={reason},sample_us={},scale={low:.5},requested_left_mps={:.5},requested_right_mps={:.5},prior_v_mps={:.5},prior_yaw_radps={:.5},sigma_lateral={:.5},sigma_forward={:.5},sigma_yaw={:.5},min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5}",
+        feedback.time.as_micros(),
+        wheels[0],
+        wheels[1],
+        previous[0],
+        previous[1],
+        uncertainty[0],
+        uncertainty[1],
+        uncertainty[2],
+        min.x,
+        min.y,
+        max.x,
+        max.y
+    );
     wheels.map(|speed| speed * low)
 }
 

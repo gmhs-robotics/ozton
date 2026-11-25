@@ -127,9 +127,17 @@ pub(crate) fn enqueue(row: fmt::Arguments<'_>, priority: bool) {
     let Ok(mut pending) = PENDING.try_lock() else {
         return;
     };
-    if !priority && pending.bytes.len() >= BUFFER_BYTES - RESERVED_BYTES {
+    if !priority && pending.queued_bytes() >= BUFFER_BYTES - RESERVED_BYTES {
         pending.dropped_rows = pending.dropped_rows.saturating_add(1);
         return;
+    }
+    // Reclaim the written prefix before capacity checks can drop useful rows.
+    if pending.head > 0 && pending.bytes.len() >= BUFFER_BYTES - RESERVED_BYTES {
+        let remaining = pending.queued_bytes();
+        let head = pending.head;
+        pending.bytes.copy_within(head.., 0);
+        pending.bytes.truncate(remaining);
+        pending.head = 0;
     }
     pending.push(row);
 }
@@ -226,7 +234,14 @@ impl Pending {
                 for (i, (key, value)) in parts.filter_map(|part| part.split_once('=')).enumerate() {
                     self.schema.push(',');
                     self.schema.push_str(key);
-                    if matches!(key, "port" | "name") {
+                    if key == "port"
+                        || (key == "name" && kind == "MOTOR")
+                        || (key == "source" && kind == "LOCALIZATION_POSE")
+                        || (key == "index"
+                            && matches!(kind, "LOCALIZATION_RANGE" | "TRACKING_WHEEL"))
+                        || (key == "axis" && kind == "MOTION_PID")
+                        || (key == "stage" && kind == "PROFILE")
+                    {
                         self.identity.push_str(key);
                         self.identity.push('=');
                         self.identity.push_str(value);
@@ -251,7 +266,9 @@ impl Pending {
                     let encoded = (|| -> fmt::Result {
                         if let Some(previous) = previous {
                             if let Some(mask) = delta_mask(&previous.previous, &self.values) {
-                                let delta_size = 18
+                                // Exact ASCII header cost relative to the full row.
+                                let delta_size = 1
+                                    + (64 - mask.leading_zeros()).div_ceil(4).max(1) as usize
                                     + self
                                         .values
                                         .split(',')
@@ -434,6 +451,19 @@ mod tests {
         let output = String::from_utf8(pending.bytes).unwrap();
         assert!(output.contains("D,0,2,11\n"));
         assert!(output.contains("D,1,2,21\n"));
+    }
+
+    #[test]
+    fn alternating_localization_sources_have_independent_delta_histories() {
+        let mut pending = Pending::default();
+        for (source, x) in [("estimate", 1), ("odometry", 2), ("estimate", 3)] {
+            pending.push(format_args!(
+                "DBG,LOCALIZATION_POSE,source={source},x={x},y=0.000000,heading=0.000000,level=TRACE"
+            ));
+        }
+        let output = String::from_utf8(pending.bytes).unwrap();
+        assert!(output.contains("D,0,2,3\n"));
+        assert!(output.contains("S,1,LOCALIZATION_POSE"));
     }
 
     #[test]

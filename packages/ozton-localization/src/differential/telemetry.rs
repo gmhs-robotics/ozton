@@ -7,7 +7,7 @@ use ozton_math::{
     geometry::Pose, localization::observation::RangeObservation, uom::si::f64::Length,
 };
 
-use crate::localizer::{DistanceReset, Localizer, MAX_RANGES, Update};
+use crate::localizer::{DistanceReset, Localizer, MAX_RANGES, MotionObservations, Update};
 
 const DETAIL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -26,6 +26,7 @@ impl Telemetry {
         wheels: &[Option<Length>],
         readings: &[Option<RangeObservation>; MAX_RANGES],
         occluded: u8,
+        rates: MotionObservations,
     ) {
         if !ozton_diagnostics::serial::sd_enabled() {
             return;
@@ -58,10 +59,14 @@ impl Telemetry {
         }
         if detailed {
             let [lateral, forward, yaw] = localizer.velocity_uncertainty();
+            let covariance = localizer.position_covariance();
             frame.record(
                 Level::Trace,
                 "VELOCITY_UNCERTAINTY",
-                format_args!("lateral_sigma_mps={lateral:.4},forward_sigma_mps={forward:.4},yaw_sigma_radps={yaw:.4}"),
+                format_args!("lateral_sigma_mps={lateral:.4},forward_sigma_mps={forward:.4},yaw_sigma_radps={yaw:.4},cov_xx_m2={:.7},cov_xy_m2={:.7},cov_yy_m2={:.7}",
+                    covariance.map_or(f64::NAN, |p| p.x_axis.x),
+                    covariance.map_or(f64::NAN, |p| p.x_axis.y),
+                    covariance.map_or(f64::NAN, |p| p.y_axis.y)),
             );
         }
         for (source, pose) in [
@@ -90,10 +95,14 @@ impl Telemetry {
             Level::Trace,
             "TRACKING_INPUT",
             format_args!(
-                "left_m={left:.5},right_m={right:.5},forward_m={:.5},lateral_m={:.5},imu_rad={:.5},occluded_mask={occluded}",
+                "left_m={left:.5},right_m={right:.5},forward_m={:.5},lateral_m={:.5},imu_rad={:.5},occluded_mask={occluded},raw_forward_mps={:.5},raw_yaw_radps={:.5},accel_right_mps2={:.5},accel_forward_mps2={:.5}",
                 meters(update.raw.forward),
                 meters(update.raw.lateral),
                 update.raw.imu.map_or(f64::NAN, |angle| angle.value),
+                rates.forward_rate.unwrap_or(f64::NAN),
+                rates.yaw_rate.unwrap_or(f64::NAN),
+                rates.acceleration.map_or(f64::NAN, |a| a.x),
+                rates.acceleration.map_or(f64::NAN, |a| a.y),
             ),
         );
         if !detailed {

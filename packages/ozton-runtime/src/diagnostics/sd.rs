@@ -41,6 +41,11 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
             let mut last_summary = Instant::now();
             let mut was_autonomous = false;
             let mut delay = Duration::from_millis(40);
+            let mut bytes_written = 0usize;
+            let mut writes = 0u64;
+            let mut peak_queue = 0usize;
+            let mut max_flush_us = 0u128;
+            let mut errors = 0u64;
             loop {
                 vexide::time::sleep(delay).await;
                 let autonomous = crate::competition::autonomous_active();
@@ -48,15 +53,22 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 let sync = last_sync.elapsed() >= sync_period || (was_autonomous && !autonomous);
                 let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
+                peak_queue = peak_queue.max(sd::queued_bytes());
                 if autonomous_ended || last_summary.elapsed() >= Duration::from_secs(5) {
                     ozton_diagnostics::profile::flush_summary();
                     ozton_diagnostics::log_row!(
                         Trace,
                         "SD_QUEUE",
-                        "queued_bytes={}",
-                        sd::queued_bytes()
+                        "queued_bytes={},peak_queue_bytes={peak_queue},written_bytes={bytes_written},writes={writes},max_flush_us={max_flush_us},errors={errors},window_ms={}",
+                        sd::queued_bytes(),
+                        last_summary.elapsed().as_millis()
                     );
                     last_summary = Instant::now();
+                    bytes_written = 0;
+                    writes = 0;
+                    peak_queue = 0;
+                    max_flush_us = 0;
+                    errors = 0;
                 }
                 if sync {
                     last_sync = Instant::now();
@@ -67,9 +79,16 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 );
                 let result = sd::flush_chunk(4096, sync);
                 drop(span);
+                let elapsed = started.elapsed();
+                max_flush_us = max_flush_us.max(elapsed.as_micros());
+                writes += 1;
+                match &result {
+                    Ok(bytes) => bytes_written += *bytes,
+                    Err(_) => errors += 1,
+                }
                 // A slow SDK call cannot be preempted. Reduce I/O duty cycle
                 // instead of scheduling back-to-back writes on the executor.
-                delay = (started.elapsed() * 8)
+                delay = (elapsed * 8)
                     .clamp(Duration::from_millis(40), Duration::from_millis(500));
                 match result {
                     Err(error) if !failed => {

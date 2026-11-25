@@ -18,6 +18,7 @@ use super::Frame;
 // Full motor, battery, and smart-device snapshots are for health diagnostics.
 // Control and localization traces are recorded independently at their own cadence.
 const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
+const INACTIVE_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 type Source = dyn Fn(Frame);
@@ -51,6 +52,7 @@ pub(crate) fn start_diagnostics() -> Task<()> {
         let mut sequence = 0u64;
         let mut previous_status = None;
         let mut last_sample = None;
+        let mut skipped = 0u64;
         loop {
             sleep(STATUS_POLL_INTERVAL).await;
             let status = competition::status();
@@ -68,14 +70,19 @@ pub(crate) fn start_diagnostics() -> Task<()> {
             }
             #[cfg(target_os = "vexos")]
             if ozton_diagnostics::sd::under_pressure() {
+                skipped += 1;
                 continue;
             }
             if !serial::sd_enabled() {
                 continue;
             }
             let time = vexide::time::user_uptime();
-            if last_sample.is_some_and(|last| time.saturating_sub(last) < HARDWARE_SAMPLE_INTERVAL)
-            {
+            let interval = if status.mode() == competition::CompetitionMode::Autonomous {
+                HARDWARE_SAMPLE_INTERVAL
+            } else {
+                INACTIVE_SAMPLE_INTERVAL
+            };
+            if last_sample.is_some_and(|last| time.saturating_sub(last) < interval) {
                 continue;
             }
             last_sample = Some(time);
@@ -83,6 +90,10 @@ pub(crate) fn start_diagnostics() -> Task<()> {
             let frame = Frame {
                 stamp: serial::Frame { sequence, time },
             };
+            if skipped > 0 {
+                frame.row("HARDWARE_SKIPPED", format_args!("pressure_polls={skipped}"));
+                skipped = 0;
+            }
             frame.row("MODE", format_args!("mode={:?}", status.mode()));
             frame.row(
                 "COMPETITION_STATUS",

@@ -257,8 +257,14 @@ impl<B: Boundary> DifferentialLocalization<B> {
             let _span = ozton_diagnostics::profile::Span::new(
                 ozton_diagnostics::profile::Stage::LocalizationLog,
             );
-            self.telemetry
-                .record(&update, &self.localizer, wheels, &ranges, self.occluded);
+            self.telemetry.record(
+                &update,
+                &self.localizer,
+                wheels,
+                &ranges,
+                self.occluded,
+                rates,
+            );
         }
 
         if update.reset != DistanceReset::Idle {

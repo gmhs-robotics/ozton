@@ -99,6 +99,38 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             "state=start,command={status},timeout_ms={}",
             timeout.as_millis()
         );
+        let [x, y, heading, travel, radius, sweep] = match target {
+            DifferentialTarget::Turn { heading } => {
+                [f64::NAN, f64::NAN, heading.value, f64::NAN, f64::NAN, f64::NAN]
+            }
+            DifferentialTarget::TurnToPoint { target }
+            | DifferentialTarget::DriveToPoint { target, .. } => {
+                [target.x, target.y, f64::NAN, f64::NAN, f64::NAN, f64::NAN]
+            }
+            DifferentialTarget::DriveDistance {
+                meters, heading, ..
+            } => [
+                f64::NAN,
+                f64::NAN,
+                heading.map_or(f64::NAN, |h| h.value),
+                meters.value,
+                f64::NAN,
+                f64::NAN,
+            ],
+            DifferentialTarget::DriveArc { radius, sweep, .. } => [
+                f64::NAN,
+                f64::NAN,
+                f64::NAN,
+                f64::NAN,
+                radius.value,
+                sweep.value,
+            ],
+        };
+        log_row!(
+            Debug,
+            "MOTION_TARGET",
+            "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5}"
+        );
         let result = self.run_stage(target, timeout, status).await;
         match &result {
             Ok(()) => {
@@ -664,15 +696,6 @@ impl GovernorLog {
         self.total_ticks += 1;
         if limited {
             self.limited_ticks += 1;
-            log_row!(
-                Trace,
-                "GOVERNOR_LIMIT",
-                "command={status},requested_left_mps={:.5},requested_right_mps={:.5},applied_left_mps={:.5},applied_right_mps={:.5}",
-                requested[0],
-                requested[1],
-                applied[0],
-                applied[1]
-            );
         }
         match self.transition(limited, dt) {
             Some(true) => log_event!(
