@@ -127,12 +127,20 @@ impl<'path> ProfiledFollower<'path> {
             let reference = path.at_time(ozton_math::qty!((t) s));
             let local = pose.to_local(reference.pose.position);
             let heading = wrap_heading(reference.pose.heading + facing - pose.heading).value;
-            let velocity = if reverse { -reference.speed } else { reference.speed };
+            let velocity = if reverse {
+                -reference.speed
+            } else {
+                reference.speed
+            };
             let twist = [velocity, reference.speed * reference.curvature];
             let error = [local.y, -local.x, heading];
             let [linear, angular] = match self.guidance {
                 Guidance::Ramsete(controller) => controller.calculate(error, twist),
-                Guidance::Lqr(_) => self.lqr.as_ref().expect("LQR schedule").calculate(t, error, twist),
+                Guidance::Lqr(_) => self
+                    .lqr
+                    .as_ref()
+                    .expect("LQR schedule")
+                    .calculate(t, error, twist),
                 Guidance::PurePursuit => unreachable!(),
             };
             return wheel_speeds(
@@ -185,13 +193,16 @@ impl<'path> ProfiledFollower<'path> {
                 // If the carrot is behind the robot, turn in place to
                 // reacquire it; do not substitute another path controller.
                 let error = bearing(travel_pose.to_local(carrot)).value;
-                (0.0, self.yaw.update_with_rate(
-                    error,
-                    -measured_yaw.value,
-                    dt,
-                    core::time::Duration::ZERO,
+                (
                     0.0,
-                ))
+                    self.yaw.update_with_rate(
+                        error,
+                        -measured_yaw.value,
+                        dt,
+                        core::time::Duration::ZERO,
+                        0.0,
+                    ),
+                )
             }
         };
         let linear = if reverse { -speed } else { speed };

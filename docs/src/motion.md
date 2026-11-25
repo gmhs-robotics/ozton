@@ -4,7 +4,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
 
 ## A first closed-loop move
 
@@ -78,7 +78,7 @@ PurePursuit::new().with_config(MOTION)
     .follow_path(&mut drivetrain, &path).await?;
 ```
 
-Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` is a continuous-time straight-reference gain-scheduled approximation, not a full discrete curved-reference LTV controller. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` computes finite-horizon discrete Riccati gains along the curved, timed trajectory before motion begins. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
 ## Wheel-constrained trajectories
@@ -93,7 +93,7 @@ path::Limits::with_wheel_acceleration) to supply a characterized wheel accelerat
 limit. When unspecified, path construction uses the nominal linear acceleration.
 The live controller also constrains feedback wheel slew when explicitly configured.
 
-The reference follows measured geometric progress, not elapsed time. Host-profile timing remains a nominal estimate for mechanism actions.
+Pure Pursuit uses measured geometric progress. RAMSETE and LTV-LQR track the time-parameterized trajectory. Mechanism progress callbacks still use measured geometric progress.
 The terminal controller handles convergence for all followers. Use
 PathConfig::with_maximum_cross_track_error to set a diagnostic warning threshold. It does not abort the path.
 

@@ -25,8 +25,8 @@ pub mod prelude {
             MotorAddress, WheelActuation, WheelCommand, model::DriveConfigError,
         },
         motion::{
-            Arcade, Basic, Boomerang, DriveTuning, Holonomic, LtvLqr, PurePursuit, Ramsete,
-            Tank, TravelDirection, arcade::ArcadeInput, capabilities::*,
+            Arcade, Basic, Boomerang, DriveTuning, Holonomic, LtvLqr, PurePursuit, Ramsete, Tank,
+            TravelDirection, arcade::ArcadeInput, capabilities::*,
         },
         runtime::{
             OztonCompete, Runtime,

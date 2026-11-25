@@ -99,12 +99,15 @@ impl LtvLqr {
             return None;
         }
         let count = libm::ceil(duration / period) as usize;
+        if count == 0 {
+            return None;
+        }
         let mut gains = alloc::vec![[DVec3::ZERO; 2]; count];
         let q = DMat3::from_diagonal(DVec3::from_array(self.state));
         let mut p = q;
         for i in (0..count).rev() {
             let t = i as f64 * period;
-            let dt = period.min(duration - t);
+            let dt = period;
             let [v, w] = reference(t);
             let a = DMat3::from_cols(
                 DVec3::new(0.0, -w, 0.0),
