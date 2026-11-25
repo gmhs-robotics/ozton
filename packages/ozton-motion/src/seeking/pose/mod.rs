@@ -371,13 +371,35 @@ impl Seeking {
         {
             return Err(PoseMotionError::Configuration);
         }
-        if field.is_some_and(|f| !ozton_math::path::planner::clear(path, reverse, f)) {
-            ozton_diagnostics::log_event!(
-                Warn,
-                "clearance",
-                "Planned trajectory violates clearance"
-            );
-            return Err(PoseMotionError::InsufficientClearance);
+        if let Some(field) = field {
+            drive.brake().map_err(PoseMotionError::StopFailed)?;
+            let mut slice_started = std::time::Instant::now();
+            let clear = ozton_math::path::planner::clear_cooperative(
+                path,
+                reverse,
+                field,
+                async || {
+                    if slice_started.elapsed() >= Duration::from_millis(2) {
+                        drive
+                            .wait_until(std::time::Instant::now() + Duration::from_millis(1))
+                            .await;
+                        slice_started = std::time::Instant::now();
+                    }
+                    drive.motion_active()
+                },
+            )
+            .await;
+            if !drive.motion_active() {
+                return Err(PoseMotionError::Cancelled);
+            }
+            if !clear {
+                ozton_diagnostics::log_event!(
+                    Warn,
+                    "clearance",
+                    "Planned trajectory violates clearance"
+                );
+                return Err(PoseMotionError::InsufficientClearance);
+            }
         }
         let end = path.end().pose;
         let target = Pose::new(end.position, end.heading + facing);
