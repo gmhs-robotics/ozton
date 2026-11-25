@@ -129,7 +129,9 @@ impl<D: MotionExecution> Chassis<'_, D> {
 impl<D: RangeResetDrive> Chassis<'_, D> {
     /// Request a stationary localization correction using the available ranges.
     pub async fn try_distance_reset(&mut self, timeout: Duration) -> MotionResult<D, bool> {
-        self.controller.try_distance_reset(self.drive, timeout).await
+        self.controller
+            .try_distance_reset(self.drive, timeout)
+            .await
     }
 }
 
