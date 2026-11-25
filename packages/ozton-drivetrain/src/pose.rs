@@ -59,15 +59,15 @@ pub trait PoseDrive: DriveEncoders {
     fn log_step(&mut self, _elapsed: Duration, _dt: Duration) {}
 }
 
-/// Distance reset requires a statically identified ranging source. The source
-/// index witnesses availability; the estimator may use every eligible range.
+/// Distance reset requires a statically available range capability.
+/// The estimator may use every eligible range.
 ///
 /// ```compile_fail
 /// use ozton_drivetrain::{PoseDrive, RangeResetDrive};
 /// fn request<D: PoseDrive>(drive: &mut D) {
-///     <D as RangeResetDrive<0>>::request_distance_reset(drive);
+///     <D as RangeResetDrive>::request_distance_reset(drive);
 /// }
 /// ```
-pub trait RangeResetDrive<const I: usize>: PoseDrive {
+pub trait RangeResetDrive: PoseDrive {
     fn request_distance_reset(&mut self);
 }

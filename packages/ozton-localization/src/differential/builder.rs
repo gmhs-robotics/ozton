@@ -1,7 +1,10 @@
 use ozton_math::localization::observation::ObservationLayout;
 
 use super::*;
-use crate::{Config, DsrConfig, OdometryConfig, field::{Boundary, FieldMap}};
+use crate::{
+    Config, DsrConfig, OdometryConfig,
+    field::{Boundary, FieldMap},
+};
 
 /// Which estimator or reset may consume the installed distance sensors.
 #[derive(Clone, Copy)]
@@ -137,7 +140,6 @@ impl LocalizationBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-
 }
 
 impl<B: Boundary> LocalizationBuilder<B> {

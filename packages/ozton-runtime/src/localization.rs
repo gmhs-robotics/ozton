@@ -31,16 +31,16 @@ pub trait LocalizationInput<T> {
     fn report(&self, _tracking: &T, _frame: crate::diagnostics::Frame) {}
 }
 
-impl<S: TrackingSources, D, B: Boundary> LocalizationInput<Tracking<S, D>> for DifferentialLocalization<B>
+impl<S: TrackingSources, B: Boundary> LocalizationInput<Tracking<S>> for DifferentialLocalization<B>
 where
-    Tracking<S, D>: TrackingSystem,
+    Tracking<S>: TrackingSystem,
 {
-    fn sample(&mut self, tracking: &mut Tracking<S, D>) {
+    fn sample(&mut self, tracking: &mut Tracking<S>) {
         const {
             assert!(
                 S::DIFFERENTIAL_COUNT == 0
-                    || <Tracking<S, D> as TrackingSystem>::HAS_SELECTED_DRIVE,
-                "select the differential encoder source with with_drive_source before running localization"
+                    || <Tracking<S> as TrackingSystem>::HAS_SELECTED_DRIVE,
+                "install differential encoders with Sources::with_drive before running localization"
             );
         }
         let width = tracking.selected_drive().map(|source| source.track_width());
@@ -52,7 +52,7 @@ where
     }
 
     #[cfg(feature = "logging")]
-    fn report(&self, tracking: &Tracking<S, D>, frame: crate::diagnostics::Frame) {
+    fn report(&self, tracking: &Tracking<S>, frame: crate::diagnostics::Frame) {
         use crate::diagnostics::ComponentReport;
         ComponentReport::report(self, frame);
         tracking.report(frame);

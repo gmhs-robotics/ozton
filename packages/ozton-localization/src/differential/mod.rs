@@ -5,7 +5,7 @@ use std::time::Duration;
 use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
-    geometry::{DVec2, Pose},
+    geometry::Pose,
     localization::observation::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
@@ -57,7 +57,6 @@ impl DifferentialLocalization {
     pub fn builder() -> LocalizationBuilder {
         LocalizationBuilder::new()
     }
-
 }
 
 impl DifferentialLocalization<FieldBoundary> {

@@ -31,8 +31,8 @@ pub mod prelude {
             drive_assist::{AssistedDrivetrain, DriveAssists},
         },
         tracking::{
-            DriveSource, HasDriveWheels, Measurement, MeasurementSink, NoTracking, ReadHeading,
-            ReadTilt, SourceAt, Tracking, TrackingSource, TracksForwardTravel, TracksHeading,
+            HasDriveWheels, HasRange, Measurement, MeasurementSink, NoTracking, ReadHeading,
+            ReadTilt, Sources, Tracking, TrackingSource, TracksForwardTravel, TracksHeading,
             TracksPosition, TracksVelocity, range::DistanceTracker,
         },
     };

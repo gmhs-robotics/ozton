@@ -7,22 +7,22 @@ use ozton_drivetrain::{
 };
 use ozton_math::{
     control::{Pid, drive::AntiTip, heading_corrector::HeadingCorrector},
-    localization::observation::{ReadHeading, ReadTilt, SourceAt},
+    localization::observation::{ReadHeading, ReadTilt},
 };
 
-/// Heading hold using the heading-capable source at tuple index I.
+/// Heading hold using the configured heading capability.
 ///
 /// ```compile_fail
 /// use ozton_drivetrain::{Drive, assist::DriveAssist};
 /// use ozton_motion::assists::HeadingHoldAssist;
 /// fn require<M: Drive, A: DriveAssist<M, (), ()>>() {}
 /// fn missing_heading<M: Drive>() {
-///     require::<M, HeadingHoldAssist<0>>();
+///     require::<M, HeadingHoldAssist>();
 /// }
 /// ```
-pub struct HeadingHoldAssist<const I: usize>(HeadingCorrector);
+pub struct HeadingHoldAssist(HeadingCorrector);
 
-impl<const I: usize> HeadingHoldAssist<I> {
+impl HeadingHoldAssist {
     pub const fn new(gain: f64, maximum_turn: f64) -> Self {
         Self::with_pid(
             Pid::new(gain, 0.12 * gain, 0.03 * gain, Some(0.15)),
@@ -35,9 +35,7 @@ impl<const I: usize> HeadingHoldAssist<I> {
     }
 }
 
-impl<M: Drive, T: SourceAt<I>, L, const I: usize> DriveAssist<M, T, L> for HeadingHoldAssist<I>
-where
-    T::Source: ReadHeading,
+impl<M: Drive, T: ReadHeading, L> DriveAssist<M, T, L> for HeadingHoldAssist
 {
     fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
         if context.wheel_velocity {
@@ -49,7 +47,6 @@ where
             axes[1],
             context
                 .tracking
-                .source_at()
                 .read_heading()
                 .map(|heading| -heading),
             context.elapsed,
@@ -75,28 +72,25 @@ pub enum TiltAxis {
 /// use ozton_motion::assists::AntiTipAssist;
 /// fn require<M: Drive, A: DriveAssist<M, (), ()>>() {}
 /// fn missing_tilt<M: Drive>() {
-///     require::<M, AntiTipAssist<0>>();
+///     require::<M, AntiTipAssist>();
 /// }
 /// ```
-pub struct AntiTipAssist<const I: usize> {
+pub struct AntiTipAssist {
     axis: TiltAxis,
     controller: AntiTip,
 }
 
-impl<const I: usize> AntiTipAssist<I> {
+impl AntiTipAssist {
     pub const fn new(axis: TiltAxis, controller: AntiTip) -> Self {
         Self { axis, controller }
     }
 }
 
-impl<M: Drive, T: SourceAt<I>, L, const I: usize> DriveAssist<M, T, L> for AntiTipAssist<I>
-where
-    T::Source: ReadTilt,
+impl<M: Drive, T: ReadTilt, L> DriveAssist<M, T, L> for AntiTipAssist
 {
     fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
         let tilt = context
             .tracking
-            .source_at()
             .read_tilt()
             .map(|[pitch, roll]| match self.axis {
                 TiltAxis::Pitch => pitch,

@@ -492,17 +492,17 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         }
     }
 
-    pub(super) async fn try_distance_reset<const I: usize>(
+    pub(super) async fn try_distance_reset(
         &mut self,
         timeout: Duration,
     ) -> Result<bool, PoseMotionError<D::Error>>
     where
-        D: RangeResetDrive<I>,
+        D: RangeResetDrive,
     {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
         self.previous_tick = started;
-        <D as RangeResetDrive<I>>::request_distance_reset(self.drive);
+        <D as RangeResetDrive>::request_distance_reset(self.drive);
         log_event!(
             Info,
             "localization",

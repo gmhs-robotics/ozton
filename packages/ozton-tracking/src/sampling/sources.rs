@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use glam::DVec3;
-use ozton_math::localization::observation::SourceAt;
 
 use crate::{
     MeasurementSink, Observation, SourceInitialization, TrackingSource, range::RangeSensorConfig,
@@ -13,6 +12,15 @@ use crate::{
 pub trait TrackingSources {
     #[doc(hidden)]
     const SOURCE_COUNT: usize;
+
+    #[doc(hidden)]
+    const HAS_SELECTED_DRIVE: bool = false;
+
+    #[doc(hidden)]
+    #[cfg(feature = "vex")]
+    fn selected_drive(&self) -> Option<&crate::odometric::DifferentialTracking> {
+        None
+    }
 
     #[doc(hidden)]
     const DIFFERENTIAL_COUNT: usize;
@@ -34,7 +42,7 @@ pub trait TrackingSources {
     fn capture(&mut self, capture: &mut Capture<'_>);
 }
 
-type Startup<'a> = <SourceInitialization<'a> as IntoIterator>::Item;
+pub(super) type Startup<'a> = <SourceInitialization<'a> as IntoIterator>::Item;
 
 impl TrackingSources for () {
     const SOURCE_COUNT: usize = 0;
@@ -65,8 +73,8 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     const GUARANTEED_RANGE_COUNT: usize = N * S::RANGE_SLOTS;
 
     fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
-        for (index, source) in self.iter().enumerate() {
-            layout.register(index, source)?;
+        for source in self {
+            layout.register(source)?;
         }
         Ok(())
     }
@@ -83,34 +91,14 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     }
 
     fn capture(&mut self, capture: &mut Capture<'_>) {
-        for (index, source) in self.iter_mut().enumerate() {
-            capture.sample(index, source);
+        for source in self {
+            capture.sample(source);
         }
     }
 }
 
-// Generate one non-overlapping implementation for every tuple element.
-macro_rules! source_indices {
-    (($($all:ident),+);) => {};
-    (($($all:ident),+); $name:ident:$index:tt $(, $rest:ident:$other:tt)*) => {
-        impl<DriveSelection, $($all),+> SourceAt<$index> for super::Tracking<($($all,)+), DriveSelection> {
-            type Source = $name;
-
-            fn source_at(&self) -> &Self::Source {
-                &self.sources.$index
-            }
-
-            fn source_at_mut(&mut self) -> &mut Self::Source {
-                &mut self.sources.$index
-            }
-        }
-        source_indices!(($($all),+); $($rest:$other),*);
-    };
-}
-
 macro_rules! tracking_tuples {
     ($($name:ident:$index:tt),+) => {
-        source_indices!(($($name),+); $($name:$index),+);
         impl<$($name: TrackingSource),+> TrackingSources for ($($name,)+) {
             const SOURCE_COUNT: usize = [$(stringify!($name)),+].len();
 
@@ -118,7 +106,7 @@ macro_rules! tracking_tuples {
             const GUARANTEED_RANGE_COUNT: usize = 0 $(+ $name::RANGE_SLOTS)+;
 
             fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
-                $(layout.register($index, &self.$index)?;)+
+                $(layout.register(&self.$index)?;)+
                 Ok(())
             }
 
@@ -132,7 +120,7 @@ macro_rules! tracking_tuples {
             }
 
             fn capture(&mut self, capture: &mut Capture<'_>) {
-                $(capture.sample($index, &mut self.$index);)+
+                $(capture.sample(&mut self.$index);)+
             }
         }
     };
@@ -155,6 +143,7 @@ tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
 #[doc(hidden)]
 #[derive(Default)]
 pub struct SourceLayout {
+    next_source: usize,
     pub(super) ranges: arrayvec::ArrayVec<(usize, RangeSensorConfig), { crate::range::MAX_RANGES }>,
     pub(super) wheels: Vec<(usize, DVec3)>,
 }
@@ -162,10 +151,11 @@ pub struct SourceLayout {
 impl SourceLayout {
     pub fn register(
         &mut self,
-        index: usize,
         source: &impl TrackingSource,
     ) -> Result<(), super::TrackingBuildError> {
         use super::TrackingBuildError;
+        let index = self.next_source;
+        self.next_source += 1;
         if let Some(mount) = source.range_mount() {
             self.ranges
                 .try_push((index, mount))
@@ -186,6 +176,7 @@ pub struct Capture<'a> {
     time: Duration,
     occluded: u8,
     next_range: usize,
+    next_source: usize,
     range_layout: &'a [(usize, RangeSensorConfig)],
     observations: &'a mut Vec<Observation>,
 }
@@ -201,12 +192,15 @@ impl<'a> Capture<'a> {
             time,
             occluded,
             next_range: 0,
+            next_source: 0,
             range_layout,
             observations,
         }
     }
 
-    pub fn sample(&mut self, index: usize, source: &mut impl TrackingSource) {
+    pub fn sample(&mut self, source: &mut impl TrackingSource) {
+        let index = self.next_source;
+        self.next_source += 1;
         let range_index = self
             .range_layout
             .get(self.next_range)

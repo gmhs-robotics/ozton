@@ -361,14 +361,14 @@ impl Seeking {
     }
 
     /// Hold the chassis still and try to correct the pose from fresh wall ranges.
-    pub async fn try_distance_reset<const I: usize, D: RangeResetDrive<I>>(
+    pub async fn try_distance_reset<D: RangeResetDrive>(
         &self,
         drive: &mut D,
         timeout: Duration,
     ) -> Result<bool, PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let mut session = PoseSession::new(drive, options, self.config)?;
-        let result = session.try_distance_reset::<I>(timeout).await;
+        let result = session.try_distance_reset(timeout).await;
         session.finish(result)
     }
 }

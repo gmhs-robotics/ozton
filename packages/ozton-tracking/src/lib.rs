@@ -36,9 +36,7 @@ pub mod hardware;
 pub mod inertial;
 mod measurement;
 pub use measurement::MeasurementSink;
-#[cfg(feature = "vex")]
-pub use sampling::DriveSource;
-pub use sampling::{Tracking, TrackingSources};
+pub use sampling::{Sources, Tracking, TrackingSources};
 pub mod odometric;
 pub mod range;
 pub mod sampling;
@@ -83,8 +81,8 @@ impl TrackingSystem for NoTracking {}
 impl TrackingSystem for () {}
 
 pub use ozton_math::localization::observation::{
-    DisplacementObservation, HeadingObservation, Measurement, Observation, ReadHeading, ReadTilt,
-    SourceAt, TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
+    DisplacementObservation, HeadingObservation, HasRange, Measurement, Observation, ReadHeading, ReadTilt,
+    TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
 };
 
 pub mod mount;

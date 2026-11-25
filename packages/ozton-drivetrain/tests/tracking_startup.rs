@@ -13,7 +13,7 @@ use ozton_math::{
 };
 use ozton_tracking::{
     DisplacementObservation, HasDriveWheels, HeadingObservation, Measurement, MeasurementSink,
-    Tracking, TrackingSource,
+    Sources, Tracking, TrackingSource,
     absolute::PoseObservation,
     mount::Vec3,
     odometric::{DifferentialTracking, WheelGearing},
@@ -73,17 +73,17 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
             Angle::ZERO,
         ),
     );
-    let mut tracking = block_on(Tracking::new((encoders, range, FieldFix)))
-        .unwrap()
-        .with_drive_source::<0>();
+    let mut tracking = block_on(Tracking::new(
+        Sources::new().with_drive(encoders).with_ranges((range,)).with_extra((FieldFix,)),
+    )).unwrap();
     assert_eq!(tracking.calibrated_drive().track_width().value, 0.30);
 
     assert_eq!(tracking.observation_layout().ranges.len(), 1);
-    assert_eq!(tracking.observation_layout().ranges[0].0, 1);
+    assert_eq!(tracking.observation_layout().ranges[0].0, 2);
     let sample = tracking.sample(0);
     assert_eq!(sample.observations.len(), 3);
     assert_eq!(sample.observations[0].source, 0);
-    assert_eq!(sample.observations[1].source, 2);
+    assert_eq!(sample.observations[1].source, 1);
     assert!(matches!(
         sample.observations[0].measurement,
         Measurement::Displacement(DisplacementObservation::Differential([None, None]))

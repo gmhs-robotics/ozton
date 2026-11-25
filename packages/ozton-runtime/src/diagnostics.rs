@@ -92,7 +92,7 @@ impl ComponentReport for ozton_tracking::NoTracking {
     fn report(&self, _: Frame) {}
 }
 
-impl<S: ozton_tracking::TrackingSources, D> ComponentReport for ozton_tracking::Tracking<S, D>
+impl<S: ozton_tracking::TrackingSources> ComponentReport for ozton_tracking::Tracking<S>
 where
     Self: ozton_tracking::TrackingSystem,
 {
@@ -146,14 +146,14 @@ pub fn report_differential<G, T: ozton_tracking::HasDriveWheels, L>(
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.
 #[cfg(feature = "logging")]
-pub fn report_motion_drive<G, S: ozton_tracking::TrackingSources, D, L>(
+pub fn report_motion_drive<G, S: ozton_tracking::TrackingSources, L>(
     drive: &ozton_drivetrain::Drivetrain<
         ozton_drivetrain::model::Differential<G>,
-        ozton_tracking::Tracking<S, D>,
+        ozton_tracking::Tracking<S>,
         L,
     >,
 ) where
-    ozton_tracking::Tracking<S, D>: ozton_tracking::TrackingSystem,
+    ozton_tracking::Tracking<S>: ozton_tracking::TrackingSystem,
 {
     if serial::sd_enabled() {
         let time = serial::now();

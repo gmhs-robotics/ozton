@@ -13,20 +13,20 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range::RangeSource};
+use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 
 use super::{AssistedDrivetrain, DriveAssist};
 
-type AssistedTrackedDrive<'a, G, S, D, B, A> =
-    AssistedDrivetrain<'a, Differential<G>, Tracking<S, D>, DifferentialLocalization<B>, A>;
+type AssistedTrackedDrive<'a, G, S, B, A> =
+    AssistedDrivetrain<'a, Differential<G>, Tracking<S>, DifferentialLocalization<B>, A>;
 
-impl<G, S, D, B, A> PoseDrive for AssistedTrackedDrive<'_, G, S, D, B, A>
+impl<G, S, B, A> PoseDrive for AssistedTrackedDrive<'_, G, S, B, A>
 where
     B: Boundary,
     G: MotionGeometryFor<B>,
     S: TrackingSources,
-    Tracking<S, D>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>,
+    Tracking<S>: HasDriveWheels,
+    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
 {
     type Error = DriveMotionFault;
 
@@ -96,16 +96,15 @@ where
     }
 }
 
-impl<G, S, D, B, A, const I: usize> RangeResetDrive<I> for AssistedTrackedDrive<'_, G, S, D, B, A>
+impl<G, S, B, A> RangeResetDrive for AssistedTrackedDrive<'_, G, S, B, A>
 where
     B: Boundary,
     G: MotionGeometryFor<B>,
     S: TrackingSources,
-    Tracking<S, D>: HasDriveWheels + SourceAt<I>,
-    <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,
-    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>,
+    Tracking<S>: HasDriveWheels + HasRange,
+    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
 {
     fn request_distance_reset(&mut self) {
-        <_ as RangeResetDrive<I>>::request_distance_reset(self.drivetrain_mut());
+        <_ as RangeResetDrive>::request_distance_reset(self.drivetrain_mut());
     }
 }

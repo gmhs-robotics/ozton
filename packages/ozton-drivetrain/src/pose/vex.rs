@@ -9,7 +9,7 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range::RangeSource};
+use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 
 use super::{PoseDrive, RangeResetDrive};
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<G, S, D, B> = Drivetrain<Differential<G>, Tracking<S, D>, DifferentialLocalization<B>>;
+type TrackedDrive<G, S, B> = Drivetrain<Differential<G>, Tracking<S>, DifferentialLocalization<B>>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
@@ -49,9 +49,9 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources, D> PoseDrive for TrackedDrive<G, S, D, B>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> PoseDrive for TrackedDrive<G, S, B>
 where
-    Tracking<S, D>: HasDriveWheels,
+    Tracking<S>: HasDriveWheels,
 {
     type Error = DriveMotionFault;
 
@@ -168,11 +168,10 @@ where
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources, D, const I: usize> RangeResetDrive<I>
-    for TrackedDrive<G, S, D, B>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> RangeResetDrive
+    for TrackedDrive<G, S, B>
 where
-    Tracking<S, D>: HasDriveWheels + SourceAt<I>,
-    <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,
+    Tracking<S>: HasDriveWheels + HasRange,
 {
     fn request_distance_reset(&mut self) {
         self.localization_mut().request_distance_reset();

@@ -1,6 +1,6 @@
 //! Sample a tuple or list of tracking sources without estimating pose.
 
-use std::{marker::PhantomData, time::Duration};
+use std::time::Duration;
 
 use futures_util::future::join_all;
 use glam::DVec3;
@@ -11,12 +11,12 @@ use vexide::time::LowResolutionTime;
 
 #[cfg(feature = "vex")]
 use crate::{
-    HasDriveWheels, SourceAt,
+    HasDriveWheels,
     inertial::{InertialSensorTracking, Orientation},
     odometric::DifferentialTracking,
 };
 use crate::{
-    Observation, TrackingSystem,
+    HasRange, Observation, ReadHeading, ReadTilt, TrackingSystem,
     range::{MAX_RANGES, RangeSensorConfig},
 };
 
@@ -67,31 +67,41 @@ impl std::error::Error for TrackingBuildError {}
 
 mod sources;
 pub use sources::TrackingSources;
+mod roles;
+pub use roles::Sources;
 #[doc(hidden)]
 pub use sources::{Capture, SourceLayout};
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
-pub struct Tracking<S, D = ()> {
+pub struct Tracking<S> {
     sources: S,
-    drive: PhantomData<D>,
     range_layout: arrayvec::ArrayVec<(usize, RangeSensorConfig), MAX_RANGES>,
     wheel_mounts: Vec<(usize, DVec3)>,
     observations: Vec<Observation>,
 }
 
-impl<S: TrackingSources> TrackingSystem for Tracking<S> {}
+impl<S: TrackingSources> TrackingSystem for Tracking<S> {
+    const HAS_SELECTED_DRIVE: bool = S::HAS_SELECTED_DRIVE;
 
-#[cfg(feature = "vex")]
-impl<S: TrackingSources, const I: usize> TrackingSystem for Tracking<S, DriveSource<I>>
-where
-    Self: SourceAt<I, Source = DifferentialTracking>,
-{
-    const HAS_SELECTED_DRIVE: bool = true;
-
+    #[cfg(feature = "vex")]
     fn selected_drive(&self) -> Option<&DifferentialTracking> {
-        Some(self.source_at())
+        self.sources.selected_drive()
     }
 }
+
+impl<S: ReadHeading> ReadHeading for Tracking<S> {
+    fn read_heading(&self) -> Option<ozton_math::uom::si::f64::Angle> {
+        self.sources.read_heading()
+    }
+}
+
+impl<S: ReadTilt> ReadTilt for Tracking<S> {
+    fn read_tilt(&self) -> Option<[ozton_math::uom::si::f64::Angle; 2]> {
+        self.sources.read_tilt()
+    }
+}
+
+impl<S: HasRange> HasRange for Tracking<S> {}
 
 impl<S: TrackingSources> Tracking<S> {
     /// Initialize the tuple or list of sources concurrently before the first sample.
@@ -113,61 +123,27 @@ impl<S: TrackingSources> Tracking<S> {
         }
         Ok(Self {
             observations: Vec::with_capacity(S::SOURCE_COUNT),
-            drive: PhantomData,
             range_layout: layout.ranges,
             sources,
             wheel_mounts: layout.wheels,
         })
     }
-
-    /// Select the calibrated differential wheel source at assembly time.
-    /// Invalid indices and sources of the wrong type fail to compile.
-    ///
-    /// ```compile_fail
-    /// use ozton_tracking::{Tracking, TrackingSource, MeasurementSink};
-    /// struct HeadingOnly;
-    /// impl TrackingSource for HeadingOnly {
-    ///     fn sample(&mut self, _: &mut MeasurementSink<'_>) {}
-    /// }
-    /// async fn wrong_source() {
-    ///     let tracking = Tracking::new((HeadingOnly,)).await.unwrap();
-    ///     let _ = tracking.with_drive_source::<0>();
-    /// }
-    /// ```
-    #[cfg(feature = "vex")]
-    pub fn with_drive_source<const I: usize>(self) -> Tracking<S, DriveSource<I>>
-    where
-        Self: SourceAt<I, Source = DifferentialTracking>,
-    {
-        Tracking {
-            sources: self.sources,
-            drive: PhantomData,
-            range_layout: self.range_layout,
-            wheel_mounts: self.wheel_mounts,
-            observations: self.observations,
-        }
-    }
 }
 
-/// Type-level identity of an explicitly selected drive encoder source.
 #[cfg(feature = "vex")]
-pub struct DriveSource<const I: usize>;
-
-#[cfg(feature = "vex")]
-impl<S: TrackingSources, const I: usize> HasDriveWheels for Tracking<S, DriveSource<I>>
-where
-    Self: SourceAt<I, Source = DifferentialTracking>,
+impl<H: TrackingSources, R: TrackingSources, E: TrackingSources> HasDriveWheels
+    for Tracking<Sources<(DifferentialTracking,), H, R, E>>
 {
     fn calibrated_drive(&self) -> &DifferentialTracking {
-        self.source_at()
+        &self.sources.drive.0
     }
 
     fn calibrated_drive_mut(&mut self) -> &mut DifferentialTracking {
-        self.source_at_mut()
+        &mut self.sources.drive.0
     }
 }
 
-impl<S: TrackingSources, D> Tracking<S, D> {
+impl<S: TrackingSources> Tracking<S> {
     pub fn sources(&self) -> &S {
         &self.sources
     }
