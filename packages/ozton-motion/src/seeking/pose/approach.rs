@@ -158,7 +158,12 @@ pub(super) fn clearance<D: MotionExecution>(
             .ok_or(PoseMotionError::Configuration)?;
     }
     if movable {
-        for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+        for polygon in drive
+            .localization()
+            .movable_obstacles()
+            .into_iter()
+            .flatten()
+        {
             field = field
                 .with_polygon(polygon)
                 .ok_or(PoseMotionError::Configuration)?;

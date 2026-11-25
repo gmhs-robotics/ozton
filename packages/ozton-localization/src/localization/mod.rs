@@ -61,12 +61,7 @@ impl Localization {
 impl Localization<FieldBoundary> {
     /// Compute the tracked pose from the chassis's lower-left bounding corner,
     /// measured inward from the field's left and rear walls.
-    pub fn pose_from_corner(
-        &self,
-        footprint: Footprint,
-        offset: DVec2,
-        heading: Angle,
-    ) -> Pose {
+    pub fn pose_from_corner(&self, footprint: Footprint, offset: DVec2, heading: Angle) -> Pose {
         let (min, _) = footprint.bounds(Pose::new(DVec2::ZERO, heading));
         Pose::new(-self.boundary.half_extents() + offset - min, heading)
     }

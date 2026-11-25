@@ -137,7 +137,11 @@ impl Seeking {
         &self,
         drive: &D,
     ) -> Result<Option<RectangularClearance>, PoseMotionError<D::Error>> {
-        approach::clearance(drive, self.config.safety.clearance, self.config.safety.movable_obstacles)
+        approach::clearance(
+            drive,
+            self.config.safety.clearance,
+            self.config.safety.movable_obstacles,
+        )
     }
 
     /// Hold a stopped drivetrain while localization settles. Warn once on low
@@ -168,7 +172,9 @@ impl Seeking {
                     "Initial pose confidence or clearance is low"
                 );
             }
-            drive.wait_until(Instant::now() + self.config.timing.period).await;
+            drive
+                .wait_until(Instant::now() + self.config.timing.period)
+                .await;
         }
         Ok(())
     }
@@ -196,14 +202,18 @@ impl Seeking {
             } else {
                 let bearing = bearing(delta);
                 let reverse = self.travel.map_or_else(
-                    || wrap_heading(bearing - start.heading).value.abs() > core::f64::consts::FRAC_PI_2,
+                    || {
+                        wrap_heading(bearing - start.heading).value.abs()
+                            > core::f64::consts::FRAC_PI_2
+                    },
                     |direction| direction == TravelDirection::Backward,
                 );
                 let heading = wrap_heading(
                     bearing + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
                 );
                 if !area.contains_turn(start, heading)
-                    || !area.contains_translation(Pose::new(start.position, heading), target.position)
+                    || !area
+                        .contains_translation(Pose::new(start.position, heading), target.position)
                     || !area.contains_turn(Pose::new(target.position, heading), target.heading)
                 {
                     return Err(PoseMotionError::InsufficientClearance);

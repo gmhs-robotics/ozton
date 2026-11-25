@@ -10,11 +10,10 @@ pub mod mechanism;
 pub mod motor;
 mod startup;
 pub mod task;
+pub use competition::{OztonCompete, Runtime};
 pub use ozton_diagnostics::{log_event, log_row, profile};
 pub use ozton_ui::{menu, selector};
 pub use startup::{Application, run};
-
-pub use competition::{OztonCompete, Runtime};
 
 pub mod localization;
 pub use localization::LocalizationSchedule;
