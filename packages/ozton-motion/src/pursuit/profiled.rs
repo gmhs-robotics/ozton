@@ -132,10 +132,19 @@ impl<'path> ProfiledFollower<'path> {
                 reverse,
             ),
         };
+        // The host profile constrains nominal curvature, not live feedback.
+        // Scale both components together so a corrective turn cannot request
+        // more lateral acceleration than the calibrated drivetrain allows.
+        let lateral = (linear * angular).abs();
+        let scale = if lateral > limits.lateral_acceleration.value {
+            (limits.lateral_acceleration.value / lateral).sqrt()
+        } else {
+            1.0
+        };
         desaturate(
             wheel_speeds(
-                Velocity::new::<meter_per_second>(linear),
-                AngularVelocity::new::<radian_per_second>(angular),
+                Velocity::new::<meter_per_second>(linear * scale),
+                AngularVelocity::new::<radian_per_second>(angular * scale),
                 limits.track_width,
             )
             .map(|speed| speed.value),
