@@ -183,12 +183,14 @@ impl ParticleFilter {
     }
 
     /// A verified flush contact fixes wall-normal position and heading at
-    /// initialization. Tangential placement retains its configured uncertainty.
+    /// initialization. Tangential placement retains its surveyed uncertainty.
     /// Normal prediction diffusion resumes with the next measured motion.
     pub fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
         self.contact = Some(contact);
         let mut spread = self.config.initial_spread;
-        spread[contact.wall().axis()] = 0.0;
+        let axis = contact.wall().axis();
+        spread[axis] = 0.0;
+        spread[1 - axis] = contact.tangential_sigma().value;
         spread.z = 0.0;
         self.reset_with_spread(pose, spread);
         self.set_contact_constraint(Some(contact));
