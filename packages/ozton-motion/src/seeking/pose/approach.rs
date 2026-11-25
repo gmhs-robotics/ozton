@@ -82,7 +82,11 @@ async fn direct<D: PoseDrive>(
         if session.drive.pose().position.distance(position) <= options.position_tolerance.value {
             return Ok(());
         }
-        ozton_diagnostics::log_event!(Warn, "motion", "Final turn shifted position; correcting pose");
+        ozton_diagnostics::log_event!(
+            Warn,
+            "motion",
+            "Final turn shifted position; correcting pose"
+        );
     }
 }
 

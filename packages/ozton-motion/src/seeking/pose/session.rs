@@ -633,7 +633,11 @@ impl MotionWarnings {
     fn stage(&mut self, elapsed: Duration, threshold: Duration) {
         if elapsed >= threshold && !self.stage_reported {
             self.stage_reported = true;
-            log_event!(Warn, "motion", "Stage exceeded expected duration; continuing feedback");
+            log_event!(
+                Warn,
+                "motion",
+                "Stage exceeded expected duration; continuing feedback"
+            );
         }
     }
 
@@ -646,7 +650,11 @@ impl MotionWarnings {
 
     fn cross_track(&mut self, error: f64, threshold: f64) {
         if error > threshold && !self.cross_track_reported {
-            log_event!(Warn, "motion", "Cross-track error above tuning threshold; continuing feedback");
+            log_event!(
+                Warn,
+                "motion",
+                "Cross-track error above tuning threshold; continuing feedback"
+            );
             self.cross_track_reported = true;
         } else if error <= threshold * 0.5 {
             self.cross_track_reported = false;
@@ -655,7 +663,11 @@ impl MotionWarnings {
 
     fn pose(&mut self, trusted: bool) {
         if !trusted && !self.pose_reported {
-            log_event!(Warn, "motion", "Low pose confidence; continuing with finite feedback");
+            log_event!(
+                Warn,
+                "motion",
+                "Low pose confidence; continuing with finite feedback"
+            );
         }
         self.pose_reported = !trusted;
     }

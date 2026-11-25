@@ -314,7 +314,11 @@ impl Seeking {
                     radius.value,
                     sweep.value
                 );
-                ozton_diagnostics::log_event!(Warn, "clearance", "Planned arc violates nominal clearance; continuing feedback");
+                ozton_diagnostics::log_event!(
+                    Warn,
+                    "clearance",
+                    "Planned arc violates nominal clearance; continuing feedback"
+                );
             }
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
@@ -382,7 +386,11 @@ impl Seeking {
                 .forward_arc_bounds(start, options.track_width * 0.5, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
-                ozton_diagnostics::log_event!(Warn, "clearance", "Swing exceeds nominal clearance; continuing feedback");
+                ozton_diagnostics::log_event!(
+                    Warn,
+                    "clearance",
+                    "Swing exceeds nominal clearance; continuing feedback"
+                );
             }
         }
         let hold_left = sweep.value >= 0.0;
