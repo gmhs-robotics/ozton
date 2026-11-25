@@ -3,13 +3,8 @@
 use glam::DVec2;
 use uom::si::f64::{Angle, Length};
 
-use super::{ConvexPolygon, Footprint, MAX_OBSTACLES, Obstacles, WallContact, forward_arc_end};
+use super::{ConvexPolygon, Footprint, MAX_OBSTACLES, Obstacles, WallContact};
 use crate::geometry::{Pose, direction};
-
-mod approach;
-mod visibility;
-pub use approach::{PointDeparture, approach_heading};
-pub use visibility::AStar;
 
 #[derive(Clone, Copy, Debug)]
 pub struct RectangularClearance {
@@ -17,12 +12,6 @@ pub struct RectangularClearance {
     usable: DVec2,
     margin: f64,
     obstacles: Obstacles,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct DepartureArc {
-    pub radius: Length,
-    pub sweep: Angle,
 }
 
 impl RectangularClearance {
@@ -433,105 +422,6 @@ impl RectangularClearance {
             && max.cmple(self.usable).all()
             && self.obstacles_clear(min, max)
     }
-
-    /// Visibility-graph route minimizing traversal through movable obstacles,
-    /// then total distance. Fixed obstacles and perimeter remain hard constraints.
-    pub fn plan_soft_route(
-        self,
-        start: DVec2,
-        goal: DVec2,
-        soft: &[Option<ConvexPolygon>],
-        waypoint_reserve: Length,
-    ) -> Option<alloc::vec::Vec<DVec2>> {
-        AStar::new()
-            .with_waypoint_reserve(waypoint_reserve)
-            .plan(&self, start, goal, soft)
-    }
-
-    /// Distance to the first position with room to pivot, following the current heading.
-    /// Both ends of the straight sweep must fit with the original chassis orientation.
-    pub fn forward_to_turn(self, start: Pose, reserve: Length) -> Option<Length> {
-        let turn_area = self.turn_area(reserve.value);
-        if !start.is_finite()
-            || !reserve.value.is_finite()
-            || reserve.value < 0.0
-            || turn_area.min_element() < 0.0
-        {
-            return None;
-        }
-
-        let forward = direction(start.heading);
-        let (min, max) = self.footprint.bounds(start);
-        if !self.contains_bounds(min, max) {
-            return None;
-        }
-
-        let mut enter: f64 = 0.0;
-        let mut leave = f64::INFINITY;
-        for axis in 0..2 {
-            let velocity = forward[axis];
-            let origin = start.position[axis];
-            let limit = turn_area[axis];
-            if velocity.abs() < 1e-9 {
-                if origin.abs() > limit {
-                    return None;
-                }
-            } else {
-                let near = (-limit - origin) / velocity;
-                let far = (limit - origin) / velocity;
-                enter = enter.max(near.min(far));
-                leave = leave.min(near.max(far));
-            }
-        }
-        // The straight segment lies inside a convex rectangle. Its two ends suffice.
-        let displacement = enter * forward;
-        (enter <= leave
-            && self.contains_bounds(min.min(min + displacement), max.max(max + displacement))
-            && self.can_turn(Pose::new(start.position + displacement, start.heading)))
-        .then_some(crate::qty!((enter) m))
-    }
-
-    /// Try successively wider arcs in both directions, including a straight continuation.
-    /// Minimize outer-wheel travel over the checked arcs and continuations.
-    pub fn departure_arc(
-        self,
-        start: Pose,
-        minimum_radius: Length,
-        reserve: Length,
-    ) -> Option<DepartureArc> {
-        if !minimum_radius.value.is_finite() || minimum_radius.value < 0.0 {
-            return None;
-        }
-        self.arcs(minimum_radius)
-            .filter_map(|arc| {
-                let end = forward_arc_end(start, arc.radius, arc.sweep);
-                let straight = self.forward_to_turn(end, reserve)?;
-                let (min, max) = self
-                    .footprint
-                    .forward_arc_bounds(start, arc.radius, arc.sweep)?;
-                self.contains_bounds(min, max).then_some((
-                    arc,
-                    straight.value
-                        + (arc.radius.value + minimum_radius.value) * arc.sweep.value.abs(),
-                ))
-            })
-            .min_by(|(_, left), (_, right)| left.total_cmp(right))
-            .map(|(arc, _)| arc)
-    }
-    fn arcs(self, minimum_radius: Length) -> impl Iterator<Item = DepartureArc> {
-        let first_radius = minimum_radius.value.max(0.05);
-        let radius_step = self.usable.max_element() / 10.0;
-        (0..=40)
-            .map(move |step| crate::qty!((first_radius + radius_step * f64::from(step)) m))
-            .flat_map(|radius| {
-                (-18..=18)
-                    .filter(|step| *step != 0)
-                    .map(move |step| DepartureArc {
-                        radius,
-                        sweep: crate::qty!((5.0 * f64::from(step)) deg),
-                    })
-            })
-    }
 }
 
 /// Maximum projection of a vector rotated through any angle in [-yaw, yaw].
@@ -549,6 +439,7 @@ fn rotated_support(vector: DVec2, radius: f64, axis: DVec2, sin: f64, cos: f64) 
 mod tests {
 
     use super::*;
+    use crate::path::clearance::forward_arc_end;
 
     #[test]
     fn displaced_turn_checks_same_physical_chassis_about_actual_pivot() {
@@ -739,54 +630,5 @@ mod tests {
             }
             assert!(pose.position.distance(start.position) < 1e-9);
         }
-    }
-
-    #[test]
-    fn corner_departure_needs_space_and_reaches_a_turning_area() {
-        let inches = |value| crate::qty!((value) in);
-        let chassis = Footprint::from_extents(
-            inches(7.55),
-            inches(7.55),
-            inches(7.761804),
-            inches(7.238196),
-        )
-        .unwrap();
-        let half_extents = crate::geometry::point(inches(19.0), inches(21.25));
-        let field = RectangularClearance::new(chassis, half_extents, inches(0.5)).unwrap();
-        let gap = inches(0.25);
-        let (corner_from_cc, _) = chassis.bounds(Pose::default());
-        let flush = Pose::new(-half_extents - corner_from_cc, Angle::default());
-        let start = Pose::new(
-            flush.position + DVec2::splat(inches(1.0).value),
-            flush.heading,
-        );
-        let expected_cc = crate::geometry::point(inches(-10.45), inches(-12.488196));
-        assert!((start.position - expected_cc).length() < 1e-12);
-        assert!(field.forward_to_turn(start, gap).is_none());
-        let arc = field.departure_arc(start, inches(6.5), gap).unwrap();
-        assert!(arc.sweep.value < 0.0);
-        let end = forward_arc_end(start, arc.radius, arc.sweep);
-        let advance = field.forward_to_turn(end, gap).unwrap();
-        assert!(advance > inches(0.0));
-        let turn = Pose {
-            position: end.position + direction(end.heading) * advance.value,
-            ..end
-        };
-        assert!(field.can_turn(turn));
-
-        assert!(field.forward_to_turn(flush, gap).is_none());
-        assert!(field.departure_arc(flush, inches(6.5), gap).is_none());
-
-        let field = RectangularClearance::new(chassis, half_extents, inches(0.0)).unwrap();
-        let rear_sweep = Pose::new(
-            crate::geometry::point(inches(0.0), inches(-13.6)),
-            Angle::default(),
-        );
-        assert!(field.forward_to_turn(rear_sweep, gap).is_none());
-        let clear_sweep = Pose::new(
-            crate::geometry::point(inches(0.0), inches(-13.45)),
-            Angle::default(),
-        );
-        assert!(field.forward_to_turn(clear_sweep, gap).is_some());
     }
 }
