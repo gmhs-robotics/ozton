@@ -437,6 +437,8 @@ impl PathConfig {
 /// Point approach and terminal correction behavior.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ApproachConfig {
+    /// Fraction of remaining distance projected behind the target pose.
+    pub boomerang_lead: f64,
     pub realign_enter: Angle,
     pub realign_exit: Angle,
     pub reversal_heading: Angle,
@@ -454,6 +456,7 @@ impl Default for ApproachConfig {
 
 impl ApproachConfig {
     pub const DEFAULT: Self = Self {
+        boomerang_lead: 0.6,
         realign_enter: ozton_math::qty!(35 deg),
         realign_exit: ozton_math::qty!(12 deg),
         reversal_heading: ozton_math::qty!(125 deg),
@@ -465,6 +468,12 @@ impl ApproachConfig {
 
     pub const fn new() -> Self {
         Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_boomerang_lead(mut self, value: f64) -> Self {
+        self.boomerang_lead = value;
+        self
     }
 
     #[must_use]
@@ -652,6 +661,7 @@ impl MotionConfig {
             && self.safety.braking_sigma.is_finite()
             && self.safety.braking_sigma >= 0.0
             && self.path.ramsete_zeta <= 1.0
+            && (0.0..1.0).contains(&self.approach.boomerang_lead)
             && self.approach.realign_exit < self.approach.realign_enter
             && self.approach.realign_enter.value < core::f64::consts::FRAC_PI_2
             && self.approach.reversal_heading.value > core::f64::consts::FRAC_PI_2
