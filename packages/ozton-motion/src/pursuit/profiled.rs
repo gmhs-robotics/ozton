@@ -1,24 +1,23 @@
-//! Pure pursuit and RAMSETE tracking for the same prepared path.
+//! Spatial pure pursuit with a host-generated velocity envelope.
 
-use core::{f64::consts::PI, time::Duration};
+use core::f64::consts::PI;
 
 use ozton_math::{
-    desaturate,
-    following::{PurePursuit, Ramsete},
+    following::PurePursuit,
     geometry::{Pose, wheel_speeds},
     path::{Path, PathSample, progress::Progress},
     uom::si::{
         angular_velocity::radian_per_second,
-        f64::{AngularVelocity, Length, Time, Velocity},
-        time::second,
+        f64::{AngularVelocity, Length, Velocity},
         velocity::meter_per_second,
     },
 };
 
-/// Select the path-tracking algorithm and its tuning.
+/// The spatial pursuit controller's geometric lookahead.
 #[derive(Debug, Clone, Copy)]
 pub enum Follower {
     PurePursuit { lookahead: Length },
+    // Kept only until consumers migrate to the single spatial follower.
     Ramsete { b: f64, zeta: f64 },
 }
 
@@ -33,7 +32,7 @@ impl Follower {
     }
 }
 
-/// One trajectory observation, shared by progress monitoring and path actions.
+/// Progress and nominal remaining duration for nonblocking mechanism actions.
 pub(crate) struct PathObservation {
     pub distance: f64,
     pub cross_track: f64,
@@ -41,110 +40,76 @@ pub(crate) struct PathObservation {
     pub reference_time: f64,
 }
 
-/// Owns geometric progress and the bounded time reference for one execution.
-/// The session is responsible for actuator output, settling and safety.
+/// The reference is determined solely by measured spatial progress.
 pub(crate) struct ProfiledFollower<'path> {
-    follower: Follower,
     progress: Progress<'path>,
     geometric: PathSample,
-    reference_time: f64,
+    lookahead: Length,
 }
 
 impl<'path> ProfiledFollower<'path> {
-    pub fn new(path: &'path Path, follower: Follower) -> Self {
+    pub fn new(path: &'path Path, follower: Follower, default_lookahead: Length) -> Self {
+        let lookahead = match follower {
+            Follower::PurePursuit { lookahead } => lookahead,
+            Follower::Ramsete { .. } => default_lookahead,
+        };
         Self {
-            follower,
             progress: Progress::new(path),
             geometric: path.start(),
-            reference_time: 0.0,
+            lookahead,
         }
     }
 
-    pub fn observe(
-        &mut self,
-        pose: Pose,
-        dt: Duration,
-        advance_limit: Length,
-        lead: Length,
-    ) -> PathObservation {
+    pub fn observe(&mut self, pose: Pose, advance_limit: Length) -> PathObservation {
         self.progress.update(pose.position, advance_limit);
         let path = self.progress.path();
         let distance = self.progress.distance();
         self.geometric = path.at_distance(ozton_math::qty!((distance) m));
-        let end = path.end();
-        // Bound the nominal reference by a physical lead over measured progress.
-        let limit = path
-            .at_distance(ozton_math::qty!((distance + lead.value) m))
-            .time;
-        self.reference_time = (self.reference_time + dt.as_secs_f64())
-            .min(limit)
-            .max(self.reference_time)
-            .min(end.time);
         PathObservation {
             distance,
             cross_track: self.geometric.pose.position.distance(pose.position),
-            remaining_time: (end.time - self.geometric.time).max(0.0),
-            reference_time: self.reference_time,
+            remaining_time: (path.end().time - self.geometric.time).max(0.0),
+            reference_time: self.geometric.time,
         }
     }
 
     pub fn is_terminal(&self, position_tolerance: f64) -> bool {
-        let end = self.progress.path().end();
-        match self.follower {
-            Follower::PurePursuit { .. } => {
-                self.progress.distance() >= end.distance - position_tolerance
-            }
-            Follower::Ramsete { .. } => self.reference_time >= end.time,
-        }
+        self.progress.distance() >= self.progress.path().end().distance - position_tolerance
     }
 
-    /// Wheel speeds in metres per second, before the shared command limiter.
-    pub fn command(&self, pose: Pose, dt: Duration, reverse: bool) -> [f64; 2] {
+    /// Wheel speeds in metres per second before shared physical constraints.
+    pub fn command(&self, pose: Pose, reverse: bool) -> [f64; 2] {
         let path = self.progress.path();
-        let dt = dt.as_secs_f64();
         let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
         let limits = path.limits();
-        let (linear, angular) = match self.follower {
-            Follower::PurePursuit { lookahead } => {
-                let virtual_pose = Pose {
-                    heading: pose.heading + facing,
-                    ..pose
-                };
-                let target =
-                    virtual_pose.to_local(self.progress.lookahead(pose.position, lookahead.value));
-                if target.y < 0.0 {
-                    (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
-                } else {
-                    let speed = path
-                        .at_time(Time::new::<second>(self.geometric.time + dt))
-                        .speed;
-                    PurePursuit::new().twist(
-                        pose,
-                        virtual_pose.transform_point(target),
-                        Velocity::new::<meter_per_second>(speed),
-                        reverse,
-                    )
-                }
-            }
-            Follower::Ramsete { b, zeta } => Ramsete { b, zeta }.twist(
-                pose,
-                path.at_time(Time::new::<second>(self.reference_time)),
-                reverse,
-            ),
+        let travel = Pose {
+            heading: pose.heading + facing,
+            ..pose
         };
-        limit_lateral_acceleration(
-            desaturate(
-                wheel_speeds(
-                    Velocity::new::<meter_per_second>(linear),
-                    AngularVelocity::new::<radian_per_second>(angular),
-                    limits.track_width,
-                )
-                .map(|speed| speed.value),
-                limits.wheel_speed.value,
-            ),
-            limits.track_width.value,
-            limits.lateral_acceleration.value,
+        let point = self.progress.lookahead(pose.position, self.lookahead.value);
+        let target = travel.to_local(point);
+        let (linear, angular) = if target.y <= 0.0 {
+            (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
+        } else {
+            // A short spatial preview starts the robot from a zero-speed
+            // profile endpoint and begins braking ahead of corners.
+            let preview = (self.lookahead.value * 0.25).min(0.025);
+            let speed = path
+                .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
+                .speed;
+            PurePursuit::new().twist(
+                pose,
+                point,
+                Velocity::new::<meter_per_second>(speed),
+                reverse,
+            )
+        };
+        wheel_speeds(
+            Velocity::new::<meter_per_second>(linear),
+            AngularVelocity::new::<radian_per_second>(angular),
+            limits.track_width,
         )
+        .map(|speed| speed.value)
     }
 }
 
