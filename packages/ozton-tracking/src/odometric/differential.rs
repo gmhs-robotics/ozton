@@ -122,7 +122,7 @@ impl DifferentialTracking {
 }
 
 impl TrackingSource for DifferentialTracking {
-    const DIFFERENTIAL_ENCODERS: bool = true;
+    type Capabilities = crate::capabilities::Drive;
 
     fn sample(&mut self, sink: &mut MeasurementSink<'_>) {
         let feedback = self.read_wheels();

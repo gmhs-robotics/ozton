@@ -169,6 +169,8 @@ impl ReadTilt for InertialSensorTracking {
 }
 
 impl crate::TrackingSource for InertialSensorTracking {
+    type Capabilities = crate::capabilities::Orientation;
+
     fn initialize(&mut self) -> crate::SourceInitialization<'_> {
         Some(Box::pin(async {
             self.calibrate()

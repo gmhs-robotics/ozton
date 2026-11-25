@@ -97,48 +97,6 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     }
 }
 
-macro_rules! tracking_tuples {
-    ($($name:ident:$index:tt),+) => {
-        impl<$($name: TrackingSource),+> TrackingSources for ($($name,)+) {
-            const SOURCE_COUNT: usize = [$(stringify!($name)),+].len();
-
-            const DIFFERENTIAL_COUNT: usize = 0 $(+ $name::DIFFERENTIAL_ENCODERS as usize)+;
-            const GUARANTEED_RANGE_COUNT: usize = 0 $(+ $name::RANGE_SLOTS)+;
-
-            fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
-                $(layout.register(&self.$index)?;)+
-                Ok(())
-            }
-
-            #[cfg(feature = "vex")]
-            fn diagnostic_imu(&self) -> Option<&crate::inertial::InertialSensorTracking> {
-                None$(.or_else(|| self.$index.inertial()))+
-            }
-
-            fn initialization(&mut self) -> Vec<Startup<'_>> {
-                [$(self.$index.initialize()),+].into_iter().flatten().collect()
-            }
-
-            fn capture(&mut self, capture: &mut Capture<'_>) {
-                $(capture.sample(&mut self.$index);)+
-            }
-        }
-    };
-}
-
-tracking_tuples!(A:0);
-tracking_tuples!(A:0, B:1);
-tracking_tuples!(A:0, B:1, C:2);
-tracking_tuples!(A:0, B:1, C:2, D:3);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
-tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
-
 /// Startup geometry collected through concrete source types.
 #[doc(hidden)]
 #[derive(Default)]

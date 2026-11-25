@@ -241,7 +241,7 @@ impl super::RangeSource for DistanceTracker {
 }
 
 impl crate::TrackingSource for DistanceTracker {
-    const RANGE_SLOTS: usize = 1;
+    type Capabilities = crate::capabilities::Range;
 
     // Range sources are optional pose observations. A disconnected or slowly
     // booting sensor must not delay Tracking::new. Runtime packet validation
@@ -257,9 +257,6 @@ impl crate::TrackingSource for DistanceTracker {
         }
     }
 
-    fn range_mount(&self) -> Option<RangeSensorConfig> {
-        Some(super::RangeSource::range_config(self))
-    }
 }
 
 impl DistanceDevice {

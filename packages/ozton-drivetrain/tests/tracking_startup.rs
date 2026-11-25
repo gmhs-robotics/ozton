@@ -13,7 +13,7 @@ use ozton_math::{
 };
 use ozton_tracking::{
     DisplacementObservation, HasDriveWheels, HeadingObservation, Measurement, MeasurementSink,
-    Sources, Tracking, TrackingSource,
+    Tracking, TrackingSource,
     absolute::PoseObservation,
     mount::Vec3,
     odometric::{DifferentialTracking, WheelGearing},
@@ -29,6 +29,8 @@ use vexide::{
 struct FieldFix;
 
 impl TrackingSource for FieldFix {
+    type Capabilities = ozton_tracking::capabilities::Passive;
+
     fn sample(&mut self, sink: &mut MeasurementSink<'_>) {
         sink.push(Measurement::AbsolutePose(PoseObservation {
             time: sink.time,
@@ -73,13 +75,9 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
             Angle::ZERO,
         ),
     );
-    let mut tracking = block_on(Tracking::new(
-        Sources::new()
-            .with_drive(encoders)
-            .with_ranges((range,))
-            .with_extra((FieldFix,)),
-    ))
-    .unwrap();
+    let mut tracking = block_on(Tracking::new((FieldFix, encoders, range))).unwrap();
+    fn require_ranges<T: ozton_tracking::HasRange>(_: &T) {}
+    require_ranges(&tracking);
     assert_eq!(tracking.calibrated_drive().track_width().value, 0.30);
 
     assert_eq!(tracking.observation_layout().ranges.len(), 1);
@@ -87,17 +85,17 @@ fn mixed_tracking_sources_keep_order_and_unavailable_range_mounts() {
     let sample = tracking.sample(0);
     assert_eq!(sample.observations.len(), 3);
     assert_eq!(sample.observations[0].source, 0);
-    assert_eq!(sample.observations[1].source, 1);
+    assert_eq!(sample.observations[2].source, 1);
     assert!(matches!(
-        sample.observations[0].measurement,
+        sample.observations[2].measurement,
         Measurement::Displacement(DisplacementObservation::Differential([None, None]))
     ));
     assert!(matches!(
-        sample.observations[1].measurement,
+        sample.observations[0].measurement,
         Measurement::AbsolutePose(pose) if pose.position == DVec2::new(0.25, 0.5)
     ));
     assert!(matches!(
-        sample.observations[2].measurement,
+        sample.observations[1].measurement,
         Measurement::Heading(_)
     ));
 }

@@ -71,6 +71,8 @@ impl<T: RotarySensor> TrackingWheel<T> {
 }
 
 impl<W: crate::sampling::WheelSource> crate::TrackingSource for MountedWheel<W> {
+    type Capabilities = crate::capabilities::Passive;
+
     fn initialize(&mut self) -> crate::SourceInitialization<'_> {
         if self.is_valid() {
             None

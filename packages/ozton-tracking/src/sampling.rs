@@ -69,6 +69,7 @@ impl std::fmt::Display for TrackingBuildError {
 impl std::error::Error for TrackingBuildError {}
 
 mod sources;
+mod tuples;
 pub use sources::TrackingSources;
 mod roles;
 #[doc(hidden)]
@@ -216,6 +217,8 @@ mod tests {
     struct Source(bool);
 
     impl TrackingSource for Source {
+        type Capabilities = crate::capabilities::Passive;
+
         fn range_mount(&self) -> Option<RangeSensorConfig> {
             self.0.then(|| RangeSensorConfig::new(Default::default()))
         }
@@ -259,6 +262,8 @@ mod tests {
     struct CustomRange;
 
     impl TrackingSource for CustomRange {
+        type Capabilities = crate::capabilities::Range;
+
         fn sample(&mut self, sink: &mut MeasurementSink<'_>) {
             assert!(sink.range_index.is_some());
         }
@@ -268,6 +273,18 @@ mod tests {
         fn range_config(&self) -> RangeSensorConfig {
             RangeSensorConfig::new(Default::default())
         }
+    }
+
+    #[test]
+    fn flat_tuple_derives_range_capability() {
+        fn require_range<T: HasRange>(_: &T) {}
+        let mut tracking = Tracking::new((Source(false), CustomRange, CustomRange))
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        require_range(&tracking);
+        assert_eq!(tracking.observation_layout().ranges.len(), 2);
+        tracking.sample_at(Duration::ZERO, 0);
     }
 
     #[test]

@@ -30,6 +30,7 @@
 //! Use metres, radians, seconds and SI derivatives.
 
 pub mod absolute;
+pub mod capabilities;
 #[cfg(all(feature = "vex", feature = "logging"))]
 #[doc(hidden)]
 pub mod hardware;
@@ -122,13 +123,17 @@ pub type SourceInitialization<'a> = Option<
 >;
 
 /// A source can emit any measurement, regardless of how its hardware works.
-pub trait TrackingSource {
+pub trait TrackingSource: Sized {
+    /// Compile-time hardware interfaces exposed by this source.
+    type Capabilities: capabilities::SourceCapabilities<Self>;
+
     /// Whether this concrete source supplies differential encoder observations.
-    const DIFFERENTIAL_ENCODERS: bool = false;
+    const DIFFERENTIAL_ENCODERS: bool =
+        <<Self::Capabilities as capabilities::SourceCapabilities<Self>>::Drive as capabilities::Flag>::PRESENT;
 
     /// Number of guaranteed range slots supplied by this concrete source.
-    /// Optional runtime-configured custom mounts are validated at assembly.
-    const RANGE_SLOTS: usize = 0;
+    const RANGE_SLOTS: usize =
+        <<Self::Capabilities as capabilities::SourceCapabilities<Self>>::Range as capabilities::Flag>::PRESENT as usize;
 
     fn initialize(&mut self) -> SourceInitialization<'_> {
         None
@@ -143,7 +148,7 @@ pub trait TrackingSource {
 
     /// Field-ranging geometry when this source emits range measurements.
     fn range_mount(&self) -> Option<range::RangeSensorConfig> {
-        None
+        <Self::Capabilities as capabilities::SourceCapabilities<Self>>::range_mount(self)
     }
 
     #[doc(hidden)]
