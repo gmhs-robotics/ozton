@@ -400,14 +400,20 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 no_progress = Duration::ZERO;
                 controller.reset_feedback();
             }
-            let (requested, ready, objective, phase_changed) = if terminal {
-                terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
+            let (requested, wheels, ready, objective, phase_changed) = if terminal {
+                let (wheels, ready, objective, changed) =
+                    terminal_pose.step(&mut controller, target, reverse, feedback, dt, options);
+                (wheels, wheels, ready, objective, changed)
             } else {
-                let desired = follower.command(feedback.pose, reverse);
+                let desired = follower.command(
+                    feedback.pose,
+                    reverse,
+                    feedback.forward_velocity,
+                    config.limits.brake_latency,
+                );
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
-                (wheels, ready, end.distance - observation.distance, false)
+                (desired, wheels, ready, end.distance - observation.distance, false)
             };
-            let wheels = requested;
             controller.record_applied_wheels(wheels);
             if phase_changed {
                 best = f64::INFINITY;

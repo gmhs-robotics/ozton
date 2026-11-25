@@ -55,7 +55,13 @@ impl<'path> ProfiledFollower<'path> {
     }
 
     /// Wheel speeds in metres per second before shared physical constraints.
-    pub fn command(&self, pose: Pose, reverse: bool) -> [f64; 2] {
+    pub fn command(
+        &self,
+        pose: Pose,
+        reverse: bool,
+        measured_speed: Velocity,
+        brake_latency: core::time::Duration,
+    ) -> [f64; 2] {
         let path = self.progress.path();
         let facing = ozton_math::qty!((if reverse { PI } else { 0.0 }) rad);
         let limits = path.limits();
@@ -77,6 +83,12 @@ impl<'path> ProfiledFollower<'path> {
             let speed = path
                 .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
                 .speed;
+            let delay = (measured_speed.value.abs() * brake_latency.as_secs_f64())
+                .min(remaining * 0.5);
+            let speed = speed.min(
+                path.at_distance(ozton_math::qty!((self.geometric.distance + preview.max(delay)) m))
+                    .speed,
+            );
             PurePursuit::new().twist(
                 pose,
                 point,
@@ -93,44 +105,53 @@ impl<'path> ProfiledFollower<'path> {
     }
 }
 
-/// Bound lateral acceleration of a differential wheel command while preserving
-/// curvature. The same bound is needed after independent linear/yaw slew.
-pub(crate) fn limit_lateral_acceleration(
-    wheels: [f64; 2],
-    track_width: f64,
-    maximum: f64,
-) -> [f64; 2] {
-    let linear = (wheels[0] + wheels[1]) * 0.5;
-    let angular = (wheels[1] - wheels[0]) / track_width;
-    let lateral = (linear * angular).abs();
-    if lateral <= maximum {
-        return wheels;
-    }
-    let scale = (maximum / lateral).sqrt();
-    wheels.map(|speed| speed * scale)
-}
-
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
-    use super::limit_lateral_acceleration;
+    use super::*;
+    use ozton_math::{
+        geometry::DVec2,
+        path::{Limits, Waypoint},
+        qty,
+    };
 
     #[test]
-    fn lateral_limit_preserves_curvature_and_turn_direction() {
-        let width = 0.33;
-        let maximum = 0.55;
-        for wheels in [[0.4, 1.4], [1.4, 0.4], [-0.4, -1.4], [-1.4, -0.4]] {
-            let limited = limit_lateral_acceleration(wheels, width, maximum);
-            let v = (limited[0] + limited[1]) * 0.5;
-            let w = (limited[1] - limited[0]) / width;
-            assert!(((v * w).abs() - maximum).abs() < 1e-12);
-            assert!((limited[0] * wheels[1] - limited[1] * wheels[0]).abs() < 1e-12);
+    fn stationary_reference_does_not_advance_and_can_start_in_both_directions() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let mut follower = ProfiledFollower::new(&path, qty!(0.1 m));
+        let pose = path.start().pose;
+        let initial = follower.observe(pose, qty!(0.04 m));
+        for _ in 0..100 {
+            let current = follower.observe(pose, qty!(0.04 m));
+            assert_eq!(current.distance, initial.distance);
+            assert_eq!(current.nominal_progress_time, initial.nominal_progress_time);
         }
-    }
-
-    #[test]
-    fn lateral_limit_leaves_straight_and_stationary_turn_commands_unchanged() {
-        for wheels in [[1.0, 1.0], [-1.0, -1.0], [-0.5, 0.5], [0.0, 0.0]] {
-            assert_eq!(limit_lateral_acceleration(wheels, 0.33, 0.55), wheels);
-        }
+        let latency = core::time::Duration::from_millis(100);
+        let wheels = follower.command(pose, false, qty!(0 m/s), latency);
+        assert!(wheels.iter().all(|v| *v > 0.0));
+        let reverse = Pose {
+            heading: pose.heading + qty!(180 deg),
+            ..pose
+        };
+        let wheels = follower.command(reverse, true, qty!(0 m/s), latency);
+        assert!(wheels.iter().all(|v| *v < 0.0));
+        assert!(!follower.is_terminal(0.02));
+        let moved = follower.observe(Pose::new(DVec2::new(0.0, 0.03), pose.heading), qty!(0.04 m));
+        assert!(moved.distance > initial.distance);
+        assert!(moved.remaining_time < initial.remaining_time);
     }
 }

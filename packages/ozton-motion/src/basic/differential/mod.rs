@@ -18,11 +18,13 @@ use ozton_math::{
     },
 };
 
+mod limits;
 mod pid;
 mod terminal;
 #[cfg(test)]
 mod tests;
 mod tuning;
+use limits::limit_lateral_acceleration;
 use pid::MotionPid;
 pub use terminal::TerminalPose;
 pub use tuning::DriveTuning;
@@ -187,6 +189,7 @@ impl DifferentialFeedback {
             &target,
             DifferentialTarget::DriveToPoint { .. } | DifferentialTarget::DriveToPose { .. }
         );
+        let lateral_acceleration = self.config.limits.lateral_acceleration.value;
         let drive = |linear: f64, angular: f64| {
             if !steering_priority {
                 return desaturate(
@@ -204,7 +207,9 @@ impl DifferentialFeedback {
             // Preserve steering authority for target seeking. Arc tracking
             // supplies its own geometric yaw feedforward.
             let angular = angular.clamp(-maximum / half, maximum / half);
-            let available = (maximum - angular.abs() * half).max(0.0);
+            let available = (maximum - angular.abs() * half)
+                .max(0.0)
+                .min(lateral_acceleration / angular.abs());
             let linear = linear.clamp(-available, available);
             wheel_speeds(
                 Velocity::new::<meter_per_second>(linear),
@@ -589,8 +594,19 @@ impl DifferentialFeedback {
         }
         let width = options.track_width.value;
         let lateral_limit = self.config.limits.lateral_acceleration.value;
-        let desired =
-            crate::pursuit::profiled::limit_lateral_acceleration(desired, width, lateral_limit);
+        let maximum = options.maximum_wheel_speed.value;
+        let desired = desaturate(desired, maximum);
+        let yaw = (desired[1] - desired[0]).abs() / width;
+        let yaw_scale = if yaw > self.config.limits.angular_speed.value {
+            self.config.limits.angular_speed.value / yaw
+        } else {
+            1.0
+        };
+        let desired = limit_lateral_acceleration(
+            desired.map(|speed| speed * yaw_scale),
+            width,
+            lateral_limit,
+        );
         let current_v = (self.last_wheels[0] + self.last_wheels[1]) * 0.5;
         let current_w = (self.last_wheels[1] - self.last_wheels[0]) / width;
         let desired_v = (desired[0] + desired[1]) * 0.5;
@@ -638,7 +654,7 @@ impl DifferentialFeedback {
         });
         // Slew can alter curvature; constrain the actual applied command
         // for every motion, including PID and Boomerang.
-        self.last_wheels = crate::pursuit::profiled::limit_lateral_acceleration(
+        self.last_wheels = limit_lateral_acceleration(
             self.last_wheels,
             width,
             lateral_limit,
