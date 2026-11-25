@@ -177,7 +177,26 @@ pub(super) fn limit_wall_command(
     if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
         return wheels;
     }
-    let clear = |scale| projected(scale).is_some_and(|(min, max)| field.contains_aabb(min, max));
+    let baseline = projected(0.0);
+    let clear = |scale| {
+        projected(scale).is_some_and(|(min, max)| {
+            field.contains_aabb(min, max)
+                || baseline.is_some_and(|(base_min, base_max)| {
+                    field.wall_recovery_contains(min, max, base_min, base_max)
+                        && field.obstacle_free_aabb(min, max)
+                        && field.wall_recovery_direction(
+                            feedback.pose,
+                            v * scale,
+                            w * scale,
+                            base_min,
+                            base_max,
+                        )
+                })
+        })
+    };
+    if clear(1.0) {
+        return wheels;
+    }
     let mut low = 0.0;
     let mut high = 1.0;
     for _ in 0..12 {
@@ -237,11 +256,11 @@ pub(super) fn safe_feedback(
         reaction(config),
         config,
     );
-    let reason = if !field.contains_pose(feedback.pose) {
+    let reason = if !field.contains_physical_pose(feedback.pose) {
         "current_footprint"
-    } else if !projected.is_some_and(|(min, max)| field.wall_contains_aabb(min, max)) {
+    } else if !projected.is_some_and(|(min, max)| field.physical_wall_contains_aabb(min, max)) {
         "wall_stopping_envelope"
-    } else if !projected.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
+    } else if !projected.is_some_and(|(min, max)| field.obstacle_free_aabb(min, max)) {
         "obstacle_stopping_envelope"
     } else {
         return true;
@@ -444,6 +463,30 @@ mod tests {
             .govern(feedback, uncertainty, covariance, requested)
             .unwrap();
         assert_eq!(allowed, requested);
+    }
+
+    #[test]
+    fn reserve_recovery_allows_inward_motion_but_preserves_hard_boundaries() {
+        let footprint = Footprint::new(qty!(0.2 m), qty!(0.4 m)).unwrap();
+        let field = RectangularClearance::new(footprint, DVec2::ONE, qty!(0.1 m)).unwrap();
+        let config = MotionConfig::DEFAULT;
+        let options = DriveOptions::differential(qty!(0.3 m), qty!(0.5 m/s));
+        let mut feedback = sample(0.0);
+        feedback.pose = Pose::new(DVec2::new(0.0, -0.76), qty!(0 rad));
+        feedback.angular_velocity = qty!(0 rad/s);
+        let uncertainty = [0.01; 3];
+        let covariance = Some(glam::DMat2::from_diagonal(DVec2::splat(0.000025)));
+        let inward = [qty!(0.2 m/s); 2];
+        let governor = StoppingGovernor::new(Some(field), options, config);
+        assert_eq!(governor.govern(feedback, uncertainty, covariance, inward), Some(inward));
+        let governor = StoppingGovernor::new(Some(field), options, config);
+        assert_eq!(
+            governor.govern(feedback, uncertainty, covariance, [qty!(-0.2 m/s); 2]),
+            Some([qty!(0 m/s); 2])
+        );
+        let field = field.with_obstacle(DVec2::new(-0.2, -0.5), DVec2::new(0.2, -0.4)).unwrap();
+        let governor = StoppingGovernor::new(Some(field), options, config);
+        assert!(governor.govern(feedback, uncertainty, covariance, inward).is_none());
     }
 
     #[test]
