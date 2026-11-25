@@ -341,6 +341,13 @@ impl ParticleFilter {
             {
                 continue;
             }
+            let model = self.config.beam_model.prepare(
+                beam.distance.value,
+                minimum,
+                beam.max_range.value,
+                sigma,
+                self.config.outlier_weight,
+            );
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
@@ -361,14 +368,7 @@ impl ParticleFilter {
                     beam.max_range.value,
                 );
                 likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
-                    let (hit, likelihood) = self.config.beam_model.likelihood(
-                        beam.distance.value,
-                        distance,
-                        minimum,
-                        beam.max_range.value,
-                        sigma,
-                        self.config.outlier_weight,
-                    );
+                    let (hit, likelihood) = model.likelihood(distance);
                     modeled_weight += particle.weight;
                     hit_evidence += particle.weight * hit;
                     evidence += particle.weight * likelihood;
