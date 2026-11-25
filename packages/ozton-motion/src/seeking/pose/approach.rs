@@ -1,12 +1,12 @@
 //! Clearance-aware point and heading commands.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ozton_math::{
     geometry::{DVec2, Pose, bearing, wrap_heading},
     path::{
         clearance::RectangularClearance,
-        planner::{LatticePlanner, LatticeStep},
+        planner::{LatticePlanner, LatticeStep, ManeuverSearch},
     },
     uom::si::f64::Angle,
 };
@@ -90,20 +90,68 @@ async fn approach<D: PoseDrive>(
         let direction = settings
             .travel
             .map(|d| matches!(d, TravelDirection::Backward));
-        let span =
-            ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::Planner);
         let plan = if clearance.is_none() || preferred.is_some() {
-            ozton_math::path::planner::plan(
+            if let Some(mut search) = ManeuverSearch::new(
                 start,
                 target,
                 config.path_limits(options.track_width),
                 preferred,
                 direction,
-            )
+            ) {
+                let started = Instant::now();
+                let mut slice_started = started;
+                loop {
+                    let span = ozton_diagnostics::profile::Span::new(
+                        ozton_diagnostics::profile::Stage::Planner,
+                    );
+                    let more = search.step();
+                    drop(span);
+                    if !more {
+                        break;
+                    }
+                    // V5 localization runs on the same cooperative executor.
+                    // Keep each uninterrupted planning slice short.
+                    if slice_started.elapsed() >= Duration::from_millis(2) {
+                        session
+                            .drive
+                            .wait_until(Instant::now() + Duration::from_millis(1))
+                            .await;
+                        if !session.drive.motion_active() {
+                            return Err(PoseMotionError::Cancelled);
+                        }
+                        slice_started = Instant::now();
+                    }
+                }
+                ozton_diagnostics::log_row!(
+                    Debug,
+                    "PLAN_SEARCH",
+                    "elapsed_us={}",
+                    started.elapsed().as_micros()
+                );
+                // Always let the tracking worker publish a new observation
+                // before handing control to the trajectory follower.
+                session
+                    .drive
+                    .wait_until(Instant::now() + config.timing.period)
+                    .await;
+                if !session.drive.motion_active() {
+                    return Err(PoseMotionError::Cancelled);
+                }
+                let measured = session.drive.pose();
+                if measured.position.distance(start.position) > options.position_tolerance.value
+                    || wrap_heading(measured.heading - start.heading).value.abs()
+                        > options.heading_tolerance.value
+                {
+                    None
+                } else {
+                    search.finish()
+                }
+            } else {
+                None
+            }
         } else {
             None
         };
-        drop(span);
         if let Some(plan) = plan {
             let result = session
                 .follow(
