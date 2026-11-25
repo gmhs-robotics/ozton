@@ -632,6 +632,8 @@ impl Progress {
 struct GovernorLog {
     active: bool,
     pending: Duration,
+    limited_ticks: u64,
+    total_ticks: u64,
 }
 
 impl GovernorLog {
@@ -658,7 +660,21 @@ impl GovernorLog {
     }
 
     fn observe(&mut self, status: &str, requested: [f64; 2], applied: [f64; 2], dt: Duration) {
-        match self.transition(Self::limited(requested, applied), dt) {
+        let limited = Self::limited(requested, applied);
+        self.total_ticks += 1;
+        if limited {
+            self.limited_ticks += 1;
+            log_row!(
+                Trace,
+                "GOVERNOR_LIMIT",
+                "command={status},requested_left_mps={:.5},requested_right_mps={:.5},applied_left_mps={:.5},applied_right_mps={:.5}",
+                requested[0],
+                requested[1],
+                applied[0],
+                applied[1]
+            );
+        }
+        match self.transition(limited, dt) {
             Some(true) => log_event!(
                 Info,
                 "clearance",
@@ -676,11 +692,19 @@ impl GovernorLog {
                 "motion",
                 "{status}: no progress while clearance governor limits output"
             );
+        } else if self.limited_ticks > 0 {
+            log_event!(
+                Warn,
+                "motion",
+                "{status}: no progress; intermittent clearance limiting ({}/{} samples)",
+                self.limited_ticks,
+                self.total_ticks
+            );
         } else {
             log_event!(
                 Warn,
                 "motion",
-                "{status}: no progress without current clearance limiting"
+                "{status}: no progress without clearance limiting"
             );
         }
     }
