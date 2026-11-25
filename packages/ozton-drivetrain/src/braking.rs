@@ -30,7 +30,6 @@ pub struct MotorAddress {
 
 /// Selective stopping, independent of the motor vendor and drive geometry.
 pub trait BrakeMotors: HasBraking {
-
     /// Apply one stopping mode per selected motor. None leaves its output unchanged.
     /// Attempt every selected motor even if an earlier operation fails.
     fn brake_motors(
@@ -87,7 +86,6 @@ mod tests {
         }
 
         impl BrakeMotors for Mock {
-
             fn brake_motors(
                 &mut self,
                 mut select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
