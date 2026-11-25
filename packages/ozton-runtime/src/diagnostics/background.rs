@@ -15,9 +15,10 @@ use vexide::{
 
 use super::Frame;
 
-// Hardware packets update less often than the 10 ms motion loop. Sampling
-// them separately reduces SD write volume without decimating control traces.
-const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_millis(25);
+// Full motor, battery, and smart-device snapshots are for health diagnostics.
+// Control and localization traces are recorded independently at their own cadence.
+const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
+const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 type Source = dyn Fn(Frame);
 
@@ -49,8 +50,9 @@ pub(crate) fn start_diagnostics() -> Task<()> {
     spawn(async move {
         let mut sequence = 0u64;
         let mut previous_status = None;
+        let mut last_sample = None;
         loop {
-            sleep(HARDWARE_SAMPLE_INTERVAL).await;
+            sleep(STATUS_POLL_INTERVAL).await;
             let status = competition::status();
             if previous_status != Some(status) {
                 crate::log_event!(
@@ -71,11 +73,16 @@ pub(crate) fn start_diagnostics() -> Task<()> {
             if !serial::sd_enabled() {
                 continue;
             }
+            let time = vexide::time::user_uptime();
+            if last_sample.is_some_and(|last| time.saturating_sub(last) < HARDWARE_SAMPLE_INTERVAL) {
+                continue;
+            }
+            last_sample = Some(time);
             sequence += 1;
             let frame = Frame {
                 stamp: serial::Frame {
                     sequence,
-                    time: vexide::time::user_uptime(),
+                    time,
                 },
             };
             frame.row("MODE", format_args!("mode={:?}", status.mode()));

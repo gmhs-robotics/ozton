@@ -46,8 +46,9 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 let autonomous = crate::competition::autonomous_active();
                 let sync_period = Duration::from_secs(if autonomous { 5 } else { 1 });
                 let sync = last_sync.elapsed() >= sync_period || (was_autonomous && !autonomous);
+                let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
-                if last_summary.elapsed() >= Duration::from_secs(1) {
+                if autonomous_ended || last_summary.elapsed() >= Duration::from_secs(5) {
                     ozton_diagnostics::profile::flush_summary();
                     ozton_diagnostics::log_row!(
                         Trace,

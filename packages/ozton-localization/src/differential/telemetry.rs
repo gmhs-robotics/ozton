@@ -1,5 +1,7 @@
 //! Trace the observations and decisions from each localization update.
 
+use std::time::Duration;
+
 use ozton_diagnostics::serial::{Frame, Level};
 use ozton_math::{
     geometry::Pose, localization::observation::RangeObservation, uom::si::f64::Length,
@@ -7,9 +9,13 @@ use ozton_math::{
 
 use crate::localizer::{DistanceReset, Localizer, MAX_RANGES, Update};
 
+const DETAIL_INTERVAL: Duration = Duration::from_millis(50);
+
 #[derive(Default)]
 pub(super) struct Telemetry {
     sequence: u64,
+    last_detail: Option<Duration>,
+    last_reset: Option<&'static str>,
 }
 
 impl Telemetry {
@@ -42,18 +48,31 @@ impl Telemetry {
             update.correction, update.distance_reset_axes, localizer.range_count(),
             update.forward_velocity, update.lateral_velocity, update.angular_velocity,
         ));
-        let [lateral, forward, yaw] = localizer.velocity_uncertainty();
-        frame.record(
-            Level::Trace,
-            "VELOCITY_UNCERTAINTY",
-            format_args!("lateral_sigma_mps={lateral:.4},forward_sigma_mps={forward:.4},yaw_sigma_radps={yaw:.4}"),
-        );
+        let detailed = self.last_reset != Some(reset)
+            || self.last_detail.is_none_or(|last| {
+                frame.time < last || frame.time.saturating_sub(last) >= DETAIL_INTERVAL
+            });
+        self.last_reset = Some(reset);
+        if detailed {
+            self.last_detail = Some(frame.time);
+        }
+        if detailed {
+            let [lateral, forward, yaw] = localizer.velocity_uncertainty();
+            frame.record(
+                Level::Trace,
+                "VELOCITY_UNCERTAINTY",
+                format_args!("lateral_sigma_mps={lateral:.4},forward_sigma_mps={forward:.4},yaw_sigma_radps={yaw:.4}"),
+            );
+        }
         for (source, pose) in [
             ("odometry", Some(update.odometry)),
             ("prediction", Some(update.predicted)),
             ("estimate", Some(update.pose)),
             ("candidate", update.candidate),
         ] {
+            if !detailed && source != "estimate" {
+                continue;
+            }
             if let Some(Pose { position, heading }) = pose {
                 frame.record(
                     Level::Trace,
@@ -77,6 +96,9 @@ impl Telemetry {
                 update.raw.imu.map_or(f64::NAN, |angle| angle.value),
             ),
         );
+        if !detailed {
+            return;
+        }
         for (index, travel) in wheels.iter().copied().enumerate() {
             frame.record(
                 Level::Trace,
