@@ -131,14 +131,55 @@ impl Seeking {
         approach::drive_to_target(drive, point.into(), None, *self).await
     }
 
-    /// Direct point seeking followed by angular PID at the final heading.
+    /// Approach an absolute pose using continuous Boomerang feedback.
     pub async fn move_to_pose<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        target: Pose,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        if !target.is_finite() {
+            return Err(PoseMotionError::Configuration);
+        }
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let field = approach::clearance(drive, self.config.safety.clearance)?;
+        if field.is_some_and(|field| !field.contains_physical_pose(target)) {
+            return Err(PoseMotionError::InsufficientClearance);
+        }
+        let reverse = self.travel.map_or_else(
+            || {
+                ozton_math::geometry::wrap_heading(
+                    ozton_math::geometry::bearing(target.position - drive.pose().position)
+                        - drive.pose().heading,
+                )
+                .value
+                .abs()
+                    > core::f64::consts::FRAC_PI_2
+            },
+            |direction| direction == TravelDirection::Backward,
+        );
+        let mut session = PoseSession::new(drive, options, self.config)?;
+        let result = session
+            .run(
+                crate::basic::differential::DifferentialTarget::DriveToPose {
+                    target,
+                    reverse,
+                    maximum_speed: options.maximum_wheel_speed,
+                },
+                self.config.timing.stage_timeout,
+            )
+            .await;
+        session.finish(result)
+    }
+
+    /// Rotate, drive straight to a position, then settle at its absolute heading.
+    pub async fn move_to_pose_straight<D: PoseDrive>(
         &self,
         drive: &mut D,
         target: Pose,
     ) -> Result<(), PoseMotionError<D::Error>> {
         approach::drive_to_target(drive, target.position, Some(target.heading), *self).await
     }
+
     /// Follow an authored sequence of absolute field poses. Each pose settles
     /// before the next command. A failure stops the sequence, without replanning.
     pub async fn follow_poses<D: PoseDrive>(
@@ -161,7 +202,7 @@ impl Seeking {
                 pose.position.y,
                 pose.heading.value
             );
-            self.move_to_pose(drive, pose).await?;
+            self.move_to_pose_straight(drive, pose).await?;
         }
         Ok(())
     }
