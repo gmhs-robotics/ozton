@@ -4,7 +4,7 @@ use core::f64::consts::PI;
 
 use ozton_math::{
     control::Pid,
-    geometry::{Pose, bearing, wheel_speeds, wrap_heading},
+    geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
     path::{Path, PathSample, progress::Progress},
     uom::si::{
         angular_velocity::radian_per_second,
@@ -90,14 +90,23 @@ impl<'path> ProfiledFollower<'path> {
             .lookahead
             .value
             .max(measured_speed.value.abs() * reaction * 2.0);
+        // Align the feedback and feedforward reference with the same actuator
+        // response horizon. Predict the body pose with the measured twist,
+        // without advancing the actual geometric progress cursor.
+        let delay = (measured_speed.value.abs() * reaction).min(remaining);
+        let reference = path.at_distance(ozton_math::qty!((self.geometric.distance + delay) m));
+        let predicted = pose.integrate(BodyDelta {
+            translation: DVec2::new(0.0, measured_speed.value * reaction),
+            heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
+        });
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
             crate::PathGuidance::Tangent => {
-                let cross = self.geometric.pose.to_local(pose.position).x;
-                let desired = self.geometric.pose.heading
+                let cross = reference.pose.to_local(predicted.position).x;
+                let desired = reference.pose.heading
                     + facing
                     + ozton_math::qty!((cross.atan2(lookahead)) rad);
-                (wrap_heading(desired - pose.heading).value, None)
+                (wrap_heading(desired - predicted.heading).value, None)
             }
             crate::PathGuidance::PurePursuit => {
                 // Classical pure pursuit uses the forward intersection of
@@ -120,7 +129,6 @@ impl<'path> ProfiledFollower<'path> {
         // instead of a fixed spatial offset. Keep the preview short of the
         // terminal zero-speed sample until measured progress reaches it.
         let horizon = reaction.max(dt.as_secs_f64());
-        let delay = (measured_speed.value.abs() * reaction).min(remaining * 0.5);
         let launch = 0.5 * limits.acceleration.value * horizon * horizon;
         let preview = launch
             .max(measured_speed.value.abs() * horizon)
@@ -136,9 +144,7 @@ impl<'path> ProfiledFollower<'path> {
         } else {
             speed * error.cos().max(0.0)
         };
-        let curvature = path
-            .at_distance(ozton_math::qty!((self.geometric.distance + delay) m))
-            .curvature;
+        let curvature = reference.curvature;
         let feedforward = speed * curvature;
         let angular = match (self.guidance, pursuit_curvature) {
             (crate::PathGuidance::PurePursuit, Some(curvature)) => speed * curvature,
@@ -208,7 +214,7 @@ mod tests {
             pose,
             false,
             qty!(0.3 m/s),
-            qty!(2 rad/s),
+            qty!(0.5 rad/s),
             latency,
             core::time::Duration::from_millis(10),
         );

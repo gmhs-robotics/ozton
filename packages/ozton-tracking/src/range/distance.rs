@@ -332,7 +332,11 @@ impl DistanceDevice {
         }
         #[cfg(feature = "logging")]
         if ozton_diagnostics::serial::sd_enabled() {
-            let state = [observation.is_ok(), matches!(observation, Ok(Some(_))), occluded];
+            let state = [
+                observation.is_ok(),
+                matches!(observation, Ok(Some(_))),
+                occluded,
+            ];
             if self.packet_report.due(time, state) {
                 log_row!(
                     Trace,

@@ -51,7 +51,8 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 vexide::time::sleep(delay).await;
                 let autonomous = crate::competition::autonomous_active();
                 let sync_period = Duration::from_secs(if autonomous { 5 } else { 1 });
-                let sync = last_sync.elapsed() >= sync_period || (was_autonomous && !autonomous);
+                let sync = !autonomous
+                    && (last_sync.elapsed() >= sync_period || was_autonomous);
                 let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
                 peak_queue = peak_queue.max(sd::queued_bytes());
@@ -73,6 +74,12 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                     max_flush_us = 0;
                     errors = 0;
                 }
+                // Avoid synchronous SD calls while control is active unless
+                // the bounded staging buffer needs to be drained.
+                if autonomous && !sd::under_pressure() {
+                    delay = Duration::from_millis(40);
+                    continue;
+                }
                 if sync {
                     last_sync = Instant::now();
                 }
@@ -80,7 +87,8 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 let span = ozton_diagnostics::profile::Span::new(
                     ozton_diagnostics::profile::Stage::SdFlush,
                 );
-                let result = sd::flush_chunk(4096, sync);
+                let chunk = if autonomous { 4096 } else { 32 * 1024 };
+                let result = sd::flush_chunk(chunk, sync);
                 drop(span);
                 let elapsed = started.elapsed();
                 max_flush_us = max_flush_us.max(elapsed.as_micros());

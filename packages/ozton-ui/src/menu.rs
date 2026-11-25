@@ -42,15 +42,15 @@ impl<A: Copy + 'static> Ui<A> {
             Self::Brain(display) => {
                 Box::new(RouteMenu::with_default(display, disabled, routes, default))
             }
-            Self::BrainWithBackground(display, background) => Box::new(
-                RouteMenu::with_default_and_background(
+            Self::BrainWithBackground(display, background) => {
+                Box::new(RouteMenu::with_default_and_background(
                     display,
                     disabled,
                     routes,
                     default,
                     Some(background),
-                ),
-            ),
+                ))
+            }
             Self::Custom(build) => {
                 let mut choices = vec![("Disable".into(), disabled)];
                 choices.extend(routes);

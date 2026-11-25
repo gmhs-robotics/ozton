@@ -73,8 +73,9 @@ impl TerminalPose {
             } else {
                 bearing_error.abs()
             };
-            if !slow && (travel_error > core::f64::consts::FRAC_PI_4
-                || (feedback.forward_velocity.value < 0.0) != backing)
+            if !slow
+                && (travel_error > core::f64::consts::FRAC_PI_4
+                    || (feedback.forward_velocity.value < 0.0) != backing)
             {
                 self.phase = Phase::Brake(Duration::ZERO);
                 controller.reset();
@@ -292,8 +293,14 @@ mod tests {
             ranges: [None; _],
             reset_accepted: false,
         };
-        let (wheels, ready, _, _) =
-            terminal.step(&mut controller, Pose::default(), false, feedback, tick, options);
+        let (wheels, ready, _, _) = terminal.step(
+            &mut controller,
+            Pose::default(),
+            false,
+            feedback,
+            tick,
+            options,
+        );
         assert!(!ready);
         assert!(wheels.iter().all(|speed| *speed < 0.0), "{wheels:?}");
     }
