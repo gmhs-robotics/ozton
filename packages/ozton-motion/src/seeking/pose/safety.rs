@@ -478,15 +478,24 @@ mod tests {
         let covariance = Some(glam::DMat2::from_diagonal(DVec2::splat(0.000025)));
         let inward = [qty!(0.2 m/s); 2];
         let governor = StoppingGovernor::new(Some(field), options, config);
-        assert_eq!(governor.govern(feedback, uncertainty, covariance, inward), Some(inward));
+        assert_eq!(
+            governor.govern(feedback, uncertainty, covariance, inward),
+            Some(inward)
+        );
         let governor = StoppingGovernor::new(Some(field), options, config);
         assert_eq!(
             governor.govern(feedback, uncertainty, covariance, [qty!(-0.2 m/s); 2]),
             Some([qty!(0 m/s); 2])
         );
-        let field = field.with_obstacle(DVec2::new(-0.2, -0.5), DVec2::new(0.2, -0.4)).unwrap();
+        let field = field
+            .with_obstacle(DVec2::new(-0.2, -0.5), DVec2::new(0.2, -0.4))
+            .unwrap();
         let governor = StoppingGovernor::new(Some(field), options, config);
-        assert!(governor.govern(feedback, uncertainty, covariance, inward).is_none());
+        assert!(
+            governor
+                .govern(feedback, uncertainty, covariance, inward)
+                .is_none()
+        );
     }
 
     #[test]
