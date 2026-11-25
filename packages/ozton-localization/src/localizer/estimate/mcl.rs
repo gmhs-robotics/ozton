@@ -8,6 +8,7 @@ use ozton_math::{
         mcl::{Beam, BeamQuality, ParticleConfig, ParticleFilter},
         range::{Constraint, Rejection, cast_masked, fit_consensus},
     },
+    path::clearance::WallContact,
     uom::si::f64::Angle,
 };
 
@@ -51,6 +52,10 @@ impl PoseEstimator for Mcl {
     }
     fn reset(&mut self, pose: Pose) {
         self.filter.reset(pose);
+        self.yaw_rate = 0.0;
+    }
+    fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
+        self.filter.reset_at_contact(pose, wall);
         self.yaw_rate = 0.0;
     }
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
