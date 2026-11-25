@@ -2,12 +2,10 @@
 pub use ozton_math::units::Vec3;
 #[doc(hidden)]
 pub use ozton_math::uom;
+use ozton_math::{geometry::DVec2, path::clearance::Footprint};
 #[cfg(test)]
 use uom::ConstZero;
 use uom::si::f64::{Angle, Length};
-
-use ozton_math::{geometry::DVec2, path::clearance::Footprint};
-
 /// A chassis direction used to label a horizontal measurement axis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MountDirection {
@@ -132,7 +130,11 @@ impl MountFrame {
 /// as a sideways tracker, using signed rightward travel and unwrapped CCW yaw.
 /// Use a substantial isolated turn in both directions; this estimates an
 /// effective kinematic parameter, not the physical wheel mounting point.
-pub fn estimate_forward_pivot(tracker_forward: Length, travel: Length, yaw: Angle) -> Option<Length> {
+pub fn estimate_forward_pivot(
+    tracker_forward: Length,
+    travel: Length,
+    yaw: Angle,
+) -> Option<Length> {
     if !tracker_forward.value.is_finite()
         || !travel.value.is_finite()
         || !yaw.value.is_finite()
@@ -175,7 +177,8 @@ mod tests {
         for yaw in [0.0, 0.7, -1.5, 3.0] {
             let survey = Pose::new(DVec2::new(1.0, 2.0), ozton_math::qty!((yaw) rad));
             let pivot = Pose::new(survey.transform_point(offset), survey.heading);
-            let before = survey.transform_point(DVec2::new(sensor.right.value, sensor.forward.value));
+            let before =
+                survey.transform_point(DVec2::new(sensor.right.value, sensor.forward.value));
             let after = pivot.transform_point(DVec2::new(local.right.value, local.forward.value));
             assert!(before.distance(after) < 1e-12);
             let (old_min, old_max) = footprint.bounds(survey);
@@ -183,10 +186,12 @@ mod tests {
             assert!(old_min.distance(new_min) < 1e-12);
             assert!(old_max.distance(new_max) < 1e-12);
         }
-        assert!(MountFrame::new()
-            .with_origin(position_xyz!(0 m, 0 m, 0.1 m))
-            .footprint(footprint)
-            .is_none());
+        assert!(
+            MountFrame::new()
+                .with_origin(position_xyz!(0 m, 0 m, 0.1 m))
+                .footprint(footprint)
+                .is_none()
+        );
     }
 
     #[test]
