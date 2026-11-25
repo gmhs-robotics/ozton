@@ -121,6 +121,34 @@ impl Seeking {
         approach::drive_to_target(drive, point.into(), None, *self).await
     }
 
+    /// Follow absolute transit points without braking at each intermediate target.
+    /// The last point uses normal arrival tolerances and settling. All legs use
+    /// one travel direction (forward by default). The caller must choose clear
+    /// corner-cutting corridors; use a prepared path for exact curve tracking.
+    pub async fn move_through_points<D: MotionExecution>(
+        &self,
+        drive: &mut D,
+        points: &[DVec2],
+        handoff_radius: Length,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let radius = handoff_radius.value;
+        if points.is_empty()
+            || !radius.is_finite()
+            || radius <= options.position_tolerance.value
+            || points.iter().any(|point| !point.is_finite())
+            || points
+                .windows(2)
+                .any(|pair| pair[0].distance(pair[1]) <= 2.0 * radius)
+        {
+            return Err(PoseMotionError::Configuration);
+        }
+        let reverse = self.travel == Some(TravelDirection::Backward);
+        let mut session = PoseSession::new(drive, options, self.config)?;
+        let result = session.through_points(points, radius, reverse).await;
+        session.finish(result)
+    }
+
     /// Approach an absolute pose using continuous Boomerang feedback.
     pub async fn move_to_pose<D: MotionExecution>(
         &self,

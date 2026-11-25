@@ -308,3 +308,32 @@ fn point_seeking_translates_while_correcting_moderate_heading_error() {
         assert!(wheels[0] > wheels[1], "{wheels:?}");
     }
 }
+
+#[test]
+fn transit_point_does_not_apply_endpoint_braking_envelope() {
+    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(1 m/s));
+    let tick = Duration::from_millis(10);
+    let target = DifferentialTarget::DriveToPoint {
+        target: DVec2::new(0.0, 0.08),
+        reverse: false,
+        maximum_speed: options.maximum_wheel_speed,
+    };
+    let feedback = Feedback {
+        time: tick,
+        pose: Pose::default(),
+        forward_travel: Length::ZERO,
+        forward_velocity: ozton_math::qty!(0.5 m/s),
+        lateral_velocity: Velocity::ZERO,
+        angular_velocity: AngularVelocity::ZERO,
+        ranges: [None; _],
+        reset_accepted: false,
+    };
+    let mut terminal = DifferentialFeedback::default();
+    let mut transit = DifferentialFeedback::default();
+    terminal.record_applied_wheels([0.5; 2]);
+    transit.record_applied_wheels([0.5; 2]);
+    let (stopping, _) = terminal.step(target, feedback, tick, options);
+    let (passing, ready) = transit.step_through(target, feedback, tick, options);
+    assert!(!ready);
+    assert!(passing[0] >= stopping[0]);
+}

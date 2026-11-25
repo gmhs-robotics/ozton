@@ -338,6 +338,68 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         .await
     }
 
+    /// Traverse intermediate points in one feedback session, preserving wheel slew.
+    pub(super) async fn through_points(
+        &mut self,
+        points: &[ozton_math::geometry::DVec2],
+        radius: f64,
+        reverse: bool,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let config = self.config;
+        let options = self.options;
+        let mut index = 0;
+        let mut progress = Progress::default();
+        self.execute(
+            config,
+            options,
+            config.timing.stage_timeout,
+            |controller, tick| {
+                if tick.interrupted {
+                    progress = Progress::default();
+                }
+                let next = next_point(points, index, tick.feedback.pose.position, radius);
+                if next != index {
+                    index = next;
+                    controller.reset_feedback();
+                    progress = Progress::default();
+                    tick.warnings.progress_reported = false;
+                    log_row!(Info, "POINT_CHAIN", "index={index}");
+                }
+                let final_point = index + 1 == points.len();
+                let target = DifferentialTarget::DriveToPoint {
+                    target: points[index],
+                    reverse,
+                    maximum_speed: options.maximum_wheel_speed,
+                };
+                let (wheels, ready) = if final_point {
+                    controller.step(target, tick.feedback, tick.dt, options)
+                } else {
+                    controller.step_through(target, tick.feedback, tick.dt, options)
+                };
+                let ready = final_point && ready;
+                if progress.stalled(
+                    target,
+                    tick.feedback,
+                    ready,
+                    tick.dt,
+                    config.timing.progress_timeout,
+                ) {
+                    tick.warnings.progress();
+                } else {
+                    tick.warnings.progress_reported = false;
+                }
+                Ok(ControlCommand {
+                    wheels,
+                    complete: tick.arrived(ready),
+                    brake: ready,
+                    emergency_brake: false,
+                })
+            },
+            &mut |drive, wheels| drive.drive_wheels(wheels),
+        )
+        .await
+    }
+
     /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
     pub(super) async fn follow(
         &mut self,
@@ -546,6 +608,34 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             log_event!(Warn, "motion", "Motion ended: {}", error.reason());
         }
         result
+    }
+}
+
+/// Intermediate points are transit gates, never settled endpoints.
+fn next_point(
+    points: &[ozton_math::geometry::DVec2],
+    mut index: usize,
+    position: ozton_math::geometry::DVec2,
+    radius: f64,
+) -> usize {
+    while index + 1 < points.len() && position.distance(points[index]) <= radius {
+        index += 1;
+    }
+    index
+}
+
+#[cfg(test)]
+mod chain_tests {
+    use super::next_point;
+    use ozton_math::geometry::DVec2;
+
+    #[test]
+    fn intermediate_gate_advances_but_final_point_never_skips() {
+        let points = [DVec2::Y, DVec2::Y * 2.0, DVec2::Y * 3.0];
+        assert_eq!(next_point(&points, 0, DVec2::new(0.0, 0.8), 0.1), 0);
+        assert_eq!(next_point(&points, 0, DVec2::new(0.0, 0.95), 0.1), 1);
+        assert_eq!(next_point(&points, 1, DVec2::Y * 2.0, 0.1), 2);
+        assert_eq!(next_point(&points, 2, DVec2::Y * 3.0, 0.1), 2);
     }
 }
 
