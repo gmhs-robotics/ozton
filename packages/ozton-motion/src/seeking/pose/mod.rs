@@ -122,7 +122,7 @@ impl Seeking {
         Ok(StoppingGovernor::new(field, options, self.config))
     }
 
-    /// Move to a field point in metres without imposing a final heading.
+    /// Direct distance/bearing PID seeking without geometric path search.
     pub async fn move_to_point<D: PoseDrive>(
         &self,
         drive: &mut D,
@@ -131,7 +131,7 @@ impl Seeking {
         approach::drive_to_target(drive, point.into(), None, *self).await
     }
 
-    /// Move to a field pose and settle at its heading.
+    /// Direct point seeking followed by angular PID at the final heading.
     pub async fn move_to_pose<D: PoseDrive>(
         &self,
         drive: &mut D,
@@ -139,6 +139,52 @@ impl Seeking {
     ) -> Result<(), PoseMotionError<D::Error>> {
         approach::drive_to_target(drive, target.position, Some(target.heading), *self).await
     }
+    /// Follow an authored sequence of absolute field poses. Each pose settles
+    /// before the next command. A failure stops the sequence, without replanning.
+    pub async fn follow_poses<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        poses: &[Pose],
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        if poses.iter().any(|pose| !pose.is_finite()) {
+            return Err(PoseMotionError::Configuration);
+        }
+        for (index, &pose) in poses.iter().enumerate() {
+            if !drive.motion_active() {
+                return Err(PoseMotionError::Cancelled);
+            }
+            ozton_diagnostics::log_row!(
+                Info,
+                "POSE_ROUTE",
+                "index={index},x_m={:.5},y_m={:.5},heading_rad={:.5}",
+                pose.position.x,
+                pose.position.y,
+                pose.heading.value
+            );
+            self.move_to_pose(drive, pose).await?;
+        }
+        Ok(())
+    }
+
+    /// Explicit obstacle-aware navigation. The chassis stops before searching,
+    /// and an execution failure is returned rather than triggering another search.
+    pub async fn navigate_to_point<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        point: impl Into<DVec2>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        approach::navigate_to_target(drive, point.into(), None, *self).await
+    }
+
+    /// Explicit continuous Hermite planning with a pre-motion lattice fallback.
+    pub async fn navigate_to_pose<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        target: Pose,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        approach::navigate_to_target(drive, target.position, Some(target.heading), *self).await
+    }
+
     /// Drive a signed distance while preserving the starting heading.
     pub async fn drive_distance<D: PoseDrive>(
         &self,
