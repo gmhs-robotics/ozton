@@ -115,6 +115,12 @@ impl PoseEstimator for Mcl {
                 Err(_) => continue,
             }
             if let Some(limit) = self.config.max_range_residual {
+                // Local tracking with an association gate requires a valid
+                // geometric constraint; grazing and edge returns are not
+                // reliable innovations even when their range residual is small.
+                if report.constraint.is_err() {
+                    continue;
+                }
                 let Some(hit) = cast_masked(predicted, sensor.mount, map, sensor.surface_mask)
                 else {
                     continue;
