@@ -10,7 +10,7 @@ use ozton_math::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
     },
-    path::clearance::Obstacles,
+    path::clearance::{Footprint, Obstacles, RectangularClearance, WallContact},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
@@ -59,6 +59,31 @@ impl DifferentialLocalization {
 }
 
 impl DifferentialLocalization<FieldBoundary> {
+    /// Register the surveyed pose of a chassis flush against a real wall.
+    /// The caller verifies physical contact; a virtual motion exclusion is
+    /// not a valid contact observation.
+    pub fn set_pose_at_contact(
+        &mut self,
+        pose: Pose,
+        footprint: Footprint,
+        wall: WallContact,
+    ) -> bool {
+        let Some(field) = RectangularClearance::new(
+            footprint,
+            self.boundary.half_extents(),
+            Length::default(),
+        ) else {
+            return false;
+        };
+        if !field.touches_wall(pose, wall) || !self.localizer.set_pose_at_contact(pose, wall) {
+            return false;
+        }
+        self.last_reset = DistanceReset::Idle;
+        self.feedback = Ok(None);
+        self.wheels.observe(&[]);
+        true
+    }
+
     /// Update containment dimensions without removing the boundary.
     /// The new dimensions must already have been validated.
     pub fn set_motion_bounds(&mut self, boundary: FieldBoundary) {
