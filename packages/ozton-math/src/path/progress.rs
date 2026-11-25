@@ -82,7 +82,14 @@ impl<'path> Progress<'path> {
     /// First forward intersection with a circle about the robot.
     pub fn lookahead(&self, position: DVec2, radius: f64) -> DVec2 {
         let path = self.path;
-        for pair in path.samples[self.segment..].windows(2).take(128) {
+        // Bound the search in metres, not samples: dense host-generated paths
+        // must not shorten the geometric lookahead at speed.
+        let anchor = path.at_distance(crate::qty!((self.distance) m)).pose.position;
+        let maximum = self.distance + position.distance(anchor) + 2.0 * radius;
+        for pair in path.samples[self.segment..].windows(2) {
+            if pair[0].distance > maximum {
+                break;
+            }
             let (a, b) = (pair[0], pair[1]);
             let [_, exit] = circle_segment_fractions(
                 position,
@@ -99,5 +106,27 @@ impl<'path> Progress<'path> {
         path.at_distance(crate::qty!((self.distance + radius) m))
             .pose
             .position
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{path::{Limits, Waypoint}, qty};
+
+    #[test]
+    fn dense_path_lookahead_reaches_the_circle() {
+        let limits = Limits::from_units(
+            qty!(0.33 m), qty!(1 m/s), qty!(1 m/s),
+            qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2),
+        );
+        let points: Vec<_> = (0..=100)
+            .map(|i| Waypoint::new(DVec2::new(0.0, i as f64 * 0.002), 1.0))
+            .chain((1..=500).map(|i| Waypoint::new(DVec2::new(i as f64 * 0.002, 0.2), 1.0)))
+            .collect();
+        let path = Path::new(&points, limits).unwrap();
+        let progress = Progress::new(&path);
+        let carrot = progress.lookahead(DVec2::ZERO, 0.6);
+        assert!((carrot.length() - 0.6).abs() < 1e-6, "{carrot:?}");
     }
 }
