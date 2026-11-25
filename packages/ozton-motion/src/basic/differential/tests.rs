@@ -339,3 +339,45 @@ fn transit_point_does_not_apply_endpoint_braking_envelope() {
     assert!(!ready);
     assert!(passing[0] > stopping[0], "{passing:?} vs {stopping:?}");
 }
+
+#[test]
+fn point_direction_is_reacquired_after_terminal_reset() {
+    let options =
+        DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let mut controller = DifferentialFeedback::default();
+    let tick = Duration::from_millis(10);
+    let feedback = Feedback {
+        time: tick,
+        pose: Pose::default(),
+        forward_travel: Length::ZERO,
+        forward_velocity: Velocity::ZERO,
+        lateral_velocity: Velocity::ZERO,
+        angular_velocity: AngularVelocity::ZERO,
+        ranges: [None; _],
+        reset_accepted: false,
+    };
+    controller.step(
+        DifferentialTarget::DriveToPoint {
+            target: DVec2::new(0.0, -0.2),
+            reverse: true,
+            maximum_speed: options.maximum_wheel_speed,
+        },
+        feedback,
+        tick,
+        options,
+    );
+    assert_eq!(controller.point_backing, Some(true));
+    controller.reset();
+    let (wheels, _) = controller.step(
+        DifferentialTarget::DriveToPoint {
+            target: DVec2::new(0.0, 0.2),
+            reverse: false,
+            maximum_speed: options.maximum_wheel_speed,
+        },
+        feedback,
+        tick,
+        options,
+    );
+    assert_eq!(controller.point_backing, Some(false));
+    assert!(wheels.iter().all(|speed| *speed > 0.0), "{wheels:?}");
+}
