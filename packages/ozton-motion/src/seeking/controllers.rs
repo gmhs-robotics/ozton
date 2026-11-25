@@ -112,7 +112,7 @@ pub mod capabilities {
             heading: Angle,
         ) -> MotionResult<D>
         where
-            D::Error: From<D::WheelError>,;
+            D::Error: From<D::WheelError>;
     }
 
     /// Follow a prepared trajectory using this controller's tracking law.
@@ -337,7 +337,7 @@ impl SwingToHeading for Basic {
         heading: Angle,
     ) -> MotionResult<D>
     where
-        D::Error: From<D::WheelError>
+        D::Error: From<D::WheelError>,
     {
         self.engine.swing_to_heading(drive, heading).await
     }

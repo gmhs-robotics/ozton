@@ -30,7 +30,7 @@ pub(super) async fn drive_to_target<D: MotionExecution>(
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
-    let mut session = PoseSession::new(drive, options, settings.config())?;
+    let mut session = PoseSession::new(drive, options, settings.config)?;
     let result = if final_heading.is_some() {
         direct(&mut session, position, final_heading, settings).await
     } else {
