@@ -3,7 +3,7 @@
 pub mod ekf;
 pub mod mcl;
 pub mod odometry;
-pub use mcl::Mcl;
+pub use mcl::{Mcl, MclConfig};
 pub mod range;
 
 pub mod wheel_fit;

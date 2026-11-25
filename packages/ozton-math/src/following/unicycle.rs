@@ -150,18 +150,27 @@ impl PolarPose {
         (self.k_rho, self.k_alpha, self.k_beta)
     }
 
-    /// Forward/yaw request with a caller-supplied stopping-speed bound.
+    /// Textbook polar-coordinate law: v = k_rho*rho,
+    /// omega = k_alpha*alpha + k_beta*beta. All errors use SI units.
+    pub fn twist(self, rho: f64, alpha: f64, beta: f64, reverse: bool) -> [f64; 2] {
+        let speed = self.k_rho * rho;
+        [
+            if reverse { -speed } else { speed },
+            self.k_alpha * alpha + self.k_beta * beta,
+        ]
+    }
+
+    /// Constrained pose adapter. The stopping bound and heading projection
+    /// are application constraints, not part of the polar feedback law.
     pub fn calculate(self, pose: Pose, target: Pose, reverse: bool, max_speed: f64) -> [f64; 2] {
         let delta = target.position - pose.position;
         let facing = crate::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let direction = bearing(delta);
         let alpha = wrap_heading(direction - pose.heading - facing).value;
         let beta = wrap_heading(target.heading + facing - direction).value;
-        let speed = (self.k_rho * delta.length()).min(max_speed) * libm::cos(alpha).max(0.0);
-        [
-            if reverse { -speed } else { speed },
-            self.k_alpha * alpha + self.k_beta * beta,
-        ]
+        let [linear, angular] = self.twist(delta.length(), alpha, beta, reverse);
+        let speed = linear.abs().min(max_speed) * libm::cos(alpha).max(0.0);
+        [if reverse { -speed } else { speed }, angular]
     }
 }
 

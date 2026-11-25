@@ -60,6 +60,7 @@ impl OdometrySettings {
 pub struct RangeRequired;
 
 /// Assemble an estimator from the measured tracking layout, without sampling hardware.
+#[must_use]
 pub struct LocalizationBuilder<B = (), R = ()> {
     field: FieldMap<B>,
     estimator: Estimator,

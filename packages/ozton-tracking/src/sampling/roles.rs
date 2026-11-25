@@ -80,6 +80,7 @@ impl<R: RangeBank> RangeRole for R {
 
 /// Inline, role-based sensor composition. The roles determine the available
 /// capabilities; the extra bank accepts any supported source collection.
+#[must_use]
 pub struct Sources<D = (), H = (), R = (), E = ()> {
     pub(super) drive: D,
     orientation: H,

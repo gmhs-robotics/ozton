@@ -37,6 +37,9 @@ pub struct ParticleConfig {
     pub max_correction_yaw_rate: Option<AngularVelocity>,
 }
 
+/// Configuration of the Monte Carlo localizer.
+pub type MclConfig = ParticleConfig;
+
 impl Default for ParticleConfig {
     fn default() -> Self {
         Self::DEFAULT
@@ -63,6 +66,36 @@ impl ParticleConfig {
     #[must_use]
     pub const fn with_particles(mut self, count: usize) -> Self {
         self.count = count;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_initial_spread(mut self, spread: DVec3) -> Self {
+        self.initial_spread = spread;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_motion_noise(mut self, noise: DVec3) -> Self {
+        self.motion_noise = noise;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_range_sigma(mut self, sigma: Length) -> Self {
+        self.range_sigma = sigma;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_outlier_weight(mut self, weight: f64) -> Self {
+        self.outlier_weight = weight;
         self
     }
 
