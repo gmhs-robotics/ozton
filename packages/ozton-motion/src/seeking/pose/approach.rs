@@ -241,27 +241,17 @@ async fn lattice_approach<D: PoseDrive>(
     let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
-    let find = |start| {
-        let plan = |field| {
-            planner.plan(
-                field,
-                start,
-                target.position,
-                final_heading,
-                direction,
-                options.track_width,
-            )
-        };
-        preferred
-            .as_ref()
-            .and_then(|field| plan(Some(field)))
-            .or_else(|| plan(clearance.as_ref()))
-    };
-    let mut route = find(session.drive.pose());
+    let mut route = lattice_plan(
+        session, planner, preferred, clearance, target, final_heading, direction,
+    )
+    .await?;
     if route.is_none() {
         if let Some(field) = clearance.filter(|field| !field.can_turn(session.drive.pose())) {
             depart_wall(session, field, target, config.timing.stage_timeout, config).await?;
-            route = find(session.drive.pose());
+            route = lattice_plan(
+                session, planner, preferred, clearance, target, final_heading, direction,
+            )
+            .await?;
         }
     }
     for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
@@ -326,6 +316,54 @@ async fn lattice_approach<D: PoseDrive>(
         );
         Err(PoseMotionError::PositionUnsettled)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn lattice_plan<D: PoseDrive>(
+    session: &mut PoseSession<'_, D>,
+    planner: LatticePlanner,
+    preferred: Option<RectangularClearance>,
+    clearance: Option<RectangularClearance>,
+    target: Pose,
+    heading: Option<Angle>,
+    direction: Option<bool>,
+) -> MotionResult<D, Option<Vec<LatticeStep>>> {
+    let start = session.drive.pose();
+    let track_width = session.options.track_width;
+    let drive = &mut *session.drive;
+    let mut slice_started = Instant::now();
+    for field in [preferred.as_ref(), clearance.as_ref()] {
+        if field.is_none() && clearance.is_some() {
+            continue;
+        }
+        let route = planner
+            .plan_cooperative(
+                field,
+                start,
+                target.position,
+                heading,
+                direction,
+                track_width,
+                async || {
+                    if slice_started.elapsed() >= Duration::from_millis(2) {
+                        drive.wait_until(Instant::now() + Duration::from_millis(1)).await;
+                        slice_started = Instant::now();
+                    }
+                    drive.motion_active()
+                },
+            )
+            .await;
+        if !drive.motion_active() {
+            return Err(PoseMotionError::Cancelled);
+        }
+        if route.is_some() {
+            return Ok(route);
+        }
+        if preferred.is_none() {
+            break;
+        }
+    }
+    Ok(None)
 }
 
 async fn depart_wall<D: PoseDrive>(
