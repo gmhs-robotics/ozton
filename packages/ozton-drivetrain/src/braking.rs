@@ -14,6 +14,13 @@ pub enum BrakeMode {
     Hold,
 }
 
+/// An actuator that supports explicit stopping modes, independent of its vendor.
+pub trait HasBraking {
+    type BrakeError;
+
+    fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError>;
+}
+
 /// A motor's location in the model's fixed wheel-group and motor order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MotorAddress {
@@ -22,8 +29,7 @@ pub struct MotorAddress {
 }
 
 /// Selective stopping, independent of the motor vendor and drive geometry.
-pub trait BrakeMotors {
-    type BrakeError;
+pub trait BrakeMotors: HasBraking {
 
     /// Apply one stopping mode per selected motor. None leaves its output unchanged.
     /// Attempt every selected motor even if an earlier operation fails.
@@ -33,7 +39,7 @@ pub trait BrakeMotors {
     ) -> Result<(), Self::BrakeError>;
 
     fn brake_all(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
-        self.brake_motors(|_| Some(mode))
+        self.apply_brake(mode)
     }
 }
 
@@ -61,19 +67,8 @@ impl WheelCommand {
 /// A differential drive capable of mixing velocity output and explicit stops.
 /// Keeping this capability separate permits hardware-independent PoseDrive
 /// implementations that cannot actively hold individual wheel groups.
-pub trait WheelCommandDrive: crate::PoseDrive {
+pub trait WheelCommandDrive: crate::PoseDrive + HasBraking {
     fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error>;
-}
-
-#[cfg(feature = "vex")]
-impl From<BrakeMode> for vexide::smart::motor::BrakeMode {
-    fn from(mode: BrakeMode) -> Self {
-        match mode {
-            BrakeMode::Coast => Self::Coast,
-            BrakeMode::Brake => Self::Brake,
-            BrakeMode::Hold => Self::Hold,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -83,8 +78,15 @@ mod tests {
     #[test]
     fn selective_modes_and_mixed_commands_preserve_intent() {
         struct Mock([Option<BrakeMode>; 3]);
-        impl BrakeMotors for Mock {
+        impl HasBraking for Mock {
             type BrakeError = core::convert::Infallible;
+
+            fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
+                self.brake_motors(|_| Some(mode))
+            }
+        }
+
+        impl BrakeMotors for Mock {
 
             fn brake_motors(
                 &mut self,
