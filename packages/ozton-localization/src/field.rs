@@ -114,12 +114,14 @@ impl Boundary for FieldBoundary {
     }
 }
 
-/// Unified 2.5D field geometry. Range masks and XY obstacle footprints are
-/// derived from the same faces; object groups carry policy, not duplicate coordinates.
+/// Surveyed 2.5D range geometry and independent virtual motion constraints.
+/// Physical obstacle footprints are derived from their surveyed faces; virtual
+/// obstacles never enter the range map.
 #[derive(Default)]
 pub struct FieldMap<B = ()> {
     faces: Vec<Surface>,
     objects: Vec<Object>,
+    motion_only: Vec<ConvexPolygon>,
     boundary: B,
 }
 
@@ -129,6 +131,7 @@ impl From<Field> for FieldMap<FieldBoundary> {
             faces: field.surfaces().into(),
             boundary: FieldBoundary(point(field.max.right, field.max.forward)),
             objects: Vec::new(),
+            motion_only: Vec::new(),
         }
     }
 }
@@ -140,6 +143,7 @@ impl<B: Boundary> FieldMap<B> {
         Some(FieldMap {
             faces: self.faces,
             objects: self.objects,
+            motion_only: self.motion_only,
             boundary: FieldBoundary::new(half_extents)?,
         })
     }
@@ -162,6 +166,35 @@ impl<B: Boundary> FieldMap<B> {
             faces: start..self.faces.len(),
             policy,
         });
+        true
+    }
+
+    /// Register a virtual hard obstacle without adding any reflecting surfaces.
+    /// It is included in path planning and predictive stopping, not MCL, EKF
+    /// or distance resets. Coordinates are field-relative SI metres.
+    pub fn add_motion_box(&mut self, min: DVec2, max: DVec2) -> bool {
+        let Some(polygon) = ConvexPolygon::rectangle(min, max) else {
+            return false;
+        };
+        self.append_motion_only(polygon)
+    }
+
+    /// Register a virtual convex exclusion zone, without any sensor height.
+    pub fn add_motion_polygon(&mut self, vertices: &[DVec2]) -> bool {
+        let Some(polygon) = ConvexPolygon::new(vertices) else {
+            return false;
+        };
+        self.append_motion_only(polygon)
+    }
+
+    fn append_motion_only(&mut self, polygon: ConvexPolygon) -> bool {
+        let Some(projection) = self.motion_projection() else {
+            return false;
+        };
+        if projection.fixed.iter().all(Option::is_some) {
+            return false;
+        }
+        self.motion_only.push(polygon);
         true
     }
 
@@ -248,6 +281,9 @@ impl<B: Boundary> FieldMap<B> {
                 ObjectPolicy::Movable => &mut projection.movable,
             };
             *slots.iter_mut().find(|slot| slot.is_none())? = Some(polygon);
+        }
+        for &polygon in &self.motion_only {
+            *projection.fixed.iter_mut().find(|slot| slot.is_none())? = Some(polygon);
         }
         Some(projection)
     }
@@ -406,6 +442,45 @@ mod tests {
         assert_eq!(projection.boundary.half_extents(), DVec2::new(1.0, 1.5));
         assert_eq!(projection.fixed[0].unwrap().bounds(), fixed);
         assert_eq!(projection.movable[0].unwrap().bounds(), movable);
+    }
+
+    #[test]
+    fn virtual_obstacles_are_hard_motion_constraints_without_range_faces() {
+        use ozton_math::{
+            geometry::Pose,
+            localization::range::cast_masked,
+            path::clearance::{Footprint, RectangularClearance},
+            qty,
+        };
+        let mut field = FieldMap::from(Field::METAL);
+        let sensor = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg));
+        let before = field.range_config(sensor);
+        let initial_faces: Vec<_> = field.surfaces().collect();
+        let initial_hit = cast_masked(
+            Pose::default(), before.mount, &initial_faces, before.surface_mask,
+        ).unwrap();
+        let min = DVec2::new(-0.5, 0.4);
+        let max = DVec2::new(0.5, 0.5);
+        assert!(field.add_motion_box(min, max));
+        assert!(!field.add_motion_box(max, min));
+        let after = field.range_config(sensor);
+        let faces: Vec<_> = field.surfaces().collect();
+        assert_eq!(faces.len(), initial_faces.len());
+        assert_eq!(after.surface_mask, before.surface_mask);
+        let hit = cast_masked(Pose::default(), after.mount, &faces, after.surface_mask).unwrap();
+        assert_eq!(hit.distance, initial_hit.distance);
+        let projection = field.motion_projection().unwrap();
+        assert_eq!(projection.fixed[0].unwrap().bounds(), (min, max));
+        let mut clearance = RectangularClearance::new(
+            Footprint::new(qty!(6 in), qty!(6 in)).unwrap(),
+            projection.boundary.half_extents(),
+            qty!(0 in),
+        ).unwrap();
+        for polygon in projection.fixed.into_iter().flatten() {
+            clearance = clearance.with_polygon(polygon).unwrap();
+        }
+        assert!(!clearance.contains_translation(Pose::default(), DVec2::new(0.0, 0.8)));
+        assert!(clearance.contains_translation(Pose::default(), DVec2::new(0.0, -0.8)));
     }
 
     #[test]
