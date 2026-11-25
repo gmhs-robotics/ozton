@@ -17,7 +17,10 @@ pub enum PoseMotionError<E> {
     Mechanism(Box<dyn Error>),
     Drive(E),
     StopFailed(E),
-    StopFailedAfter { cause: Box<Self>, stop: E },
+    StopFailedAfter {
+        cause: Box<Self>,
+        stop: E,
+    },
 }
 
 impl<E> PoseMotionError<E> {
