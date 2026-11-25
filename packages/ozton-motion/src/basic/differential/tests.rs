@@ -245,3 +245,34 @@ fn boomerang_steers_toward_carrot_and_settles_at_pose() {
     assert!(ready);
     assert_eq!(wheels, [0.0; 2]);
 }
+
+#[test]
+fn swing_moves_only_the_outer_wheel() {
+    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let dt = Duration::from_millis(10);
+    for hold_left in [true, false] {
+        let angle = if hold_left { 1.0 } else { -1.0 };
+        let mut controller = DifferentialFeedback::default();
+        let (wheels, ready) = controller.step(
+            DifferentialTarget::Swing {
+                heading: ozton_math::qty!((angle) rad),
+                hold_left,
+            },
+            Feedback {
+                time: dt,
+                pose: Pose::default(),
+                forward_travel: Length::ZERO,
+                forward_velocity: Velocity::ZERO,
+                lateral_velocity: Velocity::ZERO,
+                angular_velocity: AngularVelocity::ZERO,
+                ranges: [None; _],
+                reset_accepted: false,
+            },
+            dt,
+            options,
+        );
+        assert!(!ready);
+        assert_eq!(wheels[usize::from(!hold_left)], 0.0);
+        assert!(wheels[usize::from(hold_left)] > 0.0);
+    }
+}
