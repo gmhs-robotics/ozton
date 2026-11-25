@@ -24,7 +24,7 @@ motion.move_to_point(&mut drivetrain, ozton::position_xy!(8 in, 12 in)).await?;
 motion.move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
 
-Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` requires a final heading and can plan a continuous trajectory. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
+Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `move_to_pose` uses allocation-free Boomerang feedback toward a final heading. Use `move_to_pose_straight` or `follow_poses` for settled straight legs and stationary turns. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
 
 ## Typed driver assistance
 
@@ -68,7 +68,7 @@ A command finishes when the applicable error and velocity tolerances remain sati
 
 ## Following a prepared path
 
-Create a Path from waypoints and physical limits in ozton::math::path. Use Seeking::follow_path with a profiled Follower (RAMSETE or PurePursuit). The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+Build a Path on the host from waypoints and physical limits in ozton::math::path, then embed its samples and load with Path::from_precomputed. Use Seeking::follow_path for Pure Pursuit or Seeking::follow_trajectory for RAMSETE. Use follow_with_actions for an explicit follower and mechanism callbacks. The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
 ## Wheel-constrained trajectories
@@ -105,7 +105,7 @@ or MCL expands the projected bounds by the configured sigma multiplier.
 Odometry-only or custom estimators without covariance use the configured
 clearance margin, not invented covariance. Test the resulting AABB against
 the physical perimeter and hard obstacles. The configured clearance is also a
-preferred planning reserve at the wall. When the nominal chassis fits within
+preferred motion reserve at the wall. When the nominal chassis fits within
 that reserve, its predictive stopping envelope may consume the reserve as long
 as it remains within the physical wall and clears hard obstacles. When the
 nominal chassis already occupies the reserve, recovery may leave the deficit
@@ -135,27 +135,9 @@ ellipse as a deterministic containment guarantee. Characterize forward/yaw
 acceleration bounds, braking, latency and lateral stopping with physical tests.
 Configure these independently of the nominal trajectory limits.
 
-## Orientation-aware routing
+## Authored routes
 
-Seeking first tries a continuous Hermite maneuver for a pose goal. If none is
-feasible, or if a running pose trajectory is blocked by clearance or tracking
-deviation, LatticePlanner searches position and heading with bounded A-star,
-using swept straight translations and actual shortest in-place rotations.
-Exact connectors reach the requested pose without grid snapping. Adjacent
-straight edges are merged. The discrete planner is bounded and can miss
-feasible curved routes; the existing wall departure arc remains a recovery
-option. Prefer plans avoiding movable objects, but never turn them into hard
-runtime clearance constraints. The standalone visibility-graph AStar remains
-available for position-only planning.
-
-Point and pose navigation can replan after clearance-limited progress or
-position deviation. Replanning requires an active stop, fresh trusted feedback,
-a settled chassis and a valid stopping envelope. A bounded search that cannot
-find a feasible continuation returns `PoseMotionError::NoRoute` only from that
-verified state. Hardware faults, stale/untrusted tracking, competition mode
-changes and physically unsafe stopping envelopes still propagate. Explicit
-straight distances, arcs and prepared paths retain their specified geometry;
-path actions are not silently replayed or relocated onto a new path.
+No command searches for another geometric route. Direct feedback follows the selected target; prepared trajectories preserve the supplied curve and speed profile. A clearance failure is reported rather than retried as a different maneuver. Choose explicit straight poses when stationary turns are required, and build a single continuous PathChain or authored curve on the host when uninterrupted motion is required.
 
 The command slew limiter records the wheel targets actually sent after wall
 governance. Releasing a safety limit therefore resumes from the constrained
@@ -175,9 +157,7 @@ be below the configured minimum or zero. Profiled path tracking is unchanged
 until terminal feedback takes over. Characterize linear and rotational
 breakaway rates on the actual chassis rather than assuming universal values.
 
-Path construction reuses segment lengths, the Hermite planner reuses its waypoint
-buffer and skips clearance testing candidates slower than an already valid best
-route. Path progress keeps a monotonic segment cursor instead of searching and
+Host path construction reuses segment lengths. Path progress keeps a monotonic segment cursor instead of searching and
 interpolating full pose/time profiles for every closest-point projection. Terminal
 feedback skips the moving-reference calculation when it will not be used.
 
