@@ -18,6 +18,9 @@ pub trait TrackingSources {
     const DIFFERENTIAL_COUNT: usize;
 
     #[doc(hidden)]
+    const GUARANTEED_RANGE_COUNT: usize;
+
+    #[doc(hidden)]
     fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError>;
 
     #[doc(hidden)]
@@ -37,6 +40,7 @@ impl TrackingSources for () {
     const SOURCE_COUNT: usize = 0;
 
     const DIFFERENTIAL_COUNT: usize = 0;
+    const GUARANTEED_RANGE_COUNT: usize = 0;
 
     fn describe(&self, _: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
         Ok(())
@@ -58,6 +62,7 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     const SOURCE_COUNT: usize = N;
 
     const DIFFERENTIAL_COUNT: usize = N * S::DIFFERENTIAL_ENCODERS as usize;
+    const GUARANTEED_RANGE_COUNT: usize = N * S::RANGE_SLOTS;
 
     fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
         for (index, source) in self.iter().enumerate() {
@@ -110,6 +115,7 @@ macro_rules! tracking_tuples {
             const SOURCE_COUNT: usize = [$(stringify!($name)),+].len();
 
             const DIFFERENTIAL_COUNT: usize = 0 $(+ $name::DIFFERENTIAL_ENCODERS as usize)+;
+            const GUARANTEED_RANGE_COUNT: usize = 0 $(+ $name::RANGE_SLOTS)+;
 
             fn describe(&self, layout: &mut SourceLayout) -> Result<(), super::TrackingBuildError> {
                 $(layout.register($index, &self.$index)?;)+
@@ -200,7 +206,7 @@ impl<'a> Capture<'a> {
         }
     }
 
-    fn sample(&mut self, index: usize, source: &mut impl TrackingSource) {
+    pub fn sample(&mut self, index: usize, source: &mut impl TrackingSource) {
         let range_index = self
             .range_layout
             .get(self.next_range)

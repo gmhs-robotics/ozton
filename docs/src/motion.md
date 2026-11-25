@@ -8,7 +8,7 @@ Seeking executes distances, turns, point and pose goals, arcs and prepared paths
 
 ## A first closed-loop move
 
-Once the localized drive has a registered starting pose, call the following from your autonomous callback:
+PoseDrive requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. Bounded motion still requires a valid field map. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
 use ozton::{qty, position_xyh, motion::{Seeking, SettlingConfig}};

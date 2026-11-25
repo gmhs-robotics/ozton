@@ -66,8 +66,9 @@ impl std::fmt::Display for TrackingBuildError {
 impl std::error::Error for TrackingBuildError {}
 
 mod sources;
+#[doc(hidden)]
+pub use sources::{Capture, SourceLayout};
 pub use sources::TrackingSources;
-use sources::{Capture, SourceLayout};
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
 pub struct Tracking<S, D = ()> {
@@ -85,6 +86,8 @@ impl<S: TrackingSources, const I: usize> TrackingSystem for Tracking<S, DriveSou
 where
     Self: SourceAt<I, Source = DifferentialTracking>,
 {
+    const HAS_SELECTED_DRIVE: bool = true;
+
     fn selected_drive(&self) -> Option<&DifferentialTracking> {
         Some(self.source_at())
     }
@@ -97,6 +100,10 @@ impl<S: TrackingSources> Tracking<S> {
             assert!(
                 S::DIFFERENTIAL_COUNT <= 1,
                 "tracking may contain at most one differential encoder source"
+            );
+            assert!(
+                S::GUARANTEED_RANGE_COUNT <= MAX_RANGES,
+                "tracking exceeds the supported number of range sources"
             );
         }
         let mut layout = SourceLayout::default();
@@ -115,6 +122,18 @@ impl<S: TrackingSources> Tracking<S> {
 
     /// Select the calibrated differential wheel source at assembly time.
     /// Invalid indices and sources of the wrong type fail to compile.
+    ///
+    /// ```compile_fail
+    /// use ozton_tracking::{Tracking, TrackingSource, MeasurementSink};
+    /// struct HeadingOnly;
+    /// impl TrackingSource for HeadingOnly {
+    ///     fn sample(&mut self, _: &mut MeasurementSink<'_>) {}
+    /// }
+    /// async fn wrong_source() {
+    ///     let tracking = Tracking::new((HeadingOnly,)).await.unwrap();
+    ///     let _ = tracking.with_drive_source::<0>();
+    /// }
+    /// ```
     #[cfg(feature = "vex")]
     pub fn with_drive_source<const I: usize>(self) -> Tracking<S, DriveSource<I>>
     where

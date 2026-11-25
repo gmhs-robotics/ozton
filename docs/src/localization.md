@@ -28,12 +28,12 @@ let localization = LocalizationBuilder::new()
         .with_drive_encoders(DriveEncoderUse::ForwardAndHeading))
     .build(tracking.observation_layout())
     .expect("check tracking geometry");
-let drivetrain = Drivetrain::new(model, tracking, localization);
+let drivetrain = Drivetrain::new(model.with_footprint(footprint), tracking, localization);
 ```
 
-The drive-source selection requires a concrete calibrated differential source at tuple index 0. This is a compile-time capability, not a runtime geometry lookup. A tracking configuration without that selection can still be sampled and localized but cannot command calibrated wheel speeds or use differential pose seeking.
+The drive-source selection requires a concrete calibrated differential source at tuple index 0. This is a compile-time capability, not a runtime geometry lookup. A tracking configuration without a differential encoder source can still be sampled and localized with other sources. If a differential encoder source is present, select it before starting the built-in localization worker. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time. Geometry supplied by custom runtime-configured sources is still checked at assembly.
 
-The fragment is not a complete robot; field, model and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
+The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
 ## Choose an estimator
 

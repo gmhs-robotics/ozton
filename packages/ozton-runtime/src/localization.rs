@@ -36,6 +36,12 @@ where
     Tracking<S, D>: TrackingSystem,
 {
     fn sample(&mut self, tracking: &mut Tracking<S, D>) {
+        const {
+            assert!(
+                S::DIFFERENTIAL_COUNT == 0 || <Tracking<S, D> as TrackingSystem>::HAS_SELECTED_DRIVE,
+                "select the differential encoder source with with_drive_source before running localization"
+            );
+        }
         let width = tracking.selected_drive().map(|source| source.track_width());
         let span = crate::profile::Span::new(crate::profile::Stage::Tracking);
         let sample = tracking.sample(self.occluded());

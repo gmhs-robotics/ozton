@@ -51,6 +51,9 @@ pub use sensor::RotarySensor;
 
 /// A tracking configuration. Optional reporting is not a motion capability.
 pub trait TrackingSystem {
+    /// Whether a calibrated differential drive source has been selected.
+    const HAS_SELECTED_DRIVE: bool = false;
+
     /// Observe the explicitly selected source for diagnostics and generic
     /// observation ingestion. Physical wheel commands require HasDriveWheels.
     #[doc(hidden)]
@@ -124,6 +127,10 @@ pub type SourceInitialization<'a> = Option<
 pub trait TrackingSource {
     /// Whether this concrete source supplies differential encoder observations.
     const DIFFERENTIAL_ENCODERS: bool = false;
+
+    /// Number of guaranteed range slots supplied by this concrete source.
+    /// Optional runtime-configured custom mounts are validated at assembly.
+    const RANGE_SLOTS: usize = 0;
 
     fn initialize(&mut self) -> SourceInitialization<'_> {
         None

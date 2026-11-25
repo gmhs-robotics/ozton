@@ -235,6 +235,8 @@ impl Distances {
 }
 
 impl crate::TrackingSource for DistanceTracker {
+    const RANGE_SLOTS: usize = 1;
+
     // Range sources are optional pose observations. A disconnected or slowly
     // booting sensor must not delay Tracking::new. Runtime packet validation
     // establishes readiness and requires a fresh packet before emitting data.
