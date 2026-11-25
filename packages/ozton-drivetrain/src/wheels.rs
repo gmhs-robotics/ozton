@@ -4,7 +4,7 @@ use core::{error::Error, fmt};
 use ozton_tracking::odometric::{SharedMotors, Wheels};
 use vexide::smart::PortError;
 
-use crate::WheelCommand;
+use crate::{HasBraking, WheelCommand};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WheelSpeedError {
@@ -45,7 +45,7 @@ pub(crate) fn drive_commands(
     for (group, (motors, command)) in motors.iter_mut().zip(commands).enumerate() {
         for (index, motor) in motors.borrow_mut().iter_mut().enumerate() {
             let written = match *command {
-                WheelCommand::Brake(mode) => motor.brake(mode.into()),
+                WheelCommand::Brake(mode) => motor.apply_brake(mode),
                 WheelCommand::Velocity(speed) => wheels
                     .meters_per_turn(group, index, motor)
                     .and_then(|travel| {
