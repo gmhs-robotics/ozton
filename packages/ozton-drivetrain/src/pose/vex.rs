@@ -15,7 +15,7 @@ use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 
 use super::{PoseDrive, RangeResetDrive};
 use crate::{
-    Drive, Drivetrain, Footprint, MotorGroups,
+    BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint, WheelCommand, WheelCommandDrive,
     model::{Differential, MotionGeometryFor, WheelSpeedError},
 };
 
@@ -100,15 +100,8 @@ where
     }
 
     fn emergency_brake(&mut self) -> Result<(), Self::Error> {
-        // VEX velocity targets select Coast, even at zero RPM. Explicitly
-        // request electrical braking on every motor, including after a fault.
-        let mut result = Ok(());
-        for group in self.model.motor_groups() {
-            result = result.and(crate::vex::each_motor(&mut group.borrow_mut(), |motor| {
-                motor.brake(vexide::smart::motor::BrakeMode::Brake)
-            }));
-        }
-        result.map_err(DriveMotionFault::Brake)
+        self.brake_all(BrakeMode::Brake)
+            .map_err(DriveMotionFault::Brake)
     }
 
     fn wall_contact(&self) -> Option<WallContact> {
@@ -172,6 +165,16 @@ where
 
     fn cancel_distance_reset(&mut self) {
         self.localization_mut().cancel_distance_reset();
+    }
+}
+
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> WheelCommandDrive
+    for TrackedDrive<G, S, B>
+where
+    Tracking<S>: HasDriveWheels,
+{
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error> {
+        self.command_wheels(commands).map_err(Into::into)
     }
 }
 
