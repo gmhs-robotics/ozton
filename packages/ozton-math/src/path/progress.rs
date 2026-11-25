@@ -109,8 +109,9 @@ impl<'path> Progress<'path> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
+    use alloc::vec::Vec;
     use super::*;
     use crate::{path::{Limits, Waypoint}, qty};
 
