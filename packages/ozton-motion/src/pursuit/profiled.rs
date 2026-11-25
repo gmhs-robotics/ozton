@@ -1,6 +1,7 @@
 //! Pure pursuit and RAMSETE tracking for the same prepared path.
 
 use core::{f64::consts::PI, time::Duration};
+
 use ozton_math::{
     desaturate,
     following::{PurePursuit, Ramsete},
@@ -109,7 +110,8 @@ impl<'path> ProfiledFollower<'path> {
                     heading: pose.heading + facing,
                     ..pose
                 };
-                let target = virtual_pose.to_local(self.progress.lookahead(pose.position, lookahead.value));
+                let target =
+                    virtual_pose.to_local(self.progress.lookahead(pose.position, lookahead.value));
                 if target.y < 0.0 {
                     (0.0, 2.0 * ozton_math::geometry::bearing(target).value)
                 } else {
@@ -124,9 +126,11 @@ impl<'path> ProfiledFollower<'path> {
                     )
                 }
             }
-            Follower::Ramsete { b, zeta } => {
-                Ramsete { b, zeta }.twist(pose, path.at_time(Time::new::<second>(self.reference_time)), reverse)
-            }
+            Follower::Ramsete { b, zeta } => Ramsete { b, zeta }.twist(
+                pose,
+                path.at_time(Time::new::<second>(self.reference_time)),
+                reverse,
+            ),
         };
         desaturate(
             wheel_speeds(
