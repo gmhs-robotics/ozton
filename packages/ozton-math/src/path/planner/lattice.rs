@@ -1,10 +1,20 @@
 //! Bounded A* over a position/heading lattice for a differential chassis.
 //! Edges are exact straight translations or shortest in-place rotations.
-use alloc::{collections::{BTreeMap, BinaryHeap}, vec::Vec};
-use core::{cmp::Ordering, f64::consts::{FRAC_PI_4, PI}};
+use alloc::{
+    collections::{BTreeMap, BinaryHeap},
+    vec::Vec,
+};
+use core::{
+    cmp::Ordering,
+    f64::consts::{FRAC_PI_4, PI},
+};
 
-use crate::{geometry::{DVec2, Pose, bearing, wrap_heading}, qty, uom::si::f64::{Angle, Length}};
 use super::RectangularClearance;
+use crate::{
+    geometry::{DVec2, Pose, bearing, wrap_heading},
+    qty,
+    uom::si::f64::{Angle, Length},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LatticeStep {
@@ -19,12 +29,17 @@ pub struct LatticePlanner {
 }
 
 impl Default for LatticePlanner {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LatticePlanner {
     pub const fn new() -> Self {
-        Self { step: qty!(0.10 m), node_limit: 4096 }
+        Self {
+            step: qty!(0.10 m),
+            node_limit: 4096,
+        }
     }
 
     #[must_use]
@@ -51,10 +66,13 @@ impl LatticePlanner {
         reverse: Option<bool>,
         track_width: Length,
     ) -> Option<Vec<LatticeStep>> {
-        if !start.is_finite() || !goal.is_finite()
+        if !start.is_finite()
+            || !goal.is_finite()
             || heading.is_some_and(|h| !h.value.is_finite())
-            || !self.step.value.is_finite() || self.step.value <= 0.0
-            || !track_width.value.is_finite() || track_width.value <= 0.0
+            || !self.step.value.is_finite()
+            || self.step.value <= 0.0
+            || !track_width.value.is_finite()
+            || track_width.value <= 0.0
             || self.node_limit == 0
             || field.is_some_and(|f| !f.contains_pose(start))
         {
@@ -70,24 +88,48 @@ impl LatticePlanner {
         let can_turn = |p, h| field.is_none_or(|f| f.contains_turn(p, h));
         let can_drive = |p, end| field.is_none_or(|f| f.contains_translation(p, end));
         let heuristic = |p: Pose| p.position.distance(goal);
-        let root = Node { key: [0; 3], cost: 0.0, parent: None, step: None };
+        let root = Node {
+            key: [0; 3],
+            cost: 0.0,
+            parent: None,
+            step: None,
+        };
         let mut nodes = alloc::vec![root];
         let mut known = BTreeMap::new();
         known.insert(root.key, 0);
         let mut open = BinaryHeap::new();
-        open.push(Entry { cost: heuristic(start), index: 0 });
+        open.push(Entry {
+            cost: heuristic(start),
+            index: 0,
+        });
         let mut best: Option<(f64, usize, Vec<LatticeStep>)> = None;
         const DIRECTIONS: [[i32; 2]; 8] = [
-            [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0], [1, 1],
+            [0, 1],
+            [-1, 1],
+            [-1, 0],
+            [-1, -1],
+            [0, -1],
+            [1, -1],
+            [1, 0],
+            [1, 1],
         ];
         while let Some(entry) = open.pop() {
             let node = nodes[entry.index];
-            if known.get(&node.key) != Some(&entry.index) { continue; }
-            if best.as_ref().is_some_and(|(cost, _, _)| entry.cost >= *cost) { break; }
+            if known.get(&node.key) != Some(&entry.index) {
+                continue;
+            }
+            if best
+                .as_ref()
+                .is_some_and(|(cost, _, _)| entry.cost >= *cost)
+            {
+                break;
+            }
             let current = pose(node.key);
             // Connect to the exact goal by turning, translating, then turning.
             for backward in [false, true] {
-                if reverse.is_some_and(|r| r != backward) { continue; }
+                if reverse.is_some_and(|r| r != backward) {
+                    continue;
+                }
                 let delta = goal - current.position;
                 let distance = delta.length();
                 let travel_heading = if distance > 1e-9 {
@@ -99,30 +141,57 @@ impl LatticePlanner {
                 if !can_turn(current, travel_heading)
                     || !can_drive(Pose::new(current.position, travel_heading), goal)
                     || heading.is_some_and(|h| !can_turn(arrived, h))
-                { continue; }
+                {
+                    continue;
+                }
                 let first = wrap_heading(travel_heading - current.heading).value.abs();
                 let last = heading.map_or(0.0, |h| wrap_heading(h - travel_heading).value.abs());
                 let cost = node.cost + distance + half_track * (first + last);
-                if best.as_ref().is_some_and(|(c, _, _)| cost >= *c) { continue; }
+                if best.as_ref().is_some_and(|(c, _, _)| cost >= *c) {
+                    continue;
+                }
                 let mut tail = Vec::new();
-                if first > 1e-9 { tail.push(LatticeStep::Turn(travel_heading)); }
-                if distance > 1e-9 { tail.push(LatticeStep::Translate { target: goal, reverse: backward }); }
-                if last > 1e-9 { tail.push(LatticeStep::Turn(heading.unwrap())); }
+                if first > 1e-9 {
+                    tail.push(LatticeStep::Turn(travel_heading));
+                }
+                if distance > 1e-9 {
+                    tail.push(LatticeStep::Translate {
+                        target: goal,
+                        reverse: backward,
+                    });
+                }
+                if last > 1e-9 {
+                    tail.push(LatticeStep::Turn(heading.unwrap()));
+                }
                 best = Some((cost, entry.index, tail));
             }
             // No map requires no grid search.
-            if field.is_none() { break; }
+            if field.is_none() {
+                break;
+            }
             let mut add = |key: [i32; 3], step, cost| {
                 let cost = node.cost + cost;
                 if nodes.len() >= self.node_limit
                     || known.get(&key).is_some_and(|&i| nodes[i].cost <= cost)
-                { return; }
+                {
+                    return;
+                }
                 let priority = cost + heuristic(pose(key));
-                if best.as_ref().is_some_and(|(c, _, _)| priority >= *c) { return; }
+                if best.as_ref().is_some_and(|(c, _, _)| priority >= *c) {
+                    return;
+                }
                 let index = nodes.len();
-                nodes.push(Node { key, cost, parent: Some(entry.index), step: Some(step) });
+                nodes.push(Node {
+                    key,
+                    cost,
+                    parent: Some(entry.index),
+                    step: Some(step),
+                });
                 known.insert(key, index);
-                open.push(Entry { cost: priority, index });
+                open.push(Entry {
+                    cost: priority,
+                    index,
+                });
             };
             for turn in [-1, 1] {
                 let key = [node.key[0], node.key[1], (node.key[2] + turn).rem_euclid(8)];
@@ -132,13 +201,26 @@ impl LatticePlanner {
                 }
             }
             for backward in [false, true] {
-                if reverse.is_some_and(|r| r != backward) { continue; }
+                if reverse.is_some_and(|r| r != backward) {
+                    continue;
+                }
                 let [dx, dy] = DIRECTIONS[node.key[2] as usize];
                 let sign = if backward { -1 } else { 1 };
-                let key = [node.key[0] + dx * sign, node.key[1] + dy * sign, node.key[2]];
+                let key = [
+                    node.key[0] + dx * sign,
+                    node.key[1] + dy * sign,
+                    node.key[2],
+                ];
                 let target = pose(key).position;
                 if can_drive(current, target) {
-                    add(key, LatticeStep::Translate { target, reverse: backward }, current.position.distance(target));
+                    add(
+                        key,
+                        LatticeStep::Translate {
+                            target,
+                            reverse: backward,
+                        },
+                        current.position.distance(target),
+                    );
                 }
             }
         }
@@ -155,7 +237,11 @@ impl LatticePlanner {
         let mut merged = Vec::new();
         for step in steps {
             if let LatticeStep::Translate { target, reverse } = step {
-                if let Some(LatticeStep::Translate { target: previous, reverse: old }) = merged.last_mut() {
+                if let Some(LatticeStep::Translate {
+                    target: previous,
+                    reverse: old,
+                }) = merged.last_mut()
+                {
                     if *old == reverse {
                         *previous = target;
                         continue;
@@ -177,17 +263,27 @@ struct Node {
 }
 
 #[derive(Clone, Copy)]
-struct Entry { cost: f64, index: usize }
+struct Entry {
+    cost: f64,
+    index: usize,
+}
 impl PartialEq for Entry {
-    fn eq(&self, other: &Self) -> bool { self.cmp(other) == Ordering::Equal }
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
 }
 impl Eq for Entry {}
 impl PartialOrd for Entry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for Entry {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.cost.total_cmp(&self.cost).then_with(|| other.index.cmp(&self.index))
+        other
+            .cost
+            .total_cmp(&self.cost)
+            .then_with(|| other.index.cmp(&self.index))
     }
 }
 
@@ -202,12 +298,21 @@ mod tests {
             Footprint::new(qty!(0.2 m), qty!(0.4 m)).unwrap(),
             DVec2::ONE,
             qty!(0 m),
-        ).unwrap();
+        )
+        .unwrap();
         let start = Pose::new(DVec2::new(0.88, -0.3), qty!(0 rad));
         let goal = DVec2::new(0.88, 0.3);
         assert!(!field.can_turn(start));
-        let route = LatticePlanner::new().plan(Some(&field), start, goal, None, None, qty!(0.3 m)).unwrap();
-        assert_eq!(route, [LatticeStep::Translate { target: goal, reverse: false }]);
+        let route = LatticePlanner::new()
+            .plan(Some(&field), start, goal, None, None, qty!(0.3 m))
+            .unwrap();
+        assert_eq!(
+            route,
+            [LatticeStep::Translate {
+                target: goal,
+                reverse: false
+            }]
+        );
     }
 
     #[test]
@@ -216,11 +321,23 @@ mod tests {
             Footprint::new(qty!(0.15 m), qty!(0.2 m)).unwrap(),
             DVec2::ONE,
             qty!(0.01 m),
-        ).unwrap().with_obstacle(DVec2::new(-0.2, -0.1), DVec2::new(0.2, 0.1)).unwrap();
+        )
+        .unwrap()
+        .with_obstacle(DVec2::new(-0.2, -0.1), DVec2::new(0.2, 0.1))
+        .unwrap();
         let start = Pose::new(DVec2::new(0.0, -0.6), qty!(0 rad));
         let goal = DVec2::new(0.0, 0.6);
         assert!(!field.contains_translation(start, goal));
-        let route = LatticePlanner::new().plan(Some(&field), start, goal, Some(qty!(0 rad)), None, qty!(0.3 m)).unwrap();
+        let route = LatticePlanner::new()
+            .plan(
+                Some(&field),
+                start,
+                goal,
+                Some(qty!(0 rad)),
+                None,
+                qty!(0.3 m),
+            )
+            .unwrap();
         let mut pose = start;
         for step in route {
             match step {

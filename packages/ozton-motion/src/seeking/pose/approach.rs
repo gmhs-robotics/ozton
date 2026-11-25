@@ -4,7 +4,10 @@ use std::time::Duration;
 
 use ozton_math::{
     geometry::{DVec2, Pose, bearing, wrap_heading},
-    path::{clearance::RectangularClearance, planner::{LatticePlanner, LatticeStep}},
+    path::{
+        clearance::RectangularClearance,
+        planner::{LatticePlanner, LatticeStep},
+    },
     uom::si::f64::Angle,
 };
 
@@ -115,14 +118,25 @@ async fn approach<D: PoseDrive>(
     // A bounded A* search represents orientation explicitly. Prefer a route
     // avoiding movable objects, then relax only their planning cost.
     let planner = LatticePlanner::new();
-    let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
+    let direction = settings
+        .travel
+        .map(|d| matches!(d, TravelDirection::Backward));
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
         let find = |start| {
             let plan = |field| {
-                planner.plan(field, start, target.position, final_heading, direction, options.track_width)
+                planner.plan(
+                    field,
+                    start,
+                    target.position,
+                    final_heading,
+                    direction,
+                    options.track_width,
+                )
             };
-            preferred.as_ref().and_then(|field| plan(Some(field)))
+            preferred
+                .as_ref()
+                .and_then(|field| plan(Some(field)))
                 .or_else(|| plan(clearance.as_ref()))
         };
         let mut route = find(session.drive.pose());
@@ -137,14 +151,19 @@ async fn approach<D: PoseDrive>(
                 LatticeStep::Turn(heading) => {
                     turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
                 }
-                LatticeStep::Translate { target: point, reverse } => {
+                LatticeStep::Translate {
+                    target: point,
+                    reverse,
+                } => {
                     let start = session.drive.pose();
                     let displacement = point - start.position;
                     if displacement.length() <= tolerance {
                         continue;
                     }
-                    let heading = wrap_heading(bearing(displacement)
-                        + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg));
+                    let heading = wrap_heading(
+                        bearing(displacement)
+                            + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
+                    );
                     if clearance.is_some_and(|field| {
                         !field.contains_translation(Pose::new(start.position, heading), point)
                     }) {
@@ -153,21 +172,26 @@ async fn approach<D: PoseDrive>(
                     if wrap_heading(heading - start.heading).value.abs()
                         > options.heading_tolerance.value
                     {
-                        turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+                        turn_checked(session, clearance, heading, config.timing.stage_timeout)
+                            .await?;
                     }
-                    session.run(
-                        DifferentialTarget::DriveToPoint {
-                            target: point,
-                            maximum_speed: options.maximum_wheel_speed,
-                            reverse,
-                        },
-                        config.timing.stage_timeout,
-                    ).await?;
+                    session
+                        .run(
+                            DifferentialTarget::DriveToPoint {
+                                target: point,
+                                maximum_speed: options.maximum_wheel_speed,
+                                reverse,
+                            },
+                            config.timing.stage_timeout,
+                        )
+                        .await?;
                 }
             }
         }
         if let Some(heading) = final_heading {
-            if wrap_heading(heading - session.drive.pose().heading).value.abs()
+            if wrap_heading(heading - session.drive.pose().heading)
+                .value
+                .abs()
                 > options.heading_tolerance.value
             {
                 turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
