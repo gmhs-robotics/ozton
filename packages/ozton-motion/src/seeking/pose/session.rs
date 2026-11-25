@@ -99,6 +99,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 "Autonomous: turn"
             }
             DifferentialTarget::DriveToPoint { .. } => "Autonomous: drive to point",
+            DifferentialTarget::DriveToPose { .. } => "Autonomous: Boomerang pose",
             DifferentialTarget::DriveDistance { .. } => "Autonomous: drive distance",
             DifferentialTarget::DriveArc { .. } => "Autonomous: drive arc",
         };
@@ -122,6 +123,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             | DifferentialTarget::DriveToPoint { target, .. } => {
                 [target.x, target.y, f64::NAN, f64::NAN, f64::NAN, f64::NAN]
             }
+            DifferentialTarget::DriveToPose { target, .. } => [
+                target.position.x,
+                target.position.y,
+                target.heading.value,
+                f64::NAN,
+                f64::NAN,
+                f64::NAN,
+            ],
             DifferentialTarget::DriveDistance {
                 meters, heading, ..
             } => [
@@ -237,6 +246,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     DifferentialTarget::DriveArc { .. }
                         | DifferentialTarget::TurnToPoint { .. }
                         | DifferentialTarget::DriveToPoint { .. }
+                        | DifferentialTarget::DriveToPose { .. }
                 ))
                 && !self.drive.pose_trusted()
             {
@@ -674,6 +684,10 @@ impl Progress {
         let pose = feedback.pose;
         let error = match target {
             DifferentialTarget::DriveToPoint { target, .. } => pose.position.distance(target),
+            DifferentialTarget::DriveToPose { target, .. } => {
+                pose.position.distance(target.position)
+                    + 0.1 * wrap_heading(target.heading - pose.heading).value.abs()
+            },
             DifferentialTarget::Turn { heading } => {
                 wrap_heading(heading - pose.heading).value.abs()
             }
