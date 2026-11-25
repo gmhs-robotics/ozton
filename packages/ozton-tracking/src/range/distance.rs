@@ -356,6 +356,12 @@ impl DistanceDevice {
 
     fn capture(&mut self, now: Duration, occluded: bool) -> Result<Option<RangeObservation>, ()> {
         let before = self.sensor.timestamp().map_err(|_| ())?;
+        // The Brain refreshes its packet cache every 10 ms, but the range
+        // sensor produces measurements at about 30 Hz. Inspect packet edges
+        // without repeatedly decoding the same measurement.
+        if self.clock.last.is_some_and(|(packet, _)| packet == before) {
+            return Ok(self.readiness.get().current(self.cached));
+        }
         let object = read_object(&self.sensor)?;
         let after = self.sensor.timestamp().map_err(|_| ())?;
         if before != after {
