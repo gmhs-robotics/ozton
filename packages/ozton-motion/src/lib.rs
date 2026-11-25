@@ -14,6 +14,8 @@ pub use config::{
 };
 mod pursuit;
 pub mod seeking;
+#[cfg(not(target_os = "vexos"))]
+pub mod simulation;
 
 pub use arcade::Arcade;
 pub use basic::differential::DriveTuning;
