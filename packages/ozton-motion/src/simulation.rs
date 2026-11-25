@@ -47,6 +47,21 @@ pub struct ChassisResponse {
     pub yaw: AxisResponse,
 }
 
+/// Effective lateral feedback coupled to yaw, identified from telemetry.
+/// This may include tracking-reference error as well as actual chassis slip.
+/// It is not a calibration of the geometric pivot.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LateralResponse {
+    pub yaw_gain_m: f64,
+    pub cornering_gain_s: f64,
+}
+
+impl LateralResponse {
+    fn velocity(self, forward: f64, yaw: f64) -> f64 {
+        (self.yaw_gain_m + self.cornering_gain_s * forward.abs()) * yaw
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct SimulationReport {
     pub elapsed: Duration,
@@ -68,6 +83,31 @@ pub fn simulate_path(
     path: &Path,
     config: MotionConfig,
     response: ChassisResponse,
+    initial_pose: Pose,
+    reverse: bool,
+    maximum_time: Duration,
+    clear: impl FnMut(Pose) -> bool,
+) -> Option<SimulationReport> {
+    simulate_path_with_lateral(
+        path,
+        config,
+        response,
+        LateralResponse::default(),
+        initial_pose,
+        reverse,
+        maximum_time,
+        clear,
+    )
+}
+
+/// Simulate with an independently identified lateral response rather than
+/// assuming perfect no-slip differential-drive motion.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_path_with_lateral(
+    path: &Path,
+    config: MotionConfig,
+    response: ChassisResponse,
+    lateral: LateralResponse,
     initial_pose: Pose,
     reverse: bool,
     maximum_time: Duration,
@@ -93,6 +133,8 @@ pub fn simulate_path(
         || !initial_pose.is_finite()
         || !response.forward.valid()
         || !response.yaw.valid()
+        || !lateral.yaw_gain_m.is_finite()
+        || !lateral.cornering_gain_s.is_finite()
         || maximum_time.is_zero()
     {
         return None;
@@ -143,7 +185,7 @@ pub fn simulate_path(
             pose,
             forward_travel: qty!((travel) m),
             forward_velocity: qty!((velocity) m/s),
-            lateral_velocity: qty!(0 m/s),
+            lateral_velocity: qty!((lateral.velocity(velocity, yaw)) m/s),
             angular_velocity: qty!((yaw) rad/s),
             ranges: [None; _],
             reset_accepted: false,
@@ -194,9 +236,11 @@ pub fn simulate_path(
         let next_w = response.yaw.step(yaw, angular[1], angular[0], tick);
         let ds = (velocity + next_v) * 0.5 * dt;
         let dh = (yaw + next_w) * 0.5 * dt;
+        let lateral_travel =
+            (lateral.velocity(velocity, yaw) + lateral.velocity(next_v, next_w)) * 0.5 * dt;
         let previous = pose;
         pose = pose.integrate(BodyDelta {
-            translation: DVec2::new(0.0, ds),
+            translation: DVec2::new(lateral_travel, ds),
             heading: qty!((dh) rad),
         });
         velocity = next_v;
@@ -227,6 +271,17 @@ pub fn simulate_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lateral_response_reverses_with_yaw_and_vanishes_on_straights() {
+        let lateral = LateralResponse {
+            yaw_gain_m: 0.05,
+            cornering_gain_s: 0.01,
+        };
+        assert_eq!(lateral.velocity(1.0, 0.0), 0.0);
+        assert!((lateral.velocity(1.0, 2.0) - 0.12).abs() < 1e-12);
+        assert!((lateral.velocity(-1.0, -2.0) + 0.12).abs() < 1e-12);
+    }
 
     #[test]
     fn response_uses_exact_discrete_first_order_step() {
