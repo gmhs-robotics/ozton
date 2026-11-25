@@ -74,16 +74,14 @@ pub(crate) fn start_diagnostics() -> Task<()> {
                 continue;
             }
             let time = vexide::time::user_uptime();
-            if last_sample.is_some_and(|last| time.saturating_sub(last) < HARDWARE_SAMPLE_INTERVAL) {
+            if last_sample.is_some_and(|last| time.saturating_sub(last) < HARDWARE_SAMPLE_INTERVAL)
+            {
                 continue;
             }
             last_sample = Some(time);
             sequence += 1;
             let frame = Frame {
-                stamp: serial::Frame {
-                    sequence,
-                    time,
-                },
+                stamp: serial::Frame { sequence, time },
             };
             frame.row("MODE", format_args!("mode={:?}", status.mode()));
             frame.row(
