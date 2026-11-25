@@ -6,22 +6,12 @@ use vexide::time::LowResolutionTime;
 
 use super::{WheelSource, stamp};
 use crate::{
-    RotarySensor,
+    ReadPosition,
     inertial::{InertialSensorTracking, Orientation},
     odometric::wheel::TrackingWheel,
     range::{DistanceTracker, Distances, MAX_RANGES, RangeObservation},
     snapshot::Snapshot,
 };
-
-impl<T: RotarySensor> WheelSource for TrackingWheel<T> {
-    fn read_travel(&self) -> Option<Length> {
-        self.travel().ok()
-    }
-
-    fn valid(&self) -> bool {
-        calibrated(self)
-    }
-}
 
 type TravelCallback = Option<Box<dyn Fn() -> Option<Length>>>;
 
@@ -214,43 +204,35 @@ impl Sensors {
         self
     }
 
-    pub fn with_forward_wheel<T: RotarySensor + 'static>(
+    pub fn with_forward_wheel<T: ReadPosition + 'static>(
         self,
         wheel: TrackingWheel<T>,
     ) -> Option<Self> {
-        calibrated(&wheel).then(|| self.with_forward(move || wheel.travel().ok()))
+        wheel.valid().then(|| self.with_forward(move || wheel.travel().ok()))
     }
 
-    pub fn with_lateral_wheel<T: RotarySensor + 'static>(
+    pub fn with_lateral_wheel<T: ReadPosition + 'static>(
         self,
         wheel: TrackingWheel<T>,
     ) -> Option<Self> {
-        calibrated(&wheel).then(|| self.with_lateral(move || wheel.travel().ok()))
+        wheel.valid().then(|| self.with_lateral(move || wheel.travel().ok()))
     }
-}
-
-fn calibrated<T: RotarySensor>(wheel: &TrackingWheel<T>) -> bool {
-    wheel.wheel_diameter.value.is_finite()
-        && wheel.wheel_diameter.value > 0.0
-        && wheel
-            .gearing
-            .is_none_or(|ratio| ratio.is_finite() && ratio > 0.0)
 }
 
 #[cfg(test)]
 mod tests {
 
-    use vexide::math::Angle;
+    use ozton_math::uom::si::f64::Angle;
 
     use super::*;
 
     struct Encoder(f64);
 
-    impl RotarySensor for Encoder {
+    impl ReadPosition for Encoder {
         type Error = core::convert::Infallible;
 
         fn position(&self) -> Result<Angle, Self::Error> {
-            Ok(Angle::from_turns(self.0))
+            Ok(ozton_math::qty!((self.0 * core::f64::consts::TAU) rad))
         }
     }
 

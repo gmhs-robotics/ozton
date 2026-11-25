@@ -41,12 +41,10 @@ pub use sampling::{RangeBank, Sources, Tracking, TrackingSources};
 pub mod odometric;
 pub mod range;
 pub mod sampling;
-#[cfg(feature = "vex")]
-mod sensor;
+pub mod sensor;
 pub mod snapshot;
 
-#[cfg(feature = "vex")]
-pub use sensor::RotarySensor;
+pub use sensor::{ReadPosition, SetPosition};
 
 /// A tracking configuration. Optional reporting is not a motion capability.
 pub trait TrackingSystem {

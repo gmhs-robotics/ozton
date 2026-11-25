@@ -14,4 +14,5 @@ The device capabilities live in `ozton::drivetrain::device` (also exposed throug
 `ReadVelocity`, `ReadTorque` and `HasBraking` are independent interfaces.
 `MotorOutput` combines voltage output and braking with matching device error
 types. `PidMotor::apply` accepts external feedback, while `update` additionally
-requires position and velocity readers. Neither interface requires a VEX motor.
+requires position and velocity readers. Neither interface requires a VEX motor. Tracking wheels and mechanism encoders
+share the same SI-valued position interface, including simulated sensors.

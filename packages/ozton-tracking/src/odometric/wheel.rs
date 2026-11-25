@@ -1,17 +1,13 @@
-#[cfg(feature = "vex")]
 use core::f64::consts::PI;
 
-#[cfg(feature = "vex")]
 use ozton_math::uom::si::f64::Length;
 
 pub use super::projection::MountedWheel;
-#[cfg(feature = "vex")]
-use crate::RotarySensor;
+use crate::ReadPosition;
 
-#[cfg(feature = "vex")]
 /// A wheel attached to a rotary sensor for position tracking.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TrackingWheel<T: RotarySensor> {
+pub struct TrackingWheel<T: ReadPosition> {
     /// Rotary sensor for measuring the wheel's travel.
     pub sensor: T,
 
@@ -31,8 +27,7 @@ pub struct TrackingWheel<T: RotarySensor> {
     pub gearing: Option<f64>,
 }
 
-#[cfg(feature = "vex")]
-impl<T: RotarySensor> TrackingWheel<T> {
+impl<T: ReadPosition> TrackingWheel<T> {
     /// Creates a new tracking wheel with the given parameters.
     ///
     /// # Parameters
@@ -62,11 +57,27 @@ impl<T: RotarySensor> TrackingWheel<T> {
     ///
     /// # Errors
     ///
-    /// Returns an error if [`RotarySensor::position`] fails.
+    /// Returns an error if [`ReadPosition::position`] fails.
     pub fn travel(&self) -> Result<Length, T::Error> {
         let wheel_circumference = self.wheel_diameter * PI;
 
-        Ok(self.sensor.position()?.as_turns() * self.gearing.unwrap_or(1.0) * wheel_circumference)
+        Ok((self.sensor.position()?.value / core::f64::consts::TAU)
+            * self.gearing.unwrap_or(1.0)
+            * wheel_circumference)
+    }
+}
+
+impl<T: ReadPosition> crate::sampling::WheelSource for TrackingWheel<T> {
+    fn read_travel(&self) -> Option<Length> {
+        self.travel().ok().filter(|travel| travel.value.is_finite())
+    }
+
+    fn valid(&self) -> bool {
+        self.wheel_diameter.value.is_finite()
+            && self.wheel_diameter.value > 0.0
+            && self
+                .gearing
+                .is_none_or(|ratio| ratio.is_finite() && ratio > 0.0)
     }
 }
 

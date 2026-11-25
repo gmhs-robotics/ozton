@@ -6,8 +6,7 @@ use ozton_math::{
     uom::si::f64::{Angle, Length},
 };
 
-#[cfg(feature = "vex")]
-use crate::{RotarySensor, odometric::wheel::TrackingWheel};
+use crate::{ReadPosition, odometric::wheel::TrackingWheel};
 use crate::{mount::Vec3, sampling::WheelSource};
 
 /// A tracking wheel at a surveyed position. Positive travel follows its bearing,
@@ -17,8 +16,7 @@ pub struct MountedWheel<W> {
     projection: DVec3,
 }
 
-#[cfg(feature = "vex")]
-impl<S: RotarySensor> MountedWheel<TrackingWheel<S>> {
+impl<S: ReadPosition> MountedWheel<TrackingWheel<S>> {
     /// Mount the rotary tracking wheel at a surveyed XYZ position and heading.
     pub fn at_mount(
         sensor: S,
@@ -29,8 +27,7 @@ impl<S: RotarySensor> MountedWheel<TrackingWheel<S>> {
         Self::from_rotary(sensor, diameter, gearing, bearing, position)
     }
 
-    #[cfg(feature = "vex")]
-    /// Mount a rotary encoder on a tracking wheel. Gearing is wheel turns
+        /// Mount a rotary encoder on a tracking wheel. Gearing is wheel turns
     /// per encoder turn. Pass `None` for a direct drive.
     pub fn from_rotary(
         sensor: S,

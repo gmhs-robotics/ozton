@@ -1,6 +1,6 @@
 //! Hardware-independent actuator and angular feedback capabilities.
 
-use ozton_math::uom::si::f64::{Angle, AngularVelocity, ElectricPotential, Torque};
+use ozton_math::uom::si::f64::{AngularVelocity, ElectricPotential, Torque};
 
 use crate::HasBraking;
 
@@ -20,17 +20,7 @@ impl<T> MotorOutput for T where
 {
 }
 
-/// Read accumulated angular position.
-pub trait ReadPosition {
-    type Error;
-
-    fn position(&self) -> Result<Angle, Self::Error>;
-}
-
-/// Assign an angular position reference.
-pub trait SetPosition: ReadPosition {
-    fn set_position(&mut self, position: Angle) -> Result<(), Self::Error>;
-}
+pub use ozton_tracking::{ReadPosition, SetPosition};
 
 /// Read angular velocity.
 pub trait ReadVelocity {
