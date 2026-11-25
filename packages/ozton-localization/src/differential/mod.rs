@@ -10,7 +10,7 @@ use ozton_math::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
     },
-    path::clearance::{Footprint, Obstacles, RectangularClearance, WallContact},
+    path::clearance::{Footprint, Obstacles, WallContact, WallContactConstraint},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
@@ -68,14 +68,15 @@ impl DifferentialLocalization<FieldBoundary> {
         footprint: Footprint,
         wall: WallContact,
     ) -> bool {
-        let Some(field) = RectangularClearance::new(
+        let Some(contact) = WallContactConstraint::new(
+            wall,
             footprint,
             self.boundary.half_extents(),
-            Length::default(),
+            pose,
         ) else {
             return false;
         };
-        if !field.touches_wall(pose, wall) || !self.localizer.set_pose_at_contact(pose, wall) {
+        if !self.localizer.set_pose_at_contact(pose, contact) {
             return false;
         }
         self.last_reset = DistanceReset::Idle;
@@ -95,6 +96,14 @@ impl<B: Boundary> DifferentialLocalization<B> {
     /// The validated boundary state, or unit for an unbounded estimator.
     pub fn boundary(&self) -> B {
         self.boundary
+    }
+
+    pub fn wall_contact(&self) -> Option<WallContact> {
+        self.localizer.wall_contact()
+    }
+
+    pub fn release_wall_contact(&mut self) {
+        self.localizer.release_wall_contact();
     }
 
     /// Fixed footprints projected from the unified field geometry.
