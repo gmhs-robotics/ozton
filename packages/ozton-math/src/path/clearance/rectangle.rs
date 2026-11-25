@@ -345,6 +345,11 @@ impl RectangularClearance {
         let turn = crate::geometry::wrap_heading(b.heading - a.heading)
             .value
             .abs();
+        // A fixed-heading translation has an exact swept footprint. In particular,
+        // its first sample may legitimately touch a surveyed wall while departing.
+        if turn == 0.0 {
+            return self.contains_translation(a, b.position);
+        }
         let pad = (travel + self.footprint.turn_radius() * turn) * 0.5;
         let (amin, amax) = self.footprint.bounds(a);
         let (bmin, bmax) = self.footprint.bounds(b);

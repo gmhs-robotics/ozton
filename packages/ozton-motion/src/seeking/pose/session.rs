@@ -4,17 +4,10 @@ use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::wrap_heading,
-    path::clearance::WallContact,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 
-use super::{
-    PathActions, PoseDrive, PoseMotionError, RangeResetDrive,
-    safety::{
-        body_rates, contact_released, limit_wall_command, limit_wall_command_at_contact,
-        safe_feedback, safe_feedback_at_contact,
-    },
-};
+use super::{PathActions, PoseDrive, PoseMotionError, RangeResetDrive};
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
@@ -24,7 +17,6 @@ pub(super) struct Trajectory<'a> {
     pub follower: crate::Follower,
     pub reverse: bool,
     pub target: ozton_math::geometry::Pose,
-    pub clearance: Option<ozton_math::path::clearance::RectangularClearance>,
     pub timeout: Duration,
 }
 
@@ -35,7 +27,6 @@ pub(super) struct PoseSession<'a, D: PoseDrive> {
     previous_tick: Instant,
     started: Instant,
     finished: bool,
-    contact: Option<WallContact>,
 }
 
 impl<'a, D: PoseDrive> PoseSession<'a, D> {
@@ -56,13 +47,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             previous_tick: Instant::now(),
             started: Instant::now(),
             finished: false,
-            contact: None,
         })
-    }
-
-    pub(super) fn with_contact(mut self, contact: Option<WallContact>) -> Self {
-        self.contact = contact;
-        self
     }
 
     async fn tick(&mut self) -> Result<Duration, PoseMotionError<D::Error>> {
@@ -199,7 +184,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
-        let mut governor = GovernorLog::default();
         let mut last_feedback = None;
         let mut feedback_at = Instant::now();
         loop {
@@ -265,56 +249,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            let clearance = super::approach::clearance(self.drive, self.config.safety.clearance)?;
-            let uncertainty = self.drive.velocity_uncertainty();
-            let covariance = self.drive.position_covariance();
-            let previous = controller.applied_wheels();
-            let previous_rates = body_rates(previous, self.options.track_width.value);
-            if self.contact.is_some()
-                && clearance.is_some_and(|field| {
-                    contact_released(
-                        field,
-                        feedback,
-                        self.config,
-                        uncertainty,
-                        covariance,
-                        previous_rates,
-                    )
-                })
-            {
-                self.contact = None;
-                self.drive.release_wall_contact();
-                log_event!(
-                    Info,
-                    "clearance",
-                    "Surveyed contact departure cleared; ordinary governor restored"
-                );
-            }
-            if clearance.is_some_and(|field| {
-                !safe_feedback_at_contact(
-                    field,
-                    feedback,
-                    self.config,
-                    uncertainty,
-                    covariance,
-                    previous_rates,
-                    self.contact,
-                )
-            }) {
-                return Err(PoseMotionError::InsufficientClearance);
-            }
-            let (requested, ready) = controller.step(target, feedback, dt, self.options);
-            let wheels = limit_wall_command_at_contact(
-                clearance,
-                feedback,
-                requested,
-                self.options,
-                self.config,
-                uncertainty,
-                covariance,
-                previous,
-                self.contact,
-            );
+            let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
@@ -324,7 +259,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 output(self.drive, wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
-            governor.observe(status, requested, wheels, dt);
             log_row!(
                 Trace,
                 "MOTION_STEP",
@@ -353,12 +287,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 dt,
                 self.config.timing.progress_timeout,
             ) {
-                governor.report_stall(status, requested, wheels);
-                return Err(if GovernorLog::limited(requested, wheels) {
-                    PoseMotionError::InsufficientClearance
-                } else {
-                    PoseMotionError::NoProgress
-                });
+                return Err(PoseMotionError::NoProgress);
             }
         }
     }
@@ -374,7 +303,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             follower,
             reverse,
             target,
-            clearance,
             timeout,
         } = trajectory;
 
@@ -395,7 +323,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut no_progress = Duration::ZERO;
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
-        let mut governor = GovernorLog::default();
         log_event!(Info, "motion", "Trajectory: started");
         let end = path.end();
         let mut options = self.options;
@@ -455,21 +382,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !self.drive.pose_trusted() {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            let uncertainty = self.drive.velocity_uncertainty();
-            let covariance = self.drive.position_covariance();
-            let previous = controller.applied_wheels();
-            if clearance.is_some_and(|field| {
-                !safe_feedback(
-                    field,
-                    feedback,
-                    self.config,
-                    uncertainty,
-                    covariance,
-                    body_rates(previous, self.options.track_width.value),
-                )
-            }) {
-                return Err(PoseMotionError::InsufficientClearance);
-            }
             let observation = follower.observe(
                 feedback.pose,
                 dt,
@@ -502,16 +414,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - observation.distance, false)
             };
-            let wheels = limit_wall_command(
-                clearance,
-                feedback,
-                requested,
-                options,
-                self.config,
-                uncertainty,
-                covariance,
-                previous,
-            );
+            let wheels = requested;
             controller.record_applied_wheels(wheels);
             if phase_changed {
                 best = f64::INFINITY;
@@ -524,12 +427,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 no_progress += dt;
             }
             if no_progress >= self.config.timing.progress_timeout {
-                governor.report_stall("Trajectory", requested, wheels);
-                return Err(if GovernorLog::limited(requested, wheels) {
-                    PoseMotionError::InsufficientClearance
-                } else {
-                    PoseMotionError::NoProgress
-                });
+                return Err(PoseMotionError::NoProgress);
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
@@ -544,7 +442,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     .drive_wheels(wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
-            governor.observe("Trajectory", requested, wheels, dt);
             log_row!(
                 Trace,
                 "PATH_TICK",
@@ -623,9 +520,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         outcome: Result<T, PoseMotionError<D::Error>>,
     ) -> Result<T, PoseMotionError<D::Error>> {
         self.drive.cancel_distance_reset();
-        if self.contact.take().is_some() {
-            self.drive.release_wall_contact();
-        }
         let stop = if outcome.is_ok() {
             self.drive.brake()
         } else {
@@ -651,9 +545,6 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
     fn drop(&mut self) {
         if !self.finished {
             self.drive.cancel_distance_reset();
-            if self.contact.take().is_some() {
-                self.drive.release_wall_contact();
-            }
             let stopped = self.drive.emergency_brake();
             if stopped.is_ok() {
                 log_event!(Info, "motion", "Motion interrupted; brake requested");
@@ -741,102 +632,5 @@ impl Progress {
             self.elapsed += dt;
         }
         self.elapsed >= timeout
-    }
-}
-
-/// USB reports sustained governor transitions, not per-tick measurements.
-/// Reporting thresholds do not change the physical safety constraints.
-#[derive(Default)]
-struct GovernorLog {
-    active: bool,
-    pending: Duration,
-    limited_ticks: u64,
-    total_ticks: u64,
-}
-
-impl GovernorLog {
-    fn limited(requested: [f64; 2], applied: [f64; 2]) -> bool {
-        let peak = requested[0].abs().max(requested[1].abs());
-        let difference = (requested[0] - applied[0])
-            .abs()
-            .max((requested[1] - applied[1]).abs());
-        peak > 0.0 && difference > peak * 0.05
-    }
-
-    fn transition(&mut self, limited: bool, dt: Duration) -> Option<bool> {
-        if limited == self.active {
-            self.pending = Duration::ZERO;
-            return None;
-        }
-        self.pending += dt;
-        if self.pending < Duration::from_millis(250) {
-            return None;
-        }
-        self.pending = Duration::ZERO;
-        self.active = limited;
-        Some(limited)
-    }
-
-    fn observe(&mut self, status: &str, requested: [f64; 2], applied: [f64; 2], dt: Duration) {
-        let limited = Self::limited(requested, applied);
-        self.total_ticks += 1;
-        if limited {
-            self.limited_ticks += 1;
-        }
-        match self.transition(limited, dt) {
-            Some(true) => log_event!(
-                Info,
-                "clearance",
-                "{status}: wall/obstacle speed governor active"
-            ),
-            Some(false) => log_event!(Info, "clearance", "{status}: speed governor released"),
-            None => {}
-        }
-    }
-
-    fn report_stall(&self, status: &str, requested: [f64; 2], applied: [f64; 2]) {
-        if Self::limited(requested, applied) {
-            log_event!(
-                Warn,
-                "motion",
-                "{status}: no progress while clearance governor limits output"
-            );
-        } else if self.limited_ticks > 0 {
-            log_event!(
-                Warn,
-                "motion",
-                "{status}: no progress; intermittent clearance limiting ({}/{} samples)",
-                self.limited_ticks,
-                self.total_ticks
-            );
-        } else {
-            log_event!(
-                Warn,
-                "motion",
-                "{status}: no progress without clearance limiting"
-            );
-        }
-    }
-}
-
-#[cfg(test)]
-mod governor_log_tests {
-    use super::*;
-
-    #[test]
-    fn only_sustained_transitions_are_reported() {
-        let mut report = GovernorLog::default();
-        let dt = Duration::from_millis(100);
-        assert!(GovernorLog::limited([0.2, -0.2], [0.1, -0.1]));
-        assert!(!GovernorLog::limited([0.2, -0.2], [0.2, -0.2]));
-        assert_eq!(report.transition(true, dt), None);
-        assert_eq!(report.transition(false, dt), None);
-        assert_eq!(report.transition(true, dt), None);
-        assert_eq!(report.transition(true, dt), None);
-        assert_eq!(report.transition(true, dt), Some(true));
-        assert_eq!(report.transition(true, dt), None);
-        assert_eq!(report.transition(false, dt), None);
-        assert_eq!(report.transition(false, dt), None);
-        assert_eq!(report.transition(false, dt), Some(false));
     }
 }

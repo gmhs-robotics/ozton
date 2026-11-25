@@ -260,28 +260,10 @@ impl MotionTiming {
     }
 }
 
-/// Physical clearance and independently measured braking bounds.
+/// Geometric clearance used to validate authored motions before execution.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClearanceConfig {
     pub clearance: Length,
-    /// Maximum actuator delay after a brake request, measured on hardware.
-    pub brake_latency: Duration,
-    /// Measured maximum forward acceleration during the reaction interval.
-    /// None assumes an instantaneous transition to the requested rate.
-    pub forward_acceleration_bound: Option<Acceleration>,
-    /// Measured maximum yaw acceleration during the reaction interval.
-    pub yaw_acceleration_bound: Option<AngularAcceleration>,
-    /// Independently measured minimum forward deceleration; None uses profile deceleration.
-    pub forward_braking: Option<Acceleration>,
-    /// Independently measured minimum yaw deceleration; None uses profile deceleration.
-    pub yaw_braking: Option<AngularAcceleration>,
-    /// Additional preview interval used by the command governor.
-    pub wall_preview: Duration,
-    /// Minimum passive lateral braking deceleration (m/s²).
-    pub lateral_braking: Acceleration,
-    /// Number of estimated standard deviations in the stopping-rate interval.
-    pub braking_sigma: f64,
-    pub departure_speed: Velocity,
 }
 
 impl Default for ClearanceConfig {
@@ -293,15 +275,6 @@ impl Default for ClearanceConfig {
 impl ClearanceConfig {
     pub const DEFAULT: Self = Self {
         clearance: ozton_math::qty!(0.5 in),
-        brake_latency: Duration::from_millis(100),
-        forward_acceleration_bound: None,
-        yaw_acceleration_bound: None,
-        forward_braking: None,
-        yaw_braking: None,
-        wall_preview: Duration::from_millis(150),
-        lateral_braking: ozton_math::qty!(0.35 m/s^2),
-        braking_sigma: 2.0,
-        departure_speed: ozton_math::units::qty!(0.30 m/s),
     };
 
     pub const fn new() -> Self {
@@ -311,72 +284,6 @@ impl ClearanceConfig {
     #[must_use]
     pub const fn with_clearance(mut self, value: Length) -> Self {
         self.clearance = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_brake_latency(mut self, value: Duration) -> Self {
-        self.brake_latency = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_forward_acceleration_bound(mut self, value: Acceleration) -> Self {
-        self.forward_acceleration_bound = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_yaw_acceleration_bound(mut self, value: AngularAcceleration) -> Self {
-        self.yaw_acceleration_bound = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_forward_braking(mut self, value: Acceleration) -> Self {
-        self.forward_braking = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_profile_forward_braking(mut self) -> Self {
-        self.forward_braking = None;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_yaw_braking(mut self, value: AngularAcceleration) -> Self {
-        self.yaw_braking = Some(value);
-        self
-    }
-
-    #[must_use]
-    pub const fn with_profile_yaw_braking(mut self) -> Self {
-        self.yaw_braking = None;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_wall_preview(mut self, value: Duration) -> Self {
-        self.wall_preview = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_lateral_braking(mut self, value: Acceleration) -> Self {
-        self.lateral_braking = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_braking_sigma(mut self, value: f64) -> Self {
-        self.braking_sigma = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_departure_speed(mut self, value: Velocity) -> Self {
-        self.departure_speed = value;
         self
     }
 }
@@ -609,7 +516,6 @@ impl MotionConfig {
                 self.limits.acceleration.value,
                 self.limits.deceleration.value,
                 self.limits.lateral_acceleration.value,
-                self.safety.lateral_braking.value,
                 self.limits.angular_speed.value,
                 self.limits.angular_acceleration.value,
                 self.limits.angular_deceleration.value,
@@ -617,7 +523,6 @@ impl MotionConfig {
                 self.settling.heading_tolerance.value,
                 self.settling.velocity_tolerance.value,
                 self.settling.angular_velocity_tolerance.value,
-                self.safety.departure_speed.value,
                 self.path.lookahead.value,
                 self.path.maximum_cross_track_error.value,
                 self.path.ramsete_b,
@@ -642,24 +547,6 @@ impl MotionConfig {
             && self.limits.minimum_angular_speed.value >= 0.0
             && self.safety.clearance.value.is_finite()
             && self.safety.clearance.value >= 0.0
-            && self
-                .safety
-                .forward_braking
-                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self
-                .safety
-                .yaw_braking
-                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self
-                .safety
-                .forward_acceleration_bound
-                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self
-                .safety
-                .yaw_acceleration_bound
-                .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self.safety.braking_sigma.is_finite()
-            && self.safety.braking_sigma >= 0.0
             && self.path.ramsete_zeta <= 1.0
             && (0.0..1.0).contains(&self.approach.boomerang_lead)
             && self.approach.realign_exit < self.approach.realign_enter

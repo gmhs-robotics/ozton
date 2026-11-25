@@ -12,7 +12,6 @@ use crate::basic::differential::{DriveOptions, DriveTuning};
 mod actions;
 mod approach;
 mod error;
-mod safety;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
@@ -20,7 +19,6 @@ pub use ozton_drivetrain::{
     BrakeMode, PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive,
 };
 pub use ozton_math::path::clearance::WallContact;
-pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
 
 use super::Seeking;
@@ -111,17 +109,6 @@ impl Seeking {
         let config = self.config;
         config.valid().then(|| ())?;
         Some(config.options(drive.track_width()))
-    }
-
-    /// Prepare the same stopping governor used by trajectory execution for
-    /// externally controlled wheel commands (including calibration pulses).
-    pub fn stopping_governor<D: PoseDrive>(
-        &self,
-        drive: &D,
-    ) -> Result<StoppingGovernor, PoseMotionError<D::Error>> {
-        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let field = approach::clearance(drive, self.config.safety.clearance)?;
-        Ok(StoppingGovernor::new(field, options, self.config))
     }
 
     /// Direct distance/bearing PID seeking without geometric path search.
@@ -221,8 +208,7 @@ impl Seeking {
     /// Leave a physically verified flush contact using the ordinary
     /// distance PID and a one-shot unilateral wall constraint.
     /// Register the surveyed contact pose before this command. Virtual
-    /// boundaries are never valid contact observations. The ordinary
-    /// governor is restored automatically once the clearance is certified.
+    /// boundaries are never valid contact observations.
     pub async fn drive_distance_from_contact<D: PoseDrive>(
         &self,
         drive: &mut D,
@@ -280,7 +266,10 @@ impl Seeking {
             );
             return Err(PoseMotionError::InsufficientClearance);
         }
-        let mut session = PoseSession::new(drive, options, self.config)?.with_contact(contact);
+        if contact.is_some() {
+            drive.release_wall_contact();
+        }
+        let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .run(
                 crate::basic::differential::DifferentialTarget::DriveDistance {
@@ -534,6 +523,7 @@ impl Seeking {
         }
         let end = path.end().pose;
         let target = Pose::new(end.position, end.heading + facing);
+        drive.release_wall_contact();
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .follow(
@@ -542,7 +532,6 @@ impl Seeking {
                     follower,
                     reverse,
                     target,
-                    clearance: field,
                     timeout: self.config.timing.stage_timeout,
                 },
                 actions,
