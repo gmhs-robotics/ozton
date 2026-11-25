@@ -46,6 +46,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
     let options = settings
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
+    let mut session = PoseSession::new(drive, options, settings.config())?;
     if final_heading.is_some() && clearance.is_some_and(|field| !field.contains_pose(target)) {
         ozton_diagnostics::log_event!(
             Error,
@@ -54,9 +55,9 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
             target.position.x,
             target.position.y
         );
-        return Err(PoseMotionError::InsufficientClearance);
+        let result = session.prepare_replan().await.and(Err(PoseMotionError::NoRoute));
+        return session.finish(result);
     }
-    let mut session = PoseSession::new(drive, options, settings.config())?;
     let result = approach(&mut session, clearance, target, final_heading, settings).await;
     session.finish(result)
 }
@@ -123,10 +124,6 @@ async fn approach<D: PoseDrive>(
     }
     // A bounded A* search represents orientation explicitly. Prefer a route
     // avoiding movable objects, then relax only their planning cost.
-    let planner = LatticePlanner::new();
-    let direction = settings
-        .travel
-        .map(|d| matches!(d, TravelDirection::Backward));
     let tolerance = options.position_tolerance.value;
     // A new plan is bounded by the existing progress deadline and must start
     // from verified rest. Never retry hardware, cancellation or tracking faults.
@@ -139,9 +136,7 @@ async fn approach<D: PoseDrive>(
             preferred,
             target,
             final_heading,
-            direction,
-            &planner,
-            config,
+            settings,
         )
         .await;
         match result {
@@ -156,7 +151,7 @@ async fn approach<D: PoseDrive>(
                         <= options.heading_tolerance.value)
                     || replan_started.elapsed() >= config.timing.stage_timeout
                 {
-                    return Err(error);
+                    return Err(PoseMotionError::NoRoute);
                 }
             }
             Err(error) => return Err(error),
@@ -171,17 +166,17 @@ fn replannable<E>(error: &PoseMotionError<E>) -> bool {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn lattice_approach<D: PoseDrive>(
     session: &mut PoseSession<'_, D>,
     clearance: Option<RectangularClearance>,
     preferred: Option<RectangularClearance>,
     target: Pose,
     final_heading: Option<Angle>,
-    direction: Option<bool>,
-    planner: &LatticePlanner,
-    config: crate::MotionConfig,
+    settings: Seeking,
 ) -> MotionResult<D> {
+    let config = settings.config();
+    let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
+    let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
     let find = |start| {
