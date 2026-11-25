@@ -112,7 +112,7 @@ pub mod capabilities {
             heading: Angle,
         ) -> MotionResult<D>
         where
-            D::Error: From<D::WheelError>;
+            D::Error: From<D::WheelError>,;
     }
 
     /// Follow a prepared trajectory using this controller's tracking law.
@@ -206,18 +206,36 @@ macro_rules! controller {
     };
 }
 
-controller!(/// Conventional distance, point, heading and straight-pose PID.
-    Basic, PathGuidance::Tangent);
-controller!(/// Continuous Boomerang pose feedback.
-    Boomerang, PathGuidance::Tangent);
-controller!(/// Spatial tangent trajectory tracking.
-    Tangent, PathGuidance::Tangent);
-controller!(/// Geometric lookahead trajectory tracking.
-    PurePursuit, PathGuidance::PurePursuit);
-controller!(/// Nonlinear RAMSETE trajectory tracking.
-    Ramsete, PathGuidance::RAMSETE);
-controller!(/// Continuous-time speed-scheduled LQR trajectory tracking.
-    LtvLqr, PathGuidance::LQR);
+controller!(
+    /// Conventional distance, point, heading and straight-pose PID.
+    Basic,
+    PathGuidance::Tangent
+);
+controller!(
+    /// Continuous Boomerang pose feedback.
+    Boomerang,
+    PathGuidance::Tangent
+);
+controller!(
+    /// Spatial tangent trajectory tracking.
+    Tangent,
+    PathGuidance::Tangent
+);
+controller!(
+    /// Geometric lookahead trajectory tracking.
+    PurePursuit,
+    PathGuidance::PurePursuit
+);
+controller!(
+    /// Nonlinear RAMSETE trajectory tracking.
+    Ramsete,
+    PathGuidance::RAMSETE
+);
+controller!(
+    /// Continuous-time speed-scheduled LQR trajectory tracking.
+    LtvLqr,
+    PathGuidance::LQR
+);
 
 impl DriveDistance for Basic {
     async fn drive_distance<D: MotionExecution>(
@@ -260,11 +278,7 @@ impl MoveToPoint for Basic {
 }
 
 impl MoveToPose for Basic {
-    async fn move_to_pose<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        pose: Pose,
-    ) -> MotionResult<D> {
+    async fn move_to_pose<D: MotionExecution>(&self, drive: &mut D, pose: Pose) -> MotionResult<D> {
         self.engine.move_to_pose_straight_checked(drive, pose).await
     }
 }
@@ -287,7 +301,9 @@ impl FollowWaypoints for Basic {
         points: &[DVec2],
         handoff_radius: Length,
     ) -> MotionResult<D> {
-        self.engine.move_through_points_straight(drive, points, handoff_radius).await
+        self.engine
+            .move_through_points_straight(drive, points, handoff_radius)
+            .await
     }
 }
 
@@ -298,7 +314,9 @@ impl MoveThroughPoints for Basic {
         points: &[DVec2],
         handoff_radius: Length,
     ) -> MotionResult<D> {
-        self.engine.move_through_points(drive, points, handoff_radius).await
+        self.engine
+            .move_through_points(drive, points, handoff_radius)
+            .await
     }
 }
 
@@ -326,11 +344,7 @@ impl SwingToHeading for Basic {
 }
 
 impl MoveToPose for Boomerang {
-    async fn move_to_pose<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        pose: Pose,
-    ) -> MotionResult<D> {
+    async fn move_to_pose<D: MotionExecution>(&self, drive: &mut D, pose: Pose) -> MotionResult<D> {
         self.engine.move_to_pose(drive, pose).await
     }
 }
@@ -402,7 +416,11 @@ pub fn prepare_path<D: MotionExecution>(
     samples: &'static [PathSample],
     limits: [f64; 7],
 ) -> MotionResult<D, Path> {
-    Engine { config, travel: None }.prepare_path(drive, samples, limits)
+    Engine {
+        config,
+        travel: None,
+    }
+    .prepare_path(drive, samples, limits)
 }
 
 /// Build the configured physical clearance model without selecting a controller.
@@ -410,7 +428,11 @@ pub fn clearance<D: MotionExecution>(
     drive: &D,
     config: MotionConfig,
 ) -> MotionResult<D, Option<RectangularClearance>> {
-    Engine { config, travel: None }.clearance(drive)
+    Engine {
+        config,
+        travel: None,
+    }
+    .clearance(drive)
 }
 
 /// Hold the drivetrain stationary while the localization estimate settles.
@@ -419,7 +441,12 @@ pub async fn settle<D: MotionExecution>(
     config: MotionConfig,
     duration: Duration,
 ) -> MotionResult<D> {
-    Engine { config, travel: None }.settle(drive, duration).await
+    Engine {
+        config,
+        travel: None,
+    }
+    .settle(drive, duration)
+    .await
 }
 
 /// Request a stationary distance-sensor localization correction.
@@ -428,5 +455,10 @@ pub async fn try_distance_reset<D: RangeResetDrive>(
     config: MotionConfig,
     timeout: Duration,
 ) -> MotionResult<D, bool> {
-    Engine { config, travel: None }.try_distance_reset(drive, timeout).await
+    Engine {
+        config,
+        travel: None,
+    }
+    .try_distance_reset(drive, timeout)
+    .await
 }

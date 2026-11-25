@@ -25,6 +25,12 @@ fn controller_templates_are_const() {
     const BASIC: Basic = Basic::new().with_config(MOTION);
     const SETTINGS: MotionConfig = BASIC.config();
     assert_eq!(SETTINGS.limits.wheel_speed.value, 1.2);
-    assert_eq!(Ramsete::new().with_config(MOTION).config().path.guidance, PathGuidance::RAMSETE);
-    assert_eq!(LtvLqr::new().with_config(MOTION).config().path.guidance, PathGuidance::LQR);
+    assert_eq!(
+        Ramsete::new().with_config(MOTION).config().path.guidance,
+        PathGuidance::RAMSETE
+    );
+    assert_eq!(
+        LtvLqr::new().with_config(MOTION).config().path.guidance,
+        PathGuidance::LQR
+    );
 }

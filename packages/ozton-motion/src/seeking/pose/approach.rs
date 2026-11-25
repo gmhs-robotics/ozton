@@ -10,7 +10,7 @@ use ozton_math::{
 };
 
 use super::{
-    MotionExecution, Engine, TravelDirection, error::PoseMotionError, session::PoseSession,
+    Engine, MotionExecution, TravelDirection, error::PoseMotionError, session::PoseSession,
 };
 use crate::basic::differential::DifferentialTarget;
 

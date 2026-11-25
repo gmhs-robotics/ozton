@@ -345,7 +345,8 @@ impl Engine {
     ) -> Result<(), PoseMotionError<D::Error>> {
         let contact = drive.localization().wall_contact();
         if let Some(wall) = contact {
-            self.drive_distance_from_contact(drive, distance, wall).await
+            self.drive_distance_from_contact(drive, distance, wall)
+                .await
         } else {
             self.drive_distance_inner(drive, distance, None).await
         }
