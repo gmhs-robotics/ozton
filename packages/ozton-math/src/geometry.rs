@@ -95,20 +95,29 @@ impl Pose {
     /// Integrates a constant body twist over one sample using the SE(2) exponential.
     pub fn integrate(self, delta: BodyDelta) -> Self {
         let angle = delta.heading.value;
-        let (sinc, cosc) = if angle.abs() < 1e-5 {
-            (
-                1.0 - angle * angle / 6.0,
-                angle * (0.5 - angle * angle / 24.0),
-            )
-        } else {
-            let (sin, cos) = libm::sincos(angle);
-            (sin / angle, (1.0 - cos) / angle)
-        };
+        let (sinc, cosc) = twist_coefficients(angle);
         let local = DVec2::new(sinc, cosc).rotate(delta.translation);
         Self {
             position: self.transform_point(local),
             heading: wrap_heading(self.heading + delta.heading),
         }
+    }
+}
+
+/// Coefficients of the SE(2) exponential. On the small-angle interval the
+/// omitted terms are bounded by 0.05^8/9! and 0.05^9/10!, respectively.
+/// Horner evaluation also avoids cancellation in (1 - cos(angle)) / angle.
+#[inline]
+fn twist_coefficients(angle: f64) -> (f64, f64) {
+    if angle.abs() <= 0.05 {
+        let x2 = angle * angle;
+        (
+            1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0 - x2 / 5040.0)),
+            angle * (0.5 + x2 * (-1.0 / 24.0 + x2 * (1.0 / 720.0 - x2 / 40320.0))),
+        )
+    } else {
+        let (sin, cos) = libm::sincos(angle);
+        (sin / angle, (1.0 - cos) / angle)
     }
 }
 
@@ -173,6 +182,22 @@ pub fn pursuit_curvature(target: DVec2) -> f64 {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn twist_series_matches_stable_trigonometric_reference() {
+        for step in -1000..=1000 {
+            let angle = f64::from(step) * 0.0001;
+            let (sinc, cosc) = twist_coefficients(angle);
+            let reference = if angle == 0.0 {
+                (1.0, 0.0)
+            } else {
+                let half_sin = libm::sin(angle * 0.5);
+                (libm::sin(angle) / angle, 2.0 * half_sin * half_sin / angle)
+            };
+            assert!((sinc - reference.0).abs() < 2e-15);
+            assert!((cosc - reference.1).abs() < 2e-15);
+        }
+    }
 
     #[test]
     fn field_pose_registration_uses_initial_origin_right_forward_axes() {

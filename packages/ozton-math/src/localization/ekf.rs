@@ -48,9 +48,8 @@ impl PoseEkf {
         }
         let pose = self.pose.integrate(delta);
         let travel = pose.position - self.pose.position;
-        let jacobian = DMat3::from_cols(DVec3::X, DVec3::Y, DVec3::new(-travel.y, travel.x, 1.0));
-        let covariance = jacobian * self.covariance * jacobian.transpose()
-            + DMat3::from_diagonal(process_variance);
+        let covariance =
+            predict_covariance(self.covariance, travel) + DMat3::from_diagonal(process_variance);
         if !pose.is_finite() || !covariance.is_finite() {
             return false;
         }
@@ -120,6 +119,17 @@ impl PoseEkf {
     }
 }
 
+/// F = I + u e_z^T, where u = (-dy, dx, 0). Exploit its two off-diagonal
+/// entries rather than evaluating two dense 3x3 matrix products.
+fn predict_covariance(covariance: DMat3, travel: DVec2) -> DMat3 {
+    let u = DVec3::new(-travel.y, travel.x, 0.0);
+    let right_x = covariance.x_axis + covariance.z_axis * u.x;
+    let right_y = covariance.y_axis + covariance.z_axis * u.y;
+    let right_z = covariance.z_axis;
+    let transform = |column: DVec3| column + u * column.z;
+    DMat3::from_cols(transform(right_x), transform(right_y), transform(right_z))
+}
+
 fn outer(left: DVec3, right: DVec3) -> DMat3 {
     DMat3::from_cols(left * right.x, left * right.y, left * right.z)
 }
@@ -128,6 +138,23 @@ fn outer(left: DVec3, right: DVec3) -> DMat3 {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn sparse_prediction_matches_dense_jacobian() {
+        let covariance = DMat3::from_cols(
+            DVec3::new(0.08, 0.01, -0.002),
+            DVec3::new(0.01, 0.05, 0.003),
+            DVec3::new(-0.002, 0.003, 0.01),
+        );
+        for travel in [DVec2::ZERO, DVec2::new(0.2, -0.1), DVec2::new(-0.8, 0.4)] {
+            let f = DMat3::from_cols(DVec3::X, DVec3::Y, DVec3::new(-travel.y, travel.x, 1.0));
+            let reference = f * covariance * f.transpose();
+            let actual = predict_covariance(covariance, travel);
+            for (a, b) in actual.to_cols_array().into_iter().zip(reference.to_cols_array()) {
+                assert!((a - b).abs() < 1e-14);
+            }
+        }
+    }
 
     #[test]
     fn correction_reduces_error_and_rejects_outlier() {

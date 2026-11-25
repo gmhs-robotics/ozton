@@ -51,8 +51,16 @@ impl<'path> Progress<'path> {
             }
             let segment = b.pose.position - a.pose.position;
             let length = b.distance - a.distance;
-            let lower = ((self.distance - a.distance) / length).clamp(0.0, 1.0);
-            let upper = ((maximum - a.distance) / length).clamp(lower, 1.0);
+            let lower = if self.distance <= a.distance {
+                0.0
+            } else {
+                ((self.distance - a.distance) / length).min(1.0)
+            };
+            let upper = if maximum >= b.distance {
+                1.0
+            } else {
+                ((maximum - a.distance) / length).clamp(lower, 1.0)
+            };
             let projection = ((position - a.pose.position).dot(segment) / segment.length_squared())
                 .clamp(lower, upper);
             let error = position.distance_squared(a.pose.position + segment * projection);
