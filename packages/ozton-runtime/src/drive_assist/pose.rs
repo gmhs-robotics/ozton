@@ -10,7 +10,7 @@ use ozton_drivetrain::{
 use ozton_localization::{Feedback, differential::DifferentialLocalization, field::Boundary};
 use ozton_math::{
     geometry::{DVec2, Pose},
-    path::clearance::Obstacles,
+    path::clearance::{Obstacles, WallContact},
     uom::si::f64::Velocity,
 };
 use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
@@ -72,6 +72,14 @@ where
 
     fn emergency_brake(&mut self) -> Result<(), Self::Error> {
         self.drivetrain_mut().emergency_brake()
+    }
+
+    fn wall_contact(&self) -> Option<WallContact> {
+        self.drivetrain().wall_contact()
+    }
+
+    fn release_wall_contact(&mut self) {
+        self.drivetrain_mut().release_wall_contact();
     }
 
     fn pose_trusted(&self) -> bool {
