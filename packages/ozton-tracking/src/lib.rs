@@ -36,6 +36,8 @@ pub mod hardware;
 pub mod inertial;
 mod measurement;
 pub use measurement::MeasurementSink;
+#[cfg(feature = "vex")]
+pub use sampling::DriveSource;
 pub use sampling::{Tracking, TrackingSources};
 pub mod odometric;
 pub mod range;
@@ -58,6 +60,14 @@ pub trait TrackingSystem {
     fn drive_wheels_mut(&mut self) -> Option<&mut odometric::DifferentialTracking> {
         None
     }
+}
+
+/// A tracking configuration with a statically selected calibrated differential
+/// drive-wheel source. Hardware failures remain runtime errors.
+#[cfg(feature = "vex")]
+pub trait HasDriveWheels: TrackingSystem {
+    fn calibrated_drive(&self) -> &odometric::DifferentialTracking;
+    fn calibrated_drive_mut(&mut self) -> &mut odometric::DifferentialTracking;
 }
 
 /// Explicit no-op tracking type for drivetrains that do not have odometry.

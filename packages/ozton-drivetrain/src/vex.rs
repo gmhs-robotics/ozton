@@ -7,7 +7,7 @@ use std::{
 
 use ozton_math::uom::si::f64::{ElectricPotential, Length, Velocity};
 use ozton_tracking::{
-    TrackingSystem,
+    HasDriveWheels, TrackingSystem,
     odometric::{DifferentialTracking, DriveEncoders, SharedMotors, WheelFeedback},
 };
 use vexide::{
@@ -96,28 +96,24 @@ impl<M: Drive, T: TrackingSystem, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: Drive + MotorGroups, T: TrackingSystem, L> Drivetrain<M, T, L> {
+impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
+    Drivetrain<M, T, L>
+{
     /// Apply physical wheel velocity targets in model group order.
     /// Conversion to motor RPM uses the same geometry as odometry.
     pub fn drive_wheel_speeds(&mut self, speeds: M::WheelSpeeds) -> Result<(), WheelSpeedError> {
         let groups = self.model.motor_groups_mut();
-        let result = self
-            .state
-            .borrow()
-            .0
-            .drive_wheels()
-            .map(DifferentialTracking::wheels)
-            .ok_or(WheelSpeedError::MissingWheelGeometry)
-            .and_then(|wheels| wheels::drive_speed(wheels, groups, speeds.as_ref()));
-        if matches!(
-            result,
-            Err(WheelSpeedError::InvalidCommand | WheelSpeedError::MissingWheelGeometry)
-        ) {
+        let state = self.state.borrow();
+        let result = wheels::drive_speed(state.0.calibrated_drive().wheels(), groups, &speeds);
+        if matches!(result, Err(WheelSpeedError::InvalidCommand)) {
             let _ = coast(groups);
         }
         result
     }
 
+}
+
+impl<M: Drive + MotorGroups, T, L> Drivetrain<M, T, L> {
     /// Apply absolute volts to each motor in groups, within their hardware limits.
     pub fn drive_volts(&mut self, volts: M::WheelVoltages) -> Result<(), PortError> {
         let groups = self.model.motor_groups_mut();
@@ -170,12 +166,12 @@ impl<T: TrackingSystem, L> Drivetrain<Differential, T, L> {
     }
 }
 
-impl<T: TrackingSystem, L> DriveEncoders for Drivetrain<Differential, T, L> {
-    fn track_width(&self) -> Option<Length> {
-        Drivetrain::track_width(self)
+impl<T: HasDriveWheels, L> DriveEncoders for Drivetrain<Differential, T, L> {
+    fn track_width(&self) -> Length {
+        self.tracking().calibrated_drive().track_width()
     }
     fn tracking_positions(&mut self) -> [Option<Length>; 2] {
-        self.sample_feedback()
+        self.tracking_mut().calibrated_drive_mut().read_wheels()
             .map(|sample| sample.map(|sample| sample.position))
     }
 }

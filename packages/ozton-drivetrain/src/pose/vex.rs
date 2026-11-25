@@ -9,7 +9,7 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{Tracking, TrackingSources};
+use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
 
 use super::PoseDrive;
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<S> = Drivetrain<Differential, Tracking<S>, DifferentialLocalization>;
+type TrackedDrive<S, D> = Drivetrain<Differential, Tracking<S, D>, DifferentialLocalization>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
     Tracking(Fault),
@@ -49,7 +49,10 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<S: TrackingSources> PoseDrive for TrackedDrive<S> {
+impl<S: TrackingSources, D> PoseDrive for TrackedDrive<S, D>
+where
+    Tracking<S, D>: HasDriveWheels,
+{
     type Error = DriveMotionFault;
 
     fn pose(&self) -> Pose {

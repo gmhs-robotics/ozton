@@ -107,7 +107,7 @@ impl Seeking {
     ) -> Option<DriveOptions> {
         let config = self.config;
         config.valid().then(|| ())?;
-        Some(config.options(drive.track_width()?))
+        Some(config.options(drive.track_width()))
     }
 
     /// Prepare the same stopping governor used by trajectory execution for

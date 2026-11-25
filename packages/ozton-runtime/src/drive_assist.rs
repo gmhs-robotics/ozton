@@ -14,7 +14,7 @@ use ozton_math::{
         velocity::meter_per_second,
     },
 };
-use ozton_tracking::{TrackingSystem, odometric::DriveEncoders};
+use ozton_tracking::{HasDriveWheels, TrackingSystem, odometric::DriveEncoders};
 use vexide::smart::PortError;
 
 mod collection;
@@ -132,7 +132,7 @@ impl<M: Drive, T: TrackingSystem, L, A> DriveEncoders for AssistedDrivetrain<'_,
 where
     Drivetrain<M, T, L>: DriveEncoders,
 {
-    fn track_width(&self) -> Option<Length> {
+    fn track_width(&self) -> Length {
         DriveEncoders::track_width(self.drivetrain)
     }
 
@@ -143,7 +143,7 @@ where
 
 impl<
     M: Drive<Error = PortError> + MotorGroups<WheelSpeeds = [Velocity; 2]>,
-    T: TrackingSystem,
+    T: HasDriveWheels,
     L,
     A: DriveAssist<M, T, L>,
 > AssistedDrivetrain<'_, M, T, L, A>

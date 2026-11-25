@@ -10,17 +10,18 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{Tracking, TrackingSources};
+use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
 
 use super::{AssistedDrivetrain, DriveAssist};
 
-type AssistedTrackedDrive<'a, S, A> =
-    AssistedDrivetrain<'a, Differential, Tracking<S>, DifferentialLocalization, A>;
+type AssistedTrackedDrive<'a, S, D, A> =
+    AssistedDrivetrain<'a, Differential, Tracking<S, D>, DifferentialLocalization, A>;
 
-impl<S, A> PoseDrive for AssistedTrackedDrive<'_, S, A>
+impl<S, D, A> PoseDrive for AssistedTrackedDrive<'_, S, D, A>
 where
     S: TrackingSources,
-    A: DriveAssist<Differential, Tracking<S>, DifferentialLocalization>,
+    Tracking<S, D>: HasDriveWheels,
+    A: DriveAssist<Differential, Tracking<S, D>, DifferentialLocalization>,
 {
     type Error = DriveMotionFault;
 

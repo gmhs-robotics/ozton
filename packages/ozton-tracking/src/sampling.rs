@@ -1,6 +1,6 @@
 //! Sample a tuple or list of tracking sources without estimating pose.
 
-use std::time::Duration;
+use std::{marker::PhantomData, time::Duration};
 
 use futures_util::future::join_all;
 use glam::DVec3;
@@ -15,6 +15,7 @@ use crate::{
 };
 #[cfg(feature = "vex")]
 use crate::{
+    HasDriveWheels, SourceAt,
     inertial::{InertialSensorTracking, Orientation},
     odometric::DifferentialTracking,
 };
@@ -73,8 +74,9 @@ use sources::Capture;
 pub use sources::TrackingSources;
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
-pub struct Tracking<S> {
+pub struct Tracking<S, D = ()> {
     sources: S,
+    drive: PhantomData<D>,
     #[cfg(feature = "vex")]
     differential: Option<usize>,
     #[cfg(feature = "vex")]
@@ -84,7 +86,7 @@ pub struct Tracking<S> {
     observations: Vec<Observation>,
 }
 
-impl<S: TrackingSources> TrackingSystem for Tracking<S> {
+impl<S: TrackingSources, D> TrackingSystem for Tracking<S, D> {
     #[cfg(feature = "vex")]
     fn drive_wheels(&self) -> Option<&DifferentialTracking> {
         self.sources.source(self.differential?)?.differential()
@@ -137,6 +139,7 @@ impl<S: TrackingSources> Tracking<S> {
         }
         Ok(Self {
             observations: Vec::with_capacity(S::SOURCE_COUNT),
+            drive: PhantomData,
             range_layout,
             sources,
             #[cfg(feature = "vex")]
@@ -147,6 +150,44 @@ impl<S: TrackingSources> Tracking<S> {
         })
     }
 
+    /// Select the calibrated differential wheel source at assembly time.
+    /// Invalid indices and sources of the wrong type fail to compile.
+    #[cfg(feature = "vex")]
+    pub fn with_drive_source<const I: usize>(self) -> Tracking<S, DriveSource<I>>
+    where
+        Self: SourceAt<I, Source = DifferentialTracking>,
+    {
+        Tracking {
+            sources: self.sources,
+            drive: PhantomData,
+            differential: self.differential,
+            imu: self.imu,
+            range_layout: self.range_layout,
+            wheel_mounts: self.wheel_mounts,
+            observations: self.observations,
+        }
+    }
+}
+
+/// Type-level identity of an explicitly selected drive encoder source.
+#[cfg(feature = "vex")]
+pub struct DriveSource<const I: usize>;
+
+#[cfg(feature = "vex")]
+impl<S: TrackingSources, const I: usize> HasDriveWheels for Tracking<S, DriveSource<I>>
+where
+    Self: SourceAt<I, Source = DifferentialTracking>,
+{
+    fn calibrated_drive(&self) -> &DifferentialTracking {
+        self.source_at()
+    }
+
+    fn calibrated_drive_mut(&mut self) -> &mut DifferentialTracking {
+        self.source_at_mut()
+    }
+}
+
+impl<S: TrackingSources, D> Tracking<S, D> {
     pub fn sources(&self) -> &S {
         &self.sources
     }

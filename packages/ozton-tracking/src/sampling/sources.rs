@@ -74,7 +74,7 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
 macro_rules! source_indices {
     (($($all:ident),+);) => {};
     (($($all:ident),+); $name:ident:$index:tt $(, $rest:ident:$other:tt)*) => {
-        impl<$($all),+> SourceAt<$index> for super::Tracking<($($all,)+)> {
+        impl<DriveSelection, $($all),+> SourceAt<$index> for super::Tracking<($($all,)+), DriveSelection> {
             type Source = $name;
 
             fn source_at(&self) -> &Self::Source {

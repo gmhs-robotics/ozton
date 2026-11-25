@@ -31,8 +31,8 @@ pub trait LocalizationInput<T> {
     fn report(&self, _tracking: &T, _frame: crate::diagnostics::Frame) {}
 }
 
-impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocalization {
-    fn sample(&mut self, tracking: &mut Tracking<S>) {
+impl<S: TrackingSources, D> LocalizationInput<Tracking<S, D>> for DifferentialLocalization {
+    fn sample(&mut self, tracking: &mut Tracking<S, D>) {
         let width = tracking.drive_wheels().map(|source| source.track_width());
         let span = crate::profile::Span::new(crate::profile::Stage::Tracking);
         let sample = tracking.sample(self.occluded());
@@ -42,7 +42,7 @@ impl<S: TrackingSources> LocalizationInput<Tracking<S>> for DifferentialLocaliza
     }
 
     #[cfg(feature = "logging")]
-    fn report(&self, tracking: &Tracking<S>, frame: crate::diagnostics::Frame) {
+    fn report(&self, tracking: &Tracking<S, D>, frame: crate::diagnostics::Frame) {
         use crate::diagnostics::ComponentReport;
         if let Some(source) = tracking.drive_wheels() {
             crate::diagnostics::report_drive_feedback(

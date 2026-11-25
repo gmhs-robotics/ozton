@@ -44,7 +44,7 @@ impl DriveOptions {
         maximum_wheel_speed: Velocity,
     ) -> Option<Self> {
         Some(Self::differential(
-            drive.track_width()?,
+            drive.track_width(),
             maximum_wheel_speed,
         ))
     }

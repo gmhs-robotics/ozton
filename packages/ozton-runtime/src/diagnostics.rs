@@ -96,7 +96,7 @@ impl ComponentReport for ozton_tracking::NoTracking {
     fn report(&self, _: Frame) {}
 }
 
-impl<S: ozton_tracking::TrackingSources> ComponentReport for ozton_tracking::Tracking<S> {
+impl<S: ozton_tracking::TrackingSources, D> ComponentReport for ozton_tracking::Tracking<S, D> {
     fn report(&self, frame: Frame) {
         if let Some(sample) = self.diagnostic_orientation() {
             let (rate, acceleration) = self.imu_telemetry();
@@ -143,10 +143,10 @@ pub fn report_differential<T: ozton_tracking::TrackingSystem, L>(
 
 /// Sample motors while a drivetrain-only autonomous command owns the robot.
 #[cfg(feature = "logging")]
-pub fn report_motion_drive<S: ozton_tracking::TrackingSources, L>(
+pub fn report_motion_drive<S: ozton_tracking::TrackingSources, D, L>(
     drive: &ozton_drivetrain::Drivetrain<
         ozton_drivetrain::model::Differential,
-        ozton_tracking::Tracking<S>,
+        ozton_tracking::Tracking<S, D>,
         L,
     >,
 ) {
