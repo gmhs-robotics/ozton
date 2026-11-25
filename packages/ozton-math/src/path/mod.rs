@@ -1,26 +1,34 @@
 //! Prepared differential paths shared by importers and followers.
 
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::borrow::Cow;
+#[cfg(not(target_os = "vexos"))]
+use alloc::vec::Vec;
 
+#[cfg(not(target_os = "vexos"))]
 use glam::DVec2;
 use uom::si::f64::{Acceleration, Length, Time, Velocity};
 
 use crate::geometry::Pose;
 
 pub mod braking;
+#[cfg(not(target_os = "vexos"))]
 mod chain;
-mod parameterization;
+#[cfg(not(target_os = "vexos"))]
 pub use chain::PathChain;
+#[cfg(not(target_os = "vexos"))]
+mod parameterization;
 pub mod clearance;
 pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
+#[cfg(not(target_os = "vexos"))]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Waypoint {
     pub position: DVec2,
     pub speed_fraction: f64,
 }
 
+#[cfg(not(target_os = "vexos"))]
 impl Waypoint {
     /// Creates a waypoint from right/forward field lengths.
     pub const fn new(position: DVec2, speed_fraction: f64) -> Self {
@@ -115,12 +123,14 @@ pub struct Path {
 
 impl Path {
     /// Precomputes arc length, curvature and a forward/backward velocity pass.
+    #[cfg(not(target_os = "vexos"))]
     pub fn new(points: &[Waypoint], limits: Limits) -> Result<Self, PathError> {
         complete_ready(Self::new_cooperative(points, limits, async || true))
     }
 
     /// Parameterize a path while letting a cooperative runtime service
     /// tracking between bounded batches of samples.
+    #[cfg(not(target_os = "vexos"))]
     pub async fn new_cooperative<F>(
         points: &[Waypoint],
         limits: Limits,
@@ -348,6 +358,7 @@ impl Path {
 
 /// Synchronous algorithms supply an always-ready checkpoint. They share
 /// the implementation with cooperative callers without requiring an executor.
+#[cfg(not(target_os = "vexos"))]
 pub(super) fn complete_ready<F: core::future::Future>(future: F) -> F::Output {
     let mut future = core::pin::pin!(future);
     let mut context = core::task::Context::from_waker(core::task::Waker::noop());
@@ -368,6 +379,7 @@ fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> 
     }
 }
 
+#[cfg(not(target_os = "vexos"))]
 fn reachable(speed: f64, acceleration: f64, distance: f64) -> f64 {
     libm::sqrt(speed * speed + 2.0 * acceleration * distance)
 }
