@@ -114,8 +114,7 @@ pub fn simulate_path_with_lateral(
     mut clear: impl FnMut(Pose) -> bool,
 ) -> Option<SimulationReport> {
     let limits = path.limits();
-    let (config, options) =
-        config.constrained_for_path(config.options(limits.track_width), limits);
+    let (config, options) = config.constrained_for_path(config.options(limits.track_width), limits);
     if !config.valid()
         || !options.valid()
         || !initial_pose.is_finite()
