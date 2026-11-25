@@ -160,11 +160,12 @@ impl Seeking {
             if !drive.motion_active() {
                 return Err(PoseMotionError::Cancelled);
             }
-            let loc = drive.localization();
-            if !warned
-                && (!loc.pose_trusted()
-                    || area.is_some_and(|area| !area.contains_physical_pose(loc.pose())))
-            {
+            let uncertain = {
+                let loc = drive.localization();
+                !loc.pose_trusted()
+                    || area.is_some_and(|area| !area.contains_physical_pose(loc.pose()))
+            };
+            if !warned && uncertain {
                 warned = true;
                 ozton_diagnostics::log_event!(
                     Warn,
