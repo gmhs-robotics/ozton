@@ -1,7 +1,6 @@
 //! Calibrated wheel velocity actuation.
 use core::{error::Error, fmt};
 
-use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::odometric::{SharedMotors, Wheels};
 use vexide::smart::PortError;
 
