@@ -239,6 +239,10 @@ impl<M: Drive, T, L> HasLocalization for Drivetrain<M, T, L> {
     fn localization(&self) -> impl std::ops::Deref<Target = L> {
         Drivetrain::localization(self)
     }
+
+    fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = L> {
+        Drivetrain::localization_mut(self)
+    }
 }
 
 impl<M: Drive, T, L> Drive for Drivetrain<M, T, L> {

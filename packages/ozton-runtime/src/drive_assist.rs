@@ -19,7 +19,7 @@ use ozton_tracking::{HasDriveWheels, TrackingSystem, odometric::DriveEncoders};
 use vexide::smart::PortError;
 
 mod collection;
-mod pose;
+mod execution;
 pub use collection::{DriveAssists, ResetDriveAssists};
 pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssist};
 
@@ -126,6 +126,10 @@ where
 
     fn localization(&self) -> impl std::ops::Deref<Target = L> {
         self.drivetrain.localization()
+    }
+
+    fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = L> {
+        self.drivetrain.localization_mut()
     }
 }
 

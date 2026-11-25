@@ -658,9 +658,7 @@ fn setting_field_zero_rebaselines_imu_heading() {
     let mut localization = LocalizationBuilder::default()
         .build(&ozton_math::localization::observation::ObservationLayout::default())
         .unwrap();
-    let sample = |localization: &mut ozton_localization::Localization,
-                  millis,
-                  degrees| {
+    let sample = |localization: &mut ozton_localization::Localization, millis, degrees| {
         let time = Duration::from_millis(millis);
         localization
             .update(

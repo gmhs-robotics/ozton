@@ -208,10 +208,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
 
 impl<B: Boundary> LocalizationBuilder<B> {
     /// Build odometry from the configured tracking sources or a supplied layout.
-    pub fn build(
-        self,
-        tracking: &impl ObservationLayoutSource,
-    ) -> Option<Localization<B>> {
+    pub fn build(self, tracking: &impl ObservationLayoutSource) -> Option<Localization<B>> {
         self.build_inner(tracking.observation_layout(), false)
     }
 }

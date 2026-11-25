@@ -5,13 +5,13 @@ mod braking;
 pub use braking::{BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelActuation, WheelCommand};
 pub mod device;
 pub mod model;
-mod pose;
+mod execution;
 pub use model::{Drive, LateralDrive};
 pub use ozton_math::path::clearance::Footprint;
 pub use ozton_tracking::odometric::WheelFeedback;
 #[cfg(feature = "vex")]
-pub use pose::DriveMotionFault;
-pub use pose::{PoseDrive, RangeResetDrive};
+pub use execution::DriveMotionFault;
+pub use execution::{MotionExecution, RangeResetDrive};
 
 #[cfg(feature = "vex")]
 mod drivetrain;
@@ -29,4 +29,5 @@ pub trait HasLocalization {
     type Localization;
 
     fn localization(&self) -> impl std::ops::Deref<Target = Self::Localization>;
+    fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = Self::Localization>;
 }

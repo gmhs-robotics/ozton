@@ -1,17 +1,13 @@
-//! Motion integration for a tracked drivetrain.
+//! Motion execution for a tracked drivetrain.
 #[cfg(feature = "logging")]
 use std::time::Duration;
 use std::time::Instant;
 
-use ozton_localization::{Fault, Feedback, Localization, field::Boundary};
-use ozton_math::{
-    geometry::{DVec2, Pose},
-    path::clearance::{Obstacles, WallContact},
-    uom::si::f64::Velocity,
-};
+use ozton_localization::{Localization, field::Boundary};
+use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 
-use super::{PoseDrive, RangeResetDrive};
+use super::{MotionExecution, RangeResetDrive};
 use crate::{
     BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint,
     model::{Differential, MotionGeometryFor, WheelSpeedError},
@@ -21,7 +17,6 @@ type DriveOutputError = <Differential as Drive>::Error;
 type TrackedDrive<G, S, B> = Drivetrain<Differential<G>, Tracking<S>, Localization<B>>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
-    Tracking(Fault),
     Output(DriveOutputError),
     Brake(DriveOutputError),
     InvalidCommand,
@@ -30,7 +25,6 @@ pub enum DriveMotionFault {
 impl std::fmt::Display for DriveMotionFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tracking(fault) => write!(f, "Tracking feedback unavailable ({fault:?})"),
             Self::Output(error) => write!(f, "Could not command drive motors ({error})"),
             Self::Brake(error) => write!(f, "Could not stop drive motors ({error})"),
             Self::InvalidCommand => f.write_str("Invalid drivetrain command or wheel geometry"),
@@ -49,44 +43,14 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> PoseDrive for TrackedDrive<G, S, B>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> MotionExecution for TrackedDrive<G, S, B>
 where
     Tracking<S>: HasDriveWheels,
 {
     type Error = DriveMotionFault;
 
-    fn pose(&self) -> Pose {
-        self.localization().pose()
-    }
-
     fn footprint(&self) -> Option<Footprint> {
         self.footprint()
-    }
-
-    fn rectangular_half_extents(&self) -> Option<DVec2> {
-        self.localization().boundary().bounds()
-    }
-
-    fn motion_obstacles(&self) -> Obstacles {
-        self.localization().motion_obstacles()
-    }
-
-    fn movable_obstacles(&self) -> Obstacles {
-        self.localization().movable_obstacles()
-    }
-
-    fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error> {
-        self.localization()
-            .feedback()
-            .map_err(DriveMotionFault::Tracking)
-    }
-
-    fn position_covariance(&self) -> Option<glam::DMat2> {
-        self.localization().position_covariance()
-    }
-
-    fn velocity_uncertainty(&self) -> [f64; 3] {
-        self.localization().velocity_uncertainty()
     }
 
     fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {
@@ -100,18 +64,6 @@ where
     fn emergency_brake(&mut self) -> Result<(), Self::Error> {
         self.brake_all(BrakeMode::Brake)
             .map_err(DriveMotionFault::Brake)
-    }
-
-    fn wall_contact(&self) -> Option<WallContact> {
-        self.localization().wall_contact()
-    }
-
-    fn release_wall_contact(&mut self) {
-        self.localization_mut().release_wall_contact();
-    }
-
-    fn pose_trusted(&self) -> bool {
-        self.localization().pose_trusted()
     }
 
     fn wait_until(&mut self, deadline: Instant) -> impl std::future::Future<Output = ()> {
@@ -161,9 +113,6 @@ where
         }
     }
 
-    fn cancel_distance_reset(&mut self) {
-        self.localization_mut().cancel_distance_reset();
-    }
 }
 
 impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> RangeResetDrive
@@ -171,7 +120,4 @@ impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> RangeResetDrive
 where
     Tracking<S>: HasDriveWheels + HasRange,
 {
-    fn request_distance_reset(&mut self) {
-        self.localization_mut().request_distance_reset();
-    }
 }

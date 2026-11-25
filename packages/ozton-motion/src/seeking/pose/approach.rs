@@ -2,20 +2,21 @@
 
 use std::time::Duration;
 
+use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, bearing, wrap_heading},
     path::clearance::RectangularClearance,
     uom::si::f64::Angle,
 };
 
-use super::{PoseDrive, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
+use super::{MotionExecution, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
 use crate::basic::differential::DifferentialTarget;
 
-type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
+type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as MotionExecution>::Error>>;
 
 /// Direct go-to-goal feedback. A pose adds a final angular PID stage;
 /// neither primitive allocates or invokes a geometric planner.
-pub(super) async fn drive_to_target<D: PoseDrive>(
+pub(super) async fn drive_to_target<D: MotionExecution>(
     drive: &mut D,
     position: DVec2,
     final_heading: Option<Angle>,
@@ -32,7 +33,7 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
     session.finish(result)
 }
 
-async fn direct<D: PoseDrive>(
+async fn direct<D: MotionExecution>(
     session: &mut PoseSession<'_, D>,
     position: DVec2,
     final_heading: Option<Angle>,
@@ -41,7 +42,7 @@ async fn direct<D: PoseDrive>(
     let options = session.options;
     let timeout = settings.config.timing.stage_timeout;
     loop {
-        let start = session.drive.pose();
+        let start = session.drive.localization().pose();
         let displacement = position - start.position;
         let reverse = settings.travel.map_or_else(
             || {
@@ -71,7 +72,7 @@ async fn direct<D: PoseDrive>(
                 .await?;
         }
         if let Some(heading) = final_heading {
-            if wrap_heading(heading - session.drive.pose().heading)
+            if wrap_heading(heading - session.drive.localization().pose().heading)
                 .value
                 .abs()
                 > options.heading_tolerance.value
@@ -79,7 +80,7 @@ async fn direct<D: PoseDrive>(
                 turn(session, heading, timeout).await?;
             }
         }
-        if session.drive.pose().position.distance(position) <= options.position_tolerance.value {
+        if session.drive.localization().pose().position.distance(position) <= options.position_tolerance.value {
             return Ok(());
         }
         ozton_diagnostics::log_event!(
@@ -90,7 +91,7 @@ async fn direct<D: PoseDrive>(
     }
 }
 
-async fn turn<D: PoseDrive>(
+async fn turn<D: MotionExecution>(
     session: &mut PoseSession<'_, D>,
     heading: Angle,
     timeout: Duration,
@@ -100,7 +101,7 @@ async fn turn<D: PoseDrive>(
         .await
 }
 
-pub(super) fn clearance<D: PoseDrive>(
+pub(super) fn clearance<D: MotionExecution>(
     drive: &D,
     margin: ozton_math::uom::si::f64::Length,
 ) -> MotionResult<D, Option<RectangularClearance>> {
@@ -108,11 +109,12 @@ pub(super) fn clearance<D: PoseDrive>(
         return Ok(None);
     };
     let bounds = drive
+        .localization()
         .rectangular_half_extents()
         .ok_or(PoseMotionError::Configuration)?;
     let mut field = RectangularClearance::new(footprint, bounds, margin)
         .ok_or(PoseMotionError::Configuration)?;
-    for polygon in drive.motion_obstacles().into_iter().flatten() {
+    for polygon in drive.localization().motion_obstacles().into_iter().flatten() {
         field = field
             .with_polygon(polygon)
             .ok_or(PoseMotionError::Configuration)?;

@@ -2,12 +2,13 @@ use std::time::{Duration, Instant};
 
 use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
+use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 
-use super::{PathActions, PoseDrive, PoseMotionError, RangeResetDrive};
+use super::{PathActions, MotionExecution, PoseMotionError, RangeResetDrive};
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
@@ -20,7 +21,7 @@ pub(super) struct Trajectory<'a> {
     pub timeout: Duration,
 }
 
-pub(super) struct PoseSession<'a, D: PoseDrive> {
+pub(super) struct PoseSession<'a, D: MotionExecution> {
     pub(super) drive: &'a mut D,
     pub(super) options: DriveOptions,
     config: crate::MotionConfig,
@@ -29,7 +30,7 @@ pub(super) struct PoseSession<'a, D: PoseDrive> {
     finished: bool,
 }
 
-impl<'a, D: PoseDrive> PoseSession<'a, D> {
+impl<'a, D: MotionExecution> PoseSession<'a, D> {
     pub(super) fn new(
         drive: &'a mut D,
         options: DriveOptions,
@@ -176,10 +177,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
         self.previous_tick = started;
-        let baseline = self
-            .drive
-            .pose_feedback()
-            .map_err(PoseMotionError::Drive)?
+        let baseline = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
@@ -193,7 +191,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
             warnings.stage(started.elapsed(), timeout);
-            let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
+            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)? else {
                 log_row!(
                     Trace,
                     "MOTION_RETRY",
@@ -235,7 +233,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !valid_feedback(feedback) {
                 return Err(PoseMotionError::InvalidFeedback);
             }
-            warnings.pose(self.drive.pose_trusted());
+            warnings.pose(self.drive.localization().pose_trusted());
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
@@ -298,10 +296,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         use crate::pursuit::profiled::ProfiledFollower;
         let start = Instant::now();
         self.previous_tick = start;
-        let baseline = self
-            .drive
-            .pose_feedback()
-            .map_err(PoseMotionError::Drive)?
+        let baseline = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
         let mut follower = ProfiledFollower::new(path, follower);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
@@ -333,7 +328,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
             warnings.stage(start.elapsed(), timeout);
-            let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
+            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)? else {
                 self.drive
                     .emergency_brake()
                     .map_err(PoseMotionError::StopFailed)?;
@@ -367,7 +362,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             last = Some(feedback.time);
             fresh_at = Instant::now();
-            warnings.pose(self.drive.pose_trusted());
+            warnings.pose(self.drive.localization().pose_trusted());
             let observation = follower.observe(
                 feedback.pose,
                 dt,
@@ -466,7 +461,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
         self.previous_tick = started;
-        <D as RangeResetDrive>::request_distance_reset(self.drive);
+        self.drive.localization_mut().request_distance_reset();
         log_event!(
             Info,
             "localization",
@@ -482,7 +477,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 );
                 return Ok(false);
             }
-            let feedback = self.drive.pose_feedback().map_err(PoseMotionError::Drive)?;
+            let feedback = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?;
             self.drive.log_step(self.started.elapsed(), dt);
             if let Some(feedback) = feedback {
                 if !valid_feedback(feedback) {
@@ -504,7 +499,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         mut self,
         outcome: Result<T, PoseMotionError<D::Error>>,
     ) -> Result<T, PoseMotionError<D::Error>> {
-        self.drive.cancel_distance_reset();
+        self.drive.localization_mut().cancel_distance_reset();
         let stop = if outcome.is_ok() {
             self.drive.brake()
         } else {
@@ -526,10 +521,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     }
 }
 
-impl<D: PoseDrive> Drop for PoseSession<'_, D> {
+impl<D: MotionExecution> Drop for PoseSession<'_, D> {
     fn drop(&mut self) {
         if !self.finished {
-            self.drive.cancel_distance_reset();
+            self.drive.localization_mut().cancel_distance_reset();
             let stopped = self.drive.emergency_brake();
             if stopped.is_ok() {
                 log_event!(Info, "motion", "Motion interrupted; brake requested");
@@ -538,6 +533,10 @@ impl<D: PoseDrive> Drop for PoseSession<'_, D> {
             }
         }
     }
+}
+
+fn read_feedback<D: MotionExecution>(drive: &D) -> Result<Option<Feedback>, ozton_localization::Fault> {
+    drive.localization().feedback()
 }
 
 fn valid_feedback(feedback: Feedback) -> bool {

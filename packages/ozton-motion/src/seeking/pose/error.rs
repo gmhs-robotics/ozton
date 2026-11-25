@@ -13,6 +13,7 @@ pub enum PoseMotionError<E> {
     UntrustedPose,
     NoProgress,
     Mechanism(Box<dyn Error>),
+    Tracking(ozton_localization::Fault),
     Drive(E),
     StopFailed(E),
     StopFailedAfter { cause: Box<Self>, stop: E },
@@ -31,6 +32,7 @@ impl<E> PoseMotionError<E> {
             Self::UntrustedPose => "untrusted_pose",
             Self::NoProgress => "no_progress",
             Self::Mechanism(_) => "mechanism",
+            Self::Tracking(_) => "tracking",
             Self::Drive(_) => "robot",
             Self::StopFailed(_) | Self::StopFailedAfter { .. } => "stop_failed",
         }
@@ -50,6 +52,7 @@ impl<E: fmt::Display> fmt::Display for PoseMotionError<E> {
             Self::UntrustedPose => "Untrusted field pose",
             Self::NoProgress => "Pose seeking made no progress",
             Self::Mechanism(error) => return error.fmt(f),
+            Self::Tracking(fault) => return write!(f, "Tracking feedback unavailable ({fault:?})"),
             Self::Drive(error) => return error.fmt(f),
             Self::StopFailed(error) => return write!(f, "Motion stop failed: {error}"),
             Self::StopFailedAfter { cause, stop } => {

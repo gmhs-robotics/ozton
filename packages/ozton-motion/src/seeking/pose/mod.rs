@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, Pose},
     uom::si::f64::{Angle, Length},
@@ -15,7 +16,7 @@ mod error;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
-pub use ozton_drivetrain::{BrakeMode, PoseDrive, RangeResetDrive, WheelActuation, WheelCommand};
+pub use ozton_drivetrain::{BrakeMode, MotionExecution, RangeResetDrive, WheelActuation, WheelCommand};
 pub use ozton_math::path::clearance::WallContact;
 use session::{PoseSession, Trajectory};
 
@@ -110,7 +111,7 @@ impl Seeking {
     }
 
     /// Direct distance/bearing PID seeking without geometric path search.
-    pub async fn move_to_point<D: PoseDrive>(
+    pub async fn move_to_point<D: MotionExecution>(
         &self,
         drive: &mut D,
         point: impl Into<DVec2>,
@@ -119,7 +120,7 @@ impl Seeking {
     }
 
     /// Approach an absolute pose using continuous Boomerang feedback.
-    pub async fn move_to_pose<D: PoseDrive>(
+    pub async fn move_to_pose<D: MotionExecution>(
         &self,
         drive: &mut D,
         target: Pose,
@@ -135,8 +136,8 @@ impl Seeking {
         let reverse = self.travel.map_or_else(
             || {
                 ozton_math::geometry::wrap_heading(
-                    ozton_math::geometry::bearing(target.position - drive.pose().position)
-                        - drive.pose().heading,
+                    ozton_math::geometry::bearing(target.position - drive.localization().pose().position)
+                        - drive.localization().pose().heading,
                 )
                 .value
                 .abs()
@@ -159,7 +160,7 @@ impl Seeking {
     }
 
     /// Rotate, drive straight to a position, then settle at its absolute heading.
-    pub async fn move_to_pose_straight<D: PoseDrive>(
+    pub async fn move_to_pose_straight<D: MotionExecution>(
         &self,
         drive: &mut D,
         target: Pose,
@@ -169,7 +170,7 @@ impl Seeking {
 
     /// Follow an authored sequence of absolute field poses. Each pose settles
     /// before the next command. A failure stops the sequence, without replanning.
-    pub async fn follow_poses<D: PoseDrive>(
+    pub async fn follow_poses<D: MotionExecution>(
         &self,
         drive: &mut D,
         poses: &[Pose],
@@ -195,7 +196,7 @@ impl Seeking {
     }
 
     /// Drive a signed distance while preserving the starting heading.
-    pub async fn drive_distance<D: PoseDrive>(
+    pub async fn drive_distance<D: MotionExecution>(
         &self,
         drive: &mut D,
         distance: Length,
@@ -207,33 +208,33 @@ impl Seeking {
     /// distance PID and a one-shot unilateral wall constraint.
     /// Register the surveyed contact pose before this command. Virtual
     /// boundaries are never valid contact observations.
-    pub async fn drive_distance_from_contact<D: PoseDrive>(
+    pub async fn drive_distance_from_contact<D: MotionExecution>(
         &self,
         drive: &mut D,
         distance: Length,
         wall: WallContact,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        if drive.wall_contact() != Some(wall) {
+        if drive.localization().wall_contact() != Some(wall) {
             return Err(PoseMotionError::Configuration);
         }
         let result = self.drive_distance_inner(drive, distance, Some(wall)).await;
-        drive.release_wall_contact();
+        drive.localization_mut().release_wall_contact();
         result
     }
 
-    async fn drive_distance_inner<D: PoseDrive>(
+    async fn drive_distance_inner<D: MotionExecution>(
         &self,
         drive: &mut D,
         distance: Length,
         contact: Option<WallContact>,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        let heading = drive.pose().heading;
+        let heading = drive.localization().pose().heading;
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if !distance.value.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
         let field = approach::clearance(drive, self.config.safety.clearance)?;
-        let start = drive.pose();
+        let start = drive.localization().pose();
         let end = Pose::new(
             start.position + ozton_math::geometry::direction(heading) * distance.value,
             heading,
@@ -264,7 +265,7 @@ impl Seeking {
             );
         }
         if contact.is_some() {
-            drive.release_wall_contact();
+            drive.localization_mut().release_wall_contact();
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
@@ -281,7 +282,7 @@ impl Seeking {
     }
 
     /// Execute a constant-radius forward arc with a checked swept footprint.
-    pub async fn drive_arc<D: PoseDrive>(
+    pub async fn drive_arc<D: MotionExecution>(
         &self,
         drive: &mut D,
         radius: Length,
@@ -298,7 +299,7 @@ impl Seeking {
         if let Some(field) = approach::clearance(drive, self.config.safety.clearance)? {
             let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
             let (min, max) = footprint
-                .forward_arc_bounds(drive.pose(), radius, sweep)
+                .forward_arc_bounds(drive.localization().pose(), radius, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
                 ozton_diagnostics::log_row!(
@@ -334,7 +335,7 @@ impl Seeking {
     }
 
     /// Turn to face a field point using the physical feedback controller.
-    pub async fn turn_to_point<D: PoseDrive>(
+    pub async fn turn_to_point<D: MotionExecution>(
         &self,
         drive: &mut D,
         target: impl Into<DVec2>,
@@ -350,7 +351,7 @@ impl Seeking {
         .await
     }
 
-    pub async fn turn_to_heading<D: PoseDrive>(
+    pub async fn turn_to_heading<D: MotionExecution>(
         &self,
         drive: &mut D,
         heading: Angle,
@@ -367,7 +368,7 @@ impl Seeking {
 
     /// Forward swing to an absolute heading with the inside wheel group held.
     /// Only drives with explicit mixed braking/velocity support can use it.
-    pub async fn swing_to_heading<D: PoseDrive + WheelActuation>(
+    pub async fn swing_to_heading<D: MotionExecution + WheelActuation>(
         &self,
         drive: &mut D,
         heading: Angle,
@@ -379,7 +380,7 @@ impl Seeking {
             return Err(PoseMotionError::Configuration);
         }
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let start = drive.pose();
+        let start = drive.localization().pose();
         let sweep = ozton_math::geometry::wrap_heading(heading - start.heading);
         if let Some(field) = approach::clearance(drive, self.config.safety.clearance)? {
             let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
@@ -411,7 +412,7 @@ impl Seeking {
         session.finish(result)
     }
 
-    async fn turn_target<D: PoseDrive>(
+    async fn turn_target<D: MotionExecution>(
         &self,
         drive: &mut D,
         target: crate::basic::differential::DifferentialTarget,
@@ -420,12 +421,12 @@ impl Seeking {
         let heading = match target {
             crate::basic::differential::DifferentialTarget::Turn { heading } => heading,
             crate::basic::differential::DifferentialTarget::TurnToPoint { target } => {
-                ozton_math::geometry::bearing(target - drive.pose().position)
+                ozton_math::geometry::bearing(target - drive.localization().pose().position)
             }
             _ => return Err(PoseMotionError::Configuration),
         };
         if approach::clearance(drive, self.config.safety.clearance)?
-            .is_some_and(|f| !f.contains_turn(drive.pose(), heading))
+            .is_some_and(|f| !f.contains_turn(drive.localization().pose(), heading))
         {
             ozton_diagnostics::log_event!(
                 Warn,
@@ -438,7 +439,7 @@ impl Seeking {
         session.finish(result)
     }
 
-    pub async fn follow_path<D: PoseDrive>(
+    pub async fn follow_path<D: MotionExecution>(
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
@@ -455,7 +456,7 @@ impl Seeking {
     }
 
     /// Track a host-timed trajectory with RAMSETE.
-    pub async fn follow_trajectory<D: PoseDrive>(
+    pub async fn follow_trajectory<D: MotionExecution>(
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
@@ -472,7 +473,7 @@ impl Seeking {
     }
 
     /// Execute a continuous trajectory with nonblocking mechanism actions.
-    pub async fn follow_with_actions<D: PoseDrive>(
+    pub async fn follow_with_actions<D: MotionExecution>(
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
@@ -487,7 +488,7 @@ impl Seeking {
         let field = approach::clearance(drive, self.config.safety.clearance)?;
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let start = path.start().pose;
-        let actual = drive.pose();
+        let actual = drive.localization().pose();
         if !follower.is_valid() || !actual.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
@@ -535,7 +536,7 @@ impl Seeking {
         }
         let end = path.end().pose;
         let target = Pose::new(end.position, end.heading + facing);
-        drive.release_wall_contact();
+        drive.localization_mut().release_wall_contact();
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session
             .follow(
