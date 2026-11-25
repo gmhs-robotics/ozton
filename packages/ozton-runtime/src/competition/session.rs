@@ -174,18 +174,21 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
                 return;
             }
             activation.renew();
-            match result {
+            let completed = match result {
                 Some(Ok(())) => match runtime.robot.stop() {
                     Ok(()) => {
-                        runtime.selector.status("Autonomous complete");
                         crate::log_event!(
                             Info,
                             "autonomous",
                             "Completed route {:?}",
                             route.label()
                         );
+                        true
                     }
-                    Err(error) => runtime.route_failed(route, error),
+                    Err(error) => {
+                        runtime.route_failed(route, error);
+                        false
+                    }
                 },
                 Some(Err(error)) => {
                     let stopped = runtime.robot.fault_stop();
@@ -193,8 +196,22 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
                     if let Err(error) = stopped {
                         runtime.route_failed(route, error);
                     }
+                    false
                 }
                 None => return,
+            };
+            // Stop outputs and record the actual motion end before SD I/O.
+            // Do not announce completion until the entire log is checkpointed.
+            #[cfg(feature = "logging")]
+            let saved = crate::diagnostics::flush_sd_logging();
+            #[cfg(not(feature = "logging"))]
+            let saved = true;
+            if completed {
+                runtime.selector.status(if saved {
+                    "Autonomous complete"
+                } else {
+                    "Autonomous complete (SD error)"
+                });
             }
         } else {
             runtime.selector.status("Autonomous disabled");
