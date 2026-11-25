@@ -18,8 +18,7 @@ use wheels::WheelSpeedError;
 
 use super::{
     BrakeMotors, Drive, Footprint, HasBraking, HasLocalization, LateralDrive, MotorAddress,
-    WheelCommand,
-    wheels,
+    WheelCommand, wheels,
 };
 use crate::model::{Differential, MotionGeometry};
 
