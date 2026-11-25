@@ -93,7 +93,10 @@ impl PoseEstimator for Ekf {
         }
     }
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
-        if !self.filter.predict(delta, self.config.process_variance_per_second * seconds) {
+        if !self
+            .filter
+            .predict(delta, self.config.process_variance_per_second * seconds)
+        {
             return false;
         }
         if let Some(contact) = self.contact {
