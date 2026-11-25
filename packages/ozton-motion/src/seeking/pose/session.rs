@@ -4,12 +4,16 @@ use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::wrap_heading,
+    path::clearance::WallContact,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 
 use super::{
     PathActions, PoseDrive, PoseMotionError, RangeResetDrive,
-    safety::{body_rates, limit_wall_command, safe_feedback},
+    safety::{
+        body_rates, contact_released, limit_wall_command, limit_wall_command_at_contact,
+        safe_feedback, safe_feedback_at_contact,
+    },
 };
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
@@ -31,6 +35,7 @@ pub(super) struct PoseSession<'a, D: PoseDrive> {
     previous_tick: Instant,
     started: Instant,
     finished: bool,
+    contact: Option<WallContact>,
 }
 
 impl<'a, D: PoseDrive> PoseSession<'a, D> {
@@ -52,7 +57,13 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             previous_tick: Instant::now(),
             started: Instant::now(),
             finished: false,
+            contact: None,
         })
+    }
+
+    pub(super) fn with_contact(mut self, contact: Option<WallContact>) -> Self {
+        self.contact = contact;
+        self
     }
 
     async fn tick(&mut self) -> Result<Duration, PoseMotionError<D::Error>> {
@@ -304,20 +315,30 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let uncertainty = self.drive.velocity_uncertainty();
             let covariance = self.drive.position_covariance();
             let previous = controller.applied_wheels();
+            let previous_rates = body_rates(previous, self.options.track_width.value);
+            if self.contact.is_some()
+                && clearance.is_some_and(|field| {
+                    contact_released(field, feedback, self.config, uncertainty, covariance, previous_rates)
+                })
+            {
+                self.contact = None;
+                log_event!(Info, "clearance", "Surveyed contact departure cleared; ordinary governor restored");
+            }
             if clearance.is_some_and(|field| {
-                !safe_feedback(
+                !safe_feedback_at_contact(
                     field,
                     feedback,
                     self.config,
                     uncertainty,
                     covariance,
-                    body_rates(previous, self.options.track_width.value),
+                    previous_rates,
+                    self.contact,
                 )
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
             let (requested, ready) = controller.step(target, feedback, dt, self.options);
-            let wheels = limit_wall_command(
+            let wheels = limit_wall_command_at_contact(
                 clearance,
                 feedback,
                 requested,
@@ -326,6 +347,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 uncertainty,
                 covariance,
                 previous,
+                self.contact,
             );
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
