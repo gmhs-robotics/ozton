@@ -122,6 +122,7 @@ pub struct FieldMap<B = ()> {
     faces: Vec<Surface>,
     objects: Vec<Object>,
     motion_only: Vec<ConvexPolygon>,
+    ignore_movable_ranges: bool,
     boundary: B,
 }
 
@@ -132,6 +133,7 @@ impl From<Field> for FieldMap<FieldBoundary> {
             boundary: FieldBoundary(point(field.max.right, field.max.forward)),
             objects: Vec::new(),
             motion_only: Vec::new(),
+            ignore_movable_ranges: false,
         }
     }
 }
@@ -144,6 +146,7 @@ impl<B: Boundary> FieldMap<B> {
             faces: self.faces,
             objects: self.objects,
             motion_only: self.motion_only,
+            ignore_movable_ranges: self.ignore_movable_ranges,
             boundary: FieldBoundary::new(half_extents)?,
         })
     }
@@ -326,8 +329,26 @@ impl<B: Boundary> FieldMap<B> {
         self.faces.iter().copied()
     }
 
+    /// Use only stationary landmarks for absolute range localization, while
+    /// retaining movable objects in the surveyed motion geometry.
+    #[must_use]
+    pub fn without_movable_range_landmarks(mut self) -> Self {
+        self.ignore_movable_ranges = true;
+        self
+    }
+
     pub fn range_config(&self, mount: RangeSensorConfig) -> RangeSensorConfig {
-        mount.with_visible_surfaces(&self.faces)
+        let mut mount = mount.with_visible_surfaces(&self.faces);
+        if self.ignore_movable_ranges {
+            for object in &self.objects {
+                if object.policy == ObjectPolicy::Movable {
+                    for index in object.faces.clone() {
+                        mount.surface_mask &= !(1u128 << index);
+                    }
+                }
+            }
+        }
+        mount
     }
 }
 
@@ -336,6 +357,25 @@ mod tests {
     use ozton_math::position_xyzh;
 
     use super::*;
+
+    #[test]
+    fn movable_landmarks_can_be_excluded_without_losing_motion_geometry() {
+        use ozton_math::{localization::observation::ObservationLayout, qty};
+
+        let mut field = FieldMap::from(Field::METAL).without_movable_range_landmarks();
+        assert!(field.add_movable_box(
+            DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(10 in)
+        ));
+        let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg));
+        assert_eq!(field.range_config(mount).surface_mask, 0b1111);
+        assert!(field.motion_projection().unwrap().movable[0].is_some());
+        let ranges = [(0, mount)];
+        let localization = crate::LocalizationBuilder::new()
+            .with_field(field)
+            .build(&ObservationLayout { wheels: &[], ranges: &ranges })
+            .unwrap();
+        assert!(localization.boundary().half_extents().x > 0.0);
+    }
 
     #[test]
     fn lower_beam_hits_fixed_goal_and_upper_beam_reaches_wall() {
