@@ -13,21 +13,67 @@ use crate::{TrackingSource, range::RangeSource};
 /// use ozton_tracking::Sources;
 /// let _ = Sources::new().with_ranges(());
 /// ```
-pub trait RangeBank: TrackingSources {}
+pub trait RangeBank: TrackingSources {
+    #[doc(hidden)]
+    fn describe_ranges(&self, layout: &mut SourceLayout) -> Result<(), TrackingBuildError>;
+}
 
 macro_rules! range_banks {
-    ($($name:ident),+) => {
-        impl<$($name: RangeSource),+> RangeBank for ($($name,)+) {}
+    ($($name:ident:$index:tt),+) => {
+        impl<$($name: RangeSource),+> RangeBank for ($($name,)+) {
+            fn describe_ranges(&self, layout: &mut SourceLayout) -> Result<(), TrackingBuildError> {
+                $(layout.register_range(&self.$index)?;)+
+                Ok(())
+            }
+        }
     };
 }
-range_banks!(A);
-range_banks!(A, B);
-range_banks!(A, B, C);
-range_banks!(A, B, C, D);
-range_banks!(A, B, C, D, E);
-range_banks!(A, B, C, D, E, F);
-range_banks!(A, B, C, D, E, F, G);
-range_banks!(A, B, C, D, E, F, G, H);
+range_banks!(A:0);
+range_banks!(A:0, B:1);
+range_banks!(A:0, B:1, C:2);
+range_banks!(A:0, B:1, C:2, D:3);
+range_banks!(A:0, B:1, C:2, D:3, E:4);
+range_banks!(A:0, B:1, C:2, D:3, E:4, F:5);
+range_banks!(A:0, B:1, C:2, D:3, E:4, F:5, G:6);
+range_banks!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
+
+macro_rules! range_arrays {
+    ($($n:literal),+) => {$(
+        impl<T: RangeSource> RangeBank for [T; $n] {
+            fn describe_ranges(&self, layout: &mut SourceLayout) -> Result<(), TrackingBuildError> {
+                for source in self {
+                    layout.register_range(source)?;
+                }
+                Ok(())
+            }
+        }
+    )+};
+}
+range_arrays!(1, 2, 3, 4, 5, 6, 7, 8);
+
+/// Empty or populated ranging role. Kept separate from RangeBank so an empty
+/// role cannot grant the HasRange capability.
+#[doc(hidden)]
+pub trait RangeRole: TrackingSources {
+    const COUNT: usize;
+    fn describe_role(&self, layout: &mut SourceLayout) -> Result<(), TrackingBuildError>;
+}
+
+impl RangeRole for () {
+    const COUNT: usize = 0;
+
+    fn describe_role(&self, _: &mut SourceLayout) -> Result<(), TrackingBuildError> {
+        Ok(())
+    }
+}
+
+impl<R: RangeBank> RangeRole for R {
+    const COUNT: usize = R::SOURCE_COUNT;
+
+    fn describe_role(&self, layout: &mut SourceLayout) -> Result<(), TrackingBuildError> {
+        self.describe_ranges(layout)
+    }
+}
 
 /// Inline, role-based sensor composition. The roles determine the available
 /// capabilities; the extra bank accepts any supported source collection.
@@ -138,7 +184,7 @@ impl DriveBank for (crate::odometric::DifferentialTracking,) {
     }
 }
 
-impl<D: DriveBank, H: TrackingSources, R: TrackingSources, E: TrackingSources> TrackingSources
+impl<D: DriveBank, H: TrackingSources, R: RangeRole, E: TrackingSources> TrackingSources
     for Sources<D, H, R, E>
 {
     const SOURCE_COUNT: usize =
@@ -150,7 +196,7 @@ impl<D: DriveBank, H: TrackingSources, R: TrackingSources, E: TrackingSources> T
     const GUARANTEED_RANGE_COUNT: usize = D::GUARANTEED_RANGE_COUNT
         + E::GUARANTEED_RANGE_COUNT
         + H::GUARANTEED_RANGE_COUNT
-        + R::GUARANTEED_RANGE_COUNT;
+        + R::COUNT;
     const HAS_SELECTED_DRIVE: bool = D::SELECTED;
 
     #[cfg(feature = "vex")]
@@ -162,7 +208,7 @@ impl<D: DriveBank, H: TrackingSources, R: TrackingSources, E: TrackingSources> T
         self.drive.describe(layout)?;
         self.extra.describe(layout)?;
         self.orientation.describe(layout)?;
-        self.ranges.describe(layout)
+        self.ranges.describe_role(layout)
     }
 
     #[cfg(feature = "vex")]

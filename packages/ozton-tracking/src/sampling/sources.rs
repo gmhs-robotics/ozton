@@ -153,10 +153,25 @@ impl SourceLayout {
         &mut self,
         source: &impl TrackingSource,
     ) -> Result<(), super::TrackingBuildError> {
+        self.register_config(source, source.range_mount())
+    }
+
+    pub(super) fn register_range(
+        &mut self,
+        source: &impl crate::range::RangeSource,
+    ) -> Result<(), super::TrackingBuildError> {
+        self.register_config(source, Some(source.range_config()))
+    }
+
+    fn register_config(
+        &mut self,
+        source: &impl TrackingSource,
+        mount: Option<RangeSensorConfig>,
+    ) -> Result<(), super::TrackingBuildError> {
         use super::TrackingBuildError;
         let index = self.next_source;
         self.next_source += 1;
-        if let Some(mount) = source.range_mount() {
+        if let Some(mount) = mount {
             self.ranges
                 .try_push((index, mount))
                 .map_err(|_| TrackingBuildError::RangeLayout)?;

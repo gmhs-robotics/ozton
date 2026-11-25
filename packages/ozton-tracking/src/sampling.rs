@@ -70,6 +70,8 @@ pub use sources::TrackingSources;
 mod roles;
 pub use roles::{RangeBank, Sources};
 #[doc(hidden)]
+pub use roles::RangeRole;
+#[doc(hidden)]
 pub use sources::{Capture, SourceLayout};
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
@@ -131,7 +133,7 @@ impl<S: TrackingSources> Tracking<S> {
 }
 
 #[cfg(feature = "vex")]
-impl<H: TrackingSources, R: TrackingSources, E: TrackingSources> HasDriveWheels
+impl<H: TrackingSources, R: RangeRole, E: TrackingSources> HasDriveWheels
     for Tracking<Sources<(DifferentialTracking,), H, R, E>>
 {
     fn calibrated_drive(&self) -> &DifferentialTracking {
@@ -244,4 +246,33 @@ mod tests {
         assert!(matches!(range.measurement, Measurement::Range(range) if range.occluded));
         assert_eq!(tracking.sample_at(time, 0).observations.len(), 2);
     }
+
+    struct CustomRange;
+
+    impl TrackingSource for CustomRange {
+        fn sample(&mut self, sink: &mut MeasurementSink<'_>) {
+            assert!(sink.range_index.is_some());
+        }
+    }
+
+    impl crate::range::RangeSource for CustomRange {
+        fn range_config(&self) -> RangeSensorConfig {
+            RangeSensorConfig::new(Default::default())
+        }
+    }
+
+    #[test]
+    fn named_range_bank_registers_custom_sources_without_optional_mounts() {
+        fn require_range<T: HasRange>(_: &T) {}
+        let mut tracking = Tracking::new(Sources::new().with_ranges([CustomRange, CustomRange]))
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        require_range(&tracking);
+        let ranges = tracking.observation_layout().ranges;
+        assert_eq!(ranges.len(), 2);
+        assert_eq!([ranges[0].0, ranges[1].0], [0, 1]);
+        tracking.sample_at(Duration::ZERO, 0);
+    }
+
 }
