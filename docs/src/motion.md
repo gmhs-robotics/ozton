@@ -104,7 +104,13 @@ and independent forward/lateral travel. XY covariance from the active EKF
 or MCL expands the projected bounds by the configured sigma multiplier.
 Odometry-only or custom estimators without covariance use the configured
 clearance margin, not invented covariance. Test the resulting AABB against
-the perimeter and hard obstacles.
+the physical perimeter and hard obstacles. The configured clearance is also a
+preferred wall reserve. If the current stopping envelope already occupies this
+reserve, commands may leave the deficit unchanged or reduce it, never increase
+it. Corner velocity checks forbid further motion toward the affected wall.
+The uncertainty-expanded envelope must still fit inside the physical perimeter;
+this is not an exact-contact guarantee. Virtual exclusion zones retain the
+full hard-obstacle clearance checks.
 
 Interrupted motions, terminal capture and feedback faults request an active
 zero-speed stop rather than the normal resting coast. The VEX adapter attempts
@@ -121,7 +127,8 @@ Configure these independently of the nominal trajectory limits.
 ## Orientation-aware routing
 
 Seeking first tries a continuous Hermite maneuver for a pose goal. If none is
-feasible, LatticePlanner searches position and heading with bounded A-star,
+feasible, or if a running pose trajectory is blocked by clearance or tracking
+deviation, LatticePlanner searches position and heading with bounded A-star,
 using swept straight translations and actual shortest in-place rotations.
 Exact connectors reach the requested pose without grid snapping. Adjacent
 straight edges are merged. The discrete planner is bounded and can miss
@@ -129,6 +136,15 @@ feasible curved routes; the existing wall departure arc remains a recovery
 option. Prefer plans avoiding movable objects, but never turn them into hard
 runtime clearance constraints. The standalone visibility-graph AStar remains
 available for position-only planning.
+
+Point and pose navigation can replan after clearance-limited progress or
+position deviation. Replanning requires an active stop, fresh trusted feedback,
+a settled chassis and a valid stopping envelope. A bounded search that cannot
+find a feasible continuation returns `PoseMotionError::NoRoute` only from that
+verified state. Hardware faults, stale/untrusted tracking, competition mode
+changes and physically unsafe stopping envelopes still propagate. Explicit
+straight distances, arcs and prepared paths retain their specified geometry;
+path actions are not silently replayed or relocated onto a new path.
 
 The command slew limiter records the wheel targets actually sent after wall
 governance. Releasing a safety limit therefore resumes from the constrained
