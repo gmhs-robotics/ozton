@@ -386,6 +386,8 @@ pub struct PathConfig {
     /// Optional speed-dependent lookahead horizon, independent of prediction.
     pub adaptive_lookahead: Option<Duration>,
     /// Optional forward/yaw prediction horizons; disabled by default.
+    /// Timed trajectory followers use the forward horizon for both pose and
+    /// reference so their feedback errors are evaluated at a common time.
     pub prediction_latency: Option<[Duration; 2]>,
     /// Opt-in stationary PID recovery when the pursuit target is behind the robot.
     pub heading_recovery: bool,

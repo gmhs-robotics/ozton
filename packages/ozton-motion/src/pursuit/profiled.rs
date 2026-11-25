@@ -127,11 +127,22 @@ impl<'path> ProfiledFollower<'path> {
         // Trajectory controllers track a timed reference, not a nearest-point
         // projection. The geometric cursor remains available for mechanisms.
         if !matches!(self.guidance, Guidance::PurePursuit) {
-            let t = self.elapsed.min(path.end().time);
+            // Standard constant-twist delay compensation: predict the
+            // measured pose and sample the reference at the same future
+            // time. Keep the trajectory clock independent of that preview.
+            let delay = self
+                .prediction_latency
+                .map_or(0.0, |[forward, _]| forward.as_secs_f64());
+            let t = (self.elapsed + delay).min(path.end().time);
+            let horizon = (t - self.elapsed).max(0.0);
             self.elapsed += dt.as_secs_f64();
+            let predicted = pose.integrate(BodyDelta {
+                translation: DVec2::new(measured_lateral.value, measured_speed.value) * horizon,
+                heading: ozton_math::qty!((measured_yaw.value * horizon) rad),
+            });
             let reference = path.at_time(ozton_math::qty!((t) s));
-            let local = pose.to_local(reference.pose.position);
-            let heading = wrap_heading(reference.pose.heading + facing - pose.heading).value;
+            let local = predicted.to_local(reference.pose.position);
+            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
             let velocity = if reverse {
                 -reference.speed
             } else {
@@ -516,6 +527,46 @@ mod tests {
                 tick,
             );
             assert!(wheels.iter().all(|v| *v > 0.0));
+        }
+    }
+
+    #[test]
+    fn timed_prediction_previews_reference_without_advancing_clock() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let tick = core::time::Duration::from_millis(10);
+        let delay = core::time::Duration::from_millis(100);
+        for guidance in [crate::PathGuidance::RAMSETE, crate::PathGuidance::LQR] {
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None))
+                    .with_guidance(guidance)
+                    .prepare(tick, false)
+                    .unwrap();
+            follower.prediction_latency = Some([delay; 2]);
+            let wheels = follower.command(
+                path.start().pose,
+                false,
+                [qty!(0 m/s), qty!(0 m/s)],
+                qty!(0 rad/s),
+                delay,
+                tick,
+            );
+            assert!(wheels.iter().all(|v| *v > 0.0), "{wheels:?}");
+            assert!((follower.elapsed - tick.as_secs_f64()).abs() < 1e-12);
         }
     }
 }
