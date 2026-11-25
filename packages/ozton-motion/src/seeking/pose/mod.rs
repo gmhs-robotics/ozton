@@ -166,25 +166,6 @@ impl Seeking {
         Ok(())
     }
 
-    /// Explicit obstacle-aware navigation. The chassis stops before searching,
-    /// and an execution failure is returned rather than triggering another search.
-    pub async fn navigate_to_point<D: PoseDrive>(
-        &self,
-        drive: &mut D,
-        point: impl Into<DVec2>,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        approach::navigate_to_target(drive, point.into(), None, *self).await
-    }
-
-    /// Explicit continuous Hermite planning with a pre-motion lattice fallback.
-    pub async fn navigate_to_pose<D: PoseDrive>(
-        &self,
-        drive: &mut D,
-        target: Pose,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        approach::navigate_to_target(drive, target.position, Some(target.heading), *self).await
-    }
-
     /// Drive a signed distance while preserving the starting heading.
     pub async fn drive_distance<D: PoseDrive>(
         &self,
@@ -421,7 +402,7 @@ impl Seeking {
             drive.brake().map_err(PoseMotionError::StopFailed)?;
             let mut slice_started = std::time::Instant::now();
             let clear =
-                ozton_math::path::planner::clear_cooperative(path, reverse, field, async || {
+                ozton_math::path::clearance::clear_path_cooperative(path, reverse, field, async || {
                     if slice_started.elapsed() >= Duration::from_millis(2) {
                         drive
                             .wait_until(std::time::Instant::now() + Duration::from_millis(1))
