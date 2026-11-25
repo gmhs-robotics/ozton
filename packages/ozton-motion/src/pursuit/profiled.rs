@@ -5,7 +5,7 @@ use core::f64::consts::PI;
 use ozton_math::{
     control::Pid,
     following::{LqrSchedule, PurePursuit},
-    geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
+    geometry::{BodyDelta, DVec2, Pose, bearing, pursuit_curvature, wheel_speeds, wrap_heading},
     path::{Path, PathSample, braking::stoppable_speed, progress::Progress},
     uom::si::{
         angular_velocity::radian_per_second,
@@ -32,7 +32,8 @@ pub(crate) struct ProfiledFollower<'path> {
     yaw: Pid,
     guidance: Guidance,
     prediction_latency: Option<[core::time::Duration; 2]>,
-    lookahead_time_scale: f64,
+    adaptive_lookahead: Option<core::time::Duration>,
+    heading_recovery: bool,
     elapsed: f64,
     lqr: Option<LqrSchedule>,
 }
@@ -47,7 +48,8 @@ impl<'path> ProfiledFollower<'path> {
             yaw,
             guidance: Guidance::PurePursuit,
             prediction_latency: None,
-            lookahead_time_scale: 2.0,
+            adaptive_lookahead: None,
+            heading_recovery: false,
             elapsed: 0.0,
             lqr: None,
         }
@@ -62,7 +64,8 @@ impl<'path> ProfiledFollower<'path> {
     pub fn with_config(mut self, config: crate::PathConfig) -> Self {
         self.guidance = config.guidance.into();
         self.prediction_latency = config.prediction_latency;
-        self.lookahead_time_scale = config.lookahead_time_scale;
+        self.adaptive_lookahead = config.adaptive_lookahead;
+        self.heading_recovery = config.heading_recovery;
         self
     }
 
@@ -152,19 +155,26 @@ impl<'path> ProfiledFollower<'path> {
             )
             .map(|speed| speed.value);
         }
-        let [forward_delay, yaw_delay] = self.prediction_latency.unwrap_or([brake_latency; 2]);
-        let reaction = yaw_delay.as_secs_f64();
+        let [forward_delay, yaw_delay] = self
+            .prediction_latency
+            .unwrap_or([core::time::Duration::ZERO; 2]);
         let lookahead = self
-            .lookahead
-            .value
-            .max(measured_speed.value.abs() * reaction * self.lookahead_time_scale);
-        // Align the feedback and feedforward reference with the same actuator
-        // response horizon. Predict the body pose with the measured twist,
-        // without advancing the actual geometric progress cursor.
-        let predicted = pose.integrate(BodyDelta {
-            translation: DVec2::new(measured_lateral.value, measured_speed.value) * reaction,
-            heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
-        });
+            .adaptive_lookahead
+            .map_or(self.lookahead.value, |horizon| {
+                self.lookahead
+                    .value
+                    .max(measured_speed.value.abs() * horizon.as_secs_f64())
+            });
+        // Optional constant-twist prediction, independent of lookahead.
+        let predicted = if yaw_delay.is_zero() {
+            pose
+        } else {
+            let reaction = yaw_delay.as_secs_f64();
+            pose.integrate(BodyDelta {
+                translation: DVec2::new(measured_lateral.value, measured_speed.value) * reaction,
+                heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
+            })
+        };
         // Preview the profile by the distance travelled during actuator
         // response. From rest, use the constant-acceleration launch distance
         // instead of a fixed spatial offset. Keep the preview short of the
@@ -191,7 +201,7 @@ impl<'path> ProfiledFollower<'path> {
         let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
         let (speed, angular) = match curvature {
             Some(curvature) => (speed, speed * curvature),
-            None => {
+            None if self.heading_recovery => {
                 // If the carrot is behind the robot, turn in place to
                 // reacquire it; do not substitute another path controller.
                 let error = bearing(travel_pose.to_local(carrot)).value;
@@ -206,6 +216,7 @@ impl<'path> ProfiledFollower<'path> {
                     ),
                 )
             }
+            None => (speed, speed * pursuit_curvature(travel_pose.to_local(carrot))),
         };
         let linear = if reverse { -speed } else { speed };
         wheel_speeds(
@@ -247,6 +258,7 @@ mod tests {
         .unwrap();
         let mut follower =
             ProfiledFollower::new(&path, qty!(0.15 m), Pid::new(4.0, 0.0, 0.4, None));
+        follower.prediction_latency = Some([core::time::Duration::from_millis(100); 2]);
         let pose = Pose::new(DVec2::new(0.035, 0.2), qty!(0 rad));
         follower.observe(pose, qty!(0.3 m));
         let latency = core::time::Duration::from_millis(100);
@@ -290,6 +302,7 @@ mod tests {
         .unwrap();
         let mut follower =
             ProfiledFollower::new(&path, qty!(0.19 m), Pid::new(3.0, 0.0, 0.4, None));
+        follower.prediction_latency = Some([core::time::Duration::from_millis(170); 2]);
         let pose = Pose::new(DVec2::new(0.0, 0.3), qty!(0 rad));
         follower.observe(pose, qty!(0.3 m));
         let wheels = follower.command(

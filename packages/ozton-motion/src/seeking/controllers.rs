@@ -9,7 +9,7 @@ use ozton_math::{
 };
 
 use super::{Engine, PathActions, PoseMotionError, TravelDirection};
-use crate::{MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance};
+use crate::{DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance};
 
 pub type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as MotionExecution>::Error>>;
 
@@ -180,6 +180,12 @@ macro_rules! controller {
             }
 
             #[must_use]
+            pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
+                self.engine.config.tuning = tuning;
+                self
+            }
+
+            #[must_use]
             pub const fn with_settling(mut self, settling: SettlingConfig) -> Self {
                 self.engine.config.settling = settling;
                 self
@@ -344,6 +350,57 @@ impl MoveToPose for Boomerang {
     }
 }
 
+impl PurePursuit {
+    /// Fixed lookahead radius. Classical pursuit always needs a target radius.
+    #[must_use]
+    pub const fn with_lookahead(mut self, radius: Length) -> Self {
+        self.engine.config.path = self.engine.config.path.with_lookahead(radius);
+        self
+    }
+
+    /// Optional velocity-scaled lookahead, bounded below by the fixed radius.
+    #[must_use]
+    pub const fn with_adaptive_lookahead(mut self, horizon: Duration) -> Self {
+        self.engine.config.path = self.engine.config.path.with_adaptive_lookahead(horizon);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_adaptive_lookahead(mut self) -> Self {
+        self.engine.config.path = self.engine.config.path.without_adaptive_lookahead();
+        self
+    }
+
+    /// Optional constant-twist pose and velocity-profile prediction.
+    #[must_use]
+    pub const fn with_prediction_latency(mut self, forward: Duration, yaw: Duration) -> Self {
+        self.engine.config.path = self.engine.config.path.with_prediction_latency(forward, yaw);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_prediction(mut self) -> Self {
+        self.engine.config.path = self.engine.config.path.without_prediction();
+        self
+    }
+
+    /// Optional PID alignment when the pursuit target is behind the robot.
+    #[must_use]
+    pub const fn with_heading_recovery(mut self, enabled: bool) -> Self {
+        self.engine.config.path = self.engine.config.path.with_heading_recovery(enabled);
+        self
+    }
+}
+
+impl Boomerang {
+    /// Fraction of remaining distance projected behind the goal.
+    #[must_use]
+    pub const fn with_lead(mut self, lead: f64) -> Self {
+        self.engine.config.approach = self.engine.config.approach.with_boomerang_lead(lead);
+        self
+    }
+}
+
 impl Ramsete {
     /// Set the nonlinear feedback gains. Invalid gains fail motion validation.
     #[must_use]
@@ -365,6 +422,13 @@ impl LtvLqr {
 macro_rules! path_follower {
     ($($name:ident),+ $(,)?) => {$(
         impl $name {
+            /// Select the endpoint pose controller independently of tracking.
+            #[must_use]
+            pub const fn with_terminal(mut self, terminal: TerminalGuidance) -> Self {
+                self.engine.config.path = self.engine.config.path.with_terminal(terminal);
+                self
+            }
+
             /// Use polar-coordinate feedback during terminal pose acquisition.
             #[must_use]
             pub const fn with_polar_terminal(

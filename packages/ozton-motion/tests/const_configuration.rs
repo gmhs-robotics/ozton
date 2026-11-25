@@ -48,3 +48,42 @@ fn controller_capabilities_are_independent() {
     trajectory::<Ramsete>();
     trajectory::<LtvLqr>();
 }
+
+#[test]
+fn pursuit_enhancements_are_explicit_and_independent() {
+    use core::time::Duration;
+    use ozton_math::qty;
+    use ozton_motion::{Boomerang, PurePursuit, TerminalGuidance};
+
+    const PLAIN: PurePursuit = PurePursuit::new().with_lookahead(qty!(0.23 m));
+    const ADAPTIVE: PurePursuit = PLAIN.with_adaptive_lookahead(Duration::from_millis(320));
+    const PREDICTIVE: PurePursuit = PLAIN
+        .with_prediction_latency(Duration::from_millis(125), Duration::from_millis(160))
+        .with_heading_recovery(true)
+        .with_terminal(TerminalGuidance::POLAR);
+
+    assert_eq!(PLAIN.config().path.lookahead.value, 0.23);
+    assert_eq!(PLAIN.config().path.adaptive_lookahead, None);
+    assert_eq!(PLAIN.config().path.prediction_latency, None);
+    assert!(!PLAIN.config().path.heading_recovery);
+    assert_eq!(ADAPTIVE.config().path.prediction_latency, None);
+    assert_eq!(
+        ADAPTIVE.config().path.adaptive_lookahead,
+        Some(Duration::from_millis(320))
+    );
+    assert_eq!(PREDICTIVE.config().path.adaptive_lookahead, None);
+    assert!(PREDICTIVE.config().path.heading_recovery);
+    assert_eq!(PREDICTIVE.config().path.terminal, TerminalGuidance::POLAR);
+    assert_eq!(
+        PREDICTIVE.without_prediction().config().path.prediction_latency,
+        None
+    );
+    assert_eq!(
+        ADAPTIVE.without_adaptive_lookahead().config().path.adaptive_lookahead,
+        None
+    );
+    assert_eq!(
+        Boomerang::new().with_lead(0.4).config().approach.boomerang_lead,
+        0.4
+    );
+}

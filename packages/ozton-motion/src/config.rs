@@ -383,10 +383,12 @@ pub struct PathConfig {
     pub guidance: PathGuidance,
     pub terminal: TerminalGuidance,
     pub lookahead: Length,
-    /// Scale the yaw preview horizon when increasing lookahead with speed.
-    pub lookahead_time_scale: f64,
-    /// Optional forward/yaw preview horizons; otherwise use the braking latency.
+    /// Optional speed-dependent lookahead horizon, independent of prediction.
+    pub adaptive_lookahead: Option<Duration>,
+    /// Optional forward/yaw prediction horizons; disabled by default.
     pub prediction_latency: Option<[Duration; 2]>,
+    /// Opt-in stationary PID recovery when the pursuit target is behind the robot.
+    pub heading_recovery: bool,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
 }
@@ -402,8 +404,9 @@ impl PathConfig {
         guidance: PathGuidance::PurePursuit,
         terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
-        lookahead_time_scale: 2.0,
+        adaptive_lookahead: None,
         prediction_latency: None,
+        heading_recovery: false,
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
     };
 
@@ -430,14 +433,32 @@ impl PathConfig {
     }
 
     #[must_use]
-    pub const fn with_lookahead_time_scale(mut self, scale: f64) -> Self {
-        self.lookahead_time_scale = scale;
+    pub const fn with_adaptive_lookahead(mut self, horizon: Duration) -> Self {
+        self.adaptive_lookahead = Some(horizon);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_adaptive_lookahead(mut self) -> Self {
+        self.adaptive_lookahead = None;
         self
     }
 
     #[must_use]
     pub const fn with_prediction_latency(mut self, forward: Duration, yaw: Duration) -> Self {
         self.prediction_latency = Some([forward, yaw]);
+        self
+    }
+
+    #[must_use]
+    pub const fn without_prediction(mut self) -> Self {
+        self.prediction_latency = None;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_heading_recovery(mut self, enabled: bool) -> Self {
+        self.heading_recovery = enabled;
         self
     }
 
@@ -596,8 +617,6 @@ impl MotionConfig {
         self.tuning.valid()
             && self.path.guidance.valid()
             && self.path.terminal.valid()
-            && self.path.lookahead_time_scale.is_finite()
-            && self.path.lookahead_time_scale >= 0.0
             && [
                 self.limits.wheel_speed.value,
                 self.limits.acceleration.value,

@@ -81,6 +81,31 @@ PurePursuit::new().with_config(MOTION)
 Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` computes finite-horizon discrete Riccati gains along the curved, timed trajectory before motion begins. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
+## Optional controller features
+
+Classical Pure Pursuit uses a fixed lookahead radius and the measured pose by
+default. A lookahead radius is intrinsic to Pure Pursuit; adaptive lookahead,
+pose prediction, and behind-target PID alignment are independent opt-in
+extensions. Configure them directly on the controller after applying shared
+robot settings:
+
+```rust,ignore
+use std::time::Duration;
+use ozton::{qty, motion::PurePursuit};
+let classical = PurePursuit::new().with_config(MOTION).with_lookahead(qty!(0.23 m));
+let adaptive = classical.with_adaptive_lookahead(Duration::from_millis(320));
+let predictive = adaptive
+    .with_prediction_latency(Duration::from_millis(125), Duration::from_millis(160))
+    .with_heading_recovery(true);
+```
+
+The corresponding PathConfig builders are available for shared configuration
+and host simulation. Adaptive lookahead is expressed as a time horizon rather
+than a multiplier of prediction latency. RAMSETE and LTV-LQR use their own
+gain and weight builders and do not use pursuit-specific extensions. Endpoint
+settling remains shared; opt into polar feedback with `with_polar_terminal`.
+Boomerang's lead fraction is configured with `with_lead`.
+
 ## Wheel-constrained trajectories
 
 Path construction applies forward and backward reachability in squared speed. For each
