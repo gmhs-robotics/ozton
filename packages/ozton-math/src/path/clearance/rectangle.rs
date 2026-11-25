@@ -359,10 +359,31 @@ impl RectangularClearance {
         let pad = (travel + self.footprint.turn_radius() * turn) * 0.5;
         let (amin, amax) = self.footprint.bounds(a);
         let (bmin, bmax) = self.footprint.bounds(b);
-        self.contains_bounds(
-            amin.min(bmin) - DVec2::splat(pad),
-            amax.max(bmax) + DVec2::splat(pad),
-        )
+        let min = amin.min(bmin) - DVec2::splat(pad);
+        let max = amax.max(bmax) + DVec2::splat(pad);
+        if !self.wall_contains_aabb(min, max) {
+            return false;
+        }
+        if self.obstacles_clear(min, max) {
+            return true;
+        }
+        // The enclosing AABB can falsely intersect a prop during a narrow
+        // diagonal turn. Every intermediate footprint is within `pad` of
+        // its nearer endpoint under linear position/shortest-yaw interpolation.
+        // Certify both inflated oriented footprints instead of rejecting on AABB.
+        [a, b].into_iter().all(|pose| {
+            let right = crate::geometry::rotation(pose.heading);
+            let center = pose.position + right.rotate(self.footprint.center_offset);
+            self.obstacles.iter().flatten().all(|polygon| {
+                !polygon.intersects_sweep(
+                    center,
+                    right,
+                    self.footprint.half_extents,
+                    DVec2::ZERO,
+                    self.margin + pad,
+                )
+            })
+        })
     }
 
     /// Check the actual shortest rotation, not the full turning disk.
