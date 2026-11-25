@@ -9,7 +9,7 @@ use ozton_math::{
         observation::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity},
         range::Surface,
     },
-    path::clearance::WallContact,
+    path::clearance::{WallContact, WallContactConstraint},
     uom::si::f64::{Angle, Time},
 };
 
@@ -114,6 +114,7 @@ pub struct Localizer<'a, E = Filter> {
 
     trust: PoseTrust,
     corrections_enabled: bool,
+    contact: Option<WallContactConstraint>,
     range_masks: RangeMasks,
     filter_ranges: u8,
 }
@@ -184,6 +185,7 @@ impl<'a> Localizer<'a> {
 
             trust: PoseTrust::Unregistered,
             corrections_enabled: true,
+            contact: None,
             range_masks,
             filter_ranges,
         })
@@ -193,6 +195,7 @@ impl<'a> Localizer<'a> {
 impl<'a, E: PoseEstimator> Localizer<'a, E> {
     pub fn with_filter<N: PoseEstimator>(self, mut filter: N) -> Localizer<'a, N> {
         filter.reset(self.pose);
+        filter.set_contact_constraint(self.contact);
         let filter_ranges = self.range_masks.for_roles(filter.range_roles());
         let Self {
             config,
@@ -211,6 +214,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
             trust,
             corrections_enabled,
+            contact,
             range_masks,
             ..
         } = self;
@@ -234,6 +238,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 
             trust,
             corrections_enabled,
+            contact,
             range_masks,
             filter_ranges,
         }
@@ -305,6 +310,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             self.filter_pose = self.pose;
             if enabled {
                 self.filter.reset(self.pose);
+                self.filter.set_contact_constraint(self.contact);
             }
             self.corrections_enabled = enabled;
         }
@@ -313,6 +319,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Explicitly register a surveyed pose with set_pose after an outage.
     pub fn invalidate_pose(&mut self) {
         self.trust = PoseTrust::NeedsRelocalization;
+        self.release_wall_contact();
         self.previous = None;
         self.history.clear();
         self.reset = None;
@@ -356,6 +363,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             ..pose
         };
         self.trust = PoseTrust::Trusted;
+        self.contact = None;
         self.pose = pose;
         self.odometry = pose;
         self.filter_pose = pose;
@@ -372,12 +380,22 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Register a verified flush-contact pose and condition the estimator's
     /// initial uncertainty. This is a physical observation, not a range-map
     /// exclusion or a permanent reduction of process noise.
-    pub fn set_pose_at_contact(&mut self, pose: Pose, wall: WallContact) -> bool {
+    pub fn set_pose_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) -> bool {
         if !self.set_pose(pose) {
             return false;
         }
-        self.filter.reset_at_contact(self.pose, wall);
+        self.contact = Some(contact);
+        self.filter.reset_at_contact(self.pose, contact);
         true
+    }
+
+    pub fn wall_contact(&self) -> Option<WallContact> {
+        self.contact.map(WallContactConstraint::wall)
+    }
+
+    pub fn release_wall_contact(&mut self) {
+        self.contact = None;
+        self.filter.set_contact_constraint(None);
     }
 
     /// Attempt an immediate geometric DSR on the next fresh sample.
@@ -494,6 +512,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         } else {
             self.pose.integrate(movement)
         };
+        let predicted = self.contact.map_or(predicted, |contact| contact.project(predicted));
         // Odometry and an uncorrected filter share the same pose in the common
         // path. Reuse integration rather than evaluating the same trig again.
         let filter_prediction = if !self.corrections_enabled || self.filter_pose == self.pose {
@@ -501,6 +520,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         } else {
             self.filter_pose.integrate(movement)
         };
+        let filter_prediction = self.contact.map_or(filter_prediction, |contact| contact.project(filter_prediction));
         if !odometry.is_finite()
             || !predicted.is_finite()
             || !filter_prediction.is_finite()
@@ -577,10 +597,12 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
             ) {
                 ResetResult::Waiting => reset_status = DistanceReset::Waiting,
                 ResetResult::Applied(pose, axes) => {
+                    let pose = self.contact.map_or(pose, |contact| contact.project(pose));
                     distance_reset_axes = axes;
                     reset_status = DistanceReset::Applied { axes };
                     self.reset = None;
                     self.filter.reset(pose);
+                    self.filter.set_contact_constraint(self.contact);
                     self.pose = pose;
                     self.filter_pose = pose;
                     candidate = Some(pose);
@@ -604,6 +626,7 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                 map: &self.map,
             });
             if let Some(estimate) = candidate {
+                let estimate = self.contact.map_or(estimate, |contact| contact.project(estimate));
                 self.filter_pose = estimate;
                 if self.config.shadow {
                     correction = Correction::Shadow;
@@ -636,10 +659,11 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
 impl Localizer<'_> {
     /// Switch estimator without changing the sensor model or claiming pose recovery.
     pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
-        let Some(filter) = Filter::new(self.pose, estimator) else {
+        let Some(mut filter) = Filter::new(self.pose, estimator) else {
             return false;
         };
         self.filter_ranges = self.range_masks.for_roles(filter.range_roles());
+        filter.set_contact_constraint(self.contact);
         self.filter = filter;
         self.filter_pose = self.pose;
         self.config.estimator = estimator;
