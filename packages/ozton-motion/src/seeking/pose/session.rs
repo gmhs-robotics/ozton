@@ -39,6 +39,19 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         }
         // Start every independent command with stopped output.
         drive.brake().map_err(PoseMotionError::StopFailed)?;
+        let (lkp, lki, lkd) = config.tuning.linear.gains();
+        let (akp, aki, akd) = config.tuning.angular.gains();
+        log_row!(
+            Debug,
+            "MOTION_CONFIG",
+            "linear_kp={lkp},linear_ki={lki},linear_kd={lkd},angular_kp={akp},angular_ki={aki},angular_kd={akd},wheel_limit_mps={:.6},accel_mps2={:.6},decel_mps2={:.6},lateral_accel_mps2={:.6},track_width_m={:.6},brake_latency_ms={}",
+            options.maximum_wheel_speed.value,
+            config.limits.acceleration.value,
+            config.limits.deceleration.value,
+            config.limits.lateral_acceleration.value,
+            options.track_width.value,
+            config.limits.brake_latency.as_millis()
+        );
         Ok(Self {
             drive,
             options,
@@ -429,13 +442,17 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         log_row!(
             Debug,
             "PATH_PLAN",
-            "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5}",
+            "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5},samples={},lookahead_m={:.5},guidance={:?}",
             end.time,
             end.distance,
             target.position.x,
             target.position.y,
-            target.heading.value
+            target.heading.value,
+            path.samples().len(),
+            config.path.lookahead.value,
+            config.path.guidance
         );
+        let started = Instant::now();
         self.execute(
             config,
             options,
@@ -538,6 +555,32 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         actions
             .advance(end.distance, 0.0, true)
             .map_err(PoseMotionError::Mechanism)?;
+        let elapsed = started.elapsed();
+        let pose = self.drive.localization().pose();
+        let error = pose.position.distance(target.position);
+        let heading_error = wrap_heading(target.heading - pose.heading).value.abs();
+        let passed = error <= options.position_tolerance.value
+            && heading_error <= options.heading_tolerance.value;
+        log_row!(
+            Info,
+            "PATH_RESULT",
+            "elapsed_us={},target_x_m={:.6},target_y_m={:.6},target_heading_rad={:.6},actual_x_m={:.6},actual_y_m={:.6},actual_heading_rad={:.6},error_m={error:.6},heading_error_rad={heading_error:.6},passed={passed}",
+            elapsed.as_micros(),
+            target.position.x,
+            target.position.y,
+            target.heading.value,
+            pose.position.x,
+            pose.position.y,
+            pose.heading.value
+        );
+        log_row!(
+            Info,
+            "PATH_TIMING",
+            "planned_s={:.5},actual_s={:.5},ratio={:.5}",
+            end.time,
+            elapsed.as_secs_f64(),
+            elapsed.as_secs_f64() / end.time
+        );
         log_event!(Info, "motion", "Trajectory: settled");
         Ok(())
     }
