@@ -176,7 +176,10 @@ where
 {
     type WheelError = WheelSpeedError;
 
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError> {
+    fn drive_wheel_commands(
+        &mut self,
+        commands: [WheelCommand; 2],
+    ) -> Result<(), Self::WheelError> {
         self.command_wheels(commands)
     }
 }

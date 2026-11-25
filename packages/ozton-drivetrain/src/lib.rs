@@ -2,9 +2,7 @@
 
 pub mod assist;
 mod braking;
-pub use braking::{
-    BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelActuation, WheelCommand,
-};
+pub use braking::{BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelActuation, WheelCommand};
 pub mod device;
 pub mod model;
 mod pose;

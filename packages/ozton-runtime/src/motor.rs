@@ -7,6 +7,7 @@ use ozton_math::{
     control::axis::{AxisController, AxisSample, Target},
     uom::si::{electric_potential::volt, f64::ElectricPotential},
 };
+
 use crate::device::{MotorOutput, ReadPosition, ReadVelocity, VoltageOutput};
 
 #[derive(Debug)]

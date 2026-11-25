@@ -156,10 +156,7 @@ impl<
 
     /// Preserve explicit stops while applying the ordinary drive assists to
     /// moving wheels. A stopped side cannot be reactivated by an assist.
-    pub fn command_wheels(
-        &mut self,
-        commands: [WheelCommand; 2],
-    ) -> Result<(), WheelSpeedError> {
+    pub fn command_wheels(&mut self, commands: [WheelCommand; 2]) -> Result<(), WheelSpeedError> {
         let speeds = commands.map(|command| command.velocity().get::<meter_per_second>());
         let scale = speeds[0].abs().max(speeds[1].abs());
         if !commands.iter().all(|command| command.is_valid()) || scale == 0.0 {
@@ -217,7 +214,10 @@ where
 {
     type WheelError = WheelSpeedError;
 
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError> {
+    fn drive_wheel_commands(
+        &mut self,
+        commands: [WheelCommand; 2],
+    ) -> Result<(), Self::WheelError> {
         self.command_wheels(commands)
     }
 }

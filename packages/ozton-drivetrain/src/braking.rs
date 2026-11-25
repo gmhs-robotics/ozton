@@ -68,7 +68,8 @@ impl WheelCommand {
 pub trait WheelActuation: HasBraking {
     type WheelError;
 
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError>;
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2])
+    -> Result<(), Self::WheelError>;
 }
 
 #[cfg(test)]

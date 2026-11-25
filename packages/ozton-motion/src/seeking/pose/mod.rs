@@ -15,9 +15,7 @@ mod error;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
-pub use ozton_drivetrain::{
-    BrakeMode, PoseDrive, RangeResetDrive, WheelActuation, WheelCommand,
-};
+pub use ozton_drivetrain::{BrakeMode, PoseDrive, RangeResetDrive, WheelActuation, WheelCommand};
 pub use ozton_math::path::clearance::WallContact;
 use session::{PoseSession, Trajectory};
 
