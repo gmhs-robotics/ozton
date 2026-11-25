@@ -90,10 +90,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         Ok(dt)
     }
 
-    /// Replanning is permitted only after a fresh, stationary, trusted
-    /// feedback interval and a certified stopping envelope. Hardware and
-    /// competition faults propagate without attempting another movement.
-    pub(super) async fn prepare_replan(&mut self) -> Result<(), PoseMotionError<D::Error>> {
+    /// Planning is permitted only after a fresh, stationary, trusted
+    /// feedback interval and a certified stopping envelope.
+    pub(super) async fn await_stationary(&mut self) -> Result<(), PoseMotionError<D::Error>> {
         self.drive
             .emergency_brake()
             .map_err(PoseMotionError::StopFailed)?;
@@ -153,7 +152,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            log_event!(Info, "motion", "Stopped safely; replanning from live pose");
+            log_event!(Info, "motion", "Stationary feedback verified; planning may start");
             return Ok(());
         }
     }
