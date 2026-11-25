@@ -84,6 +84,7 @@ impl Localization<FieldBoundary> {
         self.last_reset = DistanceReset::Idle;
         self.feedback = Ok(None);
         self.wheels.observe(&[]);
+        self.log_pose_registration(pose, true);
         true
     }
 
@@ -147,7 +148,23 @@ impl<B: Boundary> Localization<B> {
         self.last_reset = DistanceReset::Idle;
         self.feedback = Ok(None);
         self.wheels.observe(&[]);
+        self.log_pose_registration(pose, false);
         true
+    }
+
+    fn log_pose_registration(&self, pose: Pose, wall_contact: bool) {
+        let [width, length] = self
+            .boundary
+            .bounds()
+            .map_or([f64::NAN; 2], |b| [2.0 * b.x, 2.0 * b.y]);
+        log_row!(
+            Info,
+            "LOCALIZATION_REGISTER",
+            "width_m={width:.6},length_m={length:.6},start_x_m={:.6},start_y_m={:.6},start_heading_rad={:.6},wall_contact={wall_contact}",
+            pose.position.x,
+            pose.position.y,
+            pose.heading.value
+        );
     }
 
     pub fn set_estimator(&mut self, estimator: Estimator, shadow: bool) -> bool {
@@ -157,6 +174,12 @@ impl<B: Boundary> Localization<B> {
         if matches!(estimator, Estimator::Odometry) {
             self.localizer.disable_range_inspection();
         }
+        log_row!(
+            Info,
+            "LOCALIZATION_ESTIMATOR",
+            "mcl={},shadow={shadow}",
+            matches!(estimator, Estimator::Mcl(_))
+        );
         true
     }
 
