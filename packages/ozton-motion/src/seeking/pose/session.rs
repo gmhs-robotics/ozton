@@ -112,9 +112,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !self.drive.pose_trusted() {
                 return Err(PoseMotionError::UntrustedPose);
             }
-            let resting = feedback.forward_velocity.value.abs() <= self.options.velocity_tolerance.value
-                && feedback.lateral_velocity.value.abs() <= self.options.velocity_tolerance.value
-                && feedback.angular_velocity.value.abs() <= self.options.angular_velocity_tolerance.value;
+            let resting = feedback.forward_velocity.value.abs() <= self.options.speed_tolerance.value
+                && feedback.lateral_velocity.value.abs() <= self.options.speed_tolerance.value
+                && feedback.angular_velocity.value.abs() <= self.options.angular_speed_tolerance.value;
             still = if resting { still + elapsed } else { Duration::ZERO };
             if still < self.options.settle {
                 continue;
