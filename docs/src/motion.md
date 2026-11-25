@@ -8,7 +8,7 @@ Seeking executes distances, turns, point and pose goals, arcs and prepared paths
 
 ## A first closed-loop move
 
-PoseDrive requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. Bounded motion still requires a valid field map. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
+PoseDrive requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. A footprint-equipped drivetrain implements PoseDrive only when its localization carries a validated FieldBoundary. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
 use ozton::{qty, position_xyh, motion::{Seeking, SettlingConfig}};
@@ -28,22 +28,22 @@ Both point and pose targets use the same controller configuration. `move_to_poin
 
 ## Typed driver assistance
 
-Select a source by its tuple index, preferably a named constant declared next to
-the robot's hardware layout. HeadingHoldAssist requires ReadHeading; AntiTipAssist
+Supply the orientation source through Sources::with_orientation.
+HeadingHoldAssist requires ReadHeading; AntiTipAssist
 requires ReadTilt, which supplies pitch and roll in that order. A source without
 the required trait prevents constructing AssistedDrivetrain. Custom sensors may
 implement either capability without depending on VEX.
 
 ```rust,ignore
 let mut assists = DriveAssists::new((
-    HeadingHoldAssist::<IMU_SOURCE>::new(1.5, 0.2),
-    AntiTipAssist::<IMU_SOURCE>::new(TiltAxis::Pitch, anti_tip_controller),
+    HeadingHoldAssist::new(1.5, 0.2),
+    AntiTipAssist::new(TiltAxis::Pitch, anti_tip_controller),
     MotorBalanceAssist,
 ));
 let mut drive = AssistedDrivetrain::new(&mut drivetrain, &mut assists);
 ```
 
-Only installed assists read the corresponding capability. A temporarily unavailable
+DSR requires RangeResetDrive, which the built-in drivetrain implements only for a nonempty range bank. Only installed assists read the corresponding capability. A temporarily unavailable
 sensor observation resets that controller rather than pretending a zero angle.
 
 ## Configure once

@@ -8,6 +8,11 @@ use super::{Capture, SourceLayout, TrackingBuildError, TrackingSources, sources:
 use crate::{TrackingSource, range::RangeSource};
 
 /// Nonempty collection of concrete ranging sources.
+///
+/// ```compile_fail
+/// use ozton_tracking::Sources;
+/// let _ = Sources::new().with_ranges(());
+/// ```
 pub trait RangeBank: TrackingSources {}
 
 macro_rules! range_banks {

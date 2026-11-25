@@ -36,7 +36,7 @@ pub mod hardware;
 pub mod inertial;
 mod measurement;
 pub use measurement::MeasurementSink;
-pub use sampling::{Sources, Tracking, TrackingSources};
+pub use sampling::{RangeBank, Sources, Tracking, TrackingSources};
 pub mod odometric;
 pub mod range;
 pub mod sampling;

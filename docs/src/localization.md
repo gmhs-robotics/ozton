@@ -8,18 +8,23 @@ Create the motor groups once with shared_motors!, then use Differential::from_sh
 
 Distance trackers already carry a default acceptance gate, zero bias and 25 mm measurement noise. Construct them directly with `DistanceTracker::at_mount(sensor, mount)`; add `.with_bias(...)`, `.with_sigma(...)` or `.with_gate(...)` on that tracker only when calibration requires it.
 
-Register a flat tuple of sources with Tracking::new. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
+Register sources by role with Tracking::new and Sources. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
 
 ```rust
 use ozton::{
     drivetrain::Drivetrain,
     localization::{Estimator, differential::{LocalizationBuilder, DriveEncoderUse, OdometrySettings}},
-    tracking::Tracking,
+    tracking::{Sources, Tracking},
 };
 
-let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range))
-    .await?
-    .with_drive_source::<0>();
+let tracking = Tracking::new(
+    Sources::new()
+        .with_drive(drive_encoders)
+        .with_orientation(imu)
+        .with_ranges((front_range,))
+        .with_extra((lateral_wheel,)),
+)
+.await?;
 let localization = LocalizationBuilder::new()
     .with_field(field)
     .with_estimator(Estimator::Odometry)
@@ -31,7 +36,7 @@ let localization = LocalizationBuilder::new()
 let drivetrain = Drivetrain::new(model.with_footprint(footprint), tracking, localization);
 ```
 
-The drive-source selection requires a concrete calibrated differential source at tuple index 0. This is a compile-time capability, not a runtime geometry lookup. A tracking configuration without a differential encoder source can still be sampled and localized with other sources. If a differential encoder source is present, select it before starting the built-in localization worker. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time. Geometry supplied by custom runtime-configured sources is still checked at assembly.
+Named roles provide compile-time capabilities without public sensor indices. The drive role requires calibrated differential encoders; the orientation role exposes heading or tilt only when its source implements the relevant trait; a nonempty range bank grants HasRange. A tracking configuration without a differential encoder source can still be sampled and localized with other sources. Additional custom sources can be grouped in the extra role. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time. Geometry supplied by custom runtime-configured sources is still checked at assembly.
 
 The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Register mounted sources using Tracking::new and pass their observation layout to LocalizationBuilder. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
@@ -47,7 +52,7 @@ Application-owned robots can return LocalizationWorker::start from OztonCompete:
 
 Register the actual starting pose with drivetrain.localization_mut().set_pose(pose), and check its boolean result. The worker needs fresh samples before feedback becomes available. Pausing invalidates the old baseline. Do not use an unregistered or stale pose for field motion.
 
-In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
+In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds accepts a validated FieldBoundary and can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
 
 A fixed wall is a single `Surface::new(start_xy, end_xy, height)` with a continuous vertical face from the floor to `height`. For an elevated fixture, use `.with_base_height(base)` on the same type. Sensor-height masks are resolved at localizer construction, so rays above or below the face cannot contribute to MCL or DSR. Planar ray-casting primitives still accept precomputed masks.
 

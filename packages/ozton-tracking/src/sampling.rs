@@ -68,7 +68,7 @@ impl std::error::Error for TrackingBuildError {}
 mod sources;
 pub use sources::TrackingSources;
 mod roles;
-pub use roles::Sources;
+pub use roles::{RangeBank, Sources};
 #[doc(hidden)]
 pub use sources::{Capture, SourceLayout};
 
