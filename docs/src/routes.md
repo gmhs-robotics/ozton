@@ -20,3 +20,12 @@ When the mode changes, the previous callback stops being polled; Ozton-owned Tas
 
 Use mode_changed to reset application state without accidentally issuing an old mode's motor outputs. Do not hold RefCell borrows across await points.
 
+
+## Unreachable goals
+
+Point and pose commands attempt recovery and replanning before returning a
+blocked-goal result. Handle `PoseMotionError::NoRoute` explicitly to choose the
+next independent task; do not treat it as successful scoring or blindly replay
+the entire autonomous routine. All other errors must retain their actual fault
+semantics. Competition disable, hardware faults and loss of trusted feedback
+are not recoverable navigation outcomes.
