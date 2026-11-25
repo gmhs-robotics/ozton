@@ -81,8 +81,8 @@ impl<'path> ProfiledFollower<'path> {
         let reaction = brake_latency.as_secs_f64();
         let lookahead = self.lookahead.value.max(measured_speed.value.abs() * reaction * 2.0);
         let cross = self.geometric.pose.to_local(pose.position).x;
-        let desired_heading = self.geometric.pose.heading + facing
-            + ozton_math::qty!((cross.atan2(lookahead)) rad);
+        let desired_heading =
+            self.geometric.pose.heading + facing + ozton_math::qty!((cross.atan2(lookahead)) rad);
         let error = wrap_heading(desired_heading - pose.heading).value;
 
         // Preview the velocity envelope to launch from rest and brake before
@@ -149,14 +149,72 @@ mod tests {
             limits,
         )
         .unwrap();
-        let mut follower = ProfiledFollower::new(&path, qty!(0.15 m), Pid::new(4.0, 0.0, 0.4, None));
+        let mut follower =
+            ProfiledFollower::new(&path, qty!(0.15 m), Pid::new(4.0, 0.0, 0.4, None));
         let pose = Pose::new(DVec2::new(0.035, 0.2), qty!(0 rad));
         follower.observe(pose, qty!(0.3 m));
         let latency = core::time::Duration::from_millis(100);
-        let undamped = follower.command(pose, false, qty!(0.3 m/s), qty!(0 rad/s), latency, core::time::Duration::from_millis(10));
-        let damped = follower.command(pose, false, qty!(0.3 m/s), qty!(2 rad/s), latency, core::time::Duration::from_millis(10));
+        let undamped = follower.command(
+            pose,
+            false,
+            qty!(0.3 m/s),
+            qty!(0 rad/s),
+            latency,
+            core::time::Duration::from_millis(10),
+        );
+        let damped = follower.command(
+            pose,
+            false,
+            qty!(0.3 m/s),
+            qty!(2 rad/s),
+            latency,
+            core::time::Duration::from_millis(10),
+        );
         assert!(undamped[1] > undamped[0]);
         assert!((damped[1] - damped[0]).abs() < (undamped[1] - undamped[0]).abs());
+    }
+
+    #[test]
+    fn lateral_correction_has_same_world_turn_sign_in_reverse() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let mut follower =
+            ProfiledFollower::new(&path, qty!(0.19 m), Pid::new(4.0, 0.0, 0.4, None));
+        let pose = Pose::new(DVec2::new(0.035, 0.2), qty!(0 rad));
+        follower.observe(pose, qty!(0.3 m));
+        let latency = core::time::Duration::from_millis(120);
+        let dt = core::time::Duration::from_millis(10);
+        let forward = follower.command(pose, false, qty!(0.3 m/s), qty!(0 rad/s), latency, dt);
+        follower.reset_feedback();
+        let reverse = follower.command(
+            Pose {
+                heading: qty!(180 deg),
+                ..pose
+            },
+            true,
+            qty!(-0.3 m/s),
+            qty!(0 rad/s),
+            latency,
+            dt,
+        );
+        assert!(forward[1] > forward[0]);
+        assert!(reverse[1] > reverse[0]);
+        assert!(forward[0] + forward[1] > 0.0);
+        assert!(reverse[0] + reverse[1] < 0.0);
     }
 
     #[test]
@@ -177,7 +235,8 @@ mod tests {
             limits,
         )
         .unwrap();
-        let mut follower = ProfiledFollower::new(&path, qty!(0.1 m), Pid::new(4.0, 0.0, 0.4, None));
+        let mut follower =
+            ProfiledFollower::new(&path, qty!(0.1 m), Pid::new(4.0, 0.0, 0.4, None));
         let pose = path.start().pose;
         let initial = follower.observe(pose, qty!(0.04 m));
         for _ in 0..100 {
@@ -186,13 +245,27 @@ mod tests {
             assert_eq!(current.nominal_progress_time, initial.nominal_progress_time);
         }
         let latency = core::time::Duration::from_millis(100);
-        let wheels = follower.command(pose, false, qty!(0 m/s), qty!(0 rad/s), latency, core::time::Duration::from_millis(10));
+        let wheels = follower.command(
+            pose,
+            false,
+            qty!(0 m/s),
+            qty!(0 rad/s),
+            latency,
+            core::time::Duration::from_millis(10),
+        );
         assert!(wheels.iter().all(|v| *v > 0.0));
         let reverse = Pose {
             heading: pose.heading + qty!(180 deg),
             ..pose
         };
-        let wheels = follower.command(reverse, true, qty!(0 m/s), qty!(0 rad/s), latency, core::time::Duration::from_millis(10));
+        let wheels = follower.command(
+            reverse,
+            true,
+            qty!(0 m/s),
+            qty!(0 rad/s),
+            latency,
+            core::time::Duration::from_millis(10),
+        );
         assert!(wheels.iter().all(|v| *v < 0.0));
         assert!(!follower.is_terminal(0.02));
         let moved = follower.observe(Pose::new(DVec2::new(0.0, 0.03), pose.heading), qty!(0.04 m));
