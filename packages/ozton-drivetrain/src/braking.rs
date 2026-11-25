@@ -62,10 +62,7 @@ impl WheelCommand {
 /// Keeping this capability separate permits hardware-independent PoseDrive
 /// implementations that cannot actively hold individual wheel groups.
 pub trait WheelCommandDrive: crate::PoseDrive {
-    fn drive_wheel_commands(
-        &mut self,
-        commands: [WheelCommand; 2],
-    ) -> Result<(), Self::Error>;
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error>;
 }
 
 #[cfg(feature = "vex")]
@@ -108,7 +105,10 @@ mod tests {
             _ => None,
         })
         .unwrap();
-        assert_eq!(mock.0, [Some(BrakeMode::Hold), Some(BrakeMode::Coast), None]);
+        assert_eq!(
+            mock.0,
+            [Some(BrakeMode::Hold), Some(BrakeMode::Coast), None]
+        );
         mock.brake_all(BrakeMode::Brake).unwrap();
         assert_eq!(mock.0, [Some(BrakeMode::Brake); 3]);
         let hold = WheelCommand::Brake(BrakeMode::Hold);
