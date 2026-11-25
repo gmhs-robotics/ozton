@@ -68,8 +68,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 let threshold = if autonomous { 8 * 1024 } else { 32 * 1024 };
                 if !draining
                     && !failed
-                    && (queued_bytes == 0 && !dirty
-                        || queued_bytes < threshold && !checkpoint_due)
+                    && (queued_bytes == 0 && !dirty || queued_bytes < threshold && !checkpoint_due)
                 {
                     delay = Duration::from_millis(100);
                     continue;

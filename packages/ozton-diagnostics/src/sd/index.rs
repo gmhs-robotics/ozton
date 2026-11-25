@@ -30,7 +30,12 @@ fn write_counter(path: &Path, highest: u64) -> io::Result<()> {
 pub(super) fn open_log(directory: &Path) -> io::Result<(String, File, Option<io::Error>)> {
     let index = directory.join(INDEX);
     let backup = directory.join(BACKUP);
-    let mut highest = match (read_counter(&index), read_counter(&backup)) {
+    let primary = read_counter(&index);
+    let mirror = read_counter(&backup);
+    let primary_value = primary.as_ref().ok().and_then(|value| *value);
+    let mirror_value = mirror.as_ref().ok().and_then(|value| *value);
+    let primary_is_latest = primary_value >= mirror_value;
+    let mut highest = match (primary, mirror) {
         (Ok(a), Ok(b)) => a.into_iter().chain(b).max().unwrap_or(0),
         (Ok(Some(value)), Err(_)) | (Err(_), Ok(Some(value))) => value,
         (Err(error), _) | (_, Err(error)) => return Err(error),
@@ -57,12 +62,17 @@ pub(super) fn open_log(directory: &Path) -> io::Result<(String, File, Option<io:
         // file is never reused, even if publishing its reservation fails.
         file.write_all(super::SESSION)?;
         file.sync_all()?;
-        // Alternate through two independent copies so a torn update does
-        // not normally destroy the high-water mark. Index failure must not
-        // prevent recording to the already opened run.
-        let backup_result = write_counter(&backup, highest);
-        let index_result = write_counter(&index, highest);
-        return Ok((name, file, backup_result.and(index_result).err()));
+        // Update the older or invalid copy first. Never risk the latest
+        // valid counter until another copy has been written.
+        let (first, second) = if primary_is_latest {
+            (&backup, &index)
+        } else {
+            (&index, &backup)
+        };
+        let index_error = write_counter(first, highest)
+            .and_then(|()| write_counter(second, highest))
+            .err();
+        return Ok((name, file, index_error));
     }
 }
 
@@ -111,7 +121,10 @@ mod tests {
         fs::remove_file(dir.0.join(second)).unwrap();
         let (third, _, _) = open_log(&dir.0).unwrap();
         assert_eq!(third, "3.log");
-        assert_eq!(fs::read(dir.0.join(first)).unwrap(), [super::super::SESSION, b"first run"].concat());
+        assert_eq!(
+            fs::read(dir.0.join(first)).unwrap(),
+            [super::super::SESSION, b"first run"].concat()
+        );
         assert_eq!(fs::read_to_string(dir.0.join(INDEX)).unwrap(), "3\n");
     }
 

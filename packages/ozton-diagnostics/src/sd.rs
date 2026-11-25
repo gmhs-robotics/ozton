@@ -186,13 +186,15 @@ pub fn flush_chunk(max_bytes: usize, sync: bool) -> io::Result<usize> {
         // Startup is the only place where a run file is allocated.
         return Err(io::Error::other("SD log not open"));
     };
-    let result = pending.write_chunk(&mut file, max_bytes, false).and_then(|bytes| {
-        if sync {
-            file.sync_all()?;
-            pending.reset_streams();
-        }
-        Ok(bytes)
-    });
+    let result = pending
+        .write_chunk(&mut file, max_bytes, false)
+        .and_then(|bytes| {
+            if sync {
+                file.sync_all()?;
+                pending.reset_streams();
+            }
+            Ok(bytes)
+        });
     // Keep the same handle on failure: never reopen an existing log.
     pending.file = Some(file);
     result
@@ -387,7 +389,10 @@ fn write_progress(file: &mut impl Write, bytes: &[u8], head: &mut usize) -> io::
     while *head < bytes.len() {
         match file.write(&bytes[*head..]) {
             Ok(0) => {
-                return Err(io::Error::new(io::ErrorKind::WriteZero, "SD write made no progress"));
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "SD write made no progress",
+                ));
             }
             Ok(written) => *head += written,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
