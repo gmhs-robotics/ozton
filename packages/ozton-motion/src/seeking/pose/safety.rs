@@ -111,8 +111,10 @@ fn bounds(
     .stopping_interval(reaction)?;
     let lateral = RateBounds {
         measured: feedback.lateral_velocity.value,
-        requested: feedback.lateral_velocity.value,
-        previous: feedback.lateral_velocity.value,
+        // The tracked origin moves sideways when rotating about a
+        // longitudinally displaced pivot: v_right = offset * yaw_rate.
+        requested: config.safety.pivot_forward_offset.value * w,
+        previous: config.safety.pivot_forward_offset.value * previous[1],
         uncertainty: lateral,
         acceleration: None,
         braking: config.safety.lateral_braking.value,
@@ -545,6 +547,27 @@ mod tests {
             ),
             [0.0; 2]
         );
+    }
+
+    #[test]
+    fn displaced_pivot_expands_predicted_lateral_sweep() {
+        let field = field();
+        let mut feedback = sample(0.0);
+        feedback.pose = ozton_math::geometry::Pose::default();
+        feedback.angular_velocity = qty!(0 rad/s);
+        let centered = MotionConfig::DEFAULT;
+        let shifted = centered.with_safety(
+            centered.safety.with_pivot_forward_offset(qty!(-2 in)),
+        );
+        let predict = |config| {
+            bounds(field, feedback, 0.0, 2.0, [0.0; 2], [0.0; 3], None, 0.4, config)
+                .unwrap()
+        };
+        let (min, max) = predict(centered);
+        let (shifted_min, shifted_max) = predict(shifted);
+        assert!(shifted_min.x <= min.x);
+        assert!(shifted_max.x >= max.x);
+        assert!(shifted_min.x < min.x || shifted_max.x > max.x);
     }
 
     #[test]
