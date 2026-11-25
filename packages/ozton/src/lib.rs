@@ -21,7 +21,8 @@ pub mod prelude {
     pub use crate::{
         autonomous::{ControlError, ControlResult},
         drivetrain::{
-            BrakeMode, BrakeMotors, Drive, Drivetrain, HasLocalization, LateralDrive, MotorAddress,
+            BrakeMode, BrakeMotors, Drive, Drivetrain, HasBraking, HasLocalization, LateralDrive,
+            MotorAddress,
             WheelCommand, WheelCommandDrive, model::DriveConfigError,
         },
         motion::{
