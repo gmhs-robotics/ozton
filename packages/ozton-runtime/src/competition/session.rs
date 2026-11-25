@@ -159,6 +159,10 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
         self.enter(mode);
         let runtime = &mut *self.0;
         if let Some(route) = runtime.selected_autonomous() {
+            // The scope ends on completion, fault, or cancellation, even if the
+            // competition switch remains in Autonomous.
+            #[cfg(all(feature = "logging", target_os = "vexos"))]
+            let _route_scope = super::activation::RouteScope::enter();
             runtime
                 .selector
                 .status(&format!("Autonomous: {}", route.label()));
