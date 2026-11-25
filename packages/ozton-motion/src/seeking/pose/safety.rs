@@ -773,12 +773,15 @@ mod tests {
         let config = MotionConfig::DEFAULT
             .with_tuning(
                 DriveTuning::new()
-                    .with_linear_controller(Pid::new(4.25, 0.0, 0.50, None))
-                    .with_angular_controller(Pid::new(3.0, 0.0, 0.22, None)),
+                    .with_linear_controller(Pid::new(4.50, 0.0, 0.50, None))
+                    .with_angular_controller(Pid::new(3.0, 0.0, 0.40, None)),
             )
             .with_limits(
                 crate::MotionLimits::DEFAULT
-                    .with_wheel_speed(qty!(0.20 m/s))
+                    .with_wheel_speed(qty!(0.55 m/s))
+                    .with_acceleration(qty!(1.20 m/s^2))
+                    .with_minimum_linear_speed(qty!(0.12 m/s))
+                    .with_minimum_angular_speed(qty!(0.50 rad/s))
                     .with_deceleration(qty!(0.55 m/s^2)),
             )
             .with_safety(
@@ -789,7 +792,7 @@ mod tests {
             );
         let options = config.options(qty!(0.3292677692 m));
         let target = DifferentialTarget::DriveDistance {
-            meters: qty!(12 in),
+            meters: qty!(24 in),
             heading: Some(start.heading),
             maximum_speed: options.maximum_wheel_speed,
         };
@@ -844,7 +847,7 @@ mod tests {
             if settled >= options.settle {
                 assert!(contact.is_none());
                 assert!(
-                    (feedback.forward_travel.value - qty!(12 in).value).abs()
+                    (feedback.forward_travel.value - qty!(24 in).value).abs()
                         <= options.position_tolerance.value
                 );
                 return;
