@@ -69,7 +69,10 @@ mod prepared;
 
 pub use cast::{cast, cast_masked};
 pub use prepared::ray_distance;
-pub(super) use prepared::{RayFace, prepare_faces, prepared_ray_distance};
+pub(super) use prepared::{
+    DirectedFace, RayFace, directed_ray_distance, prepare_direction, prepare_faces,
+    prepared_ray_distance,
+};
 
 /// Maximum observation age in seconds and geometry/quality gates for a distance sensor.
 #[derive(Debug, Clone, Copy)]

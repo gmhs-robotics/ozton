@@ -9,7 +9,10 @@ use random::Random;
 pub use sensor::BeamModel;
 use uom::si::f64::{Angle, AngularVelocity, Length};
 
-use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
+use super::range::{
+    DirectedFace, RayFace, Surface, directed_ray_distance, prepare_direction, prepare_faces,
+    prepared_ray_distance,
+};
 use crate::{
     geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading},
     path::clearance::WallContactConstraint,
@@ -117,6 +120,7 @@ pub struct ParticleFilter {
     scratch: Vec<Particle>,
     random: Random,
     ray_faces: Vec<RayFace>,
+    directed_faces: Vec<DirectedFace>,
     contact: Option<WallContactConstraint>,
 }
 
@@ -130,6 +134,7 @@ impl Clone for ParticleFilter {
             scratch,
             random: self.random.clone(),
             ray_faces: Vec::with_capacity(self.ray_faces.capacity()),
+            directed_faces: Vec::with_capacity(self.directed_faces.capacity()),
             contact: self.contact,
         }
     }
@@ -171,6 +176,7 @@ impl ParticleFilter {
             scratch: Vec::with_capacity(config.count),
             random: Random::seeded(config.seed),
             ray_faces: Vec::new(),
+            directed_faces: Vec::new(),
             contact: None,
         };
         filter.reset(pose);
@@ -351,22 +357,35 @@ impl ParticleFilter {
             let body_direction = direction(beam.mount.heading);
             let fixed_ray =
                 fixed_rotation.map(|r| (r.rotate(beam.mount.position), r.rotate(body_direction)));
+            if let Some((_, direction)) = fixed_ray {
+                prepare_direction(
+                    direction,
+                    &self.ray_faces,
+                    beam.surface_mask,
+                    &mut self.directed_faces,
+                );
+            }
             let mut modeled_weight = 0.0;
             let mut evidence = 0.0;
             let mut hit_evidence = 0.0;
             for (index, particle) in self.particles.iter().enumerate() {
-                let (offset, direction) = fixed_ray.unwrap_or_else(|| {
+                let distance = if let Some((offset, direction)) = fixed_ray {
+                    directed_ray_distance(
+                        particle.pose.position + offset,
+                        direction,
+                        &self.directed_faces,
+                        beam.max_range.value,
+                    )
+                } else {
                     let r = orientations[index];
-                    (r.rotate(beam.mount.position), r.rotate(body_direction))
-                });
-                let origin = particle.pose.position + offset;
-                let distance = prepared_ray_distance(
-                    origin,
-                    direction,
-                    &self.ray_faces,
-                    beam.surface_mask,
-                    beam.max_range.value,
-                );
+                    prepared_ray_distance(
+                        particle.pose.position + r.rotate(beam.mount.position),
+                        r.rotate(body_direction),
+                        &self.ray_faces,
+                        beam.surface_mask,
+                        beam.max_range.value,
+                    )
+                };
                 likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
                     let (hit, likelihood) = model.likelihood(distance);
                     modeled_weight += particle.weight;

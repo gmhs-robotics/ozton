@@ -36,9 +36,20 @@ impl RayFace {
         if denominator * denominator <= self.parallel_threshold {
             return None;
         }
-        let offset = self.start - origin;
         let sign = if denominator < 0.0 { -1.0 } else { 1.0 };
-        let denominator = denominator.abs();
+        self.nearer_directed(origin, beam, nearest, denominator.abs(), sign)
+    }
+
+    #[inline]
+    fn nearer_directed(
+        self,
+        origin: DVec2,
+        beam: DVec2,
+        nearest: f64,
+        denominator: f64,
+        sign: f64,
+    ) -> Option<f64> {
+        let offset = self.start - origin;
         let fraction = offset.perp_dot(beam) * sign;
         if !(0.0..=denominator).contains(&fraction) {
             return None;
@@ -52,6 +63,57 @@ impl RayFace {
         }
         None
     }
+}
+
+/// Eligible, nonparallel face with its beam-dependent denominator prepared once.
+#[derive(Clone, Copy)]
+pub(in crate::localization) struct DirectedFace {
+    face: RayFace,
+    denominator: f64,
+    sign: f64,
+}
+
+pub(in crate::localization) fn prepare_direction(
+    beam: DVec2,
+    faces: &[RayFace],
+    mask: u128,
+    directed: &mut alloc::vec::Vec<DirectedFace>,
+) {
+    directed.clear();
+    for index in masked_indices(mask) {
+        let Some(&face) = faces.get(index) else {
+            break;
+        };
+        let denominator = beam.perp_dot(face.segment);
+        if denominator * denominator <= face.parallel_threshold {
+            continue;
+        }
+        directed.push(DirectedFace {
+            face,
+            denominator: denominator.abs(),
+            sign: if denominator < 0.0 { -1.0 } else { 1.0 },
+        });
+    }
+}
+
+pub(in crate::localization) fn directed_ray_distance(
+    origin: DVec2,
+    beam: DVec2,
+    faces: &[DirectedFace],
+    maximum: f64,
+) -> Option<f64> {
+    let mut nearest = maximum;
+    let mut found = false;
+    for face in faces {
+        if let Some(distance) =
+            face.face
+                .nearer_directed(origin, beam, nearest, face.denominator, face.sign)
+        {
+            nearest = distance;
+            found = true;
+        }
+    }
+    found.then_some(nearest)
 }
 
 pub(in crate::localization) fn prepare_faces(
@@ -130,6 +192,29 @@ fn masked_indices(mask: u128) -> impl Iterator<Item = usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn directed_faces_match_general_rays() {
+        let surfaces = [
+            Surface::new(DVec2::new(-1.0, 1.0), DVec2::new(1.0, 1.0), crate::qty!(1 m)),
+            Surface::new(DVec2::new(1.0, 1.0), DVec2::new(1.0, -1.0), crate::qty!(1 m)),
+            Surface::new(DVec2::new(1.0, -1.0), DVec2::new(-1.0, -1.0), crate::qty!(1 m)),
+        ];
+        let mut faces = alloc::vec::Vec::new();
+        let mut directed = alloc::vec::Vec::new();
+        prepare_faces(&surfaces, &mut faces);
+        for beam in [DVec2::Y, -DVec2::Y, DVec2::X, DVec2::new(0.6, 0.8)] {
+            for mask in [0, 1, 2, 5, 7, u128::MAX] {
+                prepare_direction(beam, &faces, mask, &mut directed);
+                for origin in [DVec2::ZERO, DVec2::new(0.3, -0.4), DVec2::new(2.0, 2.0)] {
+                    assert_eq!(
+                        directed_ray_distance(origin, beam, &directed, 2.0),
+                        prepared_ray_distance(origin, beam, &faces, mask, 2.0)
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn mask_iteration_preserves_surface_order_across_word_boundaries() {
