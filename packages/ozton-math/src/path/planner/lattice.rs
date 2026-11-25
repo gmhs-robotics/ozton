@@ -75,7 +75,7 @@ impl LatticePlanner {
             heading,
             reverse,
             track_width,
-            || core::future::ready(true),
+            async || true,
         ));
         let mut context = core::task::Context::from_waker(core::task::Waker::noop());
         match core::future::Future::poll(search.as_mut(), &mut context) {
@@ -87,7 +87,7 @@ impl LatticePlanner {
     /// The same bounded search with an asynchronous cancellation/yield checkpoint
     /// before each expansion. Returning false from the checkpoint cancels planning.
     #[allow(clippy::too_many_arguments)]
-    pub async fn plan_cooperative<F, Fut>(
+    pub async fn plan_cooperative<F>(
         self,
         field: Option<&RectangularClearance>,
         start: Pose,
@@ -98,8 +98,7 @@ impl LatticePlanner {
         mut checkpoint: F,
     ) -> Option<Vec<LatticeStep>>
     where
-        F: FnMut() -> Fut,
-        Fut: core::future::Future<Output = bool>,
+        F: core::ops::AsyncFnMut() -> bool,
     {
         if !start.is_finite()
             || !goal.is_finite()
