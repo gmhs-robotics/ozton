@@ -58,6 +58,32 @@ impl TerminalPose {
             controller.reset();
             return ([0.0; 2], true, distance, true);
         }
+        // On entering terminal capture, do not carry forward momentum into a
+        // point correction that requires a substantial change of direction.
+        // Once stationary, pick the nearer travel direction independently of
+        // the direction used on the authored path.
+        if matches!(self.phase, Phase::Approach) && self.approach_reverse.is_none() {
+            let bearing_error = wrap_heading(
+                bearing(target.position - feedback.pose.position) - feedback.pose.heading,
+            )
+            .value;
+            let backing = bearing_error.abs() > core::f64::consts::FRAC_PI_2;
+            let travel_error = if backing {
+                core::f64::consts::PI - bearing_error.abs()
+            } else {
+                bearing_error.abs()
+            };
+            if !slow && (travel_error > core::f64::consts::FRAC_PI_4
+                || (feedback.forward_velocity.value < 0.0) != backing)
+            {
+                self.phase = Phase::Brake(Duration::ZERO);
+                controller.reset();
+                changed = true;
+            } else {
+                self.approach_reverse = Some(if inside { reverse } else { backing });
+                controller.point_backing = None;
+            }
+        }
         if matches!(self.phase, Phase::Approach) && inside {
             self.phase = Phase::Brake(Duration::ZERO);
             controller.reset();
@@ -78,11 +104,7 @@ impl TerminalPose {
                 Phase::Approach
             };
             // Recover short overshoots in the closer travel direction.
-            self.approach_reverse = if !inside
-                && distance
-                    <= controller.config.approach.reversal_distance_factor
-                        * options.position_tolerance.value
-            {
+            self.approach_reverse = if !inside {
                 let error = wrap_heading(
                     bearing(target.position - feedback.pose.position) - feedback.pose.heading,
                 );
@@ -227,6 +249,53 @@ mod tests {
         assert!(
             changed && !ready && !matches!(terminal.phase, Phase::Heading) && terminal.is_braking()
         );
+    }
+
+    #[test]
+    fn terminal_capture_brakes_before_large_bearing_correction() {
+        let options =
+            DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+        let tick = Duration::from_millis(10);
+        let mut terminal = TerminalPose::default();
+        let mut controller = DifferentialFeedback::default();
+        let target = Pose::new(DVec2::new(0.8382, 0.635), ozton_math::qty!(0 rad));
+        let feedback = Feedback {
+            time: tick,
+            pose: Pose::new(DVec2::new(0.910, 0.615), ozton_math::qty!(0.418 rad)),
+            forward_travel: Length::ZERO,
+            forward_velocity: ozton_math::qty!(0.20 m/s),
+            lateral_velocity: Velocity::ZERO,
+            angular_velocity: ozton_math::qty!(0 rad/s),
+            ranges: [None; _],
+            reset_accepted: false,
+        };
+        let (wheels, ready, _, _) =
+            terminal.step(&mut controller, target, false, feedback, tick, options);
+        assert!(!ready && terminal.is_braking());
+        assert_eq!(wheels, [0.0; 2]);
+    }
+
+    #[test]
+    fn initial_terminal_overshoot_uses_reverse_without_turning_around() {
+        let options =
+            DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+        let tick = Duration::from_millis(10);
+        let mut terminal = TerminalPose::default();
+        let mut controller = DifferentialFeedback::default();
+        let feedback = Feedback {
+            time: tick,
+            pose: Pose::new(DVec2::new(0.0, 0.06), ozton_math::qty!(0 rad)),
+            forward_travel: Length::ZERO,
+            forward_velocity: Velocity::ZERO,
+            lateral_velocity: Velocity::ZERO,
+            angular_velocity: AngularVelocity::ZERO,
+            ranges: [None; _],
+            reset_accepted: false,
+        };
+        let (wheels, ready, _, _) =
+            terminal.step(&mut controller, Pose::default(), false, feedback, tick, options);
+        assert!(!ready);
+        assert!(wheels.iter().all(|speed| *speed < 0.0), "{wheels:?}");
     }
 
     #[test]
