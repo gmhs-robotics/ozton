@@ -114,22 +114,8 @@ pub fn simulate_path_with_lateral(
     mut clear: impl FnMut(Pose) -> bool,
 ) -> Option<SimulationReport> {
     let limits = path.limits();
-    let mut config = config;
-    config.limits.lateral_acceleration = config
-        .limits
-        .lateral_acceleration
-        .min(limits.lateral_acceleration);
-    config.limits.acceleration = config.limits.acceleration.min(limits.acceleration);
-    config.limits.deceleration = config.limits.deceleration.min(limits.deceleration);
-    config.limits.wheel_acceleration = Some(
-        config
-            .limits
-            .wheel_acceleration
-            .unwrap_or(config.limits.acceleration)
-            .min(limits.wheel_acceleration),
-    );
-    let mut options = config.options(limits.track_width);
-    options.maximum_wheel_speed = options.maximum_wheel_speed.min(limits.wheel_speed);
+    let (config, options) =
+        config.constrained_for_path(config.options(limits.track_width), limits);
     if !config.valid()
         || !options.valid()
         || !initial_pose.is_finite()

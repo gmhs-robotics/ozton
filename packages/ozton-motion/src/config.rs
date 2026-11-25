@@ -587,6 +587,28 @@ impl MotionConfig {
         )
     }
 
+    /// Apply the same prepared-trajectory constraints in firmware and simulation.
+    pub(crate) fn constrained_for_path(
+        mut self,
+        mut options: DriveOptions,
+        limits: ozton_math::path::Limits,
+    ) -> (Self, DriveOptions) {
+        self.limits.lateral_acceleration = self
+            .limits
+            .lateral_acceleration
+            .min(limits.lateral_acceleration);
+        self.limits.acceleration = self.limits.acceleration.min(limits.acceleration);
+        self.limits.deceleration = self.limits.deceleration.min(limits.deceleration);
+        self.limits.wheel_acceleration = Some(
+            self.limits
+                .wheel_acceleration
+                .unwrap_or(self.limits.acceleration)
+                .min(limits.wheel_acceleration),
+        );
+        options.maximum_wheel_speed = options.maximum_wheel_speed.min(limits.wheel_speed);
+        (self, options)
+    }
+
     pub fn path_limits(self, track_width: Length) -> ozton_math::path::Limits {
         ozton_math::path::Limits::from_units(
             track_width,

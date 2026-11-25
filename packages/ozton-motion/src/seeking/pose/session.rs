@@ -354,29 +354,15 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         use crate::pursuit::profiled::ProfiledFollower;
         let mut follower =
             ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular);
-        let mut config = self.config;
-        let limits = path.limits();
-        config.limits.lateral_acceleration = config
-            .limits
-            .lateral_acceleration
-            .min(limits.lateral_acceleration);
-        config.limits.acceleration = config.limits.acceleration.min(limits.acceleration);
-        config.limits.deceleration = config.limits.deceleration.min(limits.deceleration);
-        config.limits.wheel_acceleration = Some(
-            config
-                .limits
-                .wheel_acceleration
-                .unwrap_or(config.limits.acceleration)
-                .min(limits.wheel_acceleration),
-        );
+        let (config, options) = self
+            .config
+            .constrained_for_path(self.options, path.limits());
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
         log_event!(Info, "motion", "Trajectory: started");
         let end = path.end();
-        let mut options = self.options;
-        options.maximum_wheel_speed = options.maximum_wheel_speed.min(path.limits().wheel_speed);
         log_row!(
             Debug,
             "PATH_PLAN",
