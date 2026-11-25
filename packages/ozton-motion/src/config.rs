@@ -318,8 +318,18 @@ impl ClearanceConfig {
 }
 
 /// Trajectory follower parameters.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PathGuidance {
+    /// Spatial tangent feedback with measured yaw damping.
+    #[default]
+    Tangent,
+    /// Geometric pursuit of an arc-length lookahead point.
+    PurePursuit,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathConfig {
+    pub guidance: PathGuidance,
     pub lookahead: Length,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
@@ -333,12 +343,19 @@ impl Default for PathConfig {
 
 impl PathConfig {
     pub const DEFAULT: Self = Self {
+        guidance: PathGuidance::Tangent,
         lookahead: ozton_math::qty!(0.16 m),
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
     };
 
     pub const fn new() -> Self {
         Self::DEFAULT
+    }
+
+    #[must_use]
+    pub const fn with_guidance(mut self, guidance: PathGuidance) -> Self {
+        self.guidance = guidance;
+        self
     }
 
     #[must_use]

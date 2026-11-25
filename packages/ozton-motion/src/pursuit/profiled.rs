@@ -4,7 +4,7 @@ use core::f64::consts::PI;
 
 use ozton_math::{
     control::Pid,
-    geometry::{Pose, wheel_speeds, wrap_heading},
+    geometry::{Pose, bearing, wheel_speeds, wrap_heading},
     path::{Path, PathSample, progress::Progress},
     uom::si::{
         angular_velocity::radian_per_second,
@@ -27,6 +27,7 @@ pub(crate) struct ProfiledFollower<'path> {
     geometric: PathSample,
     lookahead: Length,
     yaw: Pid,
+    guidance: crate::PathGuidance,
 }
 
 impl<'path> ProfiledFollower<'path> {
@@ -37,7 +38,13 @@ impl<'path> ProfiledFollower<'path> {
             geometric: path.start(),
             lookahead,
             yaw,
+            guidance: crate::PathGuidance::Tangent,
         }
+    }
+
+    pub fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
+        self.guidance = guidance;
+        self
     }
 
     pub fn observe(&mut self, pose: Pose, advance_limit: Length) -> PathObservation {
@@ -83,10 +90,30 @@ impl<'path> ProfiledFollower<'path> {
             .lookahead
             .value
             .max(measured_speed.value.abs() * reaction * 2.0);
-        let cross = self.geometric.pose.to_local(pose.position).x;
-        let desired_heading =
-            self.geometric.pose.heading + facing + ozton_math::qty!((cross.atan2(lookahead)) rad);
-        let error = wrap_heading(desired_heading - pose.heading).value;
+        let travel_pose = Pose::new(pose.position, pose.heading - facing);
+        let (error, pursuit_curvature) = match self.guidance {
+            crate::PathGuidance::Tangent => {
+                let cross = self.geometric.pose.to_local(pose.position).x;
+                let desired = self.geometric.pose.heading + facing
+                    + ozton_math::qty!((cross.atan2(lookahead)) rad);
+                (wrap_heading(desired - pose.heading).value, None)
+            }
+            crate::PathGuidance::PurePursuit => {
+                let carrot = path
+                    .at_distance(ozton_math::qty!((self.geometric.distance + lookahead) m))
+                    .pose
+                    .position;
+                let local = travel_pose.to_local(carrot);
+                let error = bearing(local).value;
+                // +X is right, while positive yaw turns left.
+                let curvature = if local.y > 0.0 && local.length_squared() > 1e-12 {
+                    Some(-2.0 * local.x / local.length_squared())
+                } else {
+                    None
+                };
+                (error, curvature)
+            }
+        };
 
         // Preview the profile by the distance travelled during actuator
         // response. From rest, use the constant-acceleration launch distance
@@ -106,14 +133,19 @@ impl<'path> ProfiledFollower<'path> {
             .at_distance(ozton_math::qty!((self.geometric.distance + delay) m))
             .curvature;
         let feedforward = speed * curvature;
-        let angular = feedforward
-            + self.yaw.update_with_rate(
-                error,
-                feedforward - measured_yaw.value,
-                dt,
-                core::time::Duration::ZERO,
-                0.0,
-            );
+        let angular = match (self.guidance, pursuit_curvature) {
+            (crate::PathGuidance::PurePursuit, Some(curvature)) => speed * curvature,
+            _ => {
+                feedforward
+                    + self.yaw.update_with_rate(
+                        error,
+                        feedforward - measured_yaw.value,
+                        dt,
+                        core::time::Duration::ZERO,
+                        0.0,
+                    )
+            }
+        };
         let linear = if reverse { -speed } else { speed };
         wheel_speeds(
             Velocity::new::<meter_per_second>(linear),
@@ -218,6 +250,44 @@ mod tests {
         assert!(reverse[1] > reverse[0]);
         assert!(forward[0] + forward[1] > 0.0);
         assert!(reverse[0] + reverse[1] < 0.0);
+    }
+
+    #[test]
+    fn pure_pursuit_corrects_world_lateral_error_in_both_directions() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        for reverse in [false, true] {
+            let heading = if reverse { 180.0 } else { 0.0 };
+            let pose = Pose::new(DVec2::new(0.035, 0.2), qty!((heading) deg));
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None))
+                    .with_guidance(crate::PathGuidance::PurePursuit);
+            follower.observe(pose, qty!(0.3 m));
+            let wheels = follower.command(
+                pose,
+                reverse,
+                qty!(0.3 m/s),
+                qty!(0 rad/s),
+                core::time::Duration::from_millis(100),
+                core::time::Duration::from_millis(10),
+            );
+            assert!(wheels[1] > wheels[0]);
+            assert!((wheels[0] + wheels[1]) * if reverse { -1.0 } else { 1.0 } > 0.0);
+        }
     }
 
     #[test]

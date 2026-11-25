@@ -415,7 +415,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
 
         use crate::pursuit::profiled::ProfiledFollower;
         let mut follower =
-            ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular);
+            ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular)
+                .with_guidance(self.config.path.guidance);
         let (config, options) = self
             .config
             .constrained_for_path(self.options, path.limits());

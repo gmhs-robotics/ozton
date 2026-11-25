@@ -135,7 +135,8 @@ pub fn simulate_path_with_lateral(
         return None;
     }
     let mut commands = VecDeque::from(vec![[0.0; 2]; capacity]);
-    let mut follower = ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular);
+    let mut follower = ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
+        .with_guidance(config.path.guidance);
     let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
     let mut terminal_pose = TerminalPose::default();
     let mut terminal = false;
