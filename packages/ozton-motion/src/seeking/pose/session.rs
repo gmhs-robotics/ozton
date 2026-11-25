@@ -152,7 +152,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            log_event!(Info, "motion", "Stationary feedback verified; planning may start");
+            log_event!(
+                Info,
+                "motion",
+                "Stationary feedback verified; planning may start"
+            );
             return Ok(());
         }
     }
