@@ -318,12 +318,23 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let previous_rates = body_rates(previous, self.options.track_width.value);
             if self.contact.is_some()
                 && clearance.is_some_and(|field| {
-                    contact_released(field, feedback, self.config, uncertainty, covariance, previous_rates)
+                    contact_released(
+                        field,
+                        feedback,
+                        self.config,
+                        uncertainty,
+                        covariance,
+                        previous_rates,
+                    )
                 })
             {
                 self.contact = None;
                 self.drive.release_wall_contact();
-                log_event!(Info, "clearance", "Surveyed contact departure cleared; ordinary governor restored");
+                log_event!(
+                    Info,
+                    "clearance",
+                    "Surveyed contact departure cleared; ordinary governor restored"
+                );
             }
             if clearance.is_some_and(|field| {
                 !safe_feedback_at_contact(
