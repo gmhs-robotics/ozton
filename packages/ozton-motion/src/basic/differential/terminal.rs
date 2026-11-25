@@ -72,7 +72,11 @@ impl TerminalPose {
             if *stationary < options.settle.max(dt) {
                 return ([0.0; 2], false, distance, changed);
             }
-            self.phase = if inside { Phase::Heading } else { Phase::Approach };
+            self.phase = if inside {
+                Phase::Heading
+            } else {
+                Phase::Approach
+            };
             // Recover short overshoots in the closer travel direction.
             self.approach_reverse = if !inside
                 && distance
@@ -220,7 +224,9 @@ mod tests {
             tick,
             options,
         );
-        assert!(changed && !ready && !matches!(terminal.phase, Phase::Heading) && terminal.is_braking());
+        assert!(
+            changed && !ready && !matches!(terminal.phase, Phase::Heading) && terminal.is_braking()
+        );
     }
 
     #[test]
