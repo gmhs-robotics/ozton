@@ -17,7 +17,7 @@ use crate::basic::differential::{
 
 pub(super) struct Trajectory<'a> {
     pub path: &'a ozton_math::path::Path,
-    pub follower: crate::pursuit::profiled::Follower,
+    pub follower: crate::Follower,
     pub reverse: bool,
     pub target: ozton_math::geometry::Pose,
     pub clearance: Option<ozton_math::path::clearance::RectangularClearance>,
@@ -273,8 +273,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         trajectory: Trajectory<'_>,
         actions: &mut PathActions<'_>,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        use ozton_math::uom::si::{f64::Time, time::second};
-
         let Trajectory {
             path,
             follower,
@@ -284,7 +282,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             timeout,
         } = trajectory;
 
-        use crate::pursuit::profiled::{self, FollowerSample, Progress as PathProgress};
+        use crate::pursuit::profiled::ProfiledFollower;
         let start = Instant::now();
         self.previous_tick = start;
         let baseline = self
@@ -292,11 +290,10 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             .pose_feedback()
             .map_err(PoseMotionError::Drive)?
             .map(|f| f.time);
-        let mut progress = PathProgress::new(path);
+        let mut follower = ProfiledFollower::new(path, follower);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut last = None;
         let mut fresh_at = Instant::now();
-        let mut reference_time = 0.0_f64;
         let mut settled = Duration::ZERO;
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
@@ -377,58 +374,37 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            progress.update(
-                feedback.pose.position,
+            let observation = follower.observe(
+                feedback.pose,
+                dt,
                 ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
+                self.config.path.lookahead,
             );
-            let geometric = path.at_distance(ozton_math::qty!((progress.distance()) m));
-            let cross = geometric.pose.position.distance(feedback.pose.position);
+            let cross = observation.cross_track;
             if cross > self.config.path.maximum_cross_track_error.value {
                 return Err(PoseMotionError::PositionUnsettled);
             }
             actions
-                .advance(
-                    progress.distance(),
-                    (end.time - geometric.time).max(0.0),
-                    false,
-                )
+                .advance(observation.distance, observation.remaining_time, false)
                 .map_err(PoseMotionError::Mechanism)?;
-            // Bound time-reference lead to avoid chasing a distant reference after lag.
-            reference_time = profiled::advance_reference_time(
-                reference_time,
-                dt.as_secs_f64(),
-                &progress,
-                self.config.path.lookahead,
-            );
-            let sample = FollowerSample {
-                pose: feedback.pose,
-                elapsed: Time::new::<second>(reference_time),
-                period: Time::new::<second>(dt.as_secs_f64()),
-            };
+            let reference_time = observation.reference_time;
             let distance = feedback.pose.position.distance(target.position);
             let heading_error = wrap_heading(target.heading - feedback.pose.heading)
                 .value
                 .abs();
-            if !terminal
-                && profiled::is_terminal(
-                    &progress,
-                    follower,
-                    sample,
-                    self.options.position_tolerance.value,
-                )
-            {
+            if !terminal && follower.is_terminal(self.options.position_tolerance.value) {
                 terminal = true;
                 log_event!(Info, "motion", "Trajectory: entering final pose correction");
                 best = f64::INFINITY;
                 no_progress = Duration::ZERO;
-                controller.pid.reset();
+                controller.reset_feedback();
             }
             let (requested, ready, objective, phase_changed) = if terminal {
                 terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
-                let desired = profiled::command(follower, &progress, sample, reverse);
+                let desired = follower.command(feedback.pose, dt, reverse);
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
-                (wheels, ready, end.distance - progress.distance(), false)
+                (wheels, ready, end.distance - observation.distance, false)
             };
             let wheels = limit_wall_command(
                 clearance,
@@ -474,7 +450,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 "PATH_TICK",
                 "sample_ms={},reference_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete}",
                 feedback.time.as_millis(),
-                progress.distance(),
+                observation.distance,
                 feedback.pose.position.x,
                 feedback.pose.position.y,
                 feedback.pose.heading.value,

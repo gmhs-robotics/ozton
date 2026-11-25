@@ -300,7 +300,7 @@ impl Seeking {
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
-        follower: crate::pursuit::profiled::Follower,
+        follower: crate::Follower,
         reverse: bool,
     ) -> Result<(), PoseMotionError<D::Error>> {
         self.follow_path_with_actions(drive, path, follower, reverse, &mut PathActions::new())
@@ -312,7 +312,7 @@ impl Seeking {
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
-        follower: crate::pursuit::profiled::Follower,
+        follower: crate::Follower,
         reverse: bool,
         actions: &mut PathActions<'_>,
     ) -> Result<(), PoseMotionError<D::Error>> {

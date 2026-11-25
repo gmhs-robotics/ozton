@@ -674,7 +674,7 @@ impl MotionConfig {
             && self.timing.stage_timeout >= self.timing.period
     }
 
-    pub const fn options(self, track_width: Length) -> DriveOptions {
+    pub(crate) const fn options(self, track_width: Length) -> DriveOptions {
         DriveOptions::differential(track_width, self.limits.wheel_speed).with_settling(
             self.settling.position_tolerance,
             self.settling.heading_tolerance,
@@ -700,8 +700,8 @@ impl MotionConfig {
         )
     }
 
-    pub const fn follower(self) -> crate::pursuit::profiled::Follower {
-        crate::pursuit::profiled::Follower::Ramsete {
+    pub const fn follower(self) -> crate::Follower {
+        crate::Follower::Ramsete {
             b: self.path.ramsete_b,
             zeta: self.path.ramsete_zeta,
         }

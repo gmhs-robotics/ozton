@@ -22,7 +22,7 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 mod tuning;
-pub use pid::MotionPid;
+use pid::MotionPid;
 pub use terminal::TerminalPose;
 pub use tuning::DriveTuning;
 
@@ -38,14 +38,6 @@ pub struct DriveOptions {
 }
 
 impl DriveOptions {
-    /// Pair the drivetrain's calibrated track width with a route-selected wheel speed.
-    pub fn for_differential(
-        drive: &impl ozton_drivetrain::model::DriveEncoders,
-        maximum_wheel_speed: Velocity,
-    ) -> Option<Self> {
-        Some(Self::differential(drive.track_width(), maximum_wheel_speed))
-    }
-
     /// Supply arrival tolerances, velocity tolerances, and required settle time.
     pub const fn with_settling(
         mut self,
@@ -125,7 +117,7 @@ pub enum DifferentialTarget {
 /// The differential controller and initial measurements for a single target.
 #[derive(Default)]
 pub struct DifferentialFeedback {
-    pub pid: MotionPid,
+    pid: MotionPid,
     start_travel: Option<f64>,
     start_heading: Option<Angle>,
     point_backing: Option<bool>,
@@ -156,9 +148,14 @@ impl DifferentialFeedback {
         self
     }
 
+    /// Reset feedback without losing the wheel command used by the slew limiter.
+    pub(crate) fn reset_feedback(&mut self) {
+        self.pid.reset();
+    }
+
     /// Reset command state when feedback is interrupted.
     pub fn reset(&mut self) {
-        self.pid.reset();
+        self.reset_feedback();
         self.last_wheels = [0.0; 2];
     }
 
@@ -226,12 +223,7 @@ impl DifferentialFeedback {
                 options.speed_tolerance.value,
                 config.limits.minimum_linear_speed.value,
                 limit.min(config.tuning.linear.output_limit().unwrap_or(f64::INFINITY)),
-                config
-                    .safety
-                    .forward_braking
-                    .unwrap_or(config.limits.deceleration)
-                    .value
-                    .min(config.limits.deceleration.value),
+                forward_braking,
                 reaction,
             )
         };
@@ -258,12 +250,7 @@ impl DifferentialFeedback {
                         .output_limit()
                         .unwrap_or(f64::INFINITY),
                 ),
-                config
-                    .safety
-                    .yaw_braking
-                    .unwrap_or(config.limits.angular_deceleration)
-                    .value
-                    .min(config.limits.angular_deceleration.value),
+                yaw_braking,
                 reaction,
             )
         };
