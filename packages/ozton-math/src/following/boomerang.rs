@@ -31,7 +31,10 @@ mod tests {
         let target = position_xyh!(0 m, 1 m, 0 deg);
         assert!((guidance.carrot(DVec2::ZERO, target, false).y - 0.5).abs() < 1e-12);
         assert!((guidance.carrot(DVec2::ZERO, target, true).y - 1.5).abs() < 1e-12);
-        assert_eq!(guidance.carrot(target.position, target, false), target.position);
+        assert_eq!(
+            guidance.carrot(target.position, target, false),
+            target.position
+        );
         let east = Pose::new(DVec2::ZERO, qty!(-90 deg));
         assert!(guidance.carrot(DVec2::Y, east, false).x < 0.0);
         assert!(Boomerang::new(1.0).is_none());
