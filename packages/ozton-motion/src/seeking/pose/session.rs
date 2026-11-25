@@ -357,6 +357,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         points: &[ozton_math::geometry::DVec2],
         radius: f64,
         reverse: bool,
+        straight: bool,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let config = self.config;
         let options = self.options;
@@ -370,17 +371,36 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 if tick.interrupted {
                     progress = Progress::default();
                 }
-                let next = next_point(points, index, tick.feedback.pose.position, radius);
+                let position = tick.feedback.pose.position;
+                let next = if straight {
+                    next_straight_point(points, index, position, radius)
+                } else {
+                    next_point(points, index, position, radius)
+                };
                 if next != index {
+                    for gate in index..next {
+                        let error = position.distance(points[gate]);
+                        log_row!(
+                            Info,
+                            "POINT_CHAIN",
+                            "index={},gate_error_m={error:.6},forward_mps={:.6}",
+                            gate + 1,
+                            tick.feedback.forward_velocity.value
+                        );
+                    }
                     index = next;
-                    controller.reset_feedback();
-                    progress = Progress::default();
-                    tick.warnings.progress_reported = false;
-                    log_row!(Info, "POINT_CHAIN", "index={index}");
+                    if !straight {
+                        controller.reset_feedback();
+                        progress = Progress::default();
+                        tick.warnings.progress_reported = false;
+                    }
                 }
-                let final_point = index + 1 == points.len();
+                // Collinear gates do not impose a new velocity objective.
+                // Brake for the actual corner, not every waypoint along the edge.
+                let target_index = if straight { points.len() - 1 } else { index };
+                let final_point = target_index + 1 == points.len();
                 let target = DifferentialTarget::DriveToPoint {
-                    target: points[index],
+                    target: points[target_index],
                     reverse,
                     maximum_speed: options.maximum_wheel_speed,
                 };
@@ -668,11 +688,50 @@ fn next_point(
     index
 }
 
+/// A straight transit gate is crossed when its perpendicular plane is passed.
+/// This prevents a small lateral tracking error from trapping the chain at a
+/// waypoint that is already behind the chassis.
+fn next_straight_point(
+    points: &[ozton_math::geometry::DVec2],
+    mut index: usize,
+    position: ozton_math::geometry::DVec2,
+    radius: f64,
+) -> usize {
+    if points.len() < 2 {
+        return index;
+    }
+    let direction = (points[points.len() - 1] - points[0]).normalize();
+    while index + 1 < points.len()
+        && (position.distance(points[index]) <= radius
+            || (position - points[index]).dot(direction) >= 0.0)
+    {
+        index += 1;
+    }
+    index
+}
+
 #[cfg(test)]
 mod chain_tests {
     use ozton_math::geometry::DVec2;
 
-    use super::next_point;
+    use super::{next_point, next_straight_point};
+
+    #[test]
+    fn straight_gate_advances_after_crossing_even_with_lateral_error() {
+        let points = [DVec2::Y, DVec2::Y * 2.0, DVec2::Y * 3.0];
+        assert_eq!(
+            next_straight_point(&points, 0, DVec2::new(0.2, 0.8), 0.1),
+            0
+        );
+        assert_eq!(
+            next_straight_point(&points, 0, DVec2::new(0.2, 1.1), 0.1),
+            1
+        );
+        assert_eq!(
+            next_straight_point(&points, 1, DVec2::new(0.2, 3.1), 0.1),
+            2
+        );
+    }
 
     #[test]
     fn intermediate_gate_advances_but_final_point_never_skips() {

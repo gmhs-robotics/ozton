@@ -159,7 +159,7 @@ impl Seeking {
         }
         let reverse = self.travel == Some(TravelDirection::Backward);
         let mut session = PoseSession::new(drive, options, self.config)?;
-        let result = session.through_points(points, radius, reverse).await;
+        let result = session.through_points(points, radius, reverse, false).await;
         session.finish(result)
     }
 
@@ -233,7 +233,12 @@ impl Seeking {
                     index += 1;
                     continue;
                 }
-                let end = straight_run_end(pose.position, &points[index..], tolerance) + index;
+                let origin = if index == 0 {
+                    start.position
+                } else {
+                    points[index - 1]
+                };
+                let end = straight_run_end(origin, &points[index..], tolerance) + index;
                 let heading = wrap_heading(bearing(points[index] - pose.position) + facing);
                 let aligned = Pose::new(pose.position, heading);
                 if field.as_ref().is_some_and(|area| {
@@ -252,7 +257,7 @@ impl Seeking {
                 }
                 ozton_diagnostics::log_row!(Info, "STRAIGHT_CHAIN", "first={index},last={end}");
                 session
-                    .through_points(&points[index..=end], radius, reverse)
+                    .through_points(&points[index..=end], radius, reverse, true)
                     .await?;
                 index = end + 1;
             }
