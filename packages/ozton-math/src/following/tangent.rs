@@ -1,8 +1,10 @@
 //! Spatial tangent feedback used by the profiled path tracker.
 //! This is Ozton's empirical geometric feedback law, not textbook Stanley.
 
-use crate::geometry::{Pose, wrap_heading};
-use crate::uom::si::f64::Angle;
+use crate::{
+    geometry::{Pose, wrap_heading},
+    uom::si::f64::Angle,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Tangent;

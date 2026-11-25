@@ -552,7 +552,12 @@ impl Seeking {
         }
         if let Some(mut field) = field {
             if self.config.safety.movable_obstacles {
-                for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+                for polygon in drive
+                    .localization()
+                    .movable_obstacles()
+                    .into_iter()
+                    .flatten()
+                {
                     field = field
                         .with_polygon(polygon)
                         .ok_or(PoseMotionError::Configuration)?;

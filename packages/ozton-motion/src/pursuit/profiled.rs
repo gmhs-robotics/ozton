@@ -150,12 +150,10 @@ impl<'path> ProfiledFollower<'path> {
         }
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
-            Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => {
-                (
-                    Tangent::new().heading_error(predicted, reference.pose, facing, lookahead),
-                    None,
-                )
-            }
+            Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => (
+                Tangent::new().heading_error(predicted, reference.pose, facing, lookahead),
+                None,
+            ),
             Guidance::PurePursuit => {
                 // Classical pure pursuit uses the forward intersection of
                 // the path and a robot-centered lookahead circle.
