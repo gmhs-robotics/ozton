@@ -17,6 +17,7 @@ mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
 pub use ozton_drivetrain::{PoseDrive, RangeResetDrive};
+pub use ozton_math::path::clearance::WallContact;
 pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
 
@@ -144,6 +145,29 @@ impl Seeking {
         drive: &mut D,
         distance: Length,
     ) -> Result<(), PoseMotionError<D::Error>> {
+        self.drive_distance_inner(drive, distance, None).await
+    }
+
+    /// Leave a physically verified flush contact using the ordinary
+    /// distance PID and a one-shot unilateral wall constraint.
+    /// Register the surveyed contact pose before this command. Virtual
+    /// boundaries are never valid contact observations. The ordinary
+    /// governor is restored automatically once the clearance is certified.
+    pub async fn drive_distance_from_contact<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        distance: Length,
+        wall: WallContact,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        self.drive_distance_inner(drive, distance, Some(wall)).await
+    }
+
+    async fn drive_distance_inner<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        distance: Length,
+        contact: Option<WallContact>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
         let heading = drive.pose().heading;
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         if !distance.value.is_finite() {
@@ -155,6 +179,15 @@ impl Seeking {
             start.position + ozton_math::geometry::direction(heading) * distance.value,
             heading,
         );
+        if let Some(wall) = contact {
+            let field = field.ok_or(PoseMotionError::Configuration)?;
+            if distance.value == 0.0
+                || !field.contact_inward(wall, start, [0.0, distance.value, 0.0], [0.0; 3])
+                || wall.inward().dot(end.position - start.position) <= 0.0
+            {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+        }
         if field.is_some_and(|f| !f.contains_translation(start, end.position)) {
             ozton_diagnostics::log_row!(
                 Warn,
@@ -172,7 +205,7 @@ impl Seeking {
             );
             return Err(PoseMotionError::InsufficientClearance);
         }
-        let mut session = PoseSession::new(drive, options, self.config)?;
+        let mut session = PoseSession::new(drive, options, self.config)?.with_contact(contact);
         let result = session
             .run(
                 crate::basic::differential::DifferentialTarget::DriveDistance {
