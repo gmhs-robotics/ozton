@@ -14,6 +14,14 @@ pub fn wrap_heading(angle: Angle) -> Angle {
     if (-PI..PI).contains(&radians) {
         return angle;
     }
+    // A wrapped heading plus a normal control increment rarely spans
+    // more than one turn. Avoid a general floating remainder in that case.
+    if (PI..PI + TAU).contains(&radians) {
+        return crate::qty!((radians - TAU) rad);
+    }
+    if (-PI - TAU..-PI).contains(&radians) {
+        return crate::qty!((radians + TAU) rad);
+    }
     let wrapped = (radians + PI) % TAU;
     crate::qty!((if wrapped < 0.0 {
             wrapped + PI
@@ -95,6 +103,18 @@ impl Pose {
     /// Integrates a constant body twist over one sample using the SE(2) exponential.
     pub fn integrate(self, delta: BodyDelta) -> Self {
         let angle = delta.heading.value;
+        if delta.translation == DVec2::ZERO && angle.is_finite() && self.is_finite() {
+            return Self {
+                position: self.position,
+                heading: wrap_heading(self.heading + delta.heading),
+            };
+        }
+        if angle == 0.0 && self.is_finite() && delta.translation.is_finite() {
+            return Self {
+                position: self.transform_point(delta.translation),
+                heading: wrap_heading(self.heading),
+            };
+        }
         let (sinc, cosc) = twist_coefficients(angle);
         let local = DVec2::new(sinc, cosc).rotate(delta.translation);
         Self {
@@ -182,6 +202,32 @@ pub fn pursuit_curvature(target: DVec2) -> f64 {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn heading_wrap_fast_path_preserves_range_and_rotation() {
+        for step in -1000..=1000 {
+            let heading = f64::from(step) * 0.01;
+            let wrapped = wrap_heading(crate::qty!((heading) rad)).value;
+            assert!((-PI..PI).contains(&wrapped));
+            assert!((libm::sin(heading) - libm::sin(wrapped)).abs() < 3e-15);
+            assert!((libm::cos(heading) - libm::cos(wrapped)).abs() < 3e-15);
+        }
+        for heading in [PI, -PI, PI + TAU, -PI - TAU] {
+            assert_eq!(wrap_heading(crate::qty!((heading) rad)).value, -PI);
+        }
+    }
+
+    #[test]
+    fn stationary_and_pure_rotation_leave_position_unchanged() {
+        let pose = Pose::new(DVec2::new(0.4, 0.7), crate::qty!(170 deg));
+        assert_eq!(pose.integrate(BodyDelta::default()), pose);
+        let turned = pose.integrate(BodyDelta {
+            translation: DVec2::ZERO,
+            heading: crate::qty!(30 deg),
+        });
+        assert_eq!(turned.position, pose.position);
+        assert!((turned.heading.value - crate::qty!(-160 deg).value).abs() < 1e-12);
+    }
 
     #[test]
     fn twist_series_matches_stable_trigonometric_reference() {

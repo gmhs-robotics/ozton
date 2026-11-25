@@ -54,6 +54,6 @@ semicolon_if_nothing_returned = "deny"
 
 [profile.release]
 strip = true
-# opt-level = "z"
 opt-level = 3
 lto = "fat"
+codegen-units = 1
