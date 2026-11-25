@@ -51,8 +51,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 vexide::time::sleep(delay).await;
                 let autonomous = crate::competition::autonomous_active();
                 let sync_period = Duration::from_secs(if autonomous { 5 } else { 1 });
-                let sync = !autonomous
-                    && (last_sync.elapsed() >= sync_period || was_autonomous);
+                let sync = !autonomous && (last_sync.elapsed() >= sync_period || was_autonomous);
                 let autonomous_ended = was_autonomous && !autonomous;
                 was_autonomous = autonomous;
                 peak_queue = peak_queue.max(sd::queued_bytes());
