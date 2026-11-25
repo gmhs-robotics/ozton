@@ -2,7 +2,7 @@
 
 mod pose;
 pub use pose::{
-    BrakeMode, PathActions, MotionExecution, PoseMotionError, RangeResetDrive, TravelDirection,
+    BrakeMode, MotionExecution, PathActions, PoseMotionError, RangeResetDrive, TravelDirection,
     WallContact, WheelActuation, WheelCommand,
 };
 

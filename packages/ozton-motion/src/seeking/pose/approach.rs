@@ -9,7 +9,9 @@ use ozton_math::{
     uom::si::f64::Angle,
 };
 
-use super::{MotionExecution, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession};
+use super::{
+    MotionExecution, Seeking, TravelDirection, error::PoseMotionError, session::PoseSession,
+};
 use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as MotionExecution>::Error>>;
@@ -80,7 +82,14 @@ async fn direct<D: MotionExecution>(
                 turn(session, heading, timeout).await?;
             }
         }
-        if session.drive.localization().pose().position.distance(position) <= options.position_tolerance.value {
+        if session
+            .drive
+            .localization()
+            .pose()
+            .position
+            .distance(position)
+            <= options.position_tolerance.value
+        {
             return Ok(());
         }
         ozton_diagnostics::log_event!(
@@ -114,7 +123,12 @@ pub(super) fn clearance<D: MotionExecution>(
         .ok_or(PoseMotionError::Configuration)?;
     let mut field = RectangularClearance::new(footprint, bounds, margin)
         .ok_or(PoseMotionError::Configuration)?;
-    for polygon in drive.localization().motion_obstacles().into_iter().flatten() {
+    for polygon in drive
+        .localization()
+        .motion_obstacles()
+        .into_iter()
+        .flatten()
+    {
         field = field
             .with_polygon(polygon)
             .ok_or(PoseMotionError::Configuration)?;

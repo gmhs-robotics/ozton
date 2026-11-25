@@ -16,7 +16,9 @@ mod error;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
-pub use ozton_drivetrain::{BrakeMode, MotionExecution, RangeResetDrive, WheelActuation, WheelCommand};
+pub use ozton_drivetrain::{
+    BrakeMode, MotionExecution, RangeResetDrive, WheelActuation, WheelCommand,
+};
 pub use ozton_math::path::clearance::WallContact;
 use session::{PoseSession, Trajectory};
 
@@ -136,8 +138,9 @@ impl Seeking {
         let reverse = self.travel.map_or_else(
             || {
                 ozton_math::geometry::wrap_heading(
-                    ozton_math::geometry::bearing(target.position - drive.localization().pose().position)
-                        - drive.localization().pose().heading,
+                    ozton_math::geometry::bearing(
+                        target.position - drive.localization().pose().position,
+                    ) - drive.localization().pose().heading,
                 )
                 .value
                 .abs()

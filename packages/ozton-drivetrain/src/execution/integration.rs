@@ -43,7 +43,8 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> MotionExecution for TrackedDrive<G, S, B>
+impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> MotionExecution
+    for TrackedDrive<G, S, B>
 where
     Tracking<S>: HasDriveWheels,
 {
@@ -112,7 +113,6 @@ where
             frame.row("IMU", format_args!("port={},pitch_rad={pitch:.5},roll_rad={roll:.5},yaw_rad={yaw:.5},rate_x_dps={:.4},rate_y_dps={:.4},rate_z_dps={:.4},accel_x_g={:.5},accel_y_g={:.5},accel_z_g={:.5}", sample.port, rate[0], rate[1], rate[2], acceleration[0], acceleration[1], acceleration[2]));
         }
     }
-
 }
 
 impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> RangeResetDrive

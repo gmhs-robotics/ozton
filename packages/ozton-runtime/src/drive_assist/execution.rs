@@ -54,7 +54,6 @@ where
     fn log_step(&mut self, elapsed: Duration, dt: Duration) {
         self.drivetrain_mut().log_step(elapsed, dt);
     }
-
 }
 
 impl<G, S, B, A> RangeResetDrive for AssistedTrackedDrive<'_, G, S, B, A>

@@ -4,14 +4,14 @@ pub mod assist;
 mod braking;
 pub use braking::{BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelActuation, WheelCommand};
 pub mod device;
-pub mod model;
 mod execution;
-pub use model::{Drive, LateralDrive};
-pub use ozton_math::path::clearance::Footprint;
-pub use ozton_tracking::odometric::WheelFeedback;
+pub mod model;
 #[cfg(feature = "vex")]
 pub use execution::DriveMotionFault;
 pub use execution::{MotionExecution, RangeResetDrive};
+pub use model::{Drive, LateralDrive};
+pub use ozton_math::path::clearance::Footprint;
+pub use ozton_tracking::odometric::WheelFeedback;
 
 #[cfg(feature = "vex")]
 mod drivetrain;

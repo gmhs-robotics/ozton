@@ -17,7 +17,9 @@ pub use integration::DriveMotionFault;
 
 /// Execute wheel commands using a localized drive and its runtime.
 /// Pose, feedback and reset state belong to the localization estimate.
-pub trait MotionExecution: DriveEncoders + HasLocalization<Localization: LocalizationEstimate> {
+pub trait MotionExecution:
+    DriveEncoders + HasLocalization<Localization: LocalizationEstimate>
+{
     type Error;
 
     /// None means the implementation explicitly permits unbounded motion.

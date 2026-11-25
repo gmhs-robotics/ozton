@@ -1,14 +1,13 @@
 use std::time::{Duration, Instant};
 
 use ozton_diagnostics::{log_event, log_row};
-use ozton_localization::Feedback;
-use ozton_localization::LocalizationEstimate;
+use ozton_localization::{Feedback, LocalizationEstimate};
 use ozton_math::{
     geometry::wrap_heading,
     uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 
-use super::{PathActions, MotionExecution, PoseMotionError, RangeResetDrive};
+use super::{MotionExecution, PathActions, PoseMotionError, RangeResetDrive};
 use crate::basic::differential::{
     DifferentialFeedback, DifferentialTarget, DriveOptions, TerminalPose,
 };
@@ -177,7 +176,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
         self.previous_tick = started;
-        let baseline = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
+        let baseline = read_feedback(self.drive)
+            .map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
@@ -191,7 +191,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
             warnings.stage(started.elapsed(), timeout);
-            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)? else {
+            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
+            else {
                 log_row!(
                     Trace,
                     "MOTION_RETRY",
@@ -296,7 +297,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         use crate::pursuit::profiled::ProfiledFollower;
         let start = Instant::now();
         self.previous_tick = start;
-        let baseline = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
+        let baseline = read_feedback(self.drive)
+            .map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
         let mut follower = ProfiledFollower::new(path, follower);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
@@ -328,7 +330,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
             warnings.stage(start.elapsed(), timeout);
-            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)? else {
+            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
+            else {
                 self.drive
                     .emergency_brake()
                     .map_err(PoseMotionError::StopFailed)?;
@@ -535,7 +538,9 @@ impl<D: MotionExecution> Drop for PoseSession<'_, D> {
     }
 }
 
-fn read_feedback<D: MotionExecution>(drive: &D) -> Result<Option<Feedback>, ozton_localization::Fault> {
+fn read_feedback<D: MotionExecution>(
+    drive: &D,
+) -> Result<Option<Feedback>, ozton_localization::Fault> {
     drive.localization().feedback()
 }
 
