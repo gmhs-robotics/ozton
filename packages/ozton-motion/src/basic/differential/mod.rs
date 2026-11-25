@@ -183,16 +183,27 @@ impl DifferentialFeedback {
         let slow = linear_rate_squared <= options.speed_tolerance.value.powi(2)
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let error_at = |heading| wrap_heading(heading - feedback.pose.heading).value;
-        let drive = |linear, angular| {
-            desaturate(
-                wheel_speeds(
-                    Velocity::new::<meter_per_second>(linear),
-                    AngularVelocity::new::<radian_per_second>(angular),
-                    options.track_width,
-                )
-                .map(|speed| speed.value),
-                options.maximum_wheel_speed.value,
+        let steering_priority = matches!(&target, DifferentialTarget::DriveToPoint { .. } | DifferentialTarget::DriveToPose { .. });
+        let drive = |linear: f64, angular: f64| {
+            if !steering_priority {
+                return desaturate(
+                    wheel_speeds(Velocity::new::<meter_per_second>(linear), AngularVelocity::new::<radian_per_second>(angular), options.track_width).map(|speed| speed.value),
+                    options.maximum_wheel_speed.value,
+                );
+            }
+            let half = options.track_width.value * 0.5;
+            let maximum = options.maximum_wheel_speed.value;
+            // Preserve steering authority for target seeking. Arc tracking
+            // supplies its own geometric yaw feedforward.
+            let angular = angular.clamp(-maximum / half, maximum / half);
+            let available = (maximum - angular.abs() * half).max(0.0);
+            let linear = linear.clamp(-available, available);
+            wheel_speeds(
+                Velocity::new::<meter_per_second>(linear),
+                AngularVelocity::new::<radian_per_second>(angular),
+                options.track_width,
             )
+            .map(|speed| speed.value)
         };
         let forward_rate = feedback.forward_velocity.value;
         let yaw_rate = feedback.angular_velocity.value;
@@ -569,6 +580,8 @@ impl DifferentialFeedback {
             return ([0.0; 2], true);
         }
         let width = options.track_width.value;
+        let lateral_limit = self.config.limits.lateral_acceleration.value;
+        let desired = crate::pursuit::profiled::limit_lateral_acceleration(desired, width, lateral_limit);
         let current_v = (self.last_wheels[0] + self.last_wheels[1]) * 0.5;
         let current_w = (self.last_wheels[1] - self.last_wheels[0]) / width;
         let desired_v = (desired[0] + desired[1]) * 0.5;
@@ -614,13 +627,20 @@ impl DifferentialFeedback {
         self.last_wheels = core::array::from_fn(|i| {
             self.last_wheels[i] + scale * (desired[i] - self.last_wheels[i])
         });
+        // Slew can alter curvature; constrain the actual applied command
+        // for every motion, including PID and Boomerang.
+        self.last_wheels = crate::pursuit::profiled::limit_lateral_acceleration(
+            self.last_wheels,
+            width,
+            lateral_limit,
+        );
         (self.last_wheels, false)
     }
 }
 
 /// Raise only an error-reducing command while nearly stationary. The floor is
 /// subordinate to the controller's output limit, braking distance, slew limits
-/// and the downstream clearance governor. It never amplifies a brake command.
+/// and the downstream physical velocity constraints. It never amplifies a brake command.
 #[allow(clippy::too_many_arguments)]
 fn compensate_breakaway(
     output: f64,
