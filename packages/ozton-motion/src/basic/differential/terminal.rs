@@ -128,7 +128,9 @@ impl TerminalPose {
             && !inside
             && matches!(controller.config.path.terminal, crate::TerminalGuidance::Point)
         {
-            let backing = controller.point_backing.unwrap_or(self.approach_reverse.unwrap_or(reverse));
+            let backing = controller
+                .point_backing
+                .unwrap_or(self.approach_reverse.unwrap_or(reverse));
             let heading = bearing(target.position - feedback.pose.position)
                 + ozton_math::qty!((if backing { core::f64::consts::PI } else { 0.0 }) rad);
             let error = wrap_heading(heading - feedback.pose.heading).value.abs();
@@ -139,14 +141,22 @@ impl TerminalPose {
                     changed = true;
                 }
                 let (wheels, ready) = controller.step(
-                    DifferentialTarget::Turn { heading }, feedback, dt, options,
+                    DifferentialTarget::Turn { heading },
+                    feedback,
+                    dt,
+                    options,
                 );
                 if ready {
                     self.aligning = false;
                     controller.reset_feedback();
                     changed = true;
                 }
-                return (wheels, false, options.track_width.value * error * 0.5, changed);
+                return (
+                    wheels,
+                    false,
+                    options.track_width.value * error * 0.5,
+                    changed,
+                );
             }
         }
         let turning = matches!(self.phase, Phase::Heading);
@@ -339,6 +349,36 @@ mod tests {
             terminal.step(&mut controller, target, false, feedback, tick, options);
         assert!(!ready && terminal.is_braking());
         assert_eq!(wheels, [0.0; 2]);
+    }
+
+    #[test]
+    fn large_terminal_bearing_uses_stationary_turn() {
+        let options =
+            DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+        let tick = Duration::from_millis(10);
+        let mut terminal = TerminalPose::default();
+        let mut controller = DifferentialFeedback::default();
+        let feedback = Feedback {
+            time: tick,
+            pose: Pose::new(DVec2::new(0.1, 0.01), ozton_math::qty!(0 rad)),
+            forward_travel: Length::ZERO,
+            forward_velocity: Velocity::ZERO,
+            lateral_velocity: Velocity::ZERO,
+            angular_velocity: AngularVelocity::ZERO,
+            ranges: [None; _],
+            reset_accepted: false,
+        };
+        let (wheels, ready, _, changed) = terminal.step(
+            &mut controller,
+            Pose::default(),
+            false,
+            feedback,
+            tick,
+            options,
+        );
+        assert!(changed && !ready && terminal.aligning);
+        assert!(wheels[0].abs() > 0.0);
+        assert!((wheels[0] + wheels[1]).abs() < 1e-9, "{wheels:?}");
     }
 
     #[test]
