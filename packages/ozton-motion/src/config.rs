@@ -240,7 +240,9 @@ impl SettlingConfig {
 pub struct MotionTiming {
     pub period: Duration,
     pub maximum_gap: Duration,
+    /// Elapsed time without progress before issuing a diagnostic warning.
     pub progress_timeout: Duration,
+    /// Expected stage duration; exceeding it issues a diagnostic warning.
     pub stage_timeout: Duration,
 }
 
@@ -319,7 +321,7 @@ impl ClearanceConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PathConfig {
     pub lookahead: Length,
-    /// Maximum permitted deviation from the projected path.
+    /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
     pub ramsete_b: f64,
     pub ramsete_zeta: f64,

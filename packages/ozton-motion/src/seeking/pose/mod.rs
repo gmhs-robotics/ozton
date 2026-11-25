@@ -132,7 +132,7 @@ impl Seeking {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let field = approach::clearance(drive, self.config.safety.clearance)?;
         if field.is_some_and(|field| !field.contains_physical_pose(target)) {
-            return Err(PoseMotionError::InsufficientClearance);
+            ozton_diagnostics::log_event!(Warn, "motion", "Pose target outside nominal clearance");
         }
         let reverse = self.travel.map_or_else(
             || {
@@ -262,9 +262,8 @@ impl Seeking {
             ozton_diagnostics::log_event!(
                 Warn,
                 "clearance",
-                "Planned straight translation violates clearance"
+                "Planned straight translation violates nominal clearance; continuing feedback"
             );
-            return Err(PoseMotionError::InsufficientClearance);
         }
         if contact.is_some() {
             drive.release_wall_contact();
@@ -315,8 +314,7 @@ impl Seeking {
                     radius.value,
                     sweep.value
                 );
-                ozton_diagnostics::log_event!(Warn, "clearance", "Planned arc violates clearance");
-                return Err(PoseMotionError::InsufficientClearance);
+                ozton_diagnostics::log_event!(Warn, "clearance", "Planned arc violates nominal clearance; continuing feedback");
             }
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
@@ -384,7 +382,7 @@ impl Seeking {
                 .forward_arc_bounds(start, options.track_width * 0.5, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
-                return Err(PoseMotionError::InsufficientClearance);
+                ozton_diagnostics::log_event!(Warn, "clearance", "Swing exceeds nominal clearance; continuing feedback");
             }
         }
         let hold_left = sweep.value >= 0.0;
@@ -423,9 +421,8 @@ impl Seeking {
             ozton_diagnostics::log_event!(
                 Warn,
                 "clearance",
-                "Not enough room for an in-place turn"
+                "Turn exceeds nominal clearance; continuing feedback"
             );
-            return Err(PoseMotionError::InsufficientClearance);
         }
         let mut session = PoseSession::new(drive, options, self.config)?;
         let result = session.run(target, self.config.timing.stage_timeout).await;
@@ -482,14 +479,20 @@ impl Seeking {
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let start = path.start().pose;
         let actual = drive.pose();
-        if !follower.is_valid()
-            || actual.position.distance(start.position) > 0.08
+        if !follower.is_valid() || !actual.is_finite() {
+            return Err(PoseMotionError::Configuration);
+        }
+        if actual.position.distance(start.position) > 0.08
             || ozton_math::geometry::wrap_heading(start.heading + facing - actual.heading)
                 .value
                 .abs()
                 > 0.35
         {
-            return Err(PoseMotionError::Configuration);
+            ozton_diagnostics::log_event!(
+                Warn,
+                "motion",
+                "Trajectory start offset exceeds tuning threshold; continuing feedback"
+            );
         }
         if let Some(field) = field {
             drive.brake().map_err(PoseMotionError::StopFailed)?;

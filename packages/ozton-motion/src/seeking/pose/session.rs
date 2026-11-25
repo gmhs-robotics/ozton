@@ -184,6 +184,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
+        let mut warnings = MotionWarnings::default();
         let mut last_feedback = None;
         let mut feedback_at = Instant::now();
         loop {
@@ -191,9 +192,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let _span = ozton_diagnostics::profile::Span::new(
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
-            if started.elapsed() >= timeout {
-                return Err(PoseMotionError::StageTimeout);
-            }
+            warnings.stage(started.elapsed(), timeout);
             let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
                 log_row!(
                     Trace,
@@ -236,19 +235,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if !valid_feedback(feedback) {
                 return Err(PoseMotionError::InvalidFeedback);
             }
-            if (self.drive.footprint().is_some()
-                || matches!(
-                    target,
-                    DifferentialTarget::DriveArc { .. }
-                        | DifferentialTarget::Swing { .. }
-                        | DifferentialTarget::TurnToPoint { .. }
-                        | DifferentialTarget::DriveToPoint { .. }
-                        | DifferentialTarget::DriveToPose { .. }
-                ))
-                && !self.drive.pose_trusted()
-            {
-                return Err(PoseMotionError::UntrustedPose);
-            }
+            warnings.pose(self.drive.pose_trusted());
             let (wheels, ready) = controller.step(target, feedback, dt, self.options);
             controller.record_applied_wheels(wheels);
             settled = if ready { settled + dt } else { Duration::ZERO };
@@ -287,7 +274,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 dt,
                 self.config.timing.progress_timeout,
             ) {
-                return Err(PoseMotionError::NoProgress);
+                warnings.progress();
+            } else {
+                warnings.progress_reported = false;
             }
         }
     }
@@ -321,6 +310,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         let mut settled = Duration::ZERO;
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
+        let mut warnings = MotionWarnings::default();
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
         log_event!(Info, "motion", "Trajectory: started");
@@ -342,9 +332,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             let _span = ozton_diagnostics::profile::Span::new(
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
-            if start.elapsed() >= timeout {
-                return Err(PoseMotionError::StageTimeout);
-            }
+            warnings.stage(start.elapsed(), timeout);
             let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
                 self.drive
                     .emergency_brake()
@@ -379,9 +367,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             last = Some(feedback.time);
             fresh_at = Instant::now();
-            if !self.drive.pose_trusted() {
-                return Err(PoseMotionError::UntrustedPose);
-            }
+            warnings.pose(self.drive.pose_trusted());
             let observation = follower.observe(
                 feedback.pose,
                 dt,
@@ -389,9 +375,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config.path.lookahead,
             );
             let cross = observation.cross_track;
-            if cross > self.config.path.maximum_cross_track_error.value {
-                return Err(PoseMotionError::PositionUnsettled);
-            }
+            warnings.cross_track(cross, self.config.path.maximum_cross_track_error.value);
             actions
                 .advance(observation.distance, observation.remaining_time, false)
                 .map_err(PoseMotionError::Mechanism)?;
@@ -423,11 +407,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             if ready || objective < best - 0.002 {
                 best = objective;
                 no_progress = Duration::ZERO;
+                warnings.progress_reported = false;
             } else {
-                no_progress += dt;
+                no_progress = no_progress.saturating_add(dt);
             }
             if no_progress >= self.config.timing.progress_timeout {
-                return Err(PoseMotionError::NoProgress);
+                warnings.progress();
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
@@ -632,5 +617,46 @@ impl Progress {
             self.elapsed += dt;
         }
         self.elapsed >= timeout
+    }
+}
+
+// Monitoring thresholds never change wheel output or terminate a valid motion.
+#[derive(Default)]
+struct MotionWarnings {
+    stage_reported: bool,
+    progress_reported: bool,
+    cross_track_reported: bool,
+    pose_reported: bool,
+}
+
+impl MotionWarnings {
+    fn stage(&mut self, elapsed: Duration, threshold: Duration) {
+        if elapsed >= threshold && !self.stage_reported {
+            self.stage_reported = true;
+            log_event!(Warn, "motion", "Stage exceeded expected duration; continuing feedback");
+        }
+    }
+
+    fn progress(&mut self) {
+        if !self.progress_reported {
+            self.progress_reported = true;
+            log_event!(Warn, "motion", "Low progress; continuing feedback");
+        }
+    }
+
+    fn cross_track(&mut self, error: f64, threshold: f64) {
+        if error > threshold && !self.cross_track_reported {
+            log_event!(Warn, "motion", "Cross-track error above tuning threshold; continuing feedback");
+            self.cross_track_reported = true;
+        } else if error <= threshold * 0.5 {
+            self.cross_track_reported = false;
+        }
+    }
+
+    fn pose(&mut self, trusted: bool) {
+        if !trusted && !self.pose_reported {
+            log_event!(Warn, "motion", "Low pose confidence; continuing with finite feedback");
+        }
+        self.pose_reported = !trusted;
     }
 }
