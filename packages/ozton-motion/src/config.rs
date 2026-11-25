@@ -279,10 +279,6 @@ pub struct ClearanceConfig {
     pub wall_preview: Duration,
     /// Minimum passive lateral braking deceleration (m/s²).
     pub lateral_braking: Acceleration,
-    /// Signed forward offset of the effective differential pivot from the
-    /// tracked origin. Negative is rearward. Used in stopping prediction;
-    /// this never changes surveyed sensor geometry or measured odometry.
-    pub pivot_forward_offset: Length,
     /// Number of estimated standard deviations in the stopping-rate interval.
     pub braking_sigma: f64,
     pub departure_reserve: Length,
@@ -305,7 +301,6 @@ impl ClearanceConfig {
         yaw_braking: None,
         wall_preview: Duration::from_millis(150),
         lateral_braking: ozton_math::qty!(0.35 m/s^2),
-        pivot_forward_offset: ozton_math::qty!(0 m),
         braking_sigma: 2.0,
         departure_reserve: ozton_math::qty!(0.25 in),
         departure_speed: ozton_math::units::qty!(0.30 m/s),
@@ -372,12 +367,6 @@ impl ClearanceConfig {
     #[must_use]
     pub const fn with_lateral_braking(mut self, value: Acceleration) -> Self {
         self.lateral_braking = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_pivot_forward_offset(mut self, value: Length) -> Self {
-        self.pivot_forward_offset = value;
         self
     }
 
@@ -672,7 +661,6 @@ impl MotionConfig {
                 .safety
                 .yaw_acceleration_bound
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self.safety.pivot_forward_offset.value.is_finite()
             && self.safety.braking_sigma.is_finite()
             && self.safety.braking_sigma >= 0.0
             && self.path.ramsete_zeta <= 1.0

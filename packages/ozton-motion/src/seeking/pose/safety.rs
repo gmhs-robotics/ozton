@@ -111,10 +111,10 @@ fn bounds(
     .stopping_interval(reaction)?;
     let lateral = RateBounds {
         measured: feedback.lateral_velocity.value,
-        // The tracked origin moves sideways when rotating about a
-        // longitudinally displaced pivot: v_right = offset * yaw_rate.
-        requested: config.safety.pivot_forward_offset.value * w,
-        previous: config.safety.pivot_forward_offset.value * previous[1],
+        // Differential commands act at the effective pivot. Measured
+        // lateral slip remains in the stopping interval independently.
+        requested: 0.0,
+        previous: 0.0,
         uncertainty: lateral,
         acceleration: None,
         braking: config.safety.lateral_braking.value,
@@ -596,16 +596,18 @@ mod tests {
             qty!(1 in),
         )
         .unwrap();
+        let offset = DVec2::new(0.0, qty!(-1.32 in).value);
+        let field = field.with_reference_offset(offset).unwrap();
         let mut feedback = sample(-0.0178);
         feedback.pose =
             ozton_math::geometry::Pose::new(DVec2::new(-0.65876, -0.42692), qty!(0.07625 rad));
+        feedback.pose.position = feedback.pose.transform_point(offset);
         feedback.angular_velocity = qty!(0.927 rad/s);
-        feedback.lateral_velocity = qty!(-0.0073 m/s);
+        feedback.lateral_velocity = qty!(( -0.0073 - offset.y * 0.927 ) m/s);
         let config = MotionConfig::DEFAULT.with_safety(
             crate::ClearanceConfig::DEFAULT
                 .with_forward_braking(qty!(0.55 m/s^2))
-                .with_yaw_braking(qty!(3 rad/s^2))
-                .with_pivot_forward_offset(qty!(-1.32 in)),
+                .with_yaw_braking(qty!(3 rad/s^2)),
         );
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(1.2 m/s));
         let uncertainty = [0.11169, 0.06077, 0.04741];
@@ -640,27 +642,6 @@ mod tests {
         .unwrap();
         assert!(field.physical_wall_contains_aabb(min, max));
         assert!(field.obstacle_free_aabb(min, max));
-    }
-
-    #[test]
-    fn displaced_pivot_expands_predicted_lateral_sweep() {
-        let field = field();
-        let mut feedback = sample(0.0);
-        feedback.pose = ozton_math::geometry::Pose::default();
-        feedback.angular_velocity = qty!(0 rad/s);
-        let centered = MotionConfig::DEFAULT;
-        let shifted = centered.with_safety(centered.safety.with_pivot_forward_offset(qty!(-2 in)));
-        let predict = |config| {
-            bounds(
-                field, feedback, 0.0, 2.0, [0.0; 2], [0.0; 3], None, 0.4, config,
-            )
-            .unwrap()
-        };
-        let (min, max) = predict(centered);
-        let (shifted_min, shifted_max) = predict(shifted);
-        assert!(shifted_min.x <= min.x);
-        assert!(shifted_max.x >= max.x);
-        assert!(shifted_min.x < min.x || shifted_max.x > max.x);
     }
 
     #[test]

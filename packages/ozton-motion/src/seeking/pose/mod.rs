@@ -19,7 +19,7 @@ pub use error::PoseMotionError;
 pub use ozton_drivetrain::{PoseDrive, RangeResetDrive};
 pub use ozton_math::path::clearance::WallContact;
 pub use safety::StoppingGovernor;
-use session::{PoseSession, Trajectory, reference_pose};
+use session::{PoseSession, Trajectory};
 
 use super::Seeking;
 
@@ -240,13 +240,9 @@ impl Seeking {
             return Err(PoseMotionError::Configuration);
         }
         if let Some(field) = approach::clearance(drive, self.config.safety.clearance)? {
-            let offset = self.config.safety.pivot_forward_offset;
-            let footprint = drive
-                .footprint()
-                .and_then(|f| f.with_reference_offset(DVec2::new(0.0, offset.value)))
-                .ok_or(PoseMotionError::Configuration)?;
+            let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
             let (min, max) = footprint
-                .forward_arc_bounds(reference_pose(drive.pose(), offset), radius, sweep)
+                .forward_arc_bounds(drive.pose(), radius, sweep)
                 .ok_or(PoseMotionError::Configuration)?;
             if !field.contains_aabb(min, max) {
                 ozton_diagnostics::log_row!(
@@ -323,12 +319,9 @@ impl Seeking {
             }
             _ => return Err(PoseMotionError::Configuration),
         };
-        let offset = self.config.safety.pivot_forward_offset;
-        let field = approach::reference_clearance::<D>(
-            approach::clearance(drive, self.config.safety.clearance)?,
-            offset,
-        )?;
-        if field.is_some_and(|f| !f.contains_turn(reference_pose(drive.pose(), offset), heading)) {
+        if approach::clearance(drive, self.config.safety.clearance)?
+            .is_some_and(|f| !f.contains_turn(drive.pose(), heading))
+        {
             ozton_diagnostics::log_event!(
                 Warn,
                 "clearance",
@@ -396,7 +389,6 @@ impl Seeking {
                     follower,
                     reverse,
                     target,
-                    reference_offset: Length::default(),
                     clearance: field,
                     timeout: self.config.timing.stage_timeout,
                 },

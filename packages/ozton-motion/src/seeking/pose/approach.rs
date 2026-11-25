@@ -8,13 +8,13 @@ use ozton_math::{
         clearance::RectangularClearance,
         planner::{LatticePlanner, LatticeStep},
     },
-    uom::si::f64::{Angle, Length},
+    uom::si::f64::Angle,
 };
 
 use super::{
     PathActions, PoseDrive, Seeking, TravelDirection,
     error::PoseMotionError,
-    session::{PoseSession, Trajectory, reference_pose},
+    session::{PoseSession, Trajectory},
 };
 use crate::basic::differential::DifferentialTarget;
 
@@ -92,14 +92,12 @@ async fn approach<D: PoseDrive>(
             .map(|d| matches!(d, TravelDirection::Backward));
         let span =
             ozton_diagnostics::profile::Span::new(ozton_diagnostics::profile::Stage::Planner);
-        let offset = config.safety.pivot_forward_offset;
-        let planning_field = reference_clearance::<D>(preferred, offset)?;
         let plan = if clearance.is_none() || preferred.is_some() {
             ozton_math::path::planner::plan(
-                reference_pose(start, offset),
-                reference_pose(target, offset),
+                start,
+                target,
                 config.path_limits(options.track_width),
-                planning_field,
+                preferred,
                 direction,
             )
         } else {
@@ -113,8 +111,7 @@ async fn approach<D: PoseDrive>(
                         path: &plan.path,
                         follower: config.follower(),
                         reverse: plan.reverse,
-                        target: reference_pose(target, offset),
-                        reference_offset: offset,
+                        target,
                         clearance,
                         timeout: settings.config.timing.stage_timeout,
                     },
@@ -196,32 +193,21 @@ async fn lattice_approach<D: PoseDrive>(
     let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
-    // A pose goal fixes the final heading, so its pivot-frame position is
-    // uniquely determined. A point-only goal retains the surveyed origin.
-    let offset = if final_heading.is_some() {
-        config.safety.pivot_forward_offset
-    } else {
-        Length::default()
-    };
-    let reference = |pose| reference_pose(pose, offset);
-    let planning_clearance = reference_clearance::<D>(clearance, offset)?;
-    let planning_preferred = reference_clearance::<D>(preferred, offset)?;
-    let goal = reference(target).position;
     let find = |start| {
         let plan = |field| {
             planner.plan(
                 field,
-                reference(start),
-                goal,
+                start,
+                target.position,
                 final_heading,
                 direction,
                 options.track_width,
             )
         };
-        planning_preferred
+        preferred
             .as_ref()
             .and_then(|field| plan(Some(field)))
-            .or_else(|| plan(planning_clearance.as_ref()))
+            .or_else(|| plan(clearance.as_ref()))
     };
     let mut route = find(session.drive.pose());
     if route.is_none() {
@@ -233,13 +219,13 @@ async fn lattice_approach<D: PoseDrive>(
     for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
         match step {
             LatticeStep::Turn(heading) => {
-                turn_checked(session, clearance, heading, config).await?;
+                turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
             }
             LatticeStep::Translate {
                 target: point,
                 reverse,
             } => {
-                let start = reference(session.drive.pose());
+                let start = session.drive.pose();
                 let displacement = point - start.position;
                 if displacement.length() <= tolerance {
                     continue;
@@ -251,23 +237,20 @@ async fn lattice_approach<D: PoseDrive>(
                 if wrap_heading(heading - start.heading).value.abs()
                     > options.heading_tolerance.value
                 {
-                    turn_checked(session, clearance, heading, config).await?;
+                    turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
                 }
-                let aligned = reference(session.drive.pose());
-                if planning_clearance
-                    .is_some_and(|field| !field.contains_translation(aligned, point))
-                {
+                let aligned = session.drive.pose();
+                if clearance.is_some_and(|field| !field.contains_translation(aligned, point)) {
                     return Err(PoseMotionError::InsufficientClearance);
                 }
                 session
-                    .run_at_reference(
+                    .run(
                         DifferentialTarget::DriveToPoint {
                             target: point,
                             maximum_speed: options.maximum_wheel_speed,
                             reverse,
                         },
                         config.timing.stage_timeout,
-                        offset,
                     )
                     .await?;
             }
@@ -279,7 +262,7 @@ async fn lattice_approach<D: PoseDrive>(
             .abs()
             > options.heading_tolerance.value
         {
-            turn_checked(session, clearance, heading, config).await?;
+            turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
         }
     }
 
@@ -365,36 +348,14 @@ async fn turn_checked<D: PoseDrive>(
     session: &mut PoseSession<'_, D>,
     clearance: Option<RectangularClearance>,
     heading: Angle,
-    config: crate::MotionConfig,
+    timeout: Duration,
 ) -> MotionResult<D> {
-    let offset = config.safety.pivot_forward_offset;
-    let field = reference_clearance::<D>(clearance, offset)?;
-    if field.is_some_and(|field| {
-        !field.contains_turn(reference_pose(session.drive.pose(), offset), heading)
-    }) {
+    if clearance.is_some_and(|field| !field.contains_turn(session.drive.pose(), heading)) {
         return Err(PoseMotionError::InsufficientClearance);
     }
     session
-        .run(
-            DifferentialTarget::Turn { heading },
-            config.timing.stage_timeout,
-        )
+        .run(DifferentialTarget::Turn { heading }, timeout)
         .await
-}
-
-/// Preserve the physical obstacle map while moving the modeled chassis
-/// reference to the differential pivot for route generation.
-pub(super) fn reference_clearance<D: PoseDrive>(
-    field: Option<RectangularClearance>,
-    offset: Length,
-) -> MotionResult<D, Option<RectangularClearance>> {
-    field
-        .map(|field| {
-            field
-                .with_reference_offset(DVec2::new(0.0, offset.value))
-                .ok_or(PoseMotionError::Configuration)
-        })
-        .transpose()
 }
 
 pub(super) fn clearance<D: PoseDrive>(

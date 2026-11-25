@@ -3,12 +3,9 @@ use std::time::{Duration, Instant};
 use ozton_diagnostics::{log_event, log_row};
 use ozton_localization::Feedback;
 use ozton_math::{
-    geometry::{DVec2, Pose, wrap_heading},
+    geometry::wrap_heading,
     path::clearance::WallContact,
-    uom::si::{
-        f64::{Length, Velocity},
-        velocity::meter_per_second,
-    },
+    uom::si::{f64::Velocity, velocity::meter_per_second},
 };
 
 use super::{
@@ -26,27 +23,9 @@ pub(super) struct Trajectory<'a> {
     pub path: &'a ozton_math::path::Path,
     pub follower: crate::Follower,
     pub reverse: bool,
-    pub target: Pose,
-    pub reference_offset: Length,
+    pub target: ozton_math::geometry::Pose,
     pub clearance: Option<ozton_math::path::clearance::RectangularClearance>,
     pub timeout: Duration,
-}
-
-/// Map the surveyed pose into the modeled differential pivot frame.
-pub(super) fn reference_pose(pose: Pose, offset: Length) -> Pose {
-    Pose::new(
-        pose.transform_point(DVec2::new(0.0, offset.value)),
-        pose.heading,
-    )
-}
-
-fn reference_feedback(mut feedback: Feedback, offset: Length) -> Feedback {
-    feedback.pose = reference_pose(feedback.pose, offset);
-    // Velocity at the shifted point is v + omega cross r.
-    feedback.lateral_velocity = Velocity::new::<meter_per_second>(
-        feedback.lateral_velocity.value - offset.value * feedback.angular_velocity.value,
-    );
-    feedback
 }
 
 pub(super) struct PoseSession<'a, D: PoseDrive> {
@@ -184,16 +163,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         target: DifferentialTarget,
         timeout: Duration,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.run_at_reference(target, timeout, Length::default())
-            .await
-    }
-
-    pub(super) async fn run_at_reference(
-        &mut self,
-        target: DifferentialTarget,
-        timeout: Duration,
-        offset: Length,
-    ) -> Result<(), PoseMotionError<D::Error>> {
         let status = match target {
             DifferentialTarget::Turn { .. } | DifferentialTarget::TurnToPoint { .. } => {
                 "Autonomous: turn"
@@ -244,10 +213,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         log_row!(
             Debug,
             "MOTION_TARGET",
-            "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5},reference_offset_m={:.5}",
-            offset.value
+            "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5}"
         );
-        let result = self.run_stage(target, timeout, status, offset).await;
+        let result = self.run_stage(target, timeout, status).await;
         match &result {
             Ok(()) => {
                 log_row!(Debug, "MOTION_COMMAND", "state=complete,command={status}");
@@ -268,7 +236,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         target: DifferentialTarget,
         timeout: Duration,
         status: &str,
-        offset: Length,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
         self.previous_tick = started;
@@ -382,8 +349,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            let control_feedback = reference_feedback(feedback, offset);
-            let (requested, ready) = controller.step(target, control_feedback, dt, self.options);
+            let (requested, ready) = controller.step(target, feedback, dt, self.options);
             let wheels = limit_wall_command_at_contact(
                 clearance,
                 feedback,
@@ -429,7 +395,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             if progress.stalled(
                 target,
-                control_feedback,
+                feedback,
                 ready,
                 dt,
                 self.config.timing.progress_timeout,
@@ -455,7 +421,6 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             follower,
             reverse,
             target,
-            reference_offset,
             clearance,
             timeout,
         } = trajectory;
@@ -485,13 +450,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         log_row!(
             Debug,
             "PATH_PLAN",
-            "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5},reference_offset_m={:.5}",
+            "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5}",
             end.time,
             end.distance,
             target.position.x,
             target.position.y,
-            target.heading.value,
-            reference_offset.value
+            target.heading.value
         );
         loop {
             let tick = self.tick().await?;
@@ -553,9 +517,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }) {
                 return Err(PoseMotionError::InsufficientClearance);
             }
-            let control_feedback = reference_feedback(feedback, reference_offset);
             let observation = follower.observe(
-                control_feedback.pose,
+                feedback.pose,
                 dt,
                 ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
                 self.config.path.lookahead,
@@ -568,7 +531,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 .advance(observation.distance, observation.remaining_time, false)
                 .map_err(PoseMotionError::Mechanism)?;
             let reference_time = observation.reference_time;
-            let distance = control_feedback.pose.position.distance(target.position);
+            let distance = feedback.pose.position.distance(target.position);
             let heading_error = wrap_heading(target.heading - feedback.pose.heading)
                 .value
                 .abs();
@@ -580,16 +543,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 controller.reset_feedback();
             }
             let (requested, ready, objective, phase_changed) = if terminal {
-                terminal_pose.step(
-                    &mut controller,
-                    target,
-                    reverse,
-                    control_feedback,
-                    dt,
-                    options,
-                )
+                terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
-                let desired = follower.command(control_feedback.pose, dt, reverse);
+                let desired = follower.command(feedback.pose, dt, reverse);
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - observation.distance, false)
             };
