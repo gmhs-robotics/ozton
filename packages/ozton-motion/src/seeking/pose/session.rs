@@ -428,7 +428,13 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                         config.limits.brake_latency,
                     );
                     let (wheels, ready) = controller.limit_step(desired, false, dt, options);
-                    (desired, wheels, ready, end.distance - observation.distance, false)
+                    (
+                        desired,
+                        wheels,
+                        ready,
+                        end.distance - observation.distance,
+                        false,
+                    )
                 };
                 if phase_changed {
                     best = f64::INFINITY;

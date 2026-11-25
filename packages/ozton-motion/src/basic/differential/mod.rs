@@ -24,7 +24,7 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 mod tuning;
-use limits::limit_lateral_acceleration;
+use limits::{limit_lateral_acceleration, limit_transition};
 use pid::MotionPid;
 pub use terminal::TerminalPose;
 pub use tuning::DriveTuning;
@@ -635,10 +635,7 @@ impl DifferentialFeedback {
             self.config.limits.angular_acceleration.value,
             self.config.limits.angular_deceleration.value,
         );
-        let desired = desaturate(
-            [v - w * width * 0.5, v + w * width * 0.5],
-            options.maximum_wheel_speed.value,
-        );
+        let desired = [v - w * width * 0.5, v + w * width * 0.5];
         let scale = self.config.limits.wheel_acceleration.map_or(1.0, |limit| {
             let delta = (desired[0] - self.last_wheels[0])
                 .abs()
@@ -649,14 +646,14 @@ impl DifferentialFeedback {
                 1.0
             }
         });
-        self.last_wheels = core::array::from_fn(|i| {
+        let candidate = core::array::from_fn(|i| {
             self.last_wheels[i] + scale * (desired[i] - self.last_wheels[i])
         });
-        // Slew can alter curvature; constrain the actual applied command
-        // for every motion, including PID and Boomerang.
-        self.last_wheels = limit_lateral_acceleration(
+        self.last_wheels = limit_transition(
             self.last_wheels,
+            candidate,
             width,
+            maximum,
             lateral_limit,
         );
         (self.last_wheels, false)

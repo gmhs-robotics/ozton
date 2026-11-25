@@ -83,11 +83,13 @@ impl<'path> ProfiledFollower<'path> {
             let speed = path
                 .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
                 .speed;
-            let delay = (measured_speed.value.abs() * brake_latency.as_secs_f64())
-                .min(remaining * 0.5);
+            let delay =
+                (measured_speed.value.abs() * brake_latency.as_secs_f64()).min(remaining * 0.5);
             let speed = speed.min(
-                path.at_distance(ozton_math::qty!((self.geometric.distance + preview.max(delay)) m))
-                    .speed,
+                path.at_distance(
+                    ozton_math::qty!((self.geometric.distance + preview.max(delay)) m),
+                )
+                .speed,
             );
             PurePursuit::new().twist(
                 pose,
@@ -107,12 +109,13 @@ impl<'path> ProfiledFollower<'path> {
 
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
-    use super::*;
     use ozton_math::{
         geometry::DVec2,
         path::{Limits, Waypoint},
         qty,
     };
+
+    use super::*;
 
     #[test]
     fn stationary_reference_does_not_advance_and_can_start_in_both_directions() {
