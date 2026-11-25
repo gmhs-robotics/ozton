@@ -294,14 +294,20 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             timeout,
         } = trajectory;
 
-        use crate::pursuit::profiled::{ProfiledFollower, limit_lateral_acceleration};
+        use crate::pursuit::profiled::ProfiledFollower;
         let start = Instant::now();
         self.previous_tick = start;
         let baseline = read_feedback(self.drive)
             .map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
-        let mut follower = ProfiledFollower::new(path, follower);
-        let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
+        let mut follower = ProfiledFollower::new(path, follower, self.config.path.lookahead);
+        let mut config = self.config;
+        let limits = path.limits();
+        config.limits.lateral_acceleration = config.limits.lateral_acceleration.min(limits.lateral_acceleration);
+        config.limits.acceleration = config.limits.acceleration.min(limits.acceleration);
+        config.limits.deceleration = config.limits.deceleration.min(limits.deceleration);
+        config.limits.wheel_acceleration = Some(config.limits.wheel_acceleration.unwrap_or(config.limits.acceleration).min(limits.wheel_acceleration));
+        let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
         let mut last = None;
         let mut fresh_at = Instant::now();
         let mut settled = Duration::ZERO;
@@ -368,9 +374,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             warnings.pose(self.drive.localization().pose_trusted());
             let observation = follower.observe(
                 feedback.pose,
-                dt,
                 ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
-                self.config.path.lookahead,
             );
             let cross = observation.cross_track;
             warnings.cross_track(cross, self.config.path.maximum_cross_track_error.value);
@@ -392,21 +396,11 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             let (requested, ready, objective, phase_changed) = if terminal {
                 terminal_pose.step(&mut controller, target, reverse, feedback, dt, options)
             } else {
-                let desired = follower.command(feedback.pose, dt, reverse);
+                let desired = follower.command(feedback.pose, reverse);
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - observation.distance, false)
             };
-            // Independent forward/yaw slew can transiently change curvature.
-            // Reapply the physical cornering bound to the actual wheel request.
-            let wheels = if terminal {
-                requested
-            } else {
-                limit_lateral_acceleration(
-                    requested,
-                    path.limits().track_width.value,
-                    path.limits().lateral_acceleration.value,
-                )
-            };
+            let wheels = requested;
             controller.record_applied_wheels(wheels);
             if phase_changed {
                 best = f64::INFINITY;
@@ -438,7 +432,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             log_row!(
                 Trace,
                 "PATH_TICK",
-                "sample_ms={},reference_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
+                "sample_ms={},nominal_progress_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
                 feedback.time.as_millis(),
                 observation.distance,
                 feedback.pose.position.x,
