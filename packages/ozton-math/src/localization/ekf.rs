@@ -2,7 +2,10 @@
 
 use glam::{DMat3, DVec2, DVec3};
 
-use crate::geometry::{BodyDelta, Pose, wrap_heading};
+use crate::{
+    geometry::{BodyDelta, Pose, wrap_heading},
+    path::clearance::WallContactConstraint,
+};
 
 /// Uncertainty is expressed in square meters and square radians.
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +27,12 @@ impl PoseEkf {
 
     pub fn pose(&self) -> Pose {
         self.pose
+    }
+
+    /// Condition the mean on a surveyed physical contact plane without
+    /// pretending that uncertainty after motion is zero.
+    pub fn constrain_contact(&mut self, contact: WallContactConstraint) {
+        self.pose = contact.project(self.pose);
     }
 
     pub fn covariance(&self) -> DMat3 {
