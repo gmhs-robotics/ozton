@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use ozton_math::{
-    geometry::{DVec2, Pose, bearing},
-    path::clearance::{AStar, RectangularClearance, approach_heading},
+    geometry::{DVec2, Pose, bearing, wrap_heading},
+    path::{clearance::RectangularClearance, planner::{LatticePlanner, LatticeStep}},
     uom::si::f64::Angle,
 };
 
@@ -112,78 +112,66 @@ async fn approach<D: PoseDrive>(
                 .await;
         }
     }
-    // Fall back only when no feasible continuous candidate was generated.
-    if let Some(field) = clearance {
-        if final_heading.is_some() && !field.can_turn(target) {
-            return Err(PoseMotionError::InsufficientClearance);
-        }
-        depart_wall(
-            session,
-            field,
-            target,
-            settings.config.timing.stage_timeout,
-            settings.config(),
-        )
-        .await?;
-    }
+    // A bounded A* search represents orientation explicitly. Prefer a route
+    // avoiding movable objects, then relax only their planning cost.
+    let planner = LatticePlanner::new();
+    let direction = settings.travel.map(|d| matches!(d, TravelDirection::Backward));
     let tolerance = options.position_tolerance.value;
     for _ in 0..2 {
-        let start = session.drive.pose();
-        let route = clearance
-            .and_then(|field| {
-                AStar::new()
-                    .with_waypoint_reserve(options.position_tolerance)
-                    .plan(&field, start.position, target.position, &movable)
-            })
-            .unwrap_or_else(|| vec![target.position]);
-        for (index, point) in route.iter().copied().enumerate() {
-            let start = session.drive.pose();
-            let displacement = point - start.position;
-            if displacement.length() <= tolerance {
-                continue;
-            }
-            let end_heading = if index + 1 == route.len() {
-                final_heading.unwrap_or(start.heading)
-            } else {
-                bearing(route[index + 1] - point)
+        let find = |start| {
+            let plan = |field| {
+                planner.plan(field, start, target.position, final_heading, direction, options.track_width)
             };
-            let reverse = match settings.travel {
-                Some(travel) => matches!(travel, TravelDirection::Backward),
-                None => approach_heading(start.heading, end_heading, displacement).0,
-            };
-            let heading =
-                bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
-            if clearance.is_some_and(|field| {
-                !field.contains_translation(Pose::new(start.position, heading), point)
-            }) {
-                return Err(PoseMotionError::InsufficientClearance);
+            preferred.as_ref().and_then(|field| plan(Some(field)))
+                .or_else(|| plan(clearance.as_ref()))
+        };
+        let mut route = find(session.drive.pose());
+        if route.is_none() {
+            if let Some(field) = clearance.filter(|field| !field.can_turn(session.drive.pose())) {
+                depart_wall(session, field, target, config.timing.stage_timeout, config).await?;
+                route = find(session.drive.pose());
             }
-            turn_checked(
-                session,
-                clearance,
-                heading,
-                settings.config.timing.stage_timeout,
-            )
-            .await?;
-            session
-                .run(
-                    DifferentialTarget::DriveToPoint {
-                        target: point,
-                        maximum_speed: options.maximum_wheel_speed,
-                        reverse,
-                    },
-                    settings.config.timing.stage_timeout,
-                )
-                .await?;
+        }
+        for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
+            match step {
+                LatticeStep::Turn(heading) => {
+                    turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+                }
+                LatticeStep::Translate { target: point, reverse } => {
+                    let start = session.drive.pose();
+                    let displacement = point - start.position;
+                    if displacement.length() <= tolerance {
+                        continue;
+                    }
+                    let heading = wrap_heading(bearing(displacement)
+                        + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg));
+                    if clearance.is_some_and(|field| {
+                        !field.contains_translation(Pose::new(start.position, heading), point)
+                    }) {
+                        return Err(PoseMotionError::InsufficientClearance);
+                    }
+                    if wrap_heading(heading - start.heading).value.abs()
+                        > options.heading_tolerance.value
+                    {
+                        turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+                    }
+                    session.run(
+                        DifferentialTarget::DriveToPoint {
+                            target: point,
+                            maximum_speed: options.maximum_wheel_speed,
+                            reverse,
+                        },
+                        config.timing.stage_timeout,
+                    ).await?;
+                }
+            }
         }
         if let Some(heading) = final_heading {
-            turn_checked(
-                session,
-                clearance,
-                heading,
-                settings.config.timing.stage_timeout,
-            )
-            .await?;
+            if wrap_heading(heading - session.drive.pose().heading).value.abs()
+                > options.heading_tolerance.value
+            {
+                turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
+            }
         }
         let error = session.drive.pose().position.distance(target.position);
         if error <= tolerance {
@@ -269,7 +257,7 @@ async fn turn_checked<D: PoseDrive>(
     heading: Angle,
     timeout: Duration,
 ) -> MotionResult<D> {
-    if clearance.is_some_and(|field| !field.can_turn(session.drive.pose())) {
+    if clearance.is_some_and(|field| !field.contains_turn(session.drive.pose(), heading)) {
         return Err(PoseMotionError::InsufficientClearance);
     }
     session

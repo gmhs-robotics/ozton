@@ -197,6 +197,20 @@ impl RectangularClearance {
         )
     }
 
+    /// Check the actual shortest rotation, not the full turning disk.
+    pub fn contains_turn(&self, pose: Pose, heading: Angle) -> bool {
+        if !heading.value.is_finite() || !pose.is_finite() {
+            return false;
+        }
+        let delta = crate::geometry::wrap_heading(heading - pose.heading);
+        let zero = Angle::default();
+        if delta.value.abs() < 1e-12 {
+            return self.contains_pose(pose);
+        }
+        self.braking_bounds(pose, [0.0; 2], [0.0; 2], if delta.value < 0.0 { [delta, zero] } else { [zero, delta] })
+            .is_some_and(|(min, max)| self.contains_aabb(min, max))
+    }
+
     pub fn can_turn(&self, pose: Pose) -> bool {
         let radius = self.footprint.turn_radius() + self.margin;
         pose.is_finite()

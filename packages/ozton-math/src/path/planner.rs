@@ -1,6 +1,9 @@
 //! Bounded, clearance-aware differential pose planning in a rectangular field.
 use alloc::vec::Vec;
 
+mod lattice;
+pub use lattice::{LatticePlanner, LatticeStep};
+
 pub use super::clearance::AStar;
 use super::{Limits, Path, Waypoint, clearance::RectangularClearance};
 use crate::geometry::{Pose, direction, wrap_heading};

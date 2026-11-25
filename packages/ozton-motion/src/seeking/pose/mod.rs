@@ -274,8 +274,15 @@ impl Seeking {
         target: crate::basic::differential::DifferentialTarget,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let heading = match target {
+            crate::basic::differential::DifferentialTarget::Turn { heading } => heading,
+            crate::basic::differential::DifferentialTarget::TurnToPoint { target } => {
+                ozton_math::geometry::bearing(target - drive.pose().position)
+            }
+            _ => return Err(PoseMotionError::Configuration),
+        };
         if approach::clearance(drive, self.config.safety.clearance)?
-            .is_some_and(|f| !f.can_turn(drive.pose()))
+            .is_some_and(|f| !f.contains_turn(drive.pose(), heading))
         {
             ozton_diagnostics::log_event!(
                 Warn,
