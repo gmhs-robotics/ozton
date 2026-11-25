@@ -79,6 +79,58 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         Ok(dt)
     }
 
+    /// Replanning is permitted only after a fresh, stationary, trusted
+    /// feedback interval and a certified stopping envelope. Hardware and
+    /// competition faults propagate without attempting another movement.
+    pub(super) async fn prepare_replan(
+        &mut self,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+        let started = Instant::now();
+        self.previous_tick = started;
+        let mut last = self.drive.pose_feedback().map_err(PoseMotionError::Drive)?.map(|f| f.time);
+        let mut fresh_at = started;
+        let mut still = Duration::ZERO;
+        loop {
+            let dt = self.tick().await?;
+            if started.elapsed() >= self.config.timing.progress_timeout {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+            let feedback = self.drive.pose_feedback().map_err(PoseMotionError::Drive)?;
+            let Some(feedback) = feedback.filter(|f| last.is_none_or(|time| f.time > time)) else {
+                if fresh_at.elapsed() >= self.config.timing.maximum_gap {
+                    return Err(PoseMotionError::ControlGap);
+                }
+                continue;
+            };
+            let elapsed = last.map_or(dt, |time| feedback.time.saturating_sub(time));
+            if elapsed > self.config.timing.maximum_gap || !valid_feedback(feedback) {
+                return Err(PoseMotionError::InvalidFeedback);
+            }
+            last = Some(feedback.time);
+            fresh_at = Instant::now();
+            if !self.drive.pose_trusted() {
+                return Err(PoseMotionError::UntrustedPose);
+            }
+            let resting = feedback.forward_velocity.value.abs() <= self.options.velocity_tolerance.value
+                && feedback.lateral_velocity.value.abs() <= self.options.velocity_tolerance.value
+                && feedback.angular_velocity.value.abs() <= self.options.angular_velocity_tolerance.value;
+            still = if resting { still + elapsed } else { Duration::ZERO };
+            if still < self.options.settle {
+                continue;
+            }
+            let field = super::approach::clearance(self.drive, self.config.safety.clearance)?;
+            if field.is_some_and(|field| !safe_feedback(
+                field, feedback, self.config, self.drive.velocity_uncertainty(),
+                self.drive.position_covariance(), [0.0; 2],
+            )) {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+            log_event!(Info, "motion", "Stopped safely; replanning from live pose");
+            return Ok(());
+        }
+    }
+
     pub(super) async fn run(
         &mut self,
         target: DifferentialTarget,
@@ -299,7 +351,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 self.config.timing.progress_timeout,
             ) {
                 governor.report_stall(status, requested, wheels);
-                return Err(PoseMotionError::NoProgress);
+                return Err(if GovernorLog::limited(requested, wheels) {
+                    PoseMotionError::InsufficientClearance
+                } else {
+                    PoseMotionError::NoProgress
+                });
             }
         }
     }
@@ -466,7 +522,11 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             }
             if no_progress >= self.config.timing.progress_timeout {
                 governor.report_stall("Trajectory", requested, wheels);
-                return Err(PoseMotionError::NoProgress);
+                return Err(if GovernorLog::limited(requested, wheels) {
+                    PoseMotionError::InsufficientClearance
+                } else {
+                    PoseMotionError::NoProgress
+                });
             }
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
