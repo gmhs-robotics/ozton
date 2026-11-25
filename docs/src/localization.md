@@ -169,12 +169,19 @@ a level chassis and horizontal center rays, not a full optical cone model.
 FieldMap::add_fixed_box(min, max, height) registers a solid floor-mounted
 rectangle as four reflecting faces plus an independent hard motion obstacle.
 The builder carries the physical footprint into motion clearance even if no
-sensor can see any of the four faces. Adding interior faces no longer hides a
-known rectangular perimeter. FieldMap::add remains optical-only; use it for
-reflecting surfaces that should not automatically become hard obstacles.
-Existing movable calibration objects remain soft, not hard obstacles.
-The fixed obstacle map supports four rectangles; registration fails atomically
-if capacity is exhausted.
+sensor can see any of the four faces. Interior physical faces registered with
+FieldMap::add are projected as hard motion obstacles; perimeter faces use the
+closed containment boundary. Movable mapped boxes remain soft planning costs.
+
+Use `FieldMap::add_motion_box(min, max)` or `add_motion_polygon(vertices)` for
+virtual hard exclusion zones. They have no height or reflecting surfaces, never
+enter MCL, EKF or DSR, and share the fixed obstacle capacity of eight polygons.
+Both physical and virtual polygons enter the same hard collision checks. For
+example, a forbidden autonomous region can be a virtual rectangle; no phantom
+range hit will be predicted at its edge. Unmapped real objects can still return
+ranges; MCL's short-return/outlier mixture and the residual gates reject
+inconsistent observations, but an unmapped return is not guaranteed to be rejected.
+Validate all geometry registration results and the localization builder result.
 
 Range consensus checks both each normalized residual and their combined squared
 sum against the residual degrees of freedom. This prevents contradictory
