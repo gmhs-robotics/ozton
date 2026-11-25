@@ -66,6 +66,41 @@ impl LatticePlanner {
         reverse: Option<bool>,
         track_width: Length,
     ) -> Option<Vec<LatticeStep>> {
+        // The synchronous entry point uses an always-ready checkpoint.
+        // Consequently the same search completes in a single poll.
+        let mut search = core::pin::pin!(self.plan_cooperative(
+            field,
+            start,
+            goal,
+            heading,
+            reverse,
+            track_width,
+            || core::future::ready(true),
+        ));
+        let mut context = core::task::Context::from_waker(core::task::Waker::noop());
+        match core::future::Future::poll(search.as_mut(), &mut context) {
+            core::task::Poll::Ready(result) => result,
+            core::task::Poll::Pending => unreachable!("ready checkpoint suspended"),
+        }
+    }
+
+    /// The same bounded search with an asynchronous cancellation/yield checkpoint
+    /// before each expansion. Returning false from the checkpoint cancels planning.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn plan_cooperative<F, Fut>(
+        self,
+        field: Option<&RectangularClearance>,
+        start: Pose,
+        goal: DVec2,
+        heading: Option<Angle>,
+        reverse: Option<bool>,
+        track_width: Length,
+        mut checkpoint: F,
+    ) -> Option<Vec<LatticeStep>>
+    where
+        F: FnMut() -> Fut,
+        Fut: core::future::Future<Output = bool>,
+    {
         if !start.is_finite()
             || !goal.is_finite()
             || heading.is_some_and(|h| !h.value.is_finite())
@@ -114,6 +149,9 @@ impl LatticePlanner {
             [1, 1],
         ];
         while let Some(entry) = open.pop() {
+            if !checkpoint().await {
+                return None;
+            }
             let node = nodes[entry.index];
             if known.get(&node.key) != Some(&entry.index) {
                 continue;
