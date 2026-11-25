@@ -74,7 +74,7 @@ impl LatticePlanner {
             || !track_width.value.is_finite()
             || track_width.value <= 0.0
             || self.node_limit == 0
-            || field.is_some_and(|f| !f.contains_pose(start))
+            || field.is_some_and(|f| !f.contains_physical_pose(start))
         {
             return None;
         }
@@ -311,6 +311,28 @@ mod tests {
             [LatticeStep::Translate {
                 target: goal,
                 reverse: false
+            }]
+        );
+    }
+
+    #[test]
+    fn lattice_can_leave_a_wall_reserve_without_an_initial_pivot() {
+        let field = RectangularClearance::new(
+            Footprint::new(qty!(0.2 m), qty!(0.4 m)).unwrap(),
+            DVec2::ONE,
+            qty!(0.1 m),
+        )
+        .unwrap();
+        let start = Pose::new(DVec2::new(0.0, -0.8), qty!(0 rad));
+        let goal = DVec2::new(0.0, -0.4);
+        let route = LatticePlanner::new()
+            .plan(Some(&field), start, goal, None, None, qty!(0.3 m))
+            .unwrap();
+        assert_eq!(
+            route,
+            [LatticeStep::Translate {
+                target: goal,
+                reverse: false,
             }]
         );
     }
