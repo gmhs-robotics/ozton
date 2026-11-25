@@ -165,7 +165,9 @@ async fn approach<D: PoseDrive>(
 fn replannable<E>(error: &PoseMotionError<E>) -> bool {
     matches!(
         error,
-        PoseMotionError::InsufficientClearance | PoseMotionError::PositionUnsettled
+        PoseMotionError::InsufficientClearance
+            | PoseMotionError::PositionUnsettled
+            | PoseMotionError::NoProgress
     )
 }
 
