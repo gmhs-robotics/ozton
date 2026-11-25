@@ -2,7 +2,7 @@
 
 use ozton_math::{
     geometry::{BodyDelta, Pose},
-    path::clearance::WallContact,
+    path::clearance::WallContactConstraint,
     localization::{
         mcl::ParticleConfig,
         range::{Constraint, Surface},
@@ -99,9 +99,11 @@ pub trait PoseEstimator {
     fn reset(&mut self, pose: Pose);
     /// Condition a surveyed flush-contact prior; custom estimators may retain
     /// their conservative ordinary prior if they do not model contact.
-    fn reset_at_contact(&mut self, pose: Pose, _wall: WallContact) {
+    fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
         self.reset(pose);
+        self.set_contact_constraint(Some(contact));
     }
+    fn set_contact_constraint(&mut self, _contact: Option<WallContactConstraint>) {}
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool;
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose>;
 }
@@ -170,8 +172,11 @@ impl PoseEstimator for Filter {
     fn reset(&mut self, pose: Pose) {
         dispatch!(self, reset(pose));
     }
-    fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
-        dispatch!(self, reset_at_contact(pose, wall));
+    fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
+        dispatch!(self, reset_at_contact(pose, contact));
+    }
+    fn set_contact_constraint(&mut self, contact: Option<WallContactConstraint>) {
+        dispatch!(self, set_contact_constraint(contact));
     }
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
         dispatch!(self, predict(delta, seconds))
