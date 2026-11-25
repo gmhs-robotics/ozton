@@ -20,7 +20,9 @@ mod snapshot;
 mod velocity;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 use history::PoseHistory;
-pub use ozton_math::localization::observation::{MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig};
+pub use ozton_math::localization::observation::{
+    MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig,
+};
 pub use ranges::RangeReport;
 use ranges::{RangeMasks, RangeTick, inspect};
 pub use reset::DsrConfig;
@@ -379,7 +381,10 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Rejected collections retry at rest until accepted or explicitly canceled;
     /// the caller must enforce a timeout, as the autonomous runner does.
     pub fn request_distance_reset_axes(&mut self, minimum_axes: u8) -> bool {
-        if !self.corrections_enabled || self.range_masks.reset() == 0 || !(1..=2).contains(&minimum_axes) {
+        if !self.corrections_enabled
+            || self.range_masks.reset() == 0
+            || !(1..=2).contains(&minimum_axes)
+        {
             return false;
         }
         self.reset
