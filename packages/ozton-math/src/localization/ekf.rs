@@ -13,7 +13,7 @@ pub struct PoseEkf {
 
 impl PoseEkf {
     pub fn new(pose: Pose, variance: DVec3) -> Option<Self> {
-        if !pose.is_finite() || !variance.is_finite() || variance.min_element() <= 0.0 {
+        if !pose.is_finite() || !variance.is_finite() || variance.min_element() < 0.0 {
             return None;
         }
         Some(Self {
