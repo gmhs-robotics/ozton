@@ -128,8 +128,9 @@ pub trait TrackingSource: Sized {
     type Capabilities: capabilities::SourceCapabilities<Self>;
 
     /// Whether this concrete source supplies differential encoder observations.
-    const DIFFERENTIAL_ENCODERS: bool =
-        <<Self::Capabilities as capabilities::SourceCapabilities<Self>>::Drive as capabilities::Flag>::PRESENT;
+    const DIFFERENTIAL_ENCODERS: bool = <<Self::Capabilities as capabilities::SourceCapabilities<
+        Self,
+    >>::Drive as capabilities::Flag>::PRESENT;
 
     /// Number of guaranteed range slots supplied by this concrete source.
     const RANGE_SLOTS: usize =

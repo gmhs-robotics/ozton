@@ -256,7 +256,6 @@ impl crate::TrackingSource for DistanceTracker {
             sink.push(crate::Measurement::Range(range));
         }
     }
-
 }
 
 impl DistanceDevice {

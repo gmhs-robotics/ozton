@@ -3,7 +3,10 @@ use core::marker::PhantomData;
 
 use ozton_math::uom::si::f64::Angle;
 
-use crate::{ReadHeading, ReadTilt, range::{RangeSensorConfig, RangeSource}};
+use crate::{
+    ReadHeading, ReadTilt,
+    range::{RangeSensorConfig, RangeSource},
+};
 
 /// Type-level boolean used to combine independent hardware capabilities.
 pub trait Flag {
