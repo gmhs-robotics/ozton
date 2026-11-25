@@ -11,6 +11,8 @@ use crate::basic::differential::{DriveOptions, DriveTuning};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MotionLimits {
     pub wheel_speed: Velocity,
+    /// Optional independently characterized wheel acceleration limit.
+    pub wheel_acceleration: Option<Acceleration>,
     /// Breakaway compensation, applied only to active forward feedback near rest.
     pub minimum_linear_speed: Velocity,
     /// Breakaway compensation, applied only to active yaw feedback near rest.
@@ -34,6 +36,7 @@ impl Default for MotionLimits {
 impl MotionLimits {
     pub const DEFAULT: Self = Self {
         wheel_speed: ozton_math::units::qty!(0.50 m/s),
+        wheel_acceleration: None,
         minimum_linear_speed: ozton_math::qty!(0 m/s),
         minimum_angular_speed: ozton_math::qty!(0 rad/s),
         acceleration: ozton_math::units::qty!(0.8 m/s^2),
@@ -51,6 +54,12 @@ impl MotionLimits {
     #[must_use]
     pub const fn with_wheel_speed(mut self, value: Velocity) -> Self {
         self.wheel_speed = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_wheel_acceleration(mut self, value: Acceleration) -> Self {
+        self.wheel_acceleration = Some(value);
         self
     }
 
@@ -593,6 +602,10 @@ impl MotionConfig {
             ]
             .into_iter()
             .all(|v| v.is_finite() && v > 0.0)
+            && self
+                .limits
+                .wheel_acceleration
+                .is_none_or(|a| a.value.is_finite() && a.value > 0.0)
             && self.limits.minimum_linear_speed.value.is_finite()
             && self.limits.minimum_linear_speed.value >= 0.0
             && self.limits.minimum_angular_speed.value.is_finite()
@@ -642,6 +655,9 @@ impl MotionConfig {
             self.limits.acceleration,
             self.limits.deceleration,
             self.limits.lateral_acceleration,
+        )
+        .with_wheel_acceleration(
+            self.limits.wheel_acceleration.unwrap_or(self.limits.acceleration),
         )
     }
 

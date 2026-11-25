@@ -8,6 +8,7 @@ use uom::si::f64::{Acceleration, Length, Time, Velocity};
 use crate::geometry::Pose;
 
 mod chain;
+mod parameterization;
 pub use chain::PathChain;
 pub mod clearance;
 pub mod planner;
@@ -39,6 +40,8 @@ pub struct Limits {
     pub acceleration: Acceleration,
     pub deceleration: Acceleration,
     pub lateral_acceleration: Acceleration,
+    /// Maximum absolute acceleration of either wheel.
+    pub wheel_acceleration: Acceleration,
 }
 
 impl Limits {
@@ -58,7 +61,14 @@ impl Limits {
             acceleration,
             deceleration,
             lateral_acceleration,
+            wheel_acceleration: acceleration,
         }
+    }
+
+    #[must_use]
+    pub const fn with_wheel_acceleration(mut self, value: Acceleration) -> Self {
+        self.wheel_acceleration = value;
+        self
     }
 
     pub fn is_valid(self) -> bool {
@@ -69,6 +79,7 @@ impl Limits {
             self.acceleration.value,
             self.deceleration.value,
             self.lateral_acceleration.value,
+            self.wheel_acceleration.value,
         ]
         .iter()
         .all(|value| value.is_finite() && *value > 0.0)
@@ -201,6 +212,7 @@ impl Path {
                 next.distance - current.distance,
             ));
         }
+        parameterization::limit_wheels(&mut samples, limits);
         for index in 1..=last {
             let previous = samples[index - 1];
             let current = &mut samples[index];

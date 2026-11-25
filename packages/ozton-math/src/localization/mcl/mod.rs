@@ -6,9 +6,8 @@ use alloc::vec::Vec;
 
 use glam::{DMat2, DVec2, DVec3};
 use random::Random;
-use uom::si::f64::{Angle, AngularVelocity, Length};
-
 pub use sensor::BeamModel;
+use uom::si::f64::{Angle, AngularVelocity, Length};
 
 use super::range::{RayFace, Surface, prepare_faces, prepared_ray_distance};
 use crate::geometry::{BodyDelta, Pose, bearing, direction, rotation, wrap_heading};
