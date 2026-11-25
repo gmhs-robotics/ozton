@@ -4,7 +4,9 @@ use std::{cell::Cell, time::Duration};
 
 use arrayvec::ArrayVec;
 use futures_util::future::join_all;
-use ozton_diagnostics::{log_event, log_row};
+use ozton_diagnostics::log_event;
+#[cfg(feature = "logging")]
+use ozton_diagnostics::log_row;
 use ozton_math::uom::si::f64::{Angle as UomAngle, Length};
 use vexide::{
     prelude::DistanceSensor,
@@ -40,6 +42,8 @@ impl DistanceTracker {
                 readiness: Cell::default(),
                 clock: PacketClock::default(),
                 last_poll: None,
+                #[cfg(feature = "logging")]
+                packet_report: PacketReport::default(),
                 latency: Duration::ZERO,
                 cached: None,
             },
@@ -130,11 +134,34 @@ impl PacketClock {
     }
 }
 
+#[cfg(feature = "logging")]
+#[derive(Default)]
+struct PacketReport {
+    last: Option<(Duration, [bool; 3])>,
+}
+
+#[cfg(feature = "logging")]
+impl PacketReport {
+    fn due(&mut self, time: Duration, state: [bool; 3]) -> bool {
+        const HEARTBEAT: Duration = Duration::from_millis(100);
+        if self.last.is_none_or(|(last, previous)| {
+            state != previous || time < last || time - last >= HEARTBEAT
+        }) {
+            self.last = Some((time, state));
+            true
+        } else {
+            false
+        }
+    }
+}
+
 struct DistanceDevice {
     sensor: DistanceSensor,
     readiness: Cell<RangeReadiness>,
     clock: PacketClock,
     last_poll: Option<Duration>,
+    #[cfg(feature = "logging")]
+    packet_report: PacketReport,
     latency: Duration,
     cached: Option<(u32, RangeObservation)>,
 }
@@ -303,14 +330,20 @@ impl DistanceDevice {
         if observation.is_err() {
             self.clock = PacketClock::default();
         }
-        log_row!(
-            Trace,
-            "DISTANCE_PACKET",
-            "index={_index},port={},read_ok={},object={},occluded={occluded}",
-            self.sensor.port_number(),
-            observation.is_ok(),
-            matches!(observation, Ok(Some(_)))
-        );
+        #[cfg(feature = "logging")]
+        if ozton_diagnostics::serial::sd_enabled() {
+            let state = [observation.is_ok(), matches!(observation, Ok(Some(_))), occluded];
+            if self.packet_report.due(time, state) {
+                log_row!(
+                    Trace,
+                    "DISTANCE_PACKET",
+                    "index={_index},port={},read_ok={},object={},occluded={occluded}",
+                    self.sensor.port_number(),
+                    state[0],
+                    state[1]
+                );
+            }
+        }
         self.set_ready(observation.is_ok());
         let generation = self.readiness.get().generation;
         self.cached = observation.ok().flatten().map(|value| (generation, value));
@@ -346,6 +379,22 @@ impl DistanceDevice {
 #[cfg(test)]
 mod packet_tests {
     use super::*;
+
+    #[cfg(feature = "logging")]
+    #[test]
+    fn packet_report_preserves_edges_and_periodic_heartbeat() {
+        let mut report = PacketReport::default();
+        let ms = Duration::from_millis;
+        let healthy = [true, true, false];
+        let failed = [false, false, false];
+        assert!(report.due(ms(0), healthy));
+        assert!(!report.due(ms(10), healthy));
+        assert!(report.due(ms(20), failed));
+        assert!(report.due(ms(30), healthy));
+        assert!(!report.due(ms(129), healthy));
+        assert!(report.due(ms(130), healthy));
+        assert!(report.due(ms(0), healthy));
+    }
 
     #[test]
     fn changing_packets_use_odometry_time_and_cached_packets_keep_their_age() {
