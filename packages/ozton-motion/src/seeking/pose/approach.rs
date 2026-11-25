@@ -283,7 +283,13 @@ async fn lattice_approach<D: PoseDrive>(
     let tolerance = options.position_tolerance.value;
     let start = session.drive.pose();
     let route = lattice_plan(
-        session, planner, preferred, clearance, target, final_heading, direction,
+        session,
+        planner,
+        preferred,
+        clearance,
+        target,
+        final_heading,
+        direction,
     )
     .await?;
     session
