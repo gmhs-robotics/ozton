@@ -135,29 +135,20 @@ impl HasBraking for Motor {
     }
 }
 
-impl<M: Drive + MotorGroups, T, L> HasBraking for Drivetrain<M, T, L> {
-    type BrakeError = PortError;
+impl<M: Drive + HasBraking, T, L> HasBraking for Drivetrain<M, T, L> {
+    type BrakeError = M::BrakeError;
 
     fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
-        self.brake_motors(|_| Some(mode))
+        self.model.apply_brake(mode)
     }
 }
 
-impl<M: Drive + MotorGroups, T, L> BrakeMotors for Drivetrain<M, T, L> {
-
+impl<M: Drive + BrakeMotors, T, L> BrakeMotors for Drivetrain<M, T, L> {
     fn brake_motors(
         &mut self,
-        mut select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
+        select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
     ) -> Result<(), Self::BrakeError> {
-        let mut result = Ok(());
-        for (group, motors) in self.model.motor_groups_mut().iter_mut().enumerate() {
-            for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
-                if let Some(mode) = select(MotorAddress { group, motor }) {
-                    result = result.and(device.apply_brake(mode));
-                }
-            }
-        }
-        result
+        self.model.brake_motors(select)
     }
 }
 
