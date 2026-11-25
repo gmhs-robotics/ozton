@@ -428,6 +428,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                         feedback.pose,
                         reverse,
                         feedback.forward_velocity,
+                        feedback.angular_velocity,
                         config.limits.brake_latency,
                     );
                     let (wheels, ready) = controller.limit_step(desired, false, dt, options);
