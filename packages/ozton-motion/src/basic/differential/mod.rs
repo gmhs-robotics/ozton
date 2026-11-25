@@ -133,7 +133,6 @@ pub struct DifferentialFeedback {
     start_travel: Option<f64>,
     start_heading: Option<Angle>,
     point_backing: Option<bool>,
-    point_aligning: bool,
     config: crate::MotionConfig,
     last_wheels: [f64; 2],
 }
@@ -145,7 +144,6 @@ impl DifferentialFeedback {
             start_travel: None,
             start_heading: None,
             point_backing: None,
-            point_aligning: false,
             config: crate::MotionConfig::DEFAULT,
             last_wheels: [0.0; 2],
         }
@@ -175,7 +173,7 @@ impl DifferentialFeedback {
     /// meets all arrival tolerances. The caller applies the required settle time.
     pub fn step(
         &mut self,
-        mut target: DifferentialTarget,
+        target: DifferentialTarget,
         feedback: Feedback,
         dt: Duration,
         options: DriveOptions,
@@ -288,7 +286,7 @@ impl DifferentialFeedback {
                 reaction,
             )
         };
-        let (wheels, ready) = match &mut target {
+        let (wheels, ready) = match &target {
             DifferentialTarget::Turn { heading } => {
                 let error = error_at(*heading);
                 let ready = error.abs() <= options.heading_tolerance.value;
@@ -405,25 +403,16 @@ impl DifferentialFeedback {
                         bearing
                     });
                     self.pid.reset();
-                    self.point_aligning = false;
                 }
-                if self.point_aligning {
-                    self.point_aligning = heading.abs() > config.approach.realign_exit.value;
-                } else {
-                    self.point_aligning = heading.abs() > config.approach.realign_enter.value;
-                }
+                // Project the position error onto the commanded travel axis.
+                // Misalignment continuously reduces translation while yaw PID
+                // retains steering authority; no stop-and-realign mode.
                 let sign = if *backing { -1.0 } else { 1.0 };
-                let linear = if self.point_aligning {
-                    // Damp residual translation instead of releasing the motors.
-                    self.pid.forward(0.0, forward_rate, maximum_speed.value, dt)
-                } else {
-                    let alignment = heading.cos().max(0.0);
-                    forward(
-                        &mut self.pid,
-                        sign * distance * alignment,
-                        stopping_limit(distance, maximum_speed.value),
-                    )
-                };
+                let linear = forward(
+                    &mut self.pid,
+                    sign * distance * heading.cos().max(0.0),
+                    stopping_limit(distance, maximum_speed.value),
+                );
                 let turn = angular(&mut self.pid, heading);
                 (drive(linear, turn), reached && slow)
             }
