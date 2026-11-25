@@ -100,10 +100,9 @@ impl<'path> ProfiledFollower<'path> {
                 (wrap_heading(desired - pose.heading).value, None)
             }
             crate::PathGuidance::PurePursuit => {
-                let carrot = path
-                    .at_distance(ozton_math::qty!((self.geometric.distance + lookahead) m))
-                    .pose
-                    .position;
+                // Classical pure pursuit uses the forward intersection of
+                // the path and a robot-centered lookahead circle.
+                let carrot = self.progress.lookahead(pose.position, lookahead);
                 let local = travel_pose.to_local(carrot);
                 let error = bearing(local).value;
                 // +X is right, while positive yaw turns left.
@@ -128,8 +127,15 @@ impl<'path> ProfiledFollower<'path> {
             .min(remaining * 0.5);
         let speed = path
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
-            .speed
-            * error.cos().max(0.0);
+            .speed;
+        // A valid pursuit arc already aligns the motion with the carrot.
+        // Its curvature is constrained by the shared wheel/lateral limits.
+        // Heading projection is needed only for heading-feedback recovery.
+        let speed = if pursuit_curvature.is_some() {
+            speed
+        } else {
+            speed * error.cos().max(0.0)
+        };
         let curvature = path
             .at_distance(ozton_math::qty!((self.geometric.distance + delay) m))
             .curvature;
@@ -287,7 +293,13 @@ mod tests {
                 core::time::Duration::from_millis(10),
             );
             assert!(wheels[1] > wheels[0]);
+            let speed = (wheels[0] + wheels[1]).abs() * 0.5;
+            assert!(speed > 0.0);
             assert!((wheels[0] + wheels[1]) * if reverse { -1.0 } else { 1.0 } > 0.0);
+            // For a straight path and lateral offset e, a radius L circle
+            // gives signed curvature 2e/L², independently of the direction.
+            let curvature = (wheels[1] - wheels[0]) / (limits.track_width.value * speed);
+            assert!((curvature - 2.0 * 0.035 / 0.2_f64.powi(2)).abs() < 1e-9);
         }
     }
 
