@@ -556,12 +556,12 @@ mod tests {
         feedback.pose = ozton_math::geometry::Pose::default();
         feedback.angular_velocity = qty!(0 rad/s);
         let centered = MotionConfig::DEFAULT;
-        let shifted = centered.with_safety(
-            centered.safety.with_pivot_forward_offset(qty!(-2 in)),
-        );
+        let shifted = centered.with_safety(centered.safety.with_pivot_forward_offset(qty!(-2 in)));
         let predict = |config| {
-            bounds(field, feedback, 0.0, 2.0, [0.0; 2], [0.0; 3], None, 0.4, config)
-                .unwrap()
+            bounds(
+                field, feedback, 0.0, 2.0, [0.0; 2], [0.0; 3], None, 0.4, config,
+            )
+            .unwrap()
         };
         let (min, max) = predict(centered);
         let (shifted_min, shifted_max) = predict(shifted);
