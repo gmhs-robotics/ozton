@@ -29,6 +29,39 @@ The source types automatically determine the tracking capabilities, regardless o
 
 The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Pass the assembled tracking configuration directly to `LocalizationBuilder::build`. Odometry is the default; selecting MCL or EKF with `with_estimator` adds a compile-time range capability requirement and a startup check for visible mapped surfaces. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
+## Survey a displaced rotation center
+
+The robot-local origin is the effective center of rotation on the floor. The
+original CAD survey need not use that point. Rebase every mounted sensor and
+the physical footprint with the same constant frame, before constructing
+tracking or localization:
+
+```rust
+use ozton::{position_xyz, position_xyzh, tracking::mount::MountFrame};
+
+const FRAME: MountFrame =
+    MountFrame::new().with_origin(position_xyz!(0 in, -1 in, 0 in));
+const IMU_MOUNT: (ozton::units::Vec3<ozton::uom::si::f64::Length>, ozton::uom::si::f64::Angle) =
+    FRAME.mount(position_xyzh!(0 in, 0.5 in, 3 in, 0 deg));
+assert_eq!(IMU_MOUNT.0.forward, ozton::qty!(1.5 in));
+```
+
+Pass `FRAME.mount(surveyed_mount)` to each mounted wheel, range tracker and
+IMU, and `FRAME.footprint(surveyed_footprint)` to the drivetrain model.
+Use `FRAME.point` for other surveyed body points. Differential drive encoders
+assume an origin on the longitudinal midline; choose the effective axle's
+forward coordinate, keeping X and Z at zero. The frame is a construction-time
+translation, not a runtime pose reset. Field walls, obstacles and headings
+do not move; all pose targets and registrations refer to the new robot origin.
+
+To calibrate the axle location, log signed sideways wheel travel and unwrapped
+CCW angle during isolated spins in both directions.
+`tracking::mount::estimate_forward_pivot(tracker_forward, travel, yaw)`
+returns the pivot in the same survey as the supplied tracker coordinate.
+Average repeatable estimates and update the frame; do not change the physical
+tracker measurement to absorb slip. The effective pivot can vary with load and
+surface, so verify the model on the robot.
+
 ## Choose an estimator
 
 Odometry integrates measured motion. It is a good starting point and needs no walls. EKF combines observations with modeled uncertainty. MCL maintains a bounded set of particles and uses associated range observations to correct translation; it relies on an accurate surveyed map and correctly mounted sensors. DSR is an explicit stationary distance reset, not a continuous motion controller.
