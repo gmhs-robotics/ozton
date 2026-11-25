@@ -166,11 +166,17 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         result
     }
 
-    async fn run_stage(
+    /// Run every autonomous controller on the same fresh-feedback, actuator
+    /// and settling lifecycle. The controller supplies only its wheel command.
+    async fn execute(
         &mut self,
-        target: DifferentialTarget,
+        config: crate::MotionConfig,
+        options: DriveOptions,
         timeout: Duration,
-        status: &str,
+        mut step: impl FnMut(
+            &mut DifferentialFeedback,
+            &mut ControlTick<'_>,
+        ) -> Result<ControlCommand, PoseMotionError<D::Error>>,
         output: &mut impl FnMut(&mut D, [Velocity; 2]) -> Result<(), D::Error>,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
@@ -178,105 +184,155 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         let baseline = read_feedback(self.drive)
             .map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
-        let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
+        let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
         let mut settled = Duration::ZERO;
-        let mut progress = Progress::default();
         let mut warnings = MotionWarnings::default();
-        let mut last_feedback = None;
-        let mut feedback_at = Instant::now();
+        let mut last = None;
+        let mut fresh_at = Instant::now();
+        let mut interrupted = false;
         loop {
-            let dt = self.tick().await?;
+            let tick = self.tick().await?;
             let _span = ozton_diagnostics::profile::Span::new(
                 ozton_diagnostics::profile::Stage::MotionTick,
             );
             warnings.stage(started.elapsed(), timeout);
             let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
             else {
-                log_row!(
-                    Trace,
-                    "MOTION_RETRY",
-                    "command={status},source=tracking_initializing,elapsed_ms={}",
-                    started.elapsed().as_millis()
-                );
                 self.drive
                     .emergency_brake()
                     .map_err(PoseMotionError::StopFailed)?;
                 controller.reset();
                 settled = Duration::ZERO;
-                progress = Progress::default();
-                if feedback_at.elapsed() > self.config.timing.maximum_gap {
+                interrupted = true;
+                if fresh_at.elapsed() > config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
                 continue;
             };
-            if last_feedback.is_none() && baseline.is_some_and(|time| feedback.time <= time) {
-                if feedback_at.elapsed() > self.config.timing.maximum_gap {
+            let previous = last.or(baseline);
+            if previous.is_some_and(|time| feedback.time <= time) {
+                if fresh_at.elapsed() > config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
                 }
                 continue;
             }
-            let dt = match last_feedback {
-                Some(previous) if feedback.time <= previous => {
-                    if feedback_at.elapsed() > self.config.timing.maximum_gap {
-                        return Err(PoseMotionError::ControlGap);
-                    }
-                    continue;
-                }
-                Some(previous) => feedback.time.saturating_sub(previous),
-                None => dt,
-            };
-            if dt > self.config.timing.maximum_gap {
+            let dt = last.map_or(tick, |time| feedback.time.saturating_sub(time));
+            if dt > config.timing.maximum_gap {
                 return Err(PoseMotionError::ControlGap);
             }
-            last_feedback = Some(feedback.time);
-            feedback_at = Instant::now();
             if !valid_feedback(feedback) {
                 return Err(PoseMotionError::InvalidFeedback);
             }
+            last = Some(feedback.time);
+            fresh_at = Instant::now();
             warnings.pose(self.drive.localization().pose_trusted());
-            let (wheels, ready) = controller.step(target, feedback, dt, self.options);
-            controller.record_applied_wheels(wheels);
-            settled = if ready { settled + dt } else { Duration::ZERO };
-            let complete = ready && settled >= self.options.settle;
-            if complete {
+            let command = step(
+                &mut controller,
+                &mut ControlTick {
+                    feedback,
+                    dt,
+                    elapsed: started.elapsed(),
+                    interrupted,
+                    warnings: &mut warnings,
+                    settled: &mut settled,
+                    settle: options.settle,
+                },
+            )?;
+            interrupted = false;
+            controller.record_applied_wheels(command.wheels);
+            if command.emergency_brake {
+                self.drive
+                    .emergency_brake()
+                    .map_err(PoseMotionError::StopFailed)?;
+            } else if command.complete || command.brake {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {
-                output(self.drive, wheels.map(Velocity::new::<meter_per_second>))
+                output(self.drive, command.wheels.map(Velocity::new::<meter_per_second>))
                     .map_err(PoseMotionError::Drive)?;
             }
-            log_row!(
-                Trace,
-                "MOTION_STEP",
-                "command={status},sample_us={},elapsed_ms={},dt_us={},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5},travel_m={:.5},left_target_mps={:.5},right_target_mps={:.5},complete={complete}",
-                feedback.time.as_micros(),
-                started.elapsed().as_millis(),
-                dt.as_micros(),
-                feedback.pose.position.x,
-                feedback.pose.position.y,
-                feedback.pose.heading.value,
-                feedback.forward_velocity.value,
-                feedback.lateral_velocity.value,
-                feedback.angular_velocity.value,
-                feedback.forward_travel.value,
-                wheels[0],
-                wheels[1]
-            );
             self.drive.log_step(self.started.elapsed(), dt);
-            if complete {
+            if command.complete {
                 return Ok(());
             }
-            if progress.stalled(
-                target,
-                feedback,
-                ready,
-                dt,
-                self.config.timing.progress_timeout,
-            ) {
-                warnings.progress();
-            } else {
-                warnings.progress_reported = false;
-            }
         }
+    }
+
+    async fn run_stage(
+        &mut self,
+        target: DifferentialTarget,
+        timeout: Duration,
+        status: &str,
+        output: &mut impl FnMut(&mut D, [Velocity; 2]) -> Result<(), D::Error>,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let config = self.config;
+        let options = self.options;
+        let mut progress = Progress::default();
+        let mut terminal = None;
+        self.execute(
+            config,
+            options,
+            timeout,
+            |controller, tick| {
+                let feedback = tick.feedback;
+                let dt = tick.dt;
+                if tick.interrupted {
+                    progress = Progress::default();
+                    terminal = None;
+                }
+                let mut braking = false;
+                let (wheels, ready) = if let DifferentialTarget::DriveToPose {
+                    target: pose,
+                    reverse,
+                    ..
+                } = target
+                    && (terminal.is_some()
+                        || feedback.pose.position.distance(pose.position)
+                            <= options.position_tolerance.value)
+                {
+                    let capture = terminal.get_or_insert_with(TerminalPose::default);
+                    let (wheels, ready, _, changed) =
+                        capture.step(controller, pose, reverse, feedback, dt, options);
+                    braking = capture.is_braking();
+                    if changed {
+                        progress = Progress::default();
+                    }
+                    (wheels, ready)
+                } else {
+                    controller.step(target, feedback, dt, options)
+                };
+                let complete = tick.arrived(ready);
+                if progress.stalled(target, feedback, ready, dt, config.timing.progress_timeout) {
+                    tick.warnings.progress();
+                } else {
+                    tick.warnings.progress_reported = false;
+                }
+                log_row!(
+                    Trace,
+                    "MOTION_STEP",
+                    "command={status},sample_us={},elapsed_ms={},dt_us={},x_m={:.5},y_m={:.5},heading_rad={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5},travel_m={:.5},left_target_mps={:.5},right_target_mps={:.5},complete={complete}",
+                    feedback.time.as_micros(),
+                    tick.elapsed.as_millis(),
+                    dt.as_micros(),
+                    feedback.pose.position.x,
+                    feedback.pose.position.y,
+                    feedback.pose.heading.value,
+                    feedback.forward_velocity.value,
+                    feedback.lateral_velocity.value,
+                    feedback.angular_velocity.value,
+                    feedback.forward_travel.value,
+                    wheels[0],
+                    wheels[1]
+                );
+                Ok(ControlCommand {
+                    wheels,
+                    complete,
+                    brake: terminal.is_some() && ready,
+                    emergency_brake: braking,
+                })
+            },
+            output,
+        )
+        .await
     }
 
     /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
@@ -293,11 +349,6 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         } = trajectory;
 
         use crate::pursuit::profiled::ProfiledFollower;
-        let start = Instant::now();
-        self.previous_tick = start;
-        let baseline = read_feedback(self.drive)
-            .map_err(PoseMotionError::Tracking)?
-            .map(|f| f.time);
         let mut follower = ProfiledFollower::new(path, self.config.path.lookahead);
         let mut config = self.config;
         let limits = path.limits();
@@ -314,13 +365,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 .unwrap_or(config.limits.acceleration)
                 .min(limits.wheel_acceleration),
         );
-        let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
-        let mut last = None;
-        let mut fresh_at = Instant::now();
-        let mut settled = Duration::ZERO;
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
-        let mut warnings = MotionWarnings::default();
         let mut terminal_pose = TerminalPose::default();
         let mut terminal = false;
         log_event!(Info, "motion", "Trajectory: started");
@@ -337,138 +383,101 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             target.position.y,
             target.heading.value
         );
-        loop {
-            let tick = self.tick().await?;
-            let _span = ozton_diagnostics::profile::Span::new(
-                ozton_diagnostics::profile::Stage::MotionTick,
-            );
-            warnings.stage(start.elapsed(), timeout);
-            let Some(feedback) = read_feedback(self.drive).map_err(PoseMotionError::Tracking)?
-            else {
-                self.drive
-                    .emergency_brake()
-                    .map_err(PoseMotionError::StopFailed)?;
-                controller.reset();
-                if fresh_at.elapsed() > self.config.timing.maximum_gap {
-                    return Err(PoseMotionError::ControlGap);
+        self.execute(
+            config,
+            options,
+            timeout,
+            |controller, tick| {
+                let feedback = tick.feedback;
+                let dt = tick.dt;
+                if tick.interrupted {
+                    best = f64::INFINITY;
+                    no_progress = Duration::ZERO;
+                    terminal_pose = TerminalPose::default();
                 }
-                continue;
-            };
-            if last.is_none() && baseline.is_some_and(|time| feedback.time <= time) {
-                if fresh_at.elapsed() > self.config.timing.maximum_gap {
-                    return Err(PoseMotionError::ControlGap);
-                }
-                continue;
-            }
-            let dt = match last {
-                Some(previous) if feedback.time <= previous => {
-                    if fresh_at.elapsed() > self.config.timing.maximum_gap {
-                        return Err(PoseMotionError::ControlGap);
-                    }
-                    continue;
-                }
-                Some(previous) => feedback.time.saturating_sub(previous),
-                None => tick,
-            };
-            if dt > self.config.timing.maximum_gap {
-                return Err(PoseMotionError::ControlGap);
-            }
-            if !valid_feedback(feedback) {
-                return Err(PoseMotionError::InvalidFeedback);
-            }
-            last = Some(feedback.time);
-            fresh_at = Instant::now();
-            warnings.pose(self.drive.localization().pose_trusted());
-            let observation = follower.observe(
-                feedback.pose,
-                ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
-            );
-            let cross = observation.cross_track;
-            warnings.cross_track(cross, self.config.path.maximum_cross_track_error.value);
-            actions
-                .advance(observation.distance, observation.remaining_time, false)
-                .map_err(PoseMotionError::Mechanism)?;
-            let nominal_progress_time = observation.nominal_progress_time;
-            let distance = feedback.pose.position.distance(target.position);
-            let heading_error = wrap_heading(target.heading - feedback.pose.heading)
-                .value
-                .abs();
-            if !terminal && follower.is_terminal(self.options.position_tolerance.value) {
-                terminal = true;
-                log_event!(Info, "motion", "Trajectory: entering final pose correction");
-                best = f64::INFINITY;
-                no_progress = Duration::ZERO;
-                controller.reset_feedback();
-            }
-            let (requested, wheels, ready, objective, phase_changed) = if terminal {
-                let (wheels, ready, objective, changed) =
-                    terminal_pose.step(&mut controller, target, reverse, feedback, dt, options);
-                (wheels, wheels, ready, objective, changed)
-            } else {
-                let desired = follower.command(
+                let observation = follower.observe(
                     feedback.pose,
-                    reverse,
-                    feedback.forward_velocity,
-                    config.limits.brake_latency,
+                    ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
                 );
-                let (wheels, ready) = controller.limit_step(desired, false, dt, options);
-                (desired, wheels, ready, end.distance - observation.distance, false)
-            };
-            controller.record_applied_wheels(wheels);
-            if phase_changed {
-                best = f64::INFINITY;
-                no_progress = Duration::ZERO;
-            }
-            if ready || objective < best - 0.002 {
-                best = objective;
-                no_progress = Duration::ZERO;
-                warnings.progress_reported = false;
-            } else {
-                no_progress = no_progress.saturating_add(dt);
-            }
-            if no_progress >= self.config.timing.progress_timeout {
-                warnings.progress();
-            }
-            settled = if ready { settled + dt } else { Duration::ZERO };
-            let complete = ready && settled >= self.options.settle;
-            if terminal && terminal_pose.is_braking() {
-                self.drive
-                    .emergency_brake()
-                    .map_err(PoseMotionError::StopFailed)?;
-            } else if complete || (terminal && ready) {
-                self.drive.brake().map_err(PoseMotionError::StopFailed)?;
-            } else {
-                self.drive
-                    .drive_wheels(wheels.map(Velocity::new::<meter_per_second>))
-                    .map_err(PoseMotionError::Drive)?;
-            }
-            log_row!(
-                Trace,
-                "PATH_TICK",
-                "sample_ms={},nominal_progress_s={nominal_progress_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
-                feedback.time.as_millis(),
-                observation.distance,
-                feedback.pose.position.x,
-                feedback.pose.position.y,
-                feedback.pose.heading.value,
-                wheels[0],
-                wheels[1],
-                dt.as_micros(),
-                requested[0],
-                requested[1],
-                feedback.forward_velocity.value,
-                feedback.lateral_velocity.value,
-                feedback.angular_velocity.value
-            );
-            self.drive.log_step(self.started.elapsed(), dt);
-            if complete {
+                let cross = observation.cross_track;
+                tick.warnings.cross_track(cross, config.path.maximum_cross_track_error.value);
                 actions
-                    .advance(end.distance, 0.0, true)
+                    .advance(observation.distance, observation.remaining_time, false)
                     .map_err(PoseMotionError::Mechanism)?;
-                log_event!(Info, "motion", "Trajectory: settled");
-                return Ok(());
-            }
-        }
+                let nominal_progress_time = observation.nominal_progress_time;
+                let distance = feedback.pose.position.distance(target.position);
+                let heading_error = wrap_heading(target.heading - feedback.pose.heading)
+                    .value
+                    .abs();
+                if !terminal && follower.is_terminal(options.position_tolerance.value) {
+                    terminal = true;
+                    log_event!(Info, "motion", "Trajectory: entering final pose correction");
+                    best = f64::INFINITY;
+                    no_progress = Duration::ZERO;
+                    controller.reset_feedback();
+                }
+                let (requested, wheels, ready, objective, phase_changed) = if terminal {
+                    let (wheels, ready, objective, changed) =
+                        terminal_pose.step(controller, target, reverse, feedback, dt, options);
+                    (wheels, wheels, ready, objective, changed)
+                } else {
+                    let desired = follower.command(
+                        feedback.pose,
+                        reverse,
+                        feedback.forward_velocity,
+                        config.limits.brake_latency,
+                    );
+                    let (wheels, ready) = controller.limit_step(desired, false, dt, options);
+                    (desired, wheels, ready, end.distance - observation.distance, false)
+                };
+                if phase_changed {
+                    best = f64::INFINITY;
+                    no_progress = Duration::ZERO;
+                }
+                if ready || objective < best - 0.002 {
+                    best = objective;
+                    no_progress = Duration::ZERO;
+                    tick.warnings.progress_reported = false;
+                } else {
+                    no_progress = no_progress.saturating_add(dt);
+                }
+                if no_progress >= config.timing.progress_timeout {
+                    tick.warnings.progress();
+                }
+                let complete = tick.arrived(ready);
+                log_row!(
+                    Trace,
+                    "PATH_TICK",
+                    "sample_ms={},nominal_progress_s={nominal_progress_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
+                    feedback.time.as_millis(),
+                    observation.distance,
+                    feedback.pose.position.x,
+                    feedback.pose.position.y,
+                    feedback.pose.heading.value,
+                    wheels[0],
+                    wheels[1],
+                    dt.as_micros(),
+                    requested[0],
+                    requested[1],
+                    feedback.forward_velocity.value,
+                    feedback.lateral_velocity.value,
+                    feedback.angular_velocity.value
+                );
+                Ok(ControlCommand {
+                    wheels,
+                    complete,
+                    brake: terminal && ready,
+                    emergency_brake: terminal && terminal_pose.is_braking(),
+                })
+            },
+            &mut |drive, wheels| drive.drive_wheels(wheels),
+        )
+        .await?;
+        actions
+            .advance(end.distance, 0.0, true)
+            .map_err(PoseMotionError::Mechanism)?;
+        log_event!(Info, "motion", "Trajectory: settled");
+        Ok(())
     }
 
     pub(super) async fn try_distance_reset(
@@ -539,6 +548,35 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         }
         result
     }
+}
+
+/// Fresh feedback and arrival state shared by every autonomous controller.
+struct ControlTick<'a> {
+    feedback: Feedback,
+    dt: Duration,
+    elapsed: Duration,
+    interrupted: bool,
+    warnings: &'a mut MotionWarnings,
+    settled: &'a mut Duration,
+    settle: Duration,
+}
+
+impl ControlTick<'_> {
+    fn arrived(&mut self, ready: bool) -> bool {
+        *self.settled = if ready {
+            self.settled.saturating_add(self.dt)
+        } else {
+            Duration::ZERO
+        };
+        ready && *self.settled >= self.settle
+    }
+}
+
+struct ControlCommand {
+    wheels: [f64; 2],
+    complete: bool,
+    brake: bool,
+    emergency_brake: bool,
 }
 
 impl<D: MotionExecution> Drop for PoseSession<'_, D> {
