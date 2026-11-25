@@ -276,3 +276,35 @@ fn swing_moves_only_the_outer_wheel() {
         assert!(wheels[usize::from(hold_left)] > 0.0);
     }
 }
+
+#[test]
+fn point_seeking_translates_while_correcting_moderate_heading_error() {
+    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let dt = Duration::from_millis(10);
+    for reverse in [false, true] {
+        let heading = if reverse { 225.0 } else { 45.0 };
+        let mut controller = DifferentialFeedback::default();
+        let (wheels, ready) = controller.step(
+            DifferentialTarget::DriveToPoint {
+                target: DVec2::new(0.0, 1.0),
+                reverse,
+                maximum_speed: options.maximum_wheel_speed,
+            },
+            Feedback {
+                time: dt,
+                pose: Pose::new(DVec2::ZERO, ozton_math::qty!((heading) deg)),
+                forward_travel: Length::ZERO,
+                forward_velocity: Velocity::ZERO,
+                lateral_velocity: Velocity::ZERO,
+                angular_velocity: AngularVelocity::ZERO,
+                ranges: [None; _],
+                reset_accepted: false,
+            },
+            dt,
+            options,
+        );
+        assert!(!ready);
+        assert!((wheels[0] + wheels[1]) * if reverse { -1.0 } else { 1.0 } > 0.0);
+        assert!(wheels[0] > wheels[1], "{wheels:?}");
+    }
+}
