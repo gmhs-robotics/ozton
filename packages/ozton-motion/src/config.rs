@@ -380,6 +380,15 @@ impl TerminalGuidance {
         k_beta: -1.0,
     };
 
+    pub const fn polar(controller: ozton_math::following::PolarPose) -> Self {
+        let (k_rho, k_alpha, k_beta) = controller.gains();
+        Self::Polar {
+            k_rho,
+            k_alpha,
+            k_beta,
+        }
+    }
+
     fn valid(self) -> bool {
         match self {
             Self::Point => true,
@@ -404,6 +413,8 @@ pub struct PathConfig {
     pub guidance: PathGuidance,
     pub terminal: TerminalGuidance,
     pub lookahead: Length,
+    /// Optional forward/yaw preview horizons; otherwise use the braking latency.
+    pub prediction_latency: Option<[Duration; 2]>,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
 }
@@ -419,6 +430,7 @@ impl PathConfig {
         guidance: PathGuidance::Tangent,
         terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
+        prediction_latency: None,
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
     };
 
@@ -441,6 +453,12 @@ impl PathConfig {
     #[must_use]
     pub const fn with_lookahead(mut self, value: Length) -> Self {
         self.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_prediction_latency(mut self, forward: Duration, yaw: Duration) -> Self {
+        self.prediction_latency = Some([forward, yaw]);
         self
     }
 

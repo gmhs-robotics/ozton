@@ -30,6 +30,7 @@ pub(crate) struct ProfiledFollower<'path> {
     lookahead: Length,
     yaw: Pid,
     guidance: Guidance,
+    prediction_latency: Option<[core::time::Duration; 2]>,
 }
 
 impl<'path> ProfiledFollower<'path> {
@@ -41,11 +42,19 @@ impl<'path> ProfiledFollower<'path> {
             lookahead,
             yaw,
             guidance: Guidance::Tangent,
+            prediction_latency: None,
         }
     }
 
+    #[cfg(test)]
     pub fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
         self.guidance = guidance.into();
+        self
+    }
+
+    pub fn with_config(mut self, config: crate::PathConfig) -> Self {
+        self.guidance = config.guidance.into();
+        self.prediction_latency = config.prediction_latency;
         self
     }
 
@@ -89,7 +98,8 @@ impl<'path> ProfiledFollower<'path> {
         // The path tangent supplies the nominal heading. Correct lateral
         // deviation over a speed-dependent spatial horizon without cutting
         // across the next curve to chase a point.
-        let reaction = brake_latency.as_secs_f64();
+        let [forward_delay, yaw_delay] = self.prediction_latency.unwrap_or([brake_latency; 2]);
+        let reaction = yaw_delay.as_secs_f64();
         let lookahead = self
             .lookahead
             .value
@@ -103,6 +113,37 @@ impl<'path> ProfiledFollower<'path> {
             translation: DVec2::new(measured_lateral.value, measured_speed.value) * reaction,
             heading: ozton_math::qty!((measured_yaw.value * reaction) rad),
         });
+        // Preview the profile by the distance travelled during actuator
+        // response. From rest, use the constant-acceleration launch distance
+        // instead of a fixed spatial offset. Keep the preview short of the
+        // terminal zero-speed sample until measured progress reaches it.
+        let horizon = forward_delay.as_secs_f64().max(dt.as_secs_f64());
+        let launch = 0.5 * limits.acceleration.value * horizon * horizon;
+        let preview = launch
+            .max(measured_speed.value.abs() * horizon)
+            .min(remaining * 0.5);
+        let speed = path
+            .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
+            .speed;
+        // The trajectory controllers receive signed body-frame errors. Spatial
+        // progress (rather than wall time) selects the reference, preventing
+        // runaway schedule error after localization corrections or saturation.
+        if matches!(self.guidance, Guidance::Ramsete(_) | Guidance::Lqr(_)) {
+            let local = predicted.to_local(reference.pose.position);
+            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
+            let velocity = if reverse { -speed } else { speed };
+            let yaw_rate = speed * reference.curvature;
+            let [linear, angular] = self
+                .guidance
+                .calculate([local.y, -local.x, heading], [velocity, yaw_rate])
+                .unwrap();
+            return wheel_speeds(
+                Velocity::new::<meter_per_second>(linear),
+                AngularVelocity::new::<radian_per_second>(angular),
+                limits.track_width,
+            )
+            .map(|speed| speed.value);
+        }
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
             Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => {
@@ -128,40 +169,6 @@ impl<'path> ProfiledFollower<'path> {
             }
         };
 
-        // Preview the profile by the distance travelled during actuator
-        // response. From rest, use the constant-acceleration launch distance
-        // instead of a fixed spatial offset. Keep the preview short of the
-        // terminal zero-speed sample until measured progress reaches it.
-        let horizon = reaction.max(dt.as_secs_f64());
-        let launch = 0.5 * limits.acceleration.value * horizon * horizon;
-        let preview = launch
-            .max(measured_speed.value.abs() * horizon)
-            .min(remaining * 0.5);
-        let speed = path
-            .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
-            .speed;
-        // The trajectory controllers receive signed body-frame errors. Spatial
-        // progress (rather than wall time) selects the reference, preventing
-        // runaway schedule error after localization corrections or saturation.
-        if matches!(
-            self.guidance,
-            Guidance::Ramsete(_) | Guidance::Lqr(_)
-        ) {
-            let local = predicted.to_local(reference.pose.position);
-            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
-            let velocity = if reverse { -speed } else { speed };
-            let yaw_rate = speed * reference.curvature;
-            let [linear, angular] = self
-                .guidance
-                .calculate([local.y, -local.x, heading], [velocity, yaw_rate])
-                .unwrap();
-            return wheel_speeds(
-                Velocity::new::<meter_per_second>(linear),
-                AngularVelocity::new::<radian_per_second>(angular),
-                limits.track_width,
-            )
-            .map(|speed| speed.value);
-        }
         // A valid pursuit arc already aligns the motion with the carrot.
         // Its curvature is constrained by the shared wheel/lateral limits.
         // Heading projection is needed only for heading-feedback recovery.

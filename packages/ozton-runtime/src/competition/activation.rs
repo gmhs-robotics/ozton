@@ -34,8 +34,7 @@ pub(crate) fn advance() {
 
 // Keep SD I/O out of route execution, not the entire autonomous mode.
 #[cfg(all(feature = "logging", target_os = "vexos"))]
-static ROUTE_RUNNING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static ROUTE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(all(feature = "logging", target_os = "vexos"))]
 pub(crate) fn route_running() -> bool {

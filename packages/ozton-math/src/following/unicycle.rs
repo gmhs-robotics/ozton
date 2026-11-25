@@ -71,7 +71,11 @@ impl Default for LtvLqr {
 impl LtvLqr {
     /// Diagonal positive Q and R cost weights in SI units.
     pub fn new(state: [f64; 3], input: [f64; 2]) -> Option<Self> {
-        if !state.into_iter().chain(input).all(|x| x.is_finite() && x > 0.0) {
+        if !state
+            .into_iter()
+            .chain(input)
+            .all(|x| x.is_finite() && x > 0.0)
+        {
             return None;
         }
         let [qx, qy, qt] = state;
@@ -82,7 +86,13 @@ impl LtvLqr {
         if ![kx, ky, heading_cost].into_iter().all(f64::is_finite) {
             return None;
         }
-        Some(Self { state, input, kx, ky, heading_cost })
+        Some(Self {
+            state,
+            input,
+            kx,
+            ky,
+            heading_cost,
+        })
     }
 
     pub const fn weights(self) -> ([f64; 3], [f64; 2]) {
@@ -94,10 +104,7 @@ impl LtvLqr {
         let [x, y, theta] = error;
         let [v, w] = reference;
         let kt = sqrt(self.heading_cost + 2.0 * v.abs() * self.ky);
-        [
-            v + self.kx * x,
-            w + v.signum() * self.ky * y + kt * theta,
-        ]
+        [v + self.kx * x, w + v.signum() * self.ky * y + kt * theta]
     }
 }
 
@@ -112,16 +119,28 @@ pub struct PolarPose {
 
 impl Default for PolarPose {
     fn default() -> Self {
-        Self { k_rho: 2.0, k_alpha: 4.0, k_beta: -1.0 }
+        Self {
+            k_rho: 2.0,
+            k_alpha: 4.0,
+            k_beta: -1.0,
+        }
     }
 }
 
 impl PolarPose {
     pub const fn new(k_rho: f64, k_alpha: f64, k_beta: f64) -> Option<Self> {
-        if k_rho.is_finite() && k_alpha.is_finite() && k_beta.is_finite()
-            && k_rho > 0.0 && k_alpha > k_rho && k_beta < 0.0
+        if k_rho.is_finite()
+            && k_alpha.is_finite()
+            && k_beta.is_finite()
+            && k_rho > 0.0
+            && k_alpha > k_rho
+            && k_beta < 0.0
         {
-            Some(Self { k_rho, k_alpha, k_beta })
+            Some(Self {
+                k_rho,
+                k_alpha,
+                k_beta,
+            })
         } else {
             None
         }
