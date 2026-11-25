@@ -7,16 +7,33 @@ use std::{
 };
 
 const INDEX: &str = "index.log";
+const BACKUP: &str = "index.bak";
 
-pub(super) fn open_log(directory: &Path) -> io::Result<(String, File)> {
-    let index = directory.join(INDEX);
-    let mut highest: u64 = match fs::read_to_string(&index) {
+fn read_counter(path: &Path) -> io::Result<Option<u64>> {
+    match fs::read_to_string(path) {
         Ok(value) => value
             .trim()
             .parse()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid SD log index"))?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
-        Err(error) => return Err(error),
+            .map(Some)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid SD log index")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn write_counter(path: &Path, highest: u64) -> io::Result<()> {
+    let mut counter = File::create(path)?;
+    writeln!(counter, "{highest}")?;
+    counter.sync_all()
+}
+
+pub(super) fn open_log(directory: &Path) -> io::Result<(String, File, Option<io::Error>)> {
+    let index = directory.join(INDEX);
+    let backup = directory.join(BACKUP);
+    let mut highest = match (read_counter(&index), read_counter(&backup)) {
+        (Ok(a), Ok(b)) => a.into_iter().chain(b).max().unwrap_or(0),
+        (Ok(Some(value)), Err(_)) | (Err(_), Ok(Some(value))) => value,
+        (Err(error), _) | (_, Err(error)) => return Err(error),
     };
     loop {
         highest = highest
@@ -25,7 +42,7 @@ pub(super) fn open_log(directory: &Path) -> io::Result<(String, File)> {
         let name = format!("{highest}.log");
         // VEXos checks create and create_new independently: create_new alone
         // rejects missing files. Set both, retaining the existing-file check.
-        let file = match OpenOptions::new()
+        let mut file = match OpenOptions::new()
             .write(true)
             .create(true)
             .create_new(true)
@@ -36,12 +53,16 @@ pub(super) fn open_log(directory: &Path) -> io::Result<(String, File)> {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         };
-        // Publish the reservation before recording any telemetry. A failed
-        // update leaves an empty numbered file, which is never overwritten.
-        let mut counter = File::create(&index)?;
-        writeln!(counter, "{highest}")?;
-        counter.sync_all()?;
-        return Ok((name, file));
+        // Persist the session before advancing either counter. A numbered
+        // file is never reused, even if publishing its reservation fails.
+        file.write_all(super::SESSION)?;
+        file.sync_all()?;
+        // Alternate through two independent copies so a torn update does
+        // not normally destroy the high-water mark. Index failure must not
+        // prevent recording to the already opened run.
+        let backup_result = write_counter(&backup, highest);
+        let index_result = write_counter(&index, highest);
+        return Ok((name, file, backup_result.and(index_result).err()));
     }
 }
 
@@ -78,17 +99,19 @@ mod tests {
     #[test]
     fn each_startup_allocates_a_new_file_even_after_deletion() {
         let dir = TempDir::new();
-        let (first, mut file) = open_log(&dir.0).unwrap();
+        let (first, mut file, error) = open_log(&dir.0).unwrap();
         assert_eq!(first, "1.log");
+        assert!(error.is_none());
+        assert_eq!(fs::read(dir.0.join(&first)).unwrap(), super::super::SESSION);
         file.write_all(b"first run").unwrap();
         drop(file);
-        let (second, file) = open_log(&dir.0).unwrap();
+        let (second, file, _) = open_log(&dir.0).unwrap();
         assert_eq!(second, "2.log");
         drop(file);
         fs::remove_file(dir.0.join(second)).unwrap();
-        let (third, _) = open_log(&dir.0).unwrap();
+        let (third, _, _) = open_log(&dir.0).unwrap();
         assert_eq!(third, "3.log");
-        assert_eq!(fs::read(dir.0.join(first)).unwrap(), b"first run");
+        assert_eq!(fs::read(dir.0.join(first)).unwrap(), [super::super::SESSION, b"first run"].concat());
         assert_eq!(fs::read_to_string(dir.0.join(INDEX)).unwrap(), "3\n");
     }
 
@@ -97,12 +120,23 @@ mod tests {
         let dir = TempDir::new();
         fs::write(dir.0.join(INDEX), "1\n").unwrap();
         fs::write(dir.0.join("2.log"), "previous run").unwrap();
-        let (name, _) = open_log(&dir.0).unwrap();
+        let (name, _, _) = open_log(&dir.0).unwrap();
         assert_eq!(name, "3.log");
         assert_eq!(
             fs::read_to_string(dir.0.join("2.log")).unwrap(),
             "previous run"
         );
+    }
+
+    #[test]
+    fn backup_recovers_a_torn_index_without_reusing_deleted_numbers() {
+        let dir = TempDir::new();
+        fs::write(dir.0.join(INDEX), "invalid").unwrap();
+        fs::write(dir.0.join(BACKUP), "7\n").unwrap();
+        let (name, _, error) = open_log(&dir.0).unwrap();
+        assert_eq!(name, "8.log");
+        assert!(error.is_none());
+        assert_eq!(fs::read_to_string(dir.0.join(INDEX)).unwrap(), "8\n");
     }
 
     #[test]

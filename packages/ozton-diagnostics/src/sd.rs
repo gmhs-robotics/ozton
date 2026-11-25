@@ -29,8 +29,7 @@ struct Pending {
     bytes: Vec<u8>,
     head: usize,
     dropped_rows: u64,
-    uncertain_bytes: usize,
-    session_started: bool,
+    session_bytes: usize,
     schemas: Vec<Stream>,
     row: String,
     schema: String,
@@ -47,8 +46,7 @@ static PENDING: Mutex<Pending> = Mutex::new(Pending {
     bytes: Vec::new(),
     head: 0,
     dropped_rows: 0,
-    uncertain_bytes: 0,
-    session_started: false,
+    session_bytes: 0,
     schemas: Vec::new(),
     row: String::new(),
     schema: String::new(),
@@ -99,7 +97,11 @@ pub fn enable_at_startup() -> Option<io::Result<String>> {
         return None;
     }
     pending.probed = true;
-    let result = open_log(std::path::Path::new("")).map(|(name, file)| {
+    let result = open_log(std::path::Path::new("")).map(|(name, file, index_error)| {
+        if let Some(error) = index_error {
+            eprintln!("SD index update failed for {name}: {error}; recording continues");
+        }
+        pending.session_bytes = SESSION.len();
         pending.file = Some(file);
         name
     });
@@ -175,16 +177,22 @@ pub fn flush_chunk(max_bytes: usize, sync: bool) -> io::Result<usize> {
         .map_err(|_| io::Error::other("SD log buffer unavailable"))?;
     #[cfg(target_os = "vexos")]
     if !enabled() {
-        return Ok(0);
+        return Err(io::Error::other("SD logging unavailable"));
     }
     if pending.queued_bytes() == 0 && !sync {
         return Ok(0);
     }
     let Some(mut file) = pending.file.take() else {
         // Startup is the only place where a run file is allocated.
-        return Ok(0);
+        return Err(io::Error::other("SD log not open"));
     };
-    let result = pending.write_chunk(&mut file, max_bytes, sync);
+    let result = pending.write_chunk(&mut file, max_bytes, false).and_then(|bytes| {
+        if sync {
+            file.sync_all()?;
+            pending.reset_streams();
+        }
+        Ok(bytes)
+    });
     // Keep the same handle on failure: never reopen an existing log.
     pending.file = Some(file);
     result
@@ -321,6 +329,23 @@ impl Pending {
         max_bytes: usize,
         sync: bool,
     ) -> io::Result<usize> {
+        // Stage a gap as a normal row so a partial write can resume at the
+        // exact byte offset without inserting metadata into a partial line.
+        if self.dropped_rows != 0 {
+            let start = self.bytes.len();
+            if writeln!(
+                BatchWriter(&mut self.bytes),
+                "DBG,SD_GAP,dropped_rows={},uncertain_bytes=0,level=WARN",
+                self.dropped_rows
+            )
+            .is_ok()
+            {
+                self.dropped_rows = 0;
+            } else {
+                self.bytes.truncate(start);
+            }
+        }
+        write_progress(file, SESSION, &mut self.session_bytes)?;
         let remaining = &self.bytes[self.head..];
         let len = if remaining.len() <= max_bytes {
             remaining.len()
@@ -336,37 +361,10 @@ impl Pending {
                         .map_or(remaining.len(), |i| i + 1)
                 })
         };
-        let result = (|| -> io::Result<()> {
-            if self.uncertain_bytes != 0 {
-                file.write_all(b"\n")?;
-            }
-            if !self.session_started {
-                file.write_all(SESSION)?;
-                self.session_started = true;
-            }
-            if self.dropped_rows != 0 || self.uncertain_bytes != 0 {
-                writeln!(
-                    file,
-                    "DBG,SD_GAP,dropped_rows={},uncertain_bytes={},level=WARN",
-                    self.dropped_rows, self.uncertain_bytes
-                )?;
-            }
-            file.write_all(&remaining[..len])?;
-            if sync {
-                file.flush()?;
-            }
-            Ok(())
-        })();
-        if let Err(error) = result {
-            self.uncertain_bytes = self.uncertain_bytes.saturating_add(self.queued_bytes());
-            self.bytes.clear();
-            self.head = 0;
-            self.reset_streams();
-            return Err(error);
-        }
-        self.dropped_rows = 0;
-        self.uncertain_bytes = 0;
-        self.head += len;
+        let end = self.head + len;
+        // Only advance the cursor for bytes the SDK actually accepted.
+        // Preserve all remaining data and delta history on failure.
+        write_progress(file, &self.bytes[..end], &mut self.head)?;
         if self.head == self.bytes.len() {
             self.bytes.clear();
             self.head = 0;
@@ -377,10 +375,26 @@ impl Pending {
             self.head = 0;
         }
         if sync {
+            file.flush()?;
             self.reset_streams();
         }
         Ok(len)
     }
+}
+
+/// Resume after short writes without discarding or duplicating accepted bytes.
+fn write_progress(file: &mut impl Write, bytes: &[u8], head: &mut usize) -> io::Result<()> {
+    while *head < bytes.len() {
+        match file.write(&bytes[*head..]) {
+            Ok(0) => {
+                return Err(io::Error::new(io::ErrorKind::WriteZero, "SD write made no progress"));
+            }
+            Ok(written) => *head += written,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 /// A bit identifies a changed field. No rounding or sample omission is used.
@@ -428,7 +442,7 @@ mod tests {
         pending.write(&mut output).unwrap();
         assert_eq!(
             String::from_utf8(output).unwrap(),
-            "DBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
+            "DBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,EVENT,t_ms=2,source=startup,message=boot,level=INFO\nDBG,SD_GAP,dropped_rows=3,uncertain_bytes=0,level=WARN\nDBG,EVENT,t_ms=4,source=startup,message=ready,level=INFO\n"
         );
     }
 
@@ -478,20 +492,31 @@ mod tests {
     }
 
     #[test]
-    fn failed_batch_does_not_create_a_second_session() {
+    fn failed_batch_retries_the_exact_unwritten_suffix() {
         let mut pending = Pending::default();
         pending.push(format_args!("DBG,TEST,t_ms=1,level=TRACE"));
-        let mut header = [0; SESSION.len()];
-        assert!(pending.write(header.as_mut_slice()).is_err());
-        let mut output = header.to_vec();
-        assert!(pending.uncertain_bytes > 0);
+        let expected_first = pending.bytes.clone();
+        let mut prefix = [0; SESSION.len() + 5];
+        assert!(pending.write(prefix.as_mut_slice()).is_err());
+        assert_eq!(pending.queued_bytes(), expected_first.len() - 5);
 
         pending.push(format_args!("DBG,TEST,t_ms=2,level=TRACE"));
+        let expected = [SESSION, pending.bytes.as_slice()].concat();
+        let mut output = prefix.to_vec();
         pending.write(&mut output).unwrap();
-        let output = String::from_utf8(output).unwrap();
-        assert_eq!(output.matches("DBG,SESSION").count(), 1);
-        assert!(output.contains("DBG,SD_GAP"));
-        assert!(output.contains("S,0,TEST,t_ms,level"));
-        assert!(output.contains("R,0,2,TRACE"));
+        assert_eq!(output, expected);
+        assert_eq!(pending.queued_bytes(), 0);
+    }
+
+    #[test]
+    fn partially_written_session_is_resumed() {
+        let mut pending = Pending::default();
+        pending.push(format_args!("DBG,TEST,t_ms=1,level=TRACE"));
+        let expected = [SESSION, pending.bytes.as_slice()].concat();
+        let mut prefix = [0; 5];
+        assert!(pending.write(prefix.as_mut_slice()).is_err());
+        let mut output = prefix.to_vec();
+        pending.write(&mut output).unwrap();
+        assert_eq!(output, expected);
     }
 }
