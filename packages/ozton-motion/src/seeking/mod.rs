@@ -3,6 +3,7 @@
 mod pose;
 pub use pose::{
     PathActions, PoseDrive, PoseMotionError, RangeResetDrive, StoppingGovernor, TravelDirection,
+    WallContact,
 };
 
 /// Reusable physical motion template for a calibrated drivetrain.
