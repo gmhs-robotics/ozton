@@ -110,7 +110,6 @@ impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
         }
         result
     }
-
 }
 
 impl<M: Drive + MotorGroups, T, L> Drivetrain<M, T, L> {
@@ -171,7 +170,9 @@ impl<T: HasDriveWheels, L> DriveEncoders for Drivetrain<Differential, T, L> {
         self.tracking().calibrated_drive().track_width()
     }
     fn tracking_positions(&mut self) -> [Option<Length>; 2] {
-        self.tracking_mut().calibrated_drive_mut().read_wheels()
+        self.tracking_mut()
+            .calibrated_drive_mut()
+            .read_wheels()
             .map(|sample| sample.map(|sample| sample.position))
     }
 }

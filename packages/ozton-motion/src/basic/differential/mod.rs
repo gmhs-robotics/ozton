@@ -43,10 +43,7 @@ impl DriveOptions {
         drive: &impl ozton_drivetrain::model::DriveEncoders,
         maximum_wheel_speed: Velocity,
     ) -> Option<Self> {
-        Some(Self::differential(
-            drive.track_width(),
-            maximum_wheel_speed,
-        ))
+        Some(Self::differential(drive.track_width(), maximum_wheel_speed))
     }
 
     /// Supply arrival tolerances, velocity tolerances, and required settle time.

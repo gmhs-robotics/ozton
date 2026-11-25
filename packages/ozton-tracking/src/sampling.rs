@@ -9,15 +9,15 @@ use ozton_math::{localization::observation::ObservationLayout, uom::si::f64::Len
 #[cfg(feature = "vex")]
 use vexide::time::LowResolutionTime;
 
-use crate::{
-    Observation, TrackingSystem,
-    range::{MAX_RANGES, RangeSensorConfig},
-};
 #[cfg(feature = "vex")]
 use crate::{
     HasDriveWheels, SourceAt,
     inertial::{InertialSensorTracking, Orientation},
     odometric::DifferentialTracking,
+};
+use crate::{
+    Observation, TrackingSystem,
+    range::{MAX_RANGES, RangeSensorConfig},
 };
 
 #[cfg(feature = "vex")]

@@ -285,7 +285,14 @@ mod tests {
             None,
             [0.0; 2]
         ));
-        assert!(safe_feedback(field, sample(0.549), config, [0.0; 3], None, [0.0; 2]));
+        assert!(safe_feedback(
+            field,
+            sample(0.549),
+            config,
+            [0.0; 3],
+            None,
+            [0.0; 2]
+        ));
         assert!(!safe_feedback(
             field,
             sample(0.549),
@@ -334,7 +341,14 @@ mod tests {
                 .with_yaw_braking(qty!(3 rad/s^2)),
         );
         let uncertainty = [0.1117, 0.0607, 0.0474];
-        assert!(safe_feedback(field, feedback, config, uncertainty, None, [0.0; 2]));
+        assert!(safe_feedback(
+            field,
+            feedback,
+            config,
+            uncertainty,
+            None,
+            [0.0; 2]
+        ));
         let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.60 m/s));
         let wheels = limit_wall_command(
             Some(field),
@@ -344,12 +358,20 @@ mod tests {
             config,
             uncertainty,
             None,
+            [0.0; 2],
         );
         assert!(wheels[1] > 0.04 && wheels[1] < 0.2);
         assert_eq!(wheels[0], -wheels[1]);
         // The same request near the physical boundary must still be rejected.
         feedback.pose.position.x = 0.85;
-        assert!(!safe_feedback(field, feedback, config, uncertainty, None, [0.0; 2]));
+        assert!(!safe_feedback(
+            field,
+            feedback,
+            config,
+            uncertainty,
+            None,
+            [0.0; 2]
+        ));
         assert_eq!(
             limit_wall_command(
                 Some(field),

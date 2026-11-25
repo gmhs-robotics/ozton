@@ -149,7 +149,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                     "command={status},source=tracking_initializing,elapsed_ms={}",
                     started.elapsed().as_millis()
                 );
-                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+                self.drive
+                    .emergency_brake()
+                    .map_err(PoseMotionError::StopFailed)?;
                 controller.reset();
                 settled = Duration::ZERO;
                 progress = Progress::default();
@@ -324,7 +326,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 return Err(PoseMotionError::StageTimeout);
             }
             let Some(feedback) = self.drive.pose_feedback().map_err(PoseMotionError::Drive)? else {
-                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+                self.drive
+                    .emergency_brake()
+                    .map_err(PoseMotionError::StopFailed)?;
                 controller.reset();
                 if fresh_at.elapsed() > self.config.timing.maximum_gap {
                     return Err(PoseMotionError::ControlGap);
@@ -454,7 +458,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             settled = if ready { settled + dt } else { Duration::ZERO };
             let complete = ready && settled >= self.options.settle;
             if terminal && terminal_pose.is_braking() {
-                self.drive.emergency_brake().map_err(PoseMotionError::StopFailed)?;
+                self.drive
+                    .emergency_brake()
+                    .map_err(PoseMotionError::StopFailed)?;
             } else if complete || (terminal && ready) {
                 self.drive.brake().map_err(PoseMotionError::StopFailed)?;
             } else {

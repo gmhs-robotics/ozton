@@ -32,9 +32,8 @@ pub mod prelude {
         },
         tracking::{
             DriveSource, HasDriveWheels, Measurement, MeasurementSink, NoTracking, ReadHeading,
-            ReadTilt, SourceAt, Tracking, TrackingSource,
-            TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity,
-            range::DistanceTracker,
+            ReadTilt, SourceAt, Tracking, TrackingSource, TracksForwardTravel, TracksHeading,
+            TracksPosition, TracksVelocity, range::DistanceTracker,
         },
     };
 }
