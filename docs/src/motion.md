@@ -4,11 +4,11 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Prepared paths use spatial Pure Pursuit with curvature-dependent physical velocity constraints.
+Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Prepared paths default to spatial tangent tracking with curvature-dependent physical velocity constraints. Pure pursuit, RAMSETE and gain-scheduled LQR are selectable alternatives.
 
 ## A first closed-loop move
 
-PoseDrive requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. A footprint-equipped drivetrain implements PoseDrive only when its localization carries a validated FieldBoundary. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
+MotionExecution requires calibrated drive encoders and an explicit geometry policy. A normal Differential model supports manual drive; call `.with_footprint(footprint)` to obtain a field-bounded model, or `.with_unbounded_motion()` to deliberately operate without clearance checking. A footprint-equipped drivetrain implements MotionExecution only when its localization carries a validated FieldBoundary. Once the localized drive has a registered starting pose, call the following from your autonomous callback:
 
 ```rust
 use ozton::{qty, position_xyh, motion::{Seeking, SettlingConfig}};
@@ -68,7 +68,14 @@ A command finishes when the applicable error and velocity tolerances remain sati
 
 ## Following a prepared path
 
-Build a Path on the host from waypoints and physical limits in ozton::math::path, then embed its samples and load with Path::from_precomputed. Use Seeking::follow_path for spatial Pure Pursuit, or follow_with_actions for the same follower with mechanism callbacks. The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+Build a `Path` on the host with the robot's physical limits, then embed the samples and `limits.as_array()`. Use `Seeking::prepare_path` to validate that the generated limits match the live calibration and `Seeking::follow` to execute it. `follow_with_actions` adds nonblocking mechanism callbacks. The final stage settles against pose feedback.
+
+```rust,ignore
+let path = motion.prepare_path(&drivetrain, SAMPLES, GENERATED_LIMITS)?;
+motion.follow(&mut drivetrain, &path).await?;
+```
+
+Select a controller once with `Seeking::with_guidance(PathGuidance::PurePursuit)` or `PathGuidance::ramsete(Ramsete::default())`. `LtvLqr` is a continuous-time straight-reference gain-scheduled approximation, not a full discrete curved-reference LTV controller. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
 ## Wheel-constrained trajectories
@@ -84,64 +91,29 @@ limit. When unspecified, path construction uses the nominal linear acceleration.
 The live controller also constrains feedback wheel slew when explicitly configured.
 
 The reference follows measured geometric progress, not elapsed time. Host-profile timing remains a nominal estimate for mechanism actions.
-The same terminal pose controller handles convergence for both followers. Use
-PathConfig::with_maximum_cross_track_error to set the allowed tracking deviation.
+The terminal controller handles convergence for all followers. Use
+PathConfig::with_maximum_cross_track_error to set a diagnostic warning threshold. It does not abort the path.
 
-## Predictive stopping and wall approach
+## Braking and field clearance
 
-The hard boundary is checked against the entire chassis and its reachable
-braking sweep. The reaction interval combines maximum control gap and brake
-latency. The command governor adds preview and scales both wheel requests
-together. It bounds each signed rate using measured and requested velocities,
-including the preceding applied command while it may still be in flight and
-estimated rate uncertainty. With a characterized maximum physical
-acceleration, integrate the acceleration ramp during the reaction interval;
-otherwise conservatively allow an immediate transition to the larger rate.
-After reaction, integrate braking using the minimum physical deceleration.
-
-Signed yaw intervals determine the extreme projections of chassis corners
-and independent forward/lateral travel. XY covariance from the active EKF
-or MCL expands the projected bounds by the configured sigma multiplier.
-Odometry-only or custom estimators without covariance use the configured
-clearance margin, not invented covariance. Test the resulting AABB against
-the physical perimeter and hard obstacles. The configured clearance is also a
-preferred motion reserve at the wall. When the nominal chassis fits within
-that reserve, its predictive stopping envelope may consume the reserve as long
-as it remains within the physical wall and clears hard obstacles. When the
-nominal chassis already occupies the reserve, recovery may leave the deficit
-unchanged or reduce it, and corner velocity checks forbid further outward
-motion. The uncertainty-expanded envelope must fit inside the physical perimeter
-in ordinary operation. For a physically surveyed flush starting pose, register
-`set_pose_at_contact` and use `drive_distance_from_contact`. The estimator
-conditions its prior on the contacted wall, and the governor permits only
-inward or tangential motion that does not worsen the existing envelope overlap
-at that wall. Normal clearance and unconstrained prediction resume when the
-ordinary stopping envelope fits. This requires actual wall contact and a
-surveyed tangential placement uncertainty; it is not a general collision
-recovery mechanism. Other walls and virtual exclusion zones retain their full
-hard-obstacle checks.
+Prepared paths are checked against the oriented footprint and field before
+execution. Include surveyed movable obstacles using
+`ClearanceConfig::with_movable_obstacles(true)` if they must be part of this
+preflight check. This is not an online collision-avoidance planner or a
+predictive wall governor. Runtime feedback is constrained by the configured
+wheel speeds, acceleration and lateral acceleration limits.
 
 Interrupted motions, terminal capture and feedback faults request explicit
-motor electrical braking rather than the normal resting coast. The VEX
-adapter selects `BrakeMode::Brake` on every drive motor, including after an
-individual motor reports a fault. A zero-RPM velocity target selects Coast
-in vexide and is not equivalent to this braking command. Calibrate the active
-response separately from coast.
-
-These bounds are conditional on the physical model. In particular, command
-overshoot, slip, battery variation, sensor bias and underestimated covariance
-can invalidate the assumed rate and error intervals. Do not treat a covariance
-ellipse as a deterministic containment guarantee. Characterize forward/yaw
-acceleration bounds, braking, latency and lateral stopping with physical tests.
-Configure these independently of the nominal trajectory limits.
+motor electrical braking rather than normal resting coast. A zero-RPM
+velocity target is not equivalent to this braking command. Characterize the
+active response, actuator latency and traction on the physical robot.
 
 ## Authored routes
 
 No command searches for another geometric route. Direct feedback follows the selected target; prepared trajectories preserve the supplied curve and speed profile. A clearance failure is reported rather than retried as a different maneuver. Choose explicit straight poses when stationary turns are required, and build a single continuous PathChain or authored curve on the host when uninterrupted motion is required.
 
-The command slew limiter records the wheel targets actually sent after wall
-governance. Releasing a safety limit therefore resumes from the constrained
-speed rather than the unconstrained internal target.
+The command slew limiter records the applied wheel targets so subsequent
+commands begin from the previous constrained output.
 
 ## Optional breakaway compensation
 
@@ -150,8 +122,7 @@ measured breakaway rates; zero (default) disables them. The controller only
 raises a nonzero error-reducing command when its measured axis is nearly at
 rest and outside the arrival tolerance. Compensation is capped by the PID and
 route limits and by the stopping speed obtained from d = v*T + v^2/(2*a),
-where d is the remaining error outside the arrival band. Slew, curvature
-desaturation and wall governance still apply afterward. Inside the arrival
+where d is the remaining error outside the arrival band. Slew and curvature desaturation still apply afterward. Inside the arrival
 band, during braking, or when the safety governor requires it, the output can
 be below the configured minimum or zero. Profiled path tracking is unchanged
 until terminal feedback takes over. Characterize linear and rotational

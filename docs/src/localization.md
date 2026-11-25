@@ -8,26 +8,35 @@ Create the motor groups once with shared_motors!, then use Differential::from_sh
 
 Distance trackers already carry a default acceptance gate, zero bias and 25 mm measurement noise. All localization roles are enabled by default. Restrict an individual sensor with `.with_roles(RangeRoles::DSR)` or combine roles with `.union(...)`; use `RangeRoles::NONE` for relative feedback without localization corrections. Construct them directly with `DistanceTracker::at_mount(sensor, mount)`; add `.with_bias(...)`, `.with_sigma(...)` or `.with_gate(...)` on that tracker only when calibration requires it.
 
-Pass a heterogeneous tuple of mounted sources to `Tracking::new`. This fragment assumes you have already constructed the devices, selected your field and calibrated the geometry:
+Use the role-based tracking builder to assemble mounted sources. This fragment assumes the devices, field and calibrated geometry are already available:
 
 ```rust
 use ozton::{
     drivetrain::Drivetrain,
-    localization::LocalizationBuilder,
+    localization::Localization,
     tracking::Tracking,
 };
 
-let tracking = Tracking::new((drive_encoders, lateral_wheel, imu, front_range)).await?;
-let localization = LocalizationBuilder::new()
+let tracking = Tracking::builder()
+    .with_drive(drive_encoders)
+    .with_extra((lateral_wheel,))
+    .with_orientation(imu)
+    .with_ranges([front_range])
+    .build()
+    .await?;
+let localization = Localization::builder()
     .with_field(field)
     .build(&tracking)
     .expect("check tracking geometry");
-let drivetrain = Drivetrain::new(model.with_footprint(footprint), tracking, localization);
+let drivetrain = Drivetrain::builder(model.with_footprint(footprint))
+    .with_tracking(tracking)
+    .with_localization(localization)
+    .build();
 ```
 
-The source types automatically determine the tracking capabilities, regardless of tuple order. A calibrated differential encoder source grants `HasDriveWheels`; an orientation source grants `ReadHeading` or `ReadTilt` when it implements the corresponding interface; at least one statically declared range source grants `HasRange`. No sensor indices are needed in application code. Custom sources declare their interfaces with `TrackingSource::Capabilities`. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time; geometry is validated during assembly. Named source groups remain available when explicit role selection or a range array is useful.
+The source types automatically determine the tracking capabilities, regardless of tuple order. A calibrated differential encoder source grants `HasDriveWheels`; an orientation source grants `ReadHeading` or `ReadTilt` when it implements the corresponding interface; at least one statically declared range source grants `HasRange`. No sensor indices are needed in application code. Custom sources declare their interfaces with `TrackingSource::Capabilities`. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time; geometry is validated during assembly. The tuple constructor `Tracking::new` is also available. Named roles make the selected drive and orientation explicit.
 
-The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Pass the assembled tracking configuration directly to `LocalizationBuilder::build`. Odometry is the default; selecting MCL or EKF with `with_estimator` adds a compile-time range capability requirement and a startup check for visible mapped surfaces. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
+The fragment is not a complete robot; field, model, footprint and sensor objects are your measured hardware. Pass the assembled tracking configuration directly to the localization builder's `build` method. Odometry is the default; selecting MCL or EKF with `with_estimator` adds a compile-time range capability requirement and a startup check for visible mapped surfaces. For a holonomic chassis, use mounted wheel projections and disable differential drive encoders when they are not appropriate.
 
 ## Survey a displaced rotation center
 
