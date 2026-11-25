@@ -232,17 +232,34 @@ impl LatticePlanner {
         }
         steps.reverse();
         steps.extend(tail);
-        // Consecutive straight lattice edges share the exact heading; merge
-        // them so the executor does not stop at each grid cell.
+        // Merge straight edges and consecutive rotations when the direct
+        // swept rotation is clear. Neither operation changes the endpoint.
         let mut merged = Vec::new();
+        let mut current = start;
+        let mut turn_start = None;
         for step in steps {
-            if let LatticeStep::Translate { target, reverse } = step {
-                if let Some(LatticeStep::Translate {
-                    target: previous,
-                    reverse: old,
-                }) = merged.last_mut()
-                {
-                    if *old == reverse {
+            match step {
+                LatticeStep::Turn(heading) => {
+                    if let Some(origin) = turn_start
+                        && let Some(LatticeStep::Turn(previous)) = merged.last_mut()
+                        && can_turn(origin, heading)
+                    {
+                        *previous = heading;
+                        current.heading = heading;
+                        continue;
+                    }
+                    turn_start = Some(current);
+                    current.heading = heading;
+                }
+                LatticeStep::Translate { target, reverse } => {
+                    turn_start = None;
+                    current.position = target;
+                    if let Some(LatticeStep::Translate {
+                        target: previous,
+                        reverse: old,
+                    }) = merged.last_mut()
+                        && *old == reverse
+                    {
                         *previous = target;
                         continue;
                     }
