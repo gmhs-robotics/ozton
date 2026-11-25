@@ -1,9 +1,10 @@
 //! Hardware-independent drive assistance contract.
 use std::time::Duration;
 
-use ozton_math::desaturate;
+use crate::model::Drive;
 
-use crate::model::{Balancing, Drive};
+mod balance;
+pub use balance::MotorBalanceAssist;
 
 /// Observations and estimates borrowed from the drive for a single command.
 pub struct AssistContext<'a, M, T, L> {
@@ -31,21 +32,6 @@ pub trait DriveAssist<M: Drive, T, L> {
 }
 
 impl<M: Drive, T, L> DriveAssist<M, T, L> for () {}
-
-/// Use the drivetrain model's motor-loss policy before writing outputs.
-#[derive(Clone, Copy, Default)]
-pub struct MotorBalanceAssist;
-
-impl<M: Balancing, T, L> DriveAssist<M, T, L> for MotorBalanceAssist {
-    fn wheels(
-        &mut self,
-        context: &AssistContext<'_, M, T, L>,
-        wheels: &mut [f64; 2],
-    ) -> Result<(), M::Error> {
-        *wheels = desaturate(*wheels, 1.0);
-        context.model.balance(wheels)
-    }
-}
 
 macro_rules! tuple_assists {
     ($($index:tt : $assist:ident),+ $(,)?) => {

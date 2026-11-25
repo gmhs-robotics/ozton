@@ -1,4 +1,4 @@
-//! VEX adapter for the generic pose-drive interface.
+//! Motion integration for a tracked drivetrain.
 #[cfg(feature = "logging")]
 use std::time::Duration;
 use std::time::Instant;

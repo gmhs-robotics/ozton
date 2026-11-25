@@ -14,17 +14,15 @@ pub use pose::DriveMotionFault;
 pub use pose::{PoseDrive, RangeResetDrive};
 
 #[cfg(feature = "vex")]
-mod vex;
-#[cfg(feature = "vex")]
-mod wheels;
+mod drivetrain;
 #[cfg(feature = "vex")]
 pub use ozton_tracking::odometric::{DriveConfigError, SharedMotors, WheelGearing};
 #[cfg(feature = "vex")]
-pub(crate) use vex::normalized_voltage;
+pub(crate) use model::actuation::normalized_voltage;
 #[cfg(feature = "vex")]
-pub use vex::{Drivetrain, MotorGroups};
+pub use drivetrain::{Drivetrain, MotorGroups};
 #[cfg(feature = "vex")]
-pub use wheels::WheelSpeedError;
+pub use model::actuation::WheelSpeedError;
 
 /// The localization estimate exposed by a drive.
 pub trait HasLocalization {

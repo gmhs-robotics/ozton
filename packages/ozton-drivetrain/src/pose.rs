@@ -14,9 +14,9 @@ use ozton_math::{
 use crate::model::DriveEncoders;
 
 #[cfg(feature = "vex")]
-mod vex;
+mod integration;
 #[cfg(feature = "vex")]
-pub use vex::DriveMotionFault;
+pub use integration::DriveMotionFault;
 
 /// Wheel-speed output, live tracking, and field geometry for pose seeking.
 pub trait PoseDrive: DriveEncoders {

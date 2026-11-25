@@ -62,7 +62,7 @@ impl BrakeMotors for Mecanum {
         &mut self,
         select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
     ) -> Result<(), Self::BrakeError> {
-        crate::vex::brake_groups(&mut self.motors, select)
+        crate::model::actuation::brake_groups(&mut self.motors, select)
     }
 }
 

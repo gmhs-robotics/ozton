@@ -1,4 +1,4 @@
-//! VEX drivetrain actuation and tracking integration.
+//! Drivetrain wrapper for a model, tracking sources, and localization.
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     rc::Rc,
@@ -14,13 +14,15 @@ use vexide::{
     prelude::Motor,
     smart::{PortError, motor::BrakeMode},
 };
-use wheels::WheelSpeedError;
 
 use super::{
     BrakeMotors, Drive, Footprint, HasBraking, HasLocalization, LateralDrive, MotorAddress,
-    WheelActuation, WheelCommand, wheels,
+    WheelActuation, WheelCommand,
 };
-use crate::model::{Differential, MotionGeometry};
+use crate::model::{
+    Differential, MotionGeometry,
+    actuation::{WheelSpeedError, coast, command_groups, drive_commands},
+};
 
 mod device;
 
@@ -110,7 +112,7 @@ impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
     pub fn command_wheels(&mut self, commands: [WheelCommand; 2]) -> Result<(), WheelSpeedError> {
         let groups = self.model.motor_groups_mut();
         let state = self.state.borrow();
-        let result = wheels::drive_commands(state.0.calibrated_drive().wheels(), groups, &commands);
+        let result = drive_commands(state.0.calibrated_drive().wheels(), groups, &commands);
         if matches!(result, Err(WheelSpeedError::InvalidCommand)) {
             let _ = coast(groups);
         }
@@ -134,22 +136,6 @@ impl HasBraking for Motor {
     fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
         self.brake(mode.into())
     }
-}
-
-/// Apply selective stops without duplicating the iteration in each model.
-pub(crate) fn brake_groups(
-    groups: &mut [SharedMotors],
-    mut select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
-) -> Result<(), PortError> {
-    let mut result = Ok(());
-    for (group, motors) in groups.iter_mut().enumerate() {
-        for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
-            if let Some(mode) = select(MotorAddress { group, motor }) {
-                result = result.and(device.apply_brake(mode));
-            }
-        }
-    }
-    result
 }
 
 impl<M: Drive + HasBraking, T, L> HasBraking for Drivetrain<M, T, L> {
@@ -269,53 +255,3 @@ impl<M: Drive, T, L> Drive for Drivetrain<M, T, L> {
 }
 
 impl<M: LateralDrive, T, L> LateralDrive for Drivetrain<M, T, L> {}
-
-pub(crate) fn normalized_voltage<const N: usize>(
-    groups: &mut [SharedMotors; N],
-    powers: [f64; N],
-) -> Result<(), PortError> {
-    if powers.iter().any(|power| !power.is_finite()) {
-        return coast(groups);
-    }
-    command_groups(
-        groups.iter_mut().zip(ozton_math::desaturate(powers, 1.0)),
-        |motor, power| {
-            if power == 0.0 {
-                motor.brake(BrakeMode::Coast)
-            } else {
-                motor.set_voltage(power * motor.max_voltage())
-            }
-        },
-    )
-}
-
-fn command_groups<'a, T: Copy>(
-    groups: impl IntoIterator<Item = (&'a mut SharedMotors, T)>,
-    mut command: impl FnMut(&mut Motor, T) -> Result<(), PortError>,
-) -> Result<(), PortError> {
-    let mut result = Ok(());
-    for (group, input) in groups {
-        result = result.and(each_motor(&mut group.borrow_mut(), |motor| {
-            command(motor, input)
-        }));
-    }
-    result
-}
-
-pub(crate) fn each_motor(
-    motors: &mut [Motor],
-    mut command: impl FnMut(&mut Motor) -> Result<(), PortError>,
-) -> Result<(), PortError> {
-    // Every motor must receive the command, including after an earlier failure.
-    let mut result = Ok(());
-    for motor in motors {
-        result = result.and(command(motor));
-    }
-    result
-}
-
-pub(crate) fn coast(groups: &mut [SharedMotors]) -> Result<(), PortError> {
-    command_groups(groups.iter_mut().zip(std::iter::repeat(())), |motor, ()| {
-        motor.brake(BrakeMode::Coast)
-    })
-}

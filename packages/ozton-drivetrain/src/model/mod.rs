@@ -7,6 +7,8 @@ use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
 #[cfg(feature = "vex")]
+pub(crate) mod actuation;
+#[cfg(feature = "vex")]
 mod differential;
 #[cfg(feature = "vex")]
 mod mecanum;

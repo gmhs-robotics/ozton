@@ -16,8 +16,6 @@ pub struct Differential<G = ()> {
 }
 
 impl Differential {
-    pub const MAX_V5_VOLTAGE: f64 = Motor::V5_MAX_VOLTAGE;
-
     pub fn new(
         left: impl IntoIterator<Item = Motor>,
         right: impl IntoIterator<Item = Motor>,
@@ -98,7 +96,7 @@ impl<G> BrakeMotors for Differential<G> {
         &mut self,
         select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
     ) -> Result<(), Self::BrakeError> {
-        crate::vex::brake_groups(&mut self.sides, select)
+        crate::model::actuation::brake_groups(&mut self.sides, select)
     }
 }
 
