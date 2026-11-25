@@ -19,6 +19,11 @@ pub trait OztonCompete: Sized + 'static {
     /// A direct enabled-mode handoff does not call this hook.
     fn stop(&mut self) -> Result<(), Self::Error>;
 
+    /// Stop after a control fault. Robots with active braking should override this.
+    fn fault_stop(&mut self) -> Result<(), Self::Error> {
+        self.stop()
+    }
+
     const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[];
 
     /// Create the localization worker once, after hardware initialization.
