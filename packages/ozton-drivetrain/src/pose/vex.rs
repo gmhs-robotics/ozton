@@ -100,18 +100,15 @@ where
     }
 
     fn emergency_brake(&mut self) -> Result<(), Self::Error> {
-        // The characterized native zero-speed response is active, unlike
-        // the model's normal zero-voltage coast. On an output fault, try
-        // electrical braking on every motor before reporting the failure.
-        let result = self.drive_wheel_speeds([ozton_math::qty!(0 m/s); 2]);
-        if result.is_err() {
-            for group in self.model.motor_groups() {
-                let _ = crate::vex::each_motor(&mut group.borrow_mut(), |motor| {
-                    motor.brake(vexide::smart::motor::BrakeMode::Brake)
-                });
-            }
+        // VEX velocity targets select Coast, even at zero RPM. Explicitly
+        // request electrical braking on every motor, including after a fault.
+        let mut result = Ok(());
+        for group in self.model.motor_groups() {
+            result = result.and(crate::vex::each_motor(&mut group.borrow_mut(), |motor| {
+                motor.brake(vexide::smart::motor::BrakeMode::Brake)
+            }));
         }
-        result.map_err(Into::into)
+        result.map_err(DriveMotionFault::Brake)
     }
 
     fn wall_contact(&self) -> Option<WallContact> {
