@@ -43,17 +43,27 @@ impl TerminalPose {
             .value
             .abs();
         let inside = distance <= options.position_tolerance.value;
+        let slow = feedback.forward_velocity.value.powi(2)
+            + feedback.lateral_velocity.value.powi(2)
+            <= options.speed_tolerance.value.powi(2)
+            && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let mut changed = false;
+        // An already settled pose needs only the caller's arrival dwell.
+        if matches!(self.phase, Phase::Approach)
+            && inside
+            && slow
+            && heading_error <= options.heading_tolerance.value
+        {
+            self.phase = Phase::Heading;
+            controller.reset();
+            return ([0.0; 2], true, distance, true);
+        }
         if matches!(self.phase, Phase::Approach) && inside {
             self.phase = Phase::Brake(Duration::ZERO);
             controller.reset();
             changed = true;
         }
         if let Phase::Brake(ref mut stationary) = self.phase {
-            let slow = feedback.forward_velocity.value.powi(2)
-                + feedback.lateral_velocity.value.powi(2)
-                <= options.speed_tolerance.value.powi(2)
-                && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
             *stationary = if slow {
                 stationary.saturating_add(dt)
             } else {
@@ -112,6 +122,35 @@ impl TerminalPose {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn already_settled_pose_does_not_require_a_second_dwell() {
+        let options =
+            DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+        let tick = Duration::from_millis(10);
+        let mut terminal = TerminalPose::default();
+        let mut controller = DifferentialFeedback::default();
+        let (wheels, ready, _, _) = terminal.step(
+            &mut controller,
+            Pose::default(),
+            false,
+            Feedback {
+                time: tick,
+                pose: Pose::default(),
+                forward_travel: Length::ZERO,
+                forward_velocity: Velocity::ZERO,
+                lateral_velocity: Velocity::ZERO,
+                angular_velocity: AngularVelocity::ZERO,
+                ranges: [None; _],
+                reset_accepted: false,
+            },
+            tick,
+            options,
+        );
+        assert!(ready);
+        assert_eq!(wheels, [0.0; 2]);
+        assert!(!terminal.is_braking());
+    }
 
     #[test]
     fn final_heading_does_not_chase_bearing_when_position_drifts() {
