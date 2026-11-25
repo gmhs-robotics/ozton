@@ -41,6 +41,18 @@ impl PathChain {
     }
 
     pub fn build(self, limits: Limits) -> Result<Path, PathError> {
+        super::complete_ready(self.build_cooperative(limits, async || true))
+    }
+
+    /// Generate and parameterize a chain with bounded cancellation checkpoints.
+    pub async fn build_cooperative<F>(
+        self,
+        limits: Limits,
+        mut checkpoint: F,
+    ) -> Result<Path, PathError>
+    where
+        F: core::ops::AsyncFnMut() -> bool,
+    {
         if self.knots.len() < 2 {
             return Err(PathError::TooFewPoints);
         }
@@ -82,6 +94,9 @@ impl PathChain {
                 return Err(PathError::TooManyPoints);
             }
             for j in 0..segments {
+                if j % 32 == 0 && !checkpoint().await {
+                    return Err(PathError::Cancelled);
+                }
                 let t = j as f64 / segments as f64;
                 let t2 = t * t;
                 let t3 = t2 * t;
@@ -105,7 +120,7 @@ impl PathChain {
         }
         let (end, speed) = self.knots[self.knots.len() - 1];
         points.push(Waypoint::new(end.position, speed));
-        Path::new(&points, limits)
+        Path::new_cooperative(&points, limits, checkpoint).await
     }
 }
 
