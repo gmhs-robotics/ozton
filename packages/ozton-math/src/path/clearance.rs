@@ -50,6 +50,7 @@ pub struct WallContactConstraint {
     wall: WallContact,
     footprint: Footprint,
     plane: f64,
+    tangential_sigma: Length,
 }
 
 impl WallContactConstraint {
@@ -58,7 +59,11 @@ impl WallContactConstraint {
         footprint: Footprint,
         half_extents: DVec2,
         pose: Pose,
+        tangential_sigma: Length,
     ) -> Option<Self> {
+        if !tangential_sigma.value.is_finite() || tangential_sigma.value < 0.0 {
+            return None;
+        }
         let field = RectangularClearance::new(footprint, half_extents, Length::default())?;
         let right = rotation(pose.heading);
         // A corner touching a wall is not evidence of flush alignment.
@@ -69,11 +74,16 @@ impl WallContactConstraint {
             wall,
             footprint,
             plane: -half_extents[wall.axis()],
+            tangential_sigma,
         })
     }
 
     pub const fn wall(self) -> WallContact {
         self.wall
+    }
+
+    pub const fn tangential_sigma(self) -> Length {
+        self.tangential_sigma
     }
 
     /// Orthogonal projection onto the physically feasible half-space at the
