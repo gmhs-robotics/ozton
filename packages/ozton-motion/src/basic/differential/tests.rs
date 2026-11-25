@@ -213,3 +213,36 @@ fn minimum_speed_does_not_prevent_terminal_settling() {
     assert!(ready);
     assert_eq!(wheels, [0.0; 2]);
 }
+
+#[test]
+fn boomerang_steers_toward_carrot_and_settles_at_pose() {
+    let options =
+        DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let dt = Duration::from_millis(10);
+    let target = Pose::new(DVec2::new(0.4, 0.6), ozton_math::qty!(-90 deg));
+    let command = DifferentialTarget::DriveToPose {
+        target,
+        reverse: false,
+        maximum_speed: options.maximum_wheel_speed,
+    };
+    let feedback = |pose| Feedback {
+        time: dt,
+        pose,
+        forward_travel: Length::ZERO,
+        forward_velocity: Velocity::ZERO,
+        lateral_velocity: Velocity::ZERO,
+        angular_velocity: AngularVelocity::ZERO,
+        ranges: [None; _],
+        reset_accepted: false,
+    };
+    let mut controller = DifferentialFeedback::default();
+    let (wheels, ready) = controller.step(command, feedback(Pose::default()), dt, options);
+    assert!(!ready);
+    assert!(wheels[0] > wheels[1], "{wheels:?}");
+    assert!(wheels[0] + wheels[1] > 0.0);
+
+    let mut controller = DifferentialFeedback::default();
+    let (wheels, ready) = controller.step(command, feedback(target), dt, options);
+    assert!(ready);
+    assert_eq!(wheels, [0.0; 2]);
+}
