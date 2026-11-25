@@ -13,6 +13,35 @@ use crate::{
     localization::range::Surface,
 };
 
+/// A surveyed physical wall. The caller must verify contact with the wall;
+/// virtual exclusions and inferred near-wall poses are not contact observations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WallContact {
+    Left,
+    Right,
+    Rear,
+    Front,
+}
+
+impl WallContact {
+    pub const fn axis(self) -> usize {
+        match self {
+            Self::Left | Self::Right => 0,
+            Self::Rear | Self::Front => 1,
+        }
+    }
+
+    /// Unit inward normal of the contacted wall.
+    pub const fn inward(self) -> DVec2 {
+        match self {
+            Self::Left => DVec2::X,
+            Self::Right => DVec2::NEG_X,
+            Self::Rear => DVec2::Y,
+            Self::Front => DVec2::NEG_Y,
+        }
+    }
+}
+
 /// A rectangular horizontal envelope measured from the center of rotation.
 #[derive(Clone, Copy, Debug)]
 pub struct Footprint {
