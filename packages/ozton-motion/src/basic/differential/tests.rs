@@ -216,8 +216,7 @@ fn minimum_speed_does_not_prevent_terminal_settling() {
 
 #[test]
 fn boomerang_steers_toward_carrot_and_settles_at_pose() {
-    let options =
-        DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
+    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
     let dt = Duration::from_millis(10);
     let target = Pose::new(DVec2::new(0.7, 0.4), ozton_math::qty!(-90 deg));
     let command = DifferentialTarget::DriveToPose {
