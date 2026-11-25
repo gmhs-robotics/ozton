@@ -98,6 +98,10 @@ pub enum DifferentialTarget {
     TurnToPoint {
         target: DVec2,
     },
+    Swing {
+        heading: Angle,
+        hold_left: bool,
+    },
     DriveToPoint {
         target: DVec2,
         reverse: bool,
@@ -275,6 +279,36 @@ impl DifferentialFeedback {
                     ),
                     ready && slow,
                 )
+            }
+            DifferentialTarget::Swing { heading, hold_left } => {
+                let error = error_at(*heading);
+                let ready = error.abs() <= options.heading_tolerance.value && slow;
+                let rate = if ready { 0.0 } else { angular(&mut self.pid, error) };
+                let active = usize::from(*hold_left);
+                let sign = if *hold_left { 1.0 } else { -1.0 };
+                let width = options.track_width.value;
+                let speed = (rate * width * sign).clamp(
+                    -options.maximum_wheel_speed.value,
+                    options.maximum_wheel_speed.value,
+                );
+                let previous = self.last_wheels[active];
+                let accelerating = previous == 0.0
+                    || (speed.signum() == previous.signum() && speed.abs() > previous.abs());
+                let limit = if accelerating {
+                    (2.0 * config.limits.acceleration.value)
+                        .min(width * config.limits.angular_acceleration.value)
+                } else {
+                    (2.0 * config.limits.deceleration.value)
+                        .min(width * config.limits.angular_deceleration.value)
+                }
+                .min(config.limits.wheel_acceleration.map_or(f64::INFINITY, |v| v.value));
+                let step = limit * dt.as_secs_f64();
+                let mut wheels = [0.0; 2];
+                if !ready {
+                    wheels[active] = previous + (speed - previous).clamp(-step, step);
+                }
+                self.last_wheels = wheels;
+                return (wheels, ready);
             }
             DifferentialTarget::TurnToPoint { target } => {
                 let delta = *target - feedback.pose.position;
