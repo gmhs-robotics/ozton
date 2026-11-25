@@ -1,6 +1,8 @@
 //! Physical-velocity feedback seeking.
 
+mod chassis;
 mod pose;
+pub use chassis::Chassis;
 pub use pose::{
     BrakeMode, MotionExecution, PathActions, PoseMotionError, RangeResetDrive, TravelDirection,
     WallContact, WheelActuation, WheelCommand,
