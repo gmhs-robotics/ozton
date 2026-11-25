@@ -7,7 +7,7 @@ use ozton_math::{
     geometry::DVec2,
     path::{
         braking::{RateBounds, position_padding},
-        clearance::RectangularClearance,
+        clearance::{RectangularClearance, WallContact},
     },
     qty,
     uom::si::f64::Velocity,
@@ -154,59 +154,85 @@ pub(super) fn limit_wall_command(
     covariance: Option<glam::DMat2>,
     previous: [f64; 2],
 ) -> [f64; 2] {
+    limit_wall_command_at_contact(
+        field, feedback, wheels, options, config, uncertainty, covariance, previous, None,
+    )
+}
+
+/// The explicit contact policy is used only for departure from a surveyed
+/// physical wall. Virtual exclusions retain the ordinary hard envelope.
+pub(super) fn limit_wall_command_at_contact(
+    field: Option<RectangularClearance>,
+    feedback: Feedback,
+    wheels: [f64; 2],
+    options: DriveOptions,
+    config: MotionConfig,
+    uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
+    previous: [f64; 2],
+    contact: Option<WallContact>,
+) -> [f64; 2] {
     let Some(field) = field else {
         return wheels;
     };
     let [v, w] = body_rates(wheels, options.track_width.value);
     let previous = body_rates(previous, options.track_width.value);
     let delay = reaction(config) + config.safety.wall_preview.as_secs_f64();
-    let projected = |scale| {
-        bounds(
-            field,
-            feedback,
-            v * scale,
-            w * scale,
-            previous,
-            uncertainty,
-            covariance,
-            delay,
-            config,
-        )
+    let projected = |v, w| {
+        bounds(field, feedback, v, w, previous, uncertainty, covariance, delay, config)
     };
-    let full = projected(1.0);
+    let full = projected(v, w);
     if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
         return wheels;
     }
-    let baseline = projected(0.0);
-    let clear = |scale| {
-        projected(scale).is_some_and(|(min, max)| {
+    let baseline = projected(0.0, 0.0);
+    let clear = |v, w| {
+        projected(v, w).is_some_and(|(min, max)| {
             field.contains_aabb(min, max)
                 || baseline.is_some_and(|(base_min, base_max)| {
-                    field.wall_recovery_contains(min, max, base_min, base_max)
+                    let permitted = field.wall_recovery_contains(min, max, base_min, base_max)
+                        || contact.is_some_and(|wall| {
+                            field.contact_recovery_contains(wall, min, max, base_min, base_max)
+                                && field.contact_inward(wall, feedback.pose, [0.0, v, w], [0.0; 3])
+                        });
+                    permitted
                         && field.obstacle_free_aabb(min, max)
                         && field.wall_recovery_direction(
-                            feedback.pose,
-                            v * scale,
-                            w * scale,
-                            base_min,
-                            base_max,
+                            feedback.pose, v, w, base_min, base_max,
                         )
                 })
         })
     };
-    if clear(1.0) {
-        return wheels;
-    }
-    let mut low = 0.0;
-    let mut high = 1.0;
-    for _ in 0..12 {
-        let middle = (low + high) * 0.5;
-        if clear(middle) {
-            low = middle;
-        } else {
-            high = middle;
+    let scale = |v, w| {
+        if clear(v, w) {
+            return 1.0;
         }
-    }
+        let mut low = 0.0;
+        let mut high = 1.0;
+        for _ in 0..12 {
+            let middle = (low + high) * 0.5;
+            if clear(v * middle, w * middle) {
+                low = middle;
+            } else {
+                high = middle;
+            }
+        }
+        low
+    };
+    let low = scale(v, w);
+    // At a surveyed flush contact a yaw correction can be infeasible even
+    // though straight translation is safe. Project onto the straight inward
+    // command if it makes more progress; the PID sees the actual applied rate.
+    // This is restricted to the explicitly declared straight departure stage.
+    let straight = if contact.is_some()
+        && v != 0.0
+        && w != 0.0
+        && wheels[0] * wheels[1] >= 0.0
+    {
+        scale(v, 0.0)
+    } else {
+        0.0
+    };
     let (min, max) = full.unwrap_or((DVec2::splat(f64::NAN), DVec2::splat(f64::NAN)));
     let reason = if full.is_none() {
         "invalid_envelope"
@@ -218,7 +244,7 @@ pub(super) fn limit_wall_command(
     log_row!(
         Trace,
         "GOVERNOR_LIMIT",
-        "reason={reason},sample_us={},scale={low:.5},requested_left_mps={:.5},requested_right_mps={:.5},prior_v_mps={:.5},prior_yaw_radps={:.5},sigma_lateral={:.5},sigma_forward={:.5},sigma_yaw={:.5},min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5}",
+        "reason={reason},sample_us={},scale={low:.5},straight_scale={straight:.5},requested_left_mps={:.5},requested_right_mps={:.5},prior_v_mps={:.5},prior_yaw_radps={:.5},sigma_lateral={:.5},sigma_forward={:.5},sigma_yaw={:.5},min_x_m={:.5},min_y_m={:.5},max_x_m={:.5},max_y_m={:.5}",
         feedback.time.as_micros(),
         wheels[0],
         wheels[1],
@@ -232,7 +258,35 @@ pub(super) fn limit_wall_command(
         max.x,
         max.y
     );
-    wheels.map(|speed| speed * low)
+    if straight > low {
+        [v * straight; 2]
+    } else {
+        wheels.map(|speed| speed * low)
+    }
+}
+
+/// Release the one-shot contact policy as soon as the ordinary predicted
+/// stopping envelope certifies the preferred clearance.
+pub(super) fn contact_released(
+    field: RectangularClearance,
+    feedback: Feedback,
+    config: MotionConfig,
+    uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
+    previous: [f64; 2],
+) -> bool {
+    bounds(
+        field,
+        feedback,
+        0.0,
+        0.0,
+        previous,
+        uncertainty,
+        covariance,
+        reaction(config) + config.safety.wall_preview.as_secs_f64(),
+        config,
+    )
+    .is_some_and(|(min, max)| field.contains_aabb(min, max))
 }
 
 pub(super) fn safe_feedback(
@@ -242,6 +296,18 @@ pub(super) fn safe_feedback(
     uncertainty: [f64; 3],
     covariance: Option<glam::DMat2>,
     previous: [f64; 2],
+) -> bool {
+    safe_feedback_at_contact(field, feedback, config, uncertainty, covariance, previous, None)
+}
+
+pub(super) fn safe_feedback_at_contact(
+    field: RectangularClearance,
+    feedback: Feedback,
+    config: MotionConfig,
+    uncertainty: [f64; 3],
+    covariance: Option<glam::DMat2>,
+    previous: [f64; 2],
+    contact: Option<WallContact>,
 ) -> bool {
     let v = feedback.forward_velocity.value;
     let w = feedback.angular_velocity.value;
@@ -256,9 +322,24 @@ pub(super) fn safe_feedback(
         reaction(config),
         config,
     );
+    let wall_safe = projected.is_some_and(|(min, max)| {
+        field.physical_wall_contains_aabb(min, max)
+            || contact.is_some_and(|wall| {
+                field.contact_recovery_contains(wall, min, max, min, max)
+                    && field.contact_inward(
+                        wall,
+                        feedback.pose,
+                        [feedback.lateral_velocity.value, v, w],
+                        uncertainty.map(|sigma| sigma * config.safety.braking_sigma),
+                    )
+                    && field.contact_inward(
+                        wall, feedback.pose, [0.0, previous[0], previous[1]], [0.0; 3],
+                    )
+            })
+    });
     let reason = if !field.contains_physical_pose(feedback.pose) {
         "current_footprint"
-    } else if !projected.is_some_and(|(min, max)| field.physical_wall_contains_aabb(min, max)) {
+    } else if !wall_safe {
         "wall_stopping_envelope"
     } else if !projected.is_some_and(|(min, max)| field.obstacle_free_aabb(min, max)) {
         "obstacle_stopping_envelope"
