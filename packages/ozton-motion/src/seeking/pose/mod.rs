@@ -365,15 +365,37 @@ impl Seeking {
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
-        follower: crate::Follower,
         reverse: bool,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.follow_path_with_actions(drive, path, follower, reverse, &mut PathActions::new())
-            .await
+        self.follow_with_actions(
+            drive,
+            path,
+            self.config.path_follower(),
+            reverse,
+            &mut PathActions::new(),
+        )
+        .await
+    }
+
+    /// Track a host-timed trajectory with RAMSETE.
+    pub async fn follow_trajectory<D: PoseDrive>(
+        &self,
+        drive: &mut D,
+        path: &ozton_math::path::Path,
+        reverse: bool,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        self.follow_with_actions(
+            drive,
+            path,
+            self.config.trajectory_follower(),
+            reverse,
+            &mut PathActions::new(),
+        )
+        .await
     }
 
     /// Execute a continuous trajectory with nonblocking mechanism actions.
-    pub async fn follow_path_with_actions<D: PoseDrive>(
+    pub async fn follow_with_actions<D: PoseDrive>(
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
