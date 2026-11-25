@@ -6,7 +6,7 @@ use ozton_math::{
     control::Pid,
     following::{PurePursuit, Tangent},
     geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
-    path::{Path, PathSample, progress::Progress},
+    path::{Path, PathSample, braking::stoppable_speed, progress::Progress},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{AngularVelocity, Length, Velocity},
@@ -126,9 +126,14 @@ impl<'path> ProfiledFollower<'path> {
         let preview = launch
             .max(measured_speed.value.abs() * horizon)
             .min(remaining * 0.5);
+        // The spatial profile assumes immediate braking. Account for the
+        // measured reaction interval before entering terminal pose capture.
+        let endpoint_limit = stoppable_speed(remaining, horizon, limits.deceleration.value)
+            .unwrap_or(0.0);
         let speed = path
             .at_distance(ozton_math::qty!((self.geometric.distance + preview) m))
-            .speed;
+            .speed
+            .min(endpoint_limit);
         // The trajectory controllers receive signed body-frame errors. Spatial
         // progress (rather than wall time) selects the reference, preventing
         // runaway schedule error after localization corrections or saturation.
@@ -141,9 +146,16 @@ impl<'path> ProfiledFollower<'path> {
                 .guidance
                 .calculate([local.y, -local.x, heading], [velocity, yaw_rate])
                 .unwrap();
+            // Preserve the commanded curvature when feedback requests more
+            // forward speed than the endpoint braking envelope permits.
+            let scale = if linear.abs() > endpoint_limit {
+                endpoint_limit / linear.abs()
+            } else {
+                1.0
+            };
             return wheel_speeds(
-                Velocity::new::<meter_per_second>(linear),
-                AngularVelocity::new::<radian_per_second>(angular),
+                Velocity::new::<meter_per_second>(linear * scale),
+                AngularVelocity::new::<radian_per_second>(angular * scale),
                 limits.track_width,
             )
             .map(|speed| speed.value);
