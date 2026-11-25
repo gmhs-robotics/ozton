@@ -108,13 +108,22 @@ the physical perimeter and hard obstacles. The configured clearance is also a
 preferred wall reserve. If the current stopping envelope already occupies this
 reserve, commands may leave the deficit unchanged or reduce it, never increase
 it. Corner velocity checks forbid further motion toward the affected wall.
-The uncertainty-expanded envelope must still fit inside the physical perimeter;
-this is not an exact-contact guarantee. Virtual exclusion zones retain the
-full hard-obstacle clearance checks.
+The uncertainty-expanded envelope must fit inside the physical perimeter in
+ordinary operation. For a physically surveyed flush starting pose, register
+`set_pose_at_contact` and use `drive_distance_from_contact`. The estimator
+conditions its prior on the contacted wall, and the governor permits only
+inward or tangential motion that does not worsen the existing envelope overlap
+at that wall. Normal clearance and unconstrained prediction resume when the
+ordinary stopping envelope fits. This requires actual wall contact and a
+surveyed tangential placement uncertainty; it is not a general collision
+recovery mechanism. Other walls and virtual exclusion zones retain their full
+hard-obstacle checks.
 
-Interrupted motions, terminal capture and feedback faults request an active
-zero-speed stop rather than the normal resting coast. The VEX adapter attempts
-motor electrical braking if a zero-speed command fails. Calibrate the active
+Interrupted motions, terminal capture and feedback faults request explicit
+motor electrical braking rather than the normal resting coast. The VEX
+adapter selects `BrakeMode::Brake` on every drive motor, including after an
+individual motor reports a fault. A zero-RPM velocity target selects Coast
+in vexide and is not equivalent to this braking command. Calibrate the active
 response separately from coast.
 
 These bounds are conditional on the physical model. In particular, command
