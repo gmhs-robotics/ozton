@@ -20,7 +20,83 @@ use crate::basic::differential::DifferentialTarget;
 
 type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as PoseDrive>::Error>>;
 
+/// Direct go-to-goal feedback. A pose adds a final angular PID stage;
+/// neither primitive allocates or invokes a geometric planner.
 pub(super) async fn drive_to_target<D: PoseDrive>(
+    drive: &mut D,
+    position: DVec2,
+    final_heading: Option<Angle>,
+    settings: Seeking,
+) -> MotionResult<D> {
+    if !position.is_finite() || final_heading.is_some_and(|h| !h.value.is_finite()) {
+        return Err(PoseMotionError::Configuration);
+    }
+    let field = clearance(drive, settings.config.safety.clearance)?;
+    let options = settings.options(drive).ok_or(PoseMotionError::Configuration)?;
+    let mut session = PoseSession::new(drive, options, settings.config())?;
+    let result = direct(&mut session, field, position, final_heading, settings).await;
+    session.finish(result)
+}
+
+async fn direct<D: PoseDrive>(
+    session: &mut PoseSession<'_, D>,
+    field: Option<RectangularClearance>,
+    position: DVec2,
+    final_heading: Option<Angle>,
+    settings: Seeking,
+) -> MotionResult<D> {
+    let options = session.options;
+    let timeout = settings.config.timing.stage_timeout;
+    let start = session.drive.pose();
+    let displacement = position - start.position;
+    let reverse = settings.travel.map_or_else(
+        || wrap_heading(bearing(displacement) - start.heading).value.abs()
+            > core::f64::consts::FRAC_PI_2,
+        |direction| direction == TravelDirection::Backward,
+    );
+    if displacement.length() > options.position_tolerance.value {
+        let heading = wrap_heading(
+            bearing(displacement) + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg),
+        );
+        let aligned = Pose::new(start.position, heading);
+        // Check the entire nominal rotate/translate/rotate maneuver before
+        // commanding movement. Live wall feedback remains authoritative.
+        if field.is_some_and(|f| {
+            !f.contains_turn(start, heading)
+                || !f.contains_translation(aligned, position)
+                || final_heading.is_some_and(|end| !f.contains_turn(Pose::new(position, heading), end))
+        }) {
+            return Err(PoseMotionError::InsufficientClearance);
+        }
+        if wrap_heading(heading - start.heading).value.abs() > options.heading_tolerance.value {
+            turn_checked(session, field, heading, timeout).await?;
+        }
+        session
+            .run(
+                DifferentialTarget::DriveToPoint {
+                    target: position,
+                    maximum_speed: options.maximum_wheel_speed,
+                    reverse,
+                },
+                timeout,
+            )
+            .await?;
+    }
+    if let Some(heading) = final_heading {
+        if wrap_heading(heading - session.drive.pose().heading).value.abs()
+            > options.heading_tolerance.value
+        {
+            turn_checked(session, field, heading, timeout).await?;
+        }
+    }
+    if session.drive.pose().position.distance(position) <= options.position_tolerance.value {
+        Ok(())
+    } else {
+        Err(PoseMotionError::PositionUnsettled)
+    }
+}
+
+pub(super) async fn navigate_to_target<D: PoseDrive>(
     drive: &mut D,
     position: DVec2,
     final_heading: Option<Angle>,
@@ -61,7 +137,10 @@ pub(super) async fn drive_to_target<D: PoseDrive>(
             .and(Err(PoseMotionError::NoRoute));
         return session.finish(result);
     }
-    let result = approach(&mut session, clearance, target, final_heading, settings).await;
+    let result = match session.prepare_replan().await {
+        Ok(()) => approach(&mut session, clearance, target, final_heading, settings).await,
+        Err(error) => Err(error),
+    };
     session.finish(result)
 }
 
@@ -82,9 +161,7 @@ async fn approach<D: PoseDrive>(
         }
         Some(field)
     });
-    // Prefer a continuous maneuver that avoids fixed and movable objects.
-    // If a feasible continuous approach is blocked during execution, stop
-    // safely and replan using the orientation-aware lattice from the live pose.
+    // Select a complete continuous maneuver or lattice route while stationary.
     if let Some(heading) = final_heading {
         let target = Pose::new(target.position, heading);
         let direction = settings
@@ -153,7 +230,7 @@ async fn approach<D: PoseDrive>(
             None
         };
         if let Some(plan) = plan {
-            let result = session
+            return session
                 .follow(
                     Trajectory {
                         path: &plan.path,
@@ -161,69 +238,15 @@ async fn approach<D: PoseDrive>(
                         reverse: plan.reverse,
                         target,
                         clearance,
-                        timeout: settings.config.timing.stage_timeout,
+                        timeout: config.timing.stage_timeout,
                     },
                     &mut PathActions::new(),
                 )
                 .await;
-            match result {
-                Ok(())
-                    if session.drive.pose().position.distance(target.position)
-                        <= options.position_tolerance.value =>
-                {
-                    return Ok(());
-                }
-                Ok(()) => session.prepare_replan().await?,
-                Err(error) if replannable(&error) => session.prepare_replan().await?,
-                Err(error) => return Err(error),
-            }
         }
     }
-    // A bounded A* search represents orientation explicitly. Prefer a route
-    // avoiding movable objects, then relax only their planning cost.
-    let tolerance = options.position_tolerance.value;
-    // A new plan is bounded by the existing progress deadline and must start
-    // from verified rest. Never retry hardware, cancellation or tracking faults.
-    let replan_started = std::time::Instant::now();
-    loop {
-        let before = session.drive.pose();
-        let result = lattice_approach(
-            session,
-            clearance,
-            preferred,
-            target,
-            final_heading,
-            settings,
-        )
-        .await;
-        match result {
-            Ok(()) => return Ok(()),
-            Err(error) if replannable(&error) => {
-                session.prepare_replan().await?;
-                let after = session.drive.pose();
-                // No changed state means the deterministic planner would
-                // return the same route. Do not loop indefinitely.
-                if (after.position.distance(before.position) <= tolerance
-                    && wrap_heading(after.heading - before.heading).value.abs()
-                        <= options.heading_tolerance.value)
-                    || replan_started.elapsed() >= config.timing.stage_timeout
-                {
-                    return Err(PoseMotionError::NoRoute);
-                }
-            }
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-fn replannable<E>(error: &PoseMotionError<E>) -> bool {
-    matches!(
-        error,
-        PoseMotionError::InsufficientClearance
-            | PoseMotionError::PositionUnsettled
-            | PoseMotionError::NoProgress
-            | PoseMotionError::StageTimeout
-    )
+    // Fallback is permitted before any motion, never after execution fails.
+    lattice_approach(session, clearance, preferred, target, final_heading, settings).await
 }
 
 async fn lattice_approach<D: PoseDrive>(
@@ -241,20 +264,11 @@ async fn lattice_approach<D: PoseDrive>(
     let planner = LatticePlanner::new();
     let options = session.options;
     let tolerance = options.position_tolerance.value;
-    let mut route = lattice_plan(
+    let route = lattice_plan(
         session, planner, preferred, clearance, target, final_heading, direction,
     )
     .await?;
-    if route.is_none() {
-        if let Some(field) = clearance.filter(|field| !field.can_turn(session.drive.pose())) {
-            depart_wall(session, field, target, config.timing.stage_timeout, config).await?;
-            route = lattice_plan(
-                session, planner, preferred, clearance, target, final_heading, direction,
-            )
-            .await?;
-        }
-    }
-    for step in route.ok_or(PoseMotionError::InsufficientClearance)? {
+    for step in route.ok_or(PoseMotionError::NoRoute)? {
         match step {
             LatticeStep::Turn(heading) => {
                 turn_checked(session, clearance, heading, config.timing.stage_timeout).await?;
@@ -364,70 +378,6 @@ async fn lattice_plan<D: PoseDrive>(
         }
     }
     Ok(None)
-}
-
-async fn depart_wall<D: PoseDrive>(
-    session: &mut PoseSession<'_, D>,
-    field: RectangularClearance,
-    target: Pose,
-    timeout: Duration,
-    config: crate::MotionConfig,
-) -> MotionResult<D> {
-    let start = session.drive.pose();
-    if field.can_turn(start) {
-        return Ok(());
-    }
-
-    let options = session.options;
-    let reserve = options.position_tolerance + config.safety.departure_reserve;
-    let speed = config
-        .safety
-        .departure_speed
-        .min(options.maximum_wheel_speed);
-    let plan = field
-        .point_departure(start, target, options.track_width / 2.0, reserve)
-        .ok_or(PoseMotionError::InsufficientClearance)?;
-    ozton_diagnostics::log_row!(
-        Debug,
-        "CORNER_DEPARTURE",
-        "radius_m={:.5},sweep_rad={:.5},advance_m={:.5}",
-        plan.arc.map_or(0.0, |arc| arc.radius.value),
-        plan.arc.map_or(0.0, |arc| arc.sweep.value),
-        plan.advance.value
-    );
-    if let Some(arc) = plan.arc {
-        session
-            .run(
-                DifferentialTarget::DriveArc {
-                    radius: arc.radius,
-                    sweep: arc.sweep,
-                    maximum_speed: speed,
-                },
-                timeout,
-            )
-            .await?;
-    }
-
-    let measured = session.drive.pose();
-    if !field.can_turn(measured) {
-        let advance = field
-            .forward_to_turn(measured, reserve)
-            .ok_or(PoseMotionError::InsufficientClearance)?;
-        session
-            .run(
-                DifferentialTarget::DriveDistance {
-                    meters: advance,
-                    heading: Some(measured.heading),
-                    maximum_speed: speed,
-                },
-                timeout,
-            )
-            .await?;
-    }
-    field
-        .can_turn(session.drive.pose())
-        .then_some(())
-        .ok_or(PoseMotionError::InsufficientClearance)
 }
 
 async fn turn_checked<D: PoseDrive>(
