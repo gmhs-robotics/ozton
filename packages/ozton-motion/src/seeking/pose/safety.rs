@@ -414,6 +414,39 @@ mod tests {
     }
 
     #[test]
+    fn surveyed_wall_gap_is_required_for_uncertain_departure() {
+        let half_extents = DVec2::new(1.1557, 1.2319);
+        let footprint = Footprint::new(qty!(15.1 in), qty!(15 in)).unwrap();
+        let field = RectangularClearance::new(footprint, half_extents, qty!(0 in)).unwrap();
+        let config = MotionConfig::DEFAULT;
+        let options = DriveOptions::differential(qty!(0.3292677692 m), qty!(0.55 m/s));
+        let mut feedback = sample(0.0);
+        feedback.angular_velocity = qty!(0 rad/s);
+        feedback.pose = Pose::new(
+            DVec2::new(0.0, -half_extents.y + qty!(7.5 in).value),
+            qty!(0 rad),
+        );
+        let covariance = Some(glam::DMat2::from_diagonal(DVec2::splat(0.0001)));
+        let uncertainty = [0.01; 3];
+        let requested = [qty!(0.20 m/s); 2];
+
+        // A nominal contact pose does not certify containment with nonzero
+        // localization uncertainty, even for a command pointing into the field.
+        assert!(
+            StoppingGovernor::new(Some(field), options, config)
+                .govern(feedback, uncertainty, covariance, requested)
+                .is_none()
+        );
+
+        // A surveyed inset lets the normal governor certify the same departure.
+        feedback.pose.position.y += qty!(6 in).value;
+        let allowed = StoppingGovernor::new(Some(field), options, config)
+            .govern(feedback, uncertainty, covariance, requested)
+            .unwrap();
+        assert_eq!(allowed, requested);
+    }
+
+    #[test]
     fn diagonal_lateral_and_angular_sweep_cannot_cancel() {
         let f = field();
         let pose = Pose::new(DVec2::new(0.5, 0.0), qty!(-45 deg));
