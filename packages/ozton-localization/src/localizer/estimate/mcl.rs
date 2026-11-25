@@ -174,7 +174,7 @@ impl PoseEstimator for Mcl {
         // Local Bayesian tracking must not create particles from the same
         // measurement used to weight them. Explicit DSR/set_pose is the
         // separate recovery path for a pose outside the motion prior.
-        let rank = fit_consensus(&constraints[..constraint_count]).map_or(0, |fit| fit.axes);
+        let rank = || fit_consensus(&constraints[..constraint_count]).map_or(0, |fit| fit.axes);
         self.candidate.clone_from(&self.filter);
         let Some(estimate) = self.candidate.observe_position_with_quality(
             &beams[..count],
@@ -185,7 +185,8 @@ impl PoseEstimator for Mcl {
             log_row!(
                 Trace,
                 "MCL",
-                "status=no_particle_estimate,beams={count},rank={rank}"
+                "status=no_particle_estimate,beams={count},rank={}",
+                rank()
             );
             return None;
         };
@@ -197,14 +198,16 @@ impl PoseEstimator for Mcl {
             log_row!(
                 Trace,
                 "MCL",
-                "status=invalid_candidate,beams={count},rank={rank}"
+                "status=invalid_candidate,beams={count},rank={}",
+                rank()
             );
             return None;
         }
         log_row!(
             Trace,
             "MCL",
-            "status=estimated,beams={count},rank={rank},particle_x_m={:.5},particle_y_m={:.5},particle_heading_rad={:.5},sigma_x_m={:.5},sigma_y_m={:.5},gain=1.00000,dx_m={:.5},dy_m={:.5},candidate_x_m={:.5},candidate_y_m={:.5}",
+            "status=estimated,beams={count},rank={},particle_x_m={:.5},particle_y_m={:.5},particle_heading_rad={:.5},sigma_x_m={:.5},sigma_y_m={:.5},gain=1.00000,dx_m={:.5},dy_m={:.5},candidate_x_m={:.5},candidate_y_m={:.5}",
+            rank(),
             estimate.pose.position.x,
             estimate.pose.position.y,
             estimate.pose.heading.value,

@@ -58,6 +58,9 @@ impl PoseHistory {
     /// to moving that particle backward by the measured relative odometry.
     pub(super) fn sensor_mount(&self, time: Duration, current: Pose, mount: Pose) -> Option<Pose> {
         let past = self.at(time)?;
+        if past == current {
+            return Some(Pose::new(mount.position, wrap_heading(mount.heading)));
+        }
         Some(Pose::new(
             current.to_local(past.transform_point(mount.position)),
             wrap_heading(past.heading + mount.heading - current.heading),

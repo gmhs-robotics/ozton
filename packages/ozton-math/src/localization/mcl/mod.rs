@@ -126,12 +126,10 @@ pub struct ParticleFilter {
 
 impl Clone for ParticleFilter {
     fn clone(&self) -> Self {
-        let mut scratch = Vec::with_capacity(self.config.count);
-        scratch.extend_from_slice(&self.scratch);
         Self {
             config: self.config,
             particles: self.particles.clone(),
-            scratch,
+            scratch: Vec::with_capacity(self.config.count),
             random: self.random.clone(),
             ray_faces: Vec::with_capacity(self.ray_faces.capacity()),
             directed_faces: Vec::with_capacity(self.directed_faces.capacity()),
@@ -142,7 +140,9 @@ impl Clone for ParticleFilter {
     fn clone_from(&mut self, source: &Self) {
         self.config = source.config;
         self.particles.clone_from(&source.particles);
-        self.scratch.clone_from(&source.scratch);
+        // Resampling clears and overwrites scratch before reading it.
+        self.scratch.clear();
+        self.scratch.reserve(source.config.count);
         self.random.clone_from(&source.random);
         self.contact = source.contact;
     }

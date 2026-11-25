@@ -557,10 +557,16 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
                     continue;
                 }
                 let observation = observations.get(index).copied().flatten();
-                let mount = observation.and_then(|sample| {
-                    self.history
-                        .sensor_mount(sample.timestamp, odometry, sensor.mount)
-                });
+                // Duplicate packets are rejected by inspect regardless of alignment.
+                // Avoid history search and two rotations at the faster odometry rate.
+                let mount = observation
+                    .filter(|sample| {
+                        self.range_times[index].is_none_or(|last| sample.timestamp > last)
+                    })
+                    .and_then(|sample| {
+                        self.history
+                            .sensor_mount(sample.timestamp, odometry, sensor.mount)
+                    });
                 if let Some(mount) = mount {
                     aligned[index].mount = mount;
                 }

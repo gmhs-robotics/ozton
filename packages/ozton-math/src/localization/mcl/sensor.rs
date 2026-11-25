@@ -93,8 +93,8 @@ impl PreparedBeam {
     /// Returns the weighted hit density and total mixture density.
     pub(super) fn likelihood(&self, predicted: f64) -> (f64, f64) {
         let normalizer = 0.5
-            * (libm::erf((self.maximum - predicted) / self.root_two_sigma)
-                - libm::erf((self.minimum - predicted) / self.root_two_sigma));
+            * (saturated_erf((self.maximum - predicted) / self.root_two_sigma)
+                - saturated_erf((self.minimum - predicted) / self.root_two_sigma));
         let residual = (self.measured - predicted) / self.sigma;
         let hit = self.hit_prior * libm::exp(-0.5 * residual * residual)
             / (self.hit_scale * normalizer);
@@ -108,9 +108,34 @@ impl PreparedBeam {
     }
 }
 
+// For |x| >= 6, erfc(|x|) < exp(-36)/(6*sqrt(pi)) < 2.2e-17,
+// below half the spacing from 1.0 to its predecessor (2^-54).
+// The correctly rounded f64 result is therefore exactly +/-1.
+#[inline]
+fn saturated_erf(x: f64) -> f64 {
+    if x >= 6.0 {
+        1.0
+    } else if x <= -6.0 {
+        -1.0
+    } else {
+        libm::erf(x)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saturated_erf_matches_libm() {
+        for i in -1000..=1000 {
+            let x = f64::from(i) * 0.01;
+            assert_eq!(saturated_erf(x), libm::erf(x));
+        }
+        assert!(saturated_erf(f64::NAN).is_nan());
+        assert_eq!(saturated_erf(f64::INFINITY), 1.0);
+        assert_eq!(saturated_erf(f64::NEG_INFINITY), -1.0);
+    }
 
     #[test]
     fn prepared_likelihood_matches_original_mixture() {
