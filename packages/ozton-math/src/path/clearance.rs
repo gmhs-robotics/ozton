@@ -6,9 +6,9 @@ use core::f64::consts::TAU;
 use glam::DVec2;
 pub use polygon::{ConvexPolygon, MAX_OBSTACLES, MAX_POLYGON_VERTICES, Obstacles};
 pub use rectangle::RectangularClearance;
-use super::Path;
 use uom::si::f64::{Angle, Length};
 
+use super::Path;
 use crate::{
     geometry::{Pose, rotation},
     localization::range::Surface,
