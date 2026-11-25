@@ -376,6 +376,45 @@ impl Seeking {
         .await
     }
 
+    /// Forward swing to an absolute heading with the inside wheel group held.
+    /// Only drives with explicit mixed braking/velocity support can use it.
+    pub async fn swing_to_heading<D: WheelCommandDrive>(
+        &self,
+        drive: &mut D,
+        heading: Angle,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        if !heading.value.is_finite() {
+            return Err(PoseMotionError::Configuration);
+        }
+        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
+        let start = drive.pose();
+        let sweep = ozton_math::geometry::wrap_heading(heading - start.heading);
+        if let Some(field) = approach::clearance(drive, self.config.safety.clearance)? {
+            let footprint = drive.footprint().ok_or(PoseMotionError::Configuration)?;
+            let (min, max) = footprint
+                .forward_arc_bounds(start, options.track_width * 0.5, sweep)
+                .ok_or(PoseMotionError::Configuration)?;
+            if !field.contains_aabb(min, max) {
+                return Err(PoseMotionError::InsufficientClearance);
+            }
+        }
+        let hold_left = sweep.value >= 0.0;
+        let held = usize::from(!hold_left);
+        let mut session = PoseSession::new(drive, options, self.config)?;
+        let result = session
+            .run_with_output(
+                crate::basic::differential::DifferentialTarget::Swing { heading, hold_left },
+                self.config.timing.stage_timeout,
+                |drive, speeds| {
+                    let mut commands = speeds.map(WheelCommand::Velocity);
+                    commands[held] = WheelCommand::Brake(BrakeMode::Hold);
+                    drive.drive_wheel_commands(commands)
+                },
+            )
+            .await;
+        session.finish(result)
+    }
+
     async fn turn_target<D: PoseDrive>(
         &self,
         drive: &mut D,
