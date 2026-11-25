@@ -136,6 +136,7 @@ async fn turn<D: MotionExecution>(
 pub(super) fn clearance<D: MotionExecution>(
     drive: &D,
     margin: ozton_math::uom::si::f64::Length,
+    movable: bool,
 ) -> MotionResult<D, Option<RectangularClearance>> {
     let Some(footprint) = drive.footprint() else {
         return Ok(None);
@@ -155,6 +156,13 @@ pub(super) fn clearance<D: MotionExecution>(
         field = field
             .with_polygon(polygon)
             .ok_or(PoseMotionError::Configuration)?;
+    }
+    if movable {
+        for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+            field = field
+                .with_polygon(polygon)
+                .ok_or(PoseMotionError::Configuration)?;
+        }
     }
     Ok(Some(field))
 }

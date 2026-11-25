@@ -5,7 +5,7 @@ use std::time::Duration;
 use ozton_diagnostics::log_event;
 use ozton_diagnostics::log_row;
 use ozton_math::{
-    geometry::Pose,
+    geometry::{DVec2, Pose},
     localization::observation::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
@@ -59,6 +59,18 @@ impl Localization {
 }
 
 impl Localization<FieldBoundary> {
+    /// Compute the tracked pose from the chassis's lower-left bounding corner,
+    /// measured inward from the field's left and rear walls.
+    pub fn pose_from_corner(
+        &self,
+        footprint: Footprint,
+        offset: DVec2,
+        heading: Angle,
+    ) -> Pose {
+        let (min, _) = footprint.bounds(Pose::new(DVec2::ZERO, heading));
+        Pose::new(-self.boundary.half_extents() + offset - min, heading)
+    }
+
     /// Register the surveyed pose of a chassis flush against a real wall.
     /// The caller verifies physical contact; a virtual motion exclusion is
     /// not a valid contact observation.
