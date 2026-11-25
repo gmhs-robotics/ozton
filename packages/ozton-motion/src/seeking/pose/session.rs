@@ -294,7 +294,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             timeout,
         } = trajectory;
 
-        use crate::pursuit::profiled::ProfiledFollower;
+        use crate::pursuit::profiled::{ProfiledFollower, limit_lateral_acceleration};
         let start = Instant::now();
         self.previous_tick = start;
         let baseline = read_feedback(self.drive)
@@ -396,7 +396,17 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                 (wheels, ready, end.distance - observation.distance, false)
             };
-            let wheels = requested;
+            // Independent forward/yaw slew can transiently change curvature.
+            // Reapply the physical cornering bound to the actual wheel request.
+            let wheels = if terminal {
+                requested
+            } else {
+                limit_lateral_acceleration(
+                    requested,
+                    path.limits().track_width.value,
+                    path.limits().lateral_acceleration.value,
+                )
+            };
             controller.record_applied_wheels(wheels);
             if phase_changed {
                 best = f64::INFINITY;
