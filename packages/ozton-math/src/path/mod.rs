@@ -12,7 +12,6 @@ mod chain;
 mod parameterization;
 pub use chain::PathChain;
 pub mod clearance;
-pub mod planner;
 pub mod progress;
 
 /// A +X-right/+Y-forward field coordinate in metres and a fraction of the configured maximum linear speed.
