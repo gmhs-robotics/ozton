@@ -3,10 +3,23 @@
 use std::time::Duration;
 
 use glam::DVec3;
+use ozton_math::uom::si::f64::Angle;
 
 use crate::{
     MeasurementSink, Observation, SourceInitialization, TrackingSource, range::RangeSensorConfig,
 };
+
+// Local collection traits satisfy Rust's orphan rules. The public math
+// capabilities are implemented on the owning Tracking wrapper.
+pub trait RangeSources {}
+
+pub trait HeadingSources {
+    fn heading(&self) -> Option<Angle>;
+}
+
+pub trait TiltSources {
+    fn tilt(&self) -> Option<[Angle; 2]>;
+}
 
 /// Sources ordered by tuple position or array index.
 pub trait TrackingSources {

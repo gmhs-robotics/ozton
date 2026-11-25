@@ -1,9 +1,12 @@
 //! Static heterogeneous tuple dispatch and capability aggregation.
 use ozton_math::uom::si::f64::Angle;
 
-use super::{Capture, SourceLayout, TrackingSources, sources::Startup};
+use super::{
+    Capture, SourceLayout, TrackingSources,
+    sources::{HeadingSources, RangeSources, Startup, TiltSources},
+};
 use crate::{
-    HasRange, ReadHeading, ReadTilt, TrackingSource,
+    TrackingSource,
     capabilities::{Available, Flag, No, SourceCapabilities},
 };
 
@@ -52,25 +55,25 @@ macro_rules! tracking_tuples {
             }
         }
 
-        impl<$($name: TrackingSource),+> HasRange for ($($name,)+)
+        impl<$($name: TrackingSource),+> RangeSources for ($($name,)+)
         where
             any_capability!(Range; $($name),+): Available,
         {}
 
-        impl<$($name: TrackingSource),+> ReadHeading for ($($name,)+)
+        impl<$($name: TrackingSource),+> HeadingSources for ($($name,)+)
         where
             any_capability!(Heading; $($name),+): Available,
         {
-            fn read_heading(&self) -> Option<Angle> {
+            fn heading(&self) -> Option<Angle> {
                 None$(.or_else(|| $name::Capabilities::heading(&self.$index)))+
             }
         }
 
-        impl<$($name: TrackingSource),+> ReadTilt for ($($name,)+)
+        impl<$($name: TrackingSource),+> TiltSources for ($($name,)+)
         where
             any_capability!(Tilt; $($name),+): Available,
         {
-            fn read_tilt(&self) -> Option<[Angle; 2]> {
+            fn tilt(&self) -> Option<[Angle; 2]> {
                 None$(.or_else(|| $name::Capabilities::tilt(&self.$index)))+
             }
         }

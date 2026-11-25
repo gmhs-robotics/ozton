@@ -71,6 +71,7 @@ impl std::error::Error for TrackingBuildError {}
 mod sources;
 mod tuples;
 pub use sources::TrackingSources;
+use sources::{HeadingSources, RangeSources, TiltSources};
 mod roles;
 #[doc(hidden)]
 pub use roles::RangeRole;
@@ -95,21 +96,21 @@ impl<S: TrackingSources> TrackingSystem for Tracking<S> {
     }
 }
 
-impl<S: ReadHeading> ReadHeading for Tracking<S> {
+impl<S: HeadingSources> ReadHeading for Tracking<S> {
     fn read_heading(&self) -> Option<ozton_math::uom::si::f64::Angle> {
-        self.sources.read_heading()
+        self.sources.heading()
     }
 }
 
-impl<S: ReadTilt> ReadTilt for Tracking<S> {
+impl<S: TiltSources> ReadTilt for Tracking<S> {
     fn read_tilt(&self) -> Option<[ozton_math::uom::si::f64::Angle; 2]> {
-        self.sources.read_tilt()
+        self.sources.tilt()
     }
 }
 
-impl<S: HasRange> HasRange for Tracking<S> {}
+impl<S: RangeSources> HasRange for Tracking<S> {}
 
-impl<S: TrackingSources + HasRange> RangeLayoutSource for Tracking<S> {
+impl<S: TrackingSources + RangeSources> RangeLayoutSource for Tracking<S> {
     fn observation_layout(&self) -> ObservationLayout<'_> {
         Tracking::observation_layout(self)
     }

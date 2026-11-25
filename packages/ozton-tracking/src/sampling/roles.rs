@@ -4,7 +4,10 @@ use ozton_math::{
     uom::si::f64::Angle,
 };
 
-use super::{Capture, SourceLayout, TrackingBuildError, TrackingSources, sources::Startup};
+use super::{
+    Capture, SourceLayout, TrackingBuildError, TrackingSources,
+    sources::{HeadingSources, RangeSources, Startup, TiltSources},
+};
 use crate::{TrackingSource, range::RangeSource};
 
 /// Nonempty collection of concrete ranging sources.
@@ -156,6 +159,20 @@ impl<D, H: ReadTilt, R, E> ReadTilt for Sources<D, (H,), R, E> {
 }
 
 impl<D, H, R: RangeBank, E> HasRange for Sources<D, H, R, E> {}
+
+impl<D, H, R: RangeBank, E> RangeSources for Sources<D, H, R, E> {}
+
+impl<D, H: ReadHeading, R, E> HeadingSources for Sources<D, (H,), R, E> {
+    fn heading(&self) -> Option<Angle> {
+        self.read_heading()
+    }
+}
+
+impl<D, H: ReadTilt, R, E> TiltSources for Sources<D, (H,), R, E> {
+    fn tilt(&self) -> Option<[Angle; 2]> {
+        self.read_tilt()
+    }
+}
 
 /// Internal role for the calibrated drive source.
 #[doc(hidden)]
