@@ -57,11 +57,13 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 peak_queue = peak_queue.max(sd::queued_bytes());
                 if autonomous_ended || last_summary.elapsed() >= Duration::from_secs(5) {
                     ozton_diagnostics::profile::flush_summary();
+                    let queued_bytes = sd::queued_bytes();
+                    peak_queue = peak_queue.max(queued_bytes);
                     ozton_diagnostics::log_row!(
                         Trace,
                         "SD_QUEUE",
                         "queued_bytes={},peak_queue_bytes={peak_queue},written_bytes={bytes_written},writes={writes},max_flush_us={max_flush_us},errors={errors},window_ms={}",
-                        sd::queued_bytes(),
+                        queued_bytes,
                         last_summary.elapsed().as_millis()
                     );
                     last_summary = Instant::now();
