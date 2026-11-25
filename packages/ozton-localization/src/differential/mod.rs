@@ -67,12 +67,14 @@ impl DifferentialLocalization<FieldBoundary> {
         pose: Pose,
         footprint: Footprint,
         wall: WallContact,
+        tangential_sigma: Length,
     ) -> bool {
         let Some(contact) = WallContactConstraint::new(
             wall,
             footprint,
             self.boundary.half_extents(),
             pose,
+            tangential_sigma,
         ) else {
             return false;
         };
