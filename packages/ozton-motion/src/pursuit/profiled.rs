@@ -216,7 +216,10 @@ impl<'path> ProfiledFollower<'path> {
                     ),
                 )
             }
-            None => (speed, speed * pursuit_curvature(travel_pose.to_local(carrot))),
+            None => (
+                speed,
+                speed * pursuit_curvature(travel_pose.to_local(carrot)),
+            ),
         };
         let linear = if reverse { -speed } else { speed };
         wheel_speeds(

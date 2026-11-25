@@ -52,6 +52,7 @@ fn controller_capabilities_are_independent() {
 #[test]
 fn pursuit_enhancements_are_explicit_and_independent() {
     use core::time::Duration;
+
     use ozton_math::qty;
     use ozton_motion::{Boomerang, PurePursuit, TerminalGuidance};
 
@@ -75,15 +76,27 @@ fn pursuit_enhancements_are_explicit_and_independent() {
     assert!(PREDICTIVE.config().path.heading_recovery);
     assert_eq!(PREDICTIVE.config().path.terminal, TerminalGuidance::POLAR);
     assert_eq!(
-        PREDICTIVE.without_prediction().config().path.prediction_latency,
+        PREDICTIVE
+            .without_prediction()
+            .config()
+            .path
+            .prediction_latency,
         None
     );
     assert_eq!(
-        ADAPTIVE.without_adaptive_lookahead().config().path.adaptive_lookahead,
+        ADAPTIVE
+            .without_adaptive_lookahead()
+            .config()
+            .path
+            .adaptive_lookahead,
         None
     );
     assert_eq!(
-        Boomerang::new().with_lead(0.4).config().approach.boomerang_lead,
+        Boomerang::new()
+            .with_lead(0.4)
+            .config()
+            .approach
+            .boomerang_lead,
         0.4
     );
 }

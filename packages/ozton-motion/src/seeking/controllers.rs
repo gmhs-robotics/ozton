@@ -9,7 +9,9 @@ use ozton_math::{
 };
 
 use super::{Engine, PathActions, PoseMotionError, TravelDirection};
-use crate::{DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance};
+use crate::{
+    DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance,
+};
 
 pub type MotionResult<D, T = ()> = Result<T, PoseMotionError<<D as MotionExecution>::Error>>;
 
@@ -374,7 +376,11 @@ impl PurePursuit {
     /// Optional constant-twist pose and velocity-profile prediction.
     #[must_use]
     pub const fn with_prediction_latency(mut self, forward: Duration, yaw: Duration) -> Self {
-        self.engine.config.path = self.engine.config.path.with_prediction_latency(forward, yaw);
+        self.engine.config.path = self
+            .engine
+            .config
+            .path
+            .with_prediction_latency(forward, yaw);
         self
     }
 
