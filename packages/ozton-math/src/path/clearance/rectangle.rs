@@ -71,7 +71,7 @@ impl RectangularClearance {
     pub fn contains_translation(&self, start: Pose, end: DVec2) -> bool {
         let (min, max) = self.footprint.bounds(start);
         let delta = end - start.position;
-        self.wall_contains_aabb(min.min(min + delta), max.max(max + delta))
+        self.wall_recovery_contains(min.min(min + delta), max.max(max + delta), min, max)
             && self.sweep_clear(start, delta)
     }
 
@@ -156,6 +156,82 @@ impl RectangularClearance {
             && max.cmple(self.usable).all()
     }
 
+    /// The physical perimeter, without the additional desired clearance.
+    pub fn physical_wall_contains_aabb(&self, min: DVec2, max: DVec2) -> bool {
+        let physical = self.usable + DVec2::splat(self.margin);
+        min.is_finite()
+            && max.is_finite()
+            && min.cmple(max).all()
+            && min.cmpge(-physical).all()
+            && max.cmple(physical).all()
+    }
+
+    /// Hard containment is unchanged. A sweep starting within the desired
+    /// reserve may leave that reserve deficit unchanged or reduce it, but
+    /// cannot increase it on any side or introduce a new deficit.
+    pub fn wall_recovery_contains(
+        &self,
+        min: DVec2,
+        max: DVec2,
+        baseline_min: DVec2,
+        baseline_max: DVec2,
+    ) -> bool {
+        self.physical_wall_contains_aabb(min, max)
+            && self.physical_wall_contains_aabb(baseline_min, baseline_max)
+            && min.cmpge((-self.usable).min(baseline_min)).all()
+            && max.cmple(self.usable.max(baseline_max)).all()
+    }
+
+    /// Check the requested corner velocities against walls where the
+    /// stopping envelope already consumes the desired clearance. This
+    /// prevents a continuing outward command from exploiting momentum
+    /// already present in the baseline envelope.
+    pub fn wall_recovery_direction(
+        &self,
+        pose: Pose,
+        forward: f64,
+        yaw: f64,
+        min: DVec2,
+        max: DVec2,
+    ) -> bool {
+        if !pose.is_finite() || !forward.is_finite() || !yaw.is_finite() {
+            return false;
+        }
+        let translation = direction(pose.heading) * forward;
+        let half = self.footprint.half_extents;
+        let rotation = crate::geometry::rotation(pose.heading);
+        for x in [-half.x, half.x] {
+            for y in [-half.y, half.y] {
+                let offset = rotation.rotate(self.footprint.center_offset + DVec2::new(x, y));
+                let velocity = translation + offset.perp() * yaw;
+                for axis in 0..2 {
+                    if (min[axis] < -self.usable[axis] && velocity[axis] < 0.0)
+                        || (max[axis] > self.usable[axis] && velocity[axis] > 0.0)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Check the uncertainty-expanded envelope against hard obstacles with
+    /// the configured reserve. Virtual obstacles never receive wall recovery.
+    pub fn obstacle_free_aabb(&self, min: DVec2, max: DVec2) -> bool {
+        min.is_finite() && max.is_finite() && min.cmple(max).all()
+            && self.obstacles_clear(min, max)
+    }
+
+    /// Physical wall containment with the normal obstacle clearance.
+    pub fn contains_physical_pose(&self, pose: Pose) -> bool {
+        if !pose.is_finite() {
+            return false;
+        }
+        let (min, max) = self.footprint.bounds(pose);
+        self.physical_wall_contains_aabb(min, max) && self.sweep_clear(pose, DVec2::ZERO)
+    }
+
     /// Conservative obstacle-only braking envelope using measured travel and yaw.
     pub fn obstacle_stop_clear(&self, pose: Pose, translation: DVec2, yaw: Angle) -> bool {
         if self.obstacles.iter().all(Option::is_none) {
@@ -205,7 +281,7 @@ impl RectangularClearance {
         let delta = crate::geometry::wrap_heading(heading - pose.heading);
         let zero = Angle::default();
         if delta.value.abs() < 1e-12 {
-            return self.contains_pose(pose);
+            return self.contains_physical_pose(pose);
         }
         self.braking_bounds(
             pose,
@@ -360,6 +436,26 @@ fn rotated_support(vector: DVec2, radius: f64, axis: DVec2, sin: f64, cos: f64) 
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn straight_departure_can_restore_wall_reserve_without_crossing_perimeter() {
+        let field = RectangularClearance::new(
+            Footprint::new(crate::qty!(0.2 m), crate::qty!(0.4 m)).unwrap(),
+            DVec2::ONE,
+            crate::qty!(0.1 m),
+        )
+        .unwrap();
+        let start = Pose::new(DVec2::new(0.0, -0.8), Angle::default());
+        assert!(!field.contains_pose(start));
+        assert!(field.contains_physical_pose(start));
+        assert!(field.contains_translation(start, DVec2::new(0.0, -0.5)));
+        assert!(!field.contains_translation(start, DVec2::new(0.0, -0.81)));
+        assert!(!field.contains_turn(start, crate::qty!(20 deg)));
+        let (min, max) = field.footprint.bounds(start);
+        assert!(field.wall_recovery_direction(start, 0.2, 0.0, min, max));
+        assert!(!field.wall_recovery_direction(start, -0.2, 0.0, min, max));
+        assert!(!field.wall_recovery_direction(start, 0.0, 0.2, min, max));
+    }
 
     #[test]
     fn braking_rotation_never_exceeds_the_turning_disk() {
