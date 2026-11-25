@@ -9,6 +9,7 @@ use ozton_math::{
         observation::{TracksForwardTravel, TracksHeading, TracksPosition, TracksVelocity},
         range::Surface,
     },
+    path::clearance::WallContact,
     uom::si::f64::{Angle, Time},
 };
 
@@ -365,6 +366,17 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.forward_velocity = 0.0;
         self.angular_velocity = 0.0;
         self.reset = None;
+        true
+    }
+
+    /// Register a verified flush-contact pose and condition the estimator's
+    /// initial uncertainty. This is a physical observation, not a range-map
+    /// exclusion or a permanent reduction of process noise.
+    pub fn set_pose_at_contact(&mut self, pose: Pose, wall: WallContact) -> bool {
+        if !self.set_pose(pose) {
+            return false;
+        }
+        self.filter.reset_at_contact(self.pose, wall);
         true
     }
 
