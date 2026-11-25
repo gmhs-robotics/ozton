@@ -122,7 +122,12 @@ async fn approach<D: PoseDrive>(
                 )
                 .await;
             match result {
-                Ok(()) if session.drive.pose().position.distance(target.position) <= options.position_tolerance.value => return Ok(()),
+                Ok(())
+                    if session.drive.pose().position.distance(target.position)
+                        <= options.position_tolerance.value =>
+                {
+                    return Ok(());
+                }
                 Ok(()) => session.prepare_replan().await?,
                 Err(error) if replannable(&error) => session.prepare_replan().await?,
                 Err(error) => return Err(error),
@@ -249,9 +254,9 @@ async fn lattice_approach<D: PoseDrive>(
                     turn_checked(session, clearance, heading, config).await?;
                 }
                 let aligned = reference(session.drive.pose());
-                if planning_clearance.is_some_and(|field| {
-                    !field.contains_translation(aligned, point)
-                }) {
+                if planning_clearance
+                    .is_some_and(|field| !field.contains_translation(aligned, point))
+                {
                     return Err(PoseMotionError::InsufficientClearance);
                 }
                 session
@@ -364,11 +369,16 @@ async fn turn_checked<D: PoseDrive>(
 ) -> MotionResult<D> {
     let offset = config.safety.pivot_forward_offset;
     let field = reference_clearance::<D>(clearance, offset)?;
-    if field.is_some_and(|field| !field.contains_turn(reference_pose(session.drive.pose(), offset), heading)) {
+    if field.is_some_and(|field| {
+        !field.contains_turn(reference_pose(session.drive.pose(), offset), heading)
+    }) {
         return Err(PoseMotionError::InsufficientClearance);
     }
     session
-        .run(DifferentialTarget::Turn { heading }, config.timing.stage_timeout)
+        .run(
+            DifferentialTarget::Turn { heading },
+            config.timing.stage_timeout,
+        )
         .await
 }
 
@@ -380,7 +390,8 @@ pub(super) fn reference_clearance<D: PoseDrive>(
 ) -> MotionResult<D, Option<RectangularClearance>> {
     field
         .map(|field| {
-            field.with_reference_offset(DVec2::new(0.0, offset.value))
+            field
+                .with_reference_offset(DVec2::new(0.0, offset.value))
                 .ok_or(PoseMotionError::Configuration)
         })
         .transpose()

@@ -5,7 +5,10 @@ use ozton_localization::Feedback;
 use ozton_math::{
     geometry::{DVec2, Pose, wrap_heading},
     path::clearance::WallContact,
-    uom::si::{f64::{Length, Velocity}, velocity::meter_per_second},
+    uom::si::{
+        f64::{Length, Velocity},
+        velocity::meter_per_second,
+    },
 };
 
 use super::{
@@ -181,7 +184,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         target: DifferentialTarget,
         timeout: Duration,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        self.run_at_reference(target, timeout, Length::default()).await
+        self.run_at_reference(target, timeout, Length::default())
+            .await
     }
 
     pub(super) async fn run_at_reference(
@@ -240,7 +244,8 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         log_row!(
             Debug,
             "MOTION_TARGET",
-            "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5}"
+            "command={status},x_m={x:.5},y_m={y:.5},heading_rad={heading:.5},travel_m={travel:.5},radius_m={radius:.5},sweep_rad={sweep:.5},reference_offset_m={:.5}",
+            offset.value
         );
         let result = self.run_stage(target, timeout, status, offset).await;
         match &result {
@@ -575,7 +580,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 controller.reset_feedback();
             }
             let (requested, ready, objective, phase_changed) = if terminal {
-                terminal_pose.step(&mut controller, target, reverse, control_feedback, dt, options)
+                terminal_pose.step(
+                    &mut controller,
+                    target,
+                    reverse,
+                    control_feedback,
+                    dt,
+                    options,
+                )
             } else {
                 let desired = follower.command(control_feedback.pose, dt, reverse);
                 let (wheels, ready) = controller.limit_step(desired, false, dt, options);
