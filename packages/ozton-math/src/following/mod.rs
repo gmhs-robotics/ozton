@@ -1,7 +1,9 @@
 //! Hardware-independent path tracking laws.
 mod boomerang;
+mod tangent;
 mod unicycle;
 pub use boomerang::Boomerang;
+pub use tangent::Tangent;
 pub use unicycle::{LtvLqr, PolarPose, Ramsete};
 
 use crate::{
@@ -17,6 +19,16 @@ pub struct PurePursuit;
 impl PurePursuit {
     pub const fn new() -> Self {
         Self
+    }
+
+    /// Curvature to a point in the forward half-plane of the travel frame.
+    pub fn forward_curvature(self, pose: Pose, target: glam::DVec2) -> Option<f64> {
+        let local = pose.to_local(target);
+        if local.y > 0.0 && local.length_squared() > 1e-12 {
+            Some(pursuit_curvature(local))
+        } else {
+            None
+        }
     }
 
     /// Return forward velocity and yaw rate in SI units.

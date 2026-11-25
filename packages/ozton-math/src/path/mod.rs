@@ -79,7 +79,8 @@ impl Limits {
         self
     }
 
-    pub fn is_valid(self) -> bool {
+    /// Physical constraints in the same order used by generated path data.
+    pub const fn as_array(self) -> [f64; 7] {
         [
             self.track_width.value,
             self.linear_speed.value,
@@ -89,8 +90,22 @@ impl Limits {
             self.lateral_acceleration.value,
             self.wheel_acceleration.value,
         ]
-        .iter()
-        .all(|value| value.is_finite() && *value > 0.0)
+    }
+
+    pub fn is_valid(self) -> bool {
+        self.as_array()
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+    }
+
+    /// Confirm a generated path uses the current calibration.
+    pub fn matches(self, generated: [f64; 7]) -> bool {
+        self.is_valid()
+            && self
+                .as_array()
+                .into_iter()
+                .zip(generated)
+                .all(|(a, b)| b.is_finite() && (a - b).abs() <= 1e-10 * b.abs().max(1.0))
     }
 }
 

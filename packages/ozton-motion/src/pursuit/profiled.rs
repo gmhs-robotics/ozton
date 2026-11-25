@@ -4,6 +4,7 @@ use core::f64::consts::PI;
 
 use ozton_math::{
     control::Pid,
+    following::{PurePursuit, Tangent},
     geometry::{BodyDelta, DVec2, Pose, bearing, wheel_speeds, wrap_heading},
     path::{Path, PathSample, progress::Progress},
     uom::si::{
@@ -31,6 +32,7 @@ pub(crate) struct ProfiledFollower<'path> {
     yaw: Pid,
     guidance: Guidance,
     prediction_latency: Option<[core::time::Duration; 2]>,
+    lookahead_time_scale: f64,
 }
 
 impl<'path> ProfiledFollower<'path> {
@@ -43,6 +45,7 @@ impl<'path> ProfiledFollower<'path> {
             yaw,
             guidance: Guidance::Tangent,
             prediction_latency: None,
+            lookahead_time_scale: 2.0,
         }
     }
 
@@ -55,6 +58,7 @@ impl<'path> ProfiledFollower<'path> {
     pub fn with_config(mut self, config: crate::PathConfig) -> Self {
         self.guidance = config.guidance.into();
         self.prediction_latency = config.prediction_latency;
+        self.lookahead_time_scale = config.lookahead_time_scale;
         self
     }
 
@@ -103,7 +107,7 @@ impl<'path> ProfiledFollower<'path> {
         let lookahead = self
             .lookahead
             .value
-            .max(measured_speed.value.abs() * reaction * 2.0);
+            .max(measured_speed.value.abs() * reaction * self.lookahead_time_scale);
         // Align the feedback and feedforward reference with the same actuator
         // response horizon. Predict the body pose with the measured twist,
         // without advancing the actual geometric progress cursor.
@@ -147,11 +151,10 @@ impl<'path> ProfiledFollower<'path> {
         let travel_pose = Pose::new(pose.position, pose.heading - facing);
         let (error, pursuit_curvature) = match self.guidance {
             Guidance::Tangent | Guidance::Ramsete(_) | Guidance::Lqr(_) => {
-                let cross = reference.pose.to_local(predicted.position).x;
-                let desired = reference.pose.heading
-                    + facing
-                    + ozton_math::qty!((cross.atan2(lookahead)) rad);
-                (wrap_heading(desired - predicted.heading).value, None)
+                (
+                    Tangent::new().heading_error(predicted, reference.pose, facing, lookahead),
+                    None,
+                )
             }
             Guidance::PurePursuit => {
                 // Classical pure pursuit uses the forward intersection of
@@ -159,12 +162,7 @@ impl<'path> ProfiledFollower<'path> {
                 let carrot = self.progress.lookahead(pose.position, lookahead);
                 let local = travel_pose.to_local(carrot);
                 let error = bearing(local).value;
-                // +X is right, while positive yaw turns left.
-                let curvature = if local.y > 0.0 && local.length_squared() > 1e-12 {
-                    Some(-2.0 * local.x / local.length_squared())
-                } else {
-                    None
-                };
+                let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
                 (error, curvature)
             }
         };

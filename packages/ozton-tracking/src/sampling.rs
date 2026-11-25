@@ -87,6 +87,13 @@ pub struct Tracking<S> {
     observations: Vec<Observation>,
 }
 
+impl Tracking<()> {
+    /// Start a role-based tracking builder.
+    pub const fn builder() -> Sources {
+        Sources::new()
+    }
+}
+
 impl<S: TrackingSources> TrackingSystem for Tracking<S> {
     const HAS_SELECTED_DRIVE: bool = S::HAS_SELECTED_DRIVE;
 

@@ -16,7 +16,7 @@ pub use ozton_tracking::odometric::WheelFeedback;
 #[cfg(feature = "vex")]
 mod drivetrain;
 #[cfg(feature = "vex")]
-pub use drivetrain::{Drivetrain, MotorGroups};
+pub use drivetrain::{Drivetrain, DrivetrainBuilder, MotorGroups};
 #[cfg(feature = "vex")]
 pub use model::actuation::WheelSpeedError;
 #[cfg(feature = "vex")]

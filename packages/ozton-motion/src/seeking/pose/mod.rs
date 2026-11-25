@@ -50,6 +50,7 @@ impl Seeking {
     }
 
     /// Apply a robot's physical constraints, PID gains and settling configuration.
+    #[must_use]
     pub const fn with_config(mut self, config: crate::MotionConfig) -> Self {
         self.config = config;
         self
@@ -100,6 +101,19 @@ impl Seeking {
     #[must_use]
     pub const fn with_tuning(mut self, tuning: DriveTuning) -> Self {
         self.config.tuning = tuning;
+        self
+    }
+
+    /// Select the path tracker without changing other motion settings.
+    #[must_use]
+    pub const fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
+        self.config.path.guidance = guidance;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_terminal(mut self, terminal: crate::TerminalGuidance) -> Self {
+        self.config.path.terminal = terminal;
         self
     }
 
@@ -470,6 +484,31 @@ impl Seeking {
         session.finish(result)
     }
 
+    /// Load a host-generated path after checking that its limits match the robot.
+    pub fn prepare_path<D: MotionExecution>(
+        &self,
+        drive: &D,
+        samples: &'static [ozton_math::path::PathSample],
+        generated_limits: [f64; 7],
+    ) -> Result<ozton_math::path::Path, PoseMotionError<D::Error>> {
+        let limits = self.config.path_limits(drive.track_width());
+        if !limits.matches(generated_limits) {
+            return Err(PoseMotionError::Configuration);
+        }
+        ozton_math::path::Path::from_precomputed(samples, limits)
+            .map_err(|_| PoseMotionError::Configuration)
+    }
+
+    /// Follow a prepared path using the direction selected by the builder.
+    pub async fn follow<D: MotionExecution>(
+        &self,
+        drive: &mut D,
+        path: &ozton_math::path::Path,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        self.follow_path(drive, path, self.travel == Some(TravelDirection::Backward))
+            .await
+    }
+
     pub async fn follow_path<D: MotionExecution>(
         &self,
         drive: &mut D,
@@ -511,7 +550,14 @@ impl Seeking {
                 "Trajectory start offset exceeds tuning threshold; continuing feedback"
             );
         }
-        if let Some(field) = field {
+        if let Some(mut field) = field {
+            if self.config.safety.movable_obstacles {
+                for polygon in drive.localization().movable_obstacles().into_iter().flatten() {
+                    field = field
+                        .with_polygon(polygon)
+                        .ok_or(PoseMotionError::Configuration)?;
+                }
+            }
             drive.brake().map_err(PoseMotionError::StopFailed)?;
             let mut slice_started = std::time::Instant::now();
             let clear = ozton_math::path::clearance::clear_path_cooperative(

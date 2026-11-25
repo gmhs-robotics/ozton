@@ -45,6 +45,46 @@ pub struct Drivetrain<M: Drive, T = (), L = ()> {
     diagnostic_stamp: Rc<Cell<Option<Duration>>>,
 }
 
+/// Assemble a drivetrain from its model, tracking and localization.
+#[must_use]
+pub struct DrivetrainBuilder<M: Drive, T = (), L = ()> {
+    model: M,
+    tracking: T,
+    localization: L,
+}
+
+impl<M: Drive> Drivetrain<M> {
+    pub fn builder(model: M) -> DrivetrainBuilder<M> {
+        DrivetrainBuilder {
+            model,
+            tracking: (),
+            localization: (),
+        }
+    }
+}
+
+impl<M: Drive, T, L> DrivetrainBuilder<M, T, L> {
+    pub fn with_tracking<S>(self, tracking: S) -> DrivetrainBuilder<M, S, L> {
+        DrivetrainBuilder {
+            model: self.model,
+            tracking,
+            localization: self.localization,
+        }
+    }
+
+    pub fn with_localization<E>(self, localization: E) -> DrivetrainBuilder<M, T, E> {
+        DrivetrainBuilder {
+            model: self.model,
+            tracking: self.tracking,
+            localization,
+        }
+    }
+
+    pub fn build(self) -> Drivetrain<M, T, L> {
+        Drivetrain::new(self.model, self.tracking, self.localization)
+    }
+}
+
 impl<M: Drive, T, L> Drivetrain<M, T, L> {
     pub fn new(model: M, tracking: T, localization: L) -> Self {
         Self {

@@ -15,6 +15,9 @@ pub trait LocalizationEstimate {
     fn feedback(&self) -> Result<Option<Feedback>, Fault>;
     fn rectangular_half_extents(&self) -> Option<DVec2>;
     fn motion_obstacles(&self) -> Obstacles;
+    fn movable_obstacles(&self) -> Obstacles {
+        Obstacles::default()
+    }
     fn wall_contact(&self) -> Option<WallContact>;
     fn release_wall_contact(&mut self);
     fn request_distance_reset(&mut self);
@@ -40,6 +43,10 @@ impl<B: Boundary> LocalizationEstimate for Localization<B> {
 
     fn motion_obstacles(&self) -> Obstacles {
         Localization::motion_obstacles(self)
+    }
+
+    fn movable_obstacles(&self) -> Obstacles {
+        Localization::movable_obstacles(self)
     }
 
     fn wall_contact(&self) -> Option<WallContact> {

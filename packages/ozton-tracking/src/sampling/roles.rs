@@ -146,6 +146,16 @@ impl<D, H, R, E> Sources<D, H, R, E> {
     }
 }
 
+impl<D, H, R, E> Sources<D, H, R, E>
+where
+    Self: TrackingSources,
+{
+    /// Validate the source layout and initialize the installed devices.
+    pub async fn build(self) -> Result<super::Tracking<Self>, TrackingBuildError> {
+        super::Tracking::new(self).await
+    }
+}
+
 impl<D, H: ReadHeading, R, E> ReadHeading for Sources<D, (H,), R, E> {
     fn read_heading(&self) -> Option<Angle> {
         self.orientation.0.read_heading()

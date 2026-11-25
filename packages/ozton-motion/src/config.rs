@@ -293,6 +293,8 @@ impl MotionTiming {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClearanceConfig {
     pub clearance: Length,
+    /// Include movable field objects in the authored-path preflight check.
+    pub movable_obstacles: bool,
 }
 
 impl Default for ClearanceConfig {
@@ -304,6 +306,7 @@ impl Default for ClearanceConfig {
 impl ClearanceConfig {
     pub const DEFAULT: Self = Self {
         clearance: ozton_math::qty!(0.5 in),
+        movable_obstacles: false,
     };
 
     pub const fn new() -> Self {
@@ -313,6 +316,12 @@ impl ClearanceConfig {
     #[must_use]
     pub const fn with_clearance(mut self, value: Length) -> Self {
         self.clearance = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_movable_obstacles(mut self, enabled: bool) -> Self {
+        self.movable_obstacles = enabled;
         self
     }
 }
@@ -413,6 +422,8 @@ pub struct PathConfig {
     pub guidance: PathGuidance,
     pub terminal: TerminalGuidance,
     pub lookahead: Length,
+    /// Scale the yaw preview horizon when increasing lookahead with speed.
+    pub lookahead_time_scale: f64,
     /// Optional forward/yaw preview horizons; otherwise use the braking latency.
     pub prediction_latency: Option<[Duration; 2]>,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
@@ -430,6 +441,7 @@ impl PathConfig {
         guidance: PathGuidance::Tangent,
         terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
+        lookahead_time_scale: 2.0,
         prediction_latency: None,
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
     };
@@ -453,6 +465,12 @@ impl PathConfig {
     #[must_use]
     pub const fn with_lookahead(mut self, value: Length) -> Self {
         self.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_lookahead_time_scale(mut self, scale: f64) -> Self {
+        self.lookahead_time_scale = scale;
         self
     }
 
@@ -625,6 +643,8 @@ impl MotionConfig {
         self.tuning.valid()
             && self.path.guidance.valid()
             && self.path.terminal.valid()
+            && self.path.lookahead_time_scale.is_finite()
+            && self.path.lookahead_time_scale >= 0.0
             && [
                 self.limits.wheel_speed.value,
                 self.limits.acceleration.value,
