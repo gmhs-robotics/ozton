@@ -64,7 +64,14 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                     delay = Duration::from_millis(100);
                     continue;
                 }
-                if !autonomous && !draining && queued_bytes < 64 * 1024 {
+                let driving = vexide::competition::mode()
+                    == vexide::competition::CompetitionMode::Driver;
+                if !autonomous
+                    && !draining
+                    && (queued_bytes == 0
+                        || (queued_bytes < 64 * 1024
+                            && (!driving || last_sync.elapsed() < Duration::from_secs(1))))
+                {
                     delay = Duration::from_millis(250);
                     continue;
                 }
