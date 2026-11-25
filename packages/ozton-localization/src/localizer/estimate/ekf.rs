@@ -4,7 +4,7 @@ use glam::DVec3;
 use ozton_math::{
     geometry::{BodyDelta, Pose, direction},
     localization::ekf::PoseEkf,
-    path::clearance::WallContact,
+    path::clearance::WallContactConstraint,
 };
 
 use super::{Observations, PoseEstimator, RangeRoles};
@@ -30,6 +30,7 @@ impl Default for EkfConfig {
 pub struct Ekf {
     filter: PoseEkf,
     config: EkfConfig,
+    contact: Option<WallContactConstraint>,
 }
 
 impl Ekf {
@@ -44,6 +45,7 @@ impl Ekf {
         Some(Self {
             filter: PoseEkf::new(pose, config.initial_variance)?,
             config,
+            contact: None,
         })
     }
 }
@@ -68,21 +70,34 @@ impl PoseEstimator for Ekf {
         ))
     }
     fn reset(&mut self, pose: Pose) {
+        self.contact = None;
         if let Some(filter) = PoseEkf::new(pose, self.config.initial_variance) {
             self.filter = filter;
         }
     }
-    fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
+    fn reset_at_contact(&mut self, pose: Pose, contact: WallContactConstraint) {
+        self.contact = Some(contact);
         let mut variance = self.config.initial_variance;
-        variance[wall.axis()] = 0.0;
+        variance[contact.wall().axis()] = 0.0;
         variance.z = 0.0;
         if let Some(filter) = PoseEkf::new(pose, variance) {
             self.filter = filter;
         }
     }
+    fn set_contact_constraint(&mut self, contact: Option<WallContactConstraint>) {
+        self.contact = contact;
+        if let Some(contact) = contact {
+            self.filter.constrain_contact(contact);
+        }
+    }
     fn predict(&mut self, delta: BodyDelta, seconds: f64) -> bool {
-        self.filter
-            .predict(delta, self.config.process_variance_per_second * seconds)
+        if !self.filter.predict(delta, self.config.process_variance_per_second * seconds) {
+            return false;
+        }
+        if let Some(contact) = self.contact {
+            self.filter.constrain_contact(contact);
+        }
+        true
     }
     fn observe(&mut self, observations: Observations<'_>) -> Option<Pose> {
         let Observations { map, .. } = observations;
@@ -104,6 +119,9 @@ impl PoseEstimator for Ekf {
             changed |= candidate.correct_position(error, h, sigma * sigma, config.gate_squared);
         }
         if changed && candidate.pose().is_finite() {
+            if let Some(contact) = self.contact {
+                candidate.constrain_contact(contact);
+            }
             self.filter = candidate;
             Some(candidate.pose())
         } else {
