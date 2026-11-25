@@ -7,7 +7,7 @@ use std::{
 use ozton_localization::Feedback;
 use ozton_math::{
     geometry::{DVec2, Pose},
-    path::clearance::{Footprint, MAX_OBSTACLES, Obstacles},
+    path::clearance::{Footprint, MAX_OBSTACLES, Obstacles, WallContact},
     uom::si::f64::Velocity,
 };
 
@@ -32,6 +32,11 @@ pub trait PoseDrive: DriveEncoders {
     fn movable_obstacles(&self) -> Obstacles {
         [None; MAX_OBSTACLES]
     }
+    /// Explicitly registered physical contact, never inferred from geometry.
+    fn wall_contact(&self) -> Option<WallContact> {
+        None
+    }
+    fn release_wall_contact(&mut self) {}
     fn pose_trusted(&self) -> bool;
     fn pose_feedback(&self) -> Result<Option<Feedback>, Self::Error>;
     /// Estimated XY covariance in field coordinates, in square metres.
