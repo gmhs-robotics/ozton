@@ -4,8 +4,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 use ozton_drivetrain::{
-    BrakeMode, BrakeMotors, Drive, DriveMotionFault, Footprint, HasBraking, MotorAddress, PoseDrive,
-    RangeResetDrive, WheelCommand, WheelCommandDrive,
+    BrakeMode, BrakeMotors, Drive, DriveMotionFault, Footprint, HasBraking, MotorAddress,
+    PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive,
     model::{Differential, MotionGeometryFor},
 };
 use ozton_localization::{Feedback, differential::DifferentialLocalization, field::Boundary};
