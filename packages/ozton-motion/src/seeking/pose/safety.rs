@@ -155,7 +155,15 @@ pub(super) fn limit_wall_command(
     previous: [f64; 2],
 ) -> [f64; 2] {
     limit_wall_command_at_contact(
-        field, feedback, wheels, options, config, uncertainty, covariance, previous, None,
+        field,
+        feedback,
+        wheels,
+        options,
+        config,
+        uncertainty,
+        covariance,
+        previous,
+        None,
     )
 }
 
@@ -179,7 +187,17 @@ pub(super) fn limit_wall_command_at_contact(
     let previous = body_rates(previous, options.track_width.value);
     let delay = reaction(config) + config.safety.wall_preview.as_secs_f64();
     let projected = |v, w| {
-        bounds(field, feedback, v, w, previous, uncertainty, covariance, delay, config)
+        bounds(
+            field,
+            feedback,
+            v,
+            w,
+            previous,
+            uncertainty,
+            covariance,
+            delay,
+            config,
+        )
     };
     let full = projected(v, w);
     if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
@@ -197,9 +215,7 @@ pub(super) fn limit_wall_command_at_contact(
                         });
                     permitted
                         && field.obstacle_free_aabb(min, max)
-                        && field.wall_recovery_direction(
-                            feedback.pose, v, w, base_min, base_max,
-                        )
+                        && field.wall_recovery_direction(feedback.pose, v, w, base_min, base_max)
                 })
         })
     };
@@ -224,11 +240,7 @@ pub(super) fn limit_wall_command_at_contact(
     // though straight translation is safe. Project onto the straight inward
     // command if it makes more progress; the PID sees the actual applied rate.
     // This is restricted to the explicitly declared straight departure stage.
-    let straight = if contact.is_some()
-        && v != 0.0
-        && w != 0.0
-        && wheels[0] * wheels[1] >= 0.0
-    {
+    let straight = if contact.is_some() && v != 0.0 && w != 0.0 && wheels[0] * wheels[1] >= 0.0 {
         scale(v, 0.0)
     } else {
         0.0
@@ -297,7 +309,15 @@ pub(super) fn safe_feedback(
     covariance: Option<glam::DMat2>,
     previous: [f64; 2],
 ) -> bool {
-    safe_feedback_at_contact(field, feedback, config, uncertainty, covariance, previous, None)
+    safe_feedback_at_contact(
+        field,
+        feedback,
+        config,
+        uncertainty,
+        covariance,
+        previous,
+        None,
+    )
 }
 
 pub(super) fn safe_feedback_at_contact(
@@ -333,7 +353,10 @@ pub(super) fn safe_feedback_at_contact(
                         uncertainty.map(|sigma| sigma * config.safety.braking_sigma),
                     )
                     && field.contact_inward(
-                        wall, feedback.pose, [0.0, previous[0], previous[1]], [0.0; 3],
+                        wall,
+                        feedback.pose,
+                        [0.0, previous[0], previous[1]],
+                        [0.0; 3],
                     )
             })
     });
@@ -595,37 +618,112 @@ mod tests {
         let uncertainty = [0.11, 0.061, 0.0474];
         let covariance = Some(glam::DMat2::from_diagonal(DVec2::new(0.00065, 0.0)));
         let contact = Some(WallContact::Rear);
-        assert!(!safe_feedback(field, feedback, config, uncertainty, covariance, [0.0; 2]));
-        assert!(safe_feedback_at_contact(field, feedback, config, uncertainty, covariance, [0.0; 2], contact));
-        let apply = |wheels| limit_wall_command_at_contact(
-            Some(field), feedback, wheels, options, config, uncertainty, covariance, [0.0; 2], contact,
-        );
+        assert!(!safe_feedback(
+            field,
+            feedback,
+            config,
+            uncertainty,
+            covariance,
+            [0.0; 2]
+        ));
+        assert!(safe_feedback_at_contact(
+            field,
+            feedback,
+            config,
+            uncertainty,
+            covariance,
+            [0.0; 2],
+            contact
+        ));
+        let apply = |wheels| {
+            limit_wall_command_at_contact(
+                Some(field),
+                feedback,
+                wheels,
+                options,
+                config,
+                uncertainty,
+                covariance,
+                [0.0; 2],
+                contact,
+            )
+        };
         assert_eq!(apply([0.2; 2]), [0.2; 2]);
         assert_eq!(apply([-0.2; 2]), [0.0; 2]);
         assert_eq!(apply([-0.2, 0.2]), [0.0; 2]);
         let corrected = apply([0.18, 0.20]);
         assert!(corrected[0] > 0.0 && corrected[1] > 0.0);
-        assert!(field.contact_inward(WallContact::Rear, feedback.pose, [0.0, (corrected[0] + corrected[1]) * 0.5, (corrected[1] - corrected[0]) / options.track_width.value], [0.0; 3]));
-        let blocked = field.with_obstacle(DVec2::new(-0.2, -0.55), DVec2::new(0.2, -0.5)).unwrap();
-        assert!(!safe_feedback_at_contact(blocked, feedback, config, uncertainty, covariance, [0.0; 2], contact));
+        assert!(field.contact_inward(
+            WallContact::Rear,
+            feedback.pose,
+            [
+                0.0,
+                (corrected[0] + corrected[1]) * 0.5,
+                (corrected[1] - corrected[0]) / options.track_width.value
+            ],
+            [0.0; 3]
+        ));
+        let blocked = field
+            .with_obstacle(DVec2::new(-0.2, -0.55), DVec2::new(0.2, -0.5))
+            .unwrap();
+        assert!(!safe_feedback_at_contact(
+            blocked,
+            feedback,
+            config,
+            uncertainty,
+            covariance,
+            [0.0; 2],
+            contact
+        ));
         feedback.forward_velocity = qty!(-0.4 m/s);
-        assert!(!safe_feedback_at_contact(field, feedback, config, uncertainty, covariance, [0.0; 2], contact));
+        assert!(!safe_feedback_at_contact(
+            field,
+            feedback,
+            config,
+            uncertainty,
+            covariance,
+            [0.0; 2],
+            contact
+        ));
     }
 
     #[test]
     fn override_rear_contact_completes_the_standard_distance_controller_in_simulation() {
-        use crate::basic::differential::{DifferentialFeedback, DifferentialTarget, DriveTuning};
         use ozton_math::control::Pid;
-        let footprint = Footprint::from_extents(qty!(7.55 in), qty!(7.55 in), qty!(7.761804 in), qty!(7.238196 in)).unwrap();
+
+        use crate::basic::differential::{DifferentialFeedback, DifferentialTarget, DriveTuning};
+        let footprint = Footprint::from_extents(
+            qty!(7.55 in),
+            qty!(7.55 in),
+            qty!(7.761804 in),
+            qty!(7.238196 in),
+        )
+        .unwrap();
         let bounds = DVec2::new(qty!(45.5 in).value, qty!(48.5 in).value);
         let (min, _) = footprint.bounds(Pose::default());
-        let start = Pose::new(-bounds + DVec2::new(qty!(12 in).value, 0.0) - min, qty!(0 rad));
+        let start = Pose::new(
+            -bounds + DVec2::new(qty!(12 in).value, 0.0) - min,
+            qty!(0 rad),
+        );
         let field = RectangularClearance::new(footprint, bounds, qty!(1 in)).unwrap();
         assert!(field.touches_wall(start, WallContact::Rear));
         let config = MotionConfig::DEFAULT
-            .with_tuning(DriveTuning::new().with_linear_controller(Pid::new(4.25, 0.0, 0.50, None)).with_angular_controller(Pid::new(3.0, 0.0, 0.22, None)))
-            .with_limits(crate::MotionLimits::DEFAULT.with_wheel_speed(qty!(0.20 m/s)).with_deceleration(qty!(0.55 m/s^2)))
-            .with_safety(crate::ClearanceConfig::DEFAULT.with_clearance(qty!(1 in)).with_forward_braking(qty!(0.55 m/s^2)).with_yaw_braking(qty!(3 rad/s^2)));
+            .with_tuning(
+                DriveTuning::new()
+                    .with_linear_controller(Pid::new(4.25, 0.0, 0.50, None))
+                    .with_angular_controller(Pid::new(3.0, 0.0, 0.22, None)),
+            )
+            .with_limits(
+                crate::MotionLimits::DEFAULT
+                    .with_wheel_speed(qty!(0.20 m/s))
+                    .with_deceleration(qty!(0.55 m/s^2)),
+            )
+            .with_safety(
+                crate::ClearanceConfig::DEFAULT
+                    .with_clearance(qty!(1 in))
+                    .with_forward_braking(qty!(0.55 m/s^2))
+                    .with_yaw_braking(qty!(3 rad/s^2)),
+            );
         let options = config.options(qty!(0.3292677692 m));
         let target = DifferentialTarget::DriveDistance {
             meters: qty!(12 in),
@@ -643,29 +741,61 @@ mod tests {
         for _ in 0..1000 {
             let travel = feedback.forward_travel.value.abs();
             let diffusion = 0.04_f64.powi(2) * travel;
-            let covariance = Some(glam::DMat2::from_diagonal(DVec2::new(qty!(1 in).value.powi(2) + diffusion, diffusion)));
+            let covariance = Some(glam::DMat2::from_diagonal(DVec2::new(
+                qty!(1 in).value.powi(2) + diffusion,
+                diffusion,
+            )));
             let previous = controller.applied_wheels();
             let rates = body_rates(previous, options.track_width.value);
-            if contact.is_some() && contact_released(field, feedback, config, uncertainty, covariance, rates) {
+            if contact.is_some()
+                && contact_released(field, feedback, config, uncertainty, covariance, rates)
+            {
                 contact = None;
             }
-            assert!(safe_feedback_at_contact(field, feedback, config, uncertainty, covariance, rates, contact), "feedback={feedback:?}, contact={contact:?}");
+            assert!(
+                safe_feedback_at_contact(
+                    field,
+                    feedback,
+                    config,
+                    uncertainty,
+                    covariance,
+                    rates,
+                    contact
+                ),
+                "feedback={feedback:?}, contact={contact:?}"
+            );
             let (requested, ready) = controller.step(target, feedback, dt, options);
-            let applied = limit_wall_command_at_contact(Some(field), feedback, requested, options, config, uncertainty, covariance, previous, contact);
+            let applied = limit_wall_command_at_contact(
+                Some(field),
+                feedback,
+                requested,
+                options,
+                config,
+                uncertainty,
+                covariance,
+                previous,
+                contact,
+            );
             controller.record_applied_wheels(applied);
             settled = if ready { settled + dt } else { Duration::ZERO };
             if settled >= options.settle {
                 assert!(contact.is_none());
-                assert!((feedback.forward_travel.value - qty!(12 in).value).abs() <= options.position_tolerance.value);
+                assert!(
+                    (feedback.forward_travel.value - qty!(12 in).value).abs()
+                        <= options.position_tolerance.value
+                );
                 return;
             }
             // A first-order motor-lag simulation, not a physical motor qualification.
             let [linear, yaw] = body_rates(applied, options.track_width.value);
-            feedback.forward_velocity.value += (linear - feedback.forward_velocity.value) * dt.as_secs_f64() / 0.15;
-            feedback.angular_velocity.value += (yaw - feedback.angular_velocity.value) * dt.as_secs_f64() / 0.15;
+            feedback.forward_velocity.value +=
+                (linear - feedback.forward_velocity.value) * dt.as_secs_f64() / 0.15;
+            feedback.angular_velocity.value +=
+                (yaw - feedback.angular_velocity.value) * dt.as_secs_f64() / 0.15;
             let advance = feedback.forward_velocity.value * dt.as_secs_f64();
             feedback.forward_travel.value += advance;
-            feedback.pose.position += ozton_math::geometry::direction(feedback.pose.heading) * advance;
+            feedback.pose.position +=
+                ozton_math::geometry::direction(feedback.pose.heading) * advance;
             feedback.pose.heading.value += feedback.angular_velocity.value * dt.as_secs_f64();
             feedback.time += dt;
             assert!(field.contains_physical_pose(feedback.pose));
