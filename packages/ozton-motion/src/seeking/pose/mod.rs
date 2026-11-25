@@ -420,11 +420,8 @@ impl Seeking {
         if let Some(field) = field {
             drive.brake().map_err(PoseMotionError::StopFailed)?;
             let mut slice_started = std::time::Instant::now();
-            let clear = ozton_math::path::planner::clear_cooperative(
-                path,
-                reverse,
-                field,
-                async || {
+            let clear =
+                ozton_math::path::planner::clear_cooperative(path, reverse, field, async || {
                     if slice_started.elapsed() >= Duration::from_millis(2) {
                         drive
                             .wait_until(std::time::Instant::now() + Duration::from_millis(1))
@@ -432,9 +429,8 @@ impl Seeking {
                         slice_started = std::time::Instant::now();
                     }
                     drive.motion_active()
-                },
-            )
-            .await;
+                })
+                .await;
             if !drive.motion_active() {
                 return Err(PoseMotionError::Cancelled);
             }
