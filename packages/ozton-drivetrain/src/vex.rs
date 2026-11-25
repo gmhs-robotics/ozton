@@ -17,7 +17,8 @@ use vexide::{
 use wheels::WheelSpeedError;
 
 use super::{
-    BrakeMotors, Drive, Footprint, HasLocalization, LateralDrive, MotorAddress, WheelCommand,
+    BrakeMotors, Drive, Footprint, HasBraking, HasLocalization, LateralDrive, MotorAddress,
+    WheelCommand,
     wheels,
 };
 use crate::model::{Differential, MotionGeometry};
@@ -116,8 +117,33 @@ impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
     }
 }
 
-impl<M: Drive + MotorGroups, T, L> BrakeMotors for Drivetrain<M, T, L> {
+impl From<crate::BrakeMode> for BrakeMode {
+    fn from(mode: crate::BrakeMode) -> Self {
+        match mode {
+            crate::BrakeMode::Coast => Self::Coast,
+            crate::BrakeMode::Brake => Self::Brake,
+            crate::BrakeMode::Hold => Self::Hold,
+        }
+    }
+}
+
+impl HasBraking for Motor {
     type BrakeError = PortError;
+
+    fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
+        self.brake(mode.into())
+    }
+}
+
+impl<M: Drive + MotorGroups, T, L> HasBraking for Drivetrain<M, T, L> {
+    type BrakeError = PortError;
+
+    fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
+        self.brake_motors(|_| Some(mode))
+    }
+}
+
+impl<M: Drive + MotorGroups, T, L> BrakeMotors for Drivetrain<M, T, L> {
 
     fn brake_motors(
         &mut self,
@@ -127,7 +153,7 @@ impl<M: Drive + MotorGroups, T, L> BrakeMotors for Drivetrain<M, T, L> {
         for (group, motors) in self.model.motor_groups_mut().iter_mut().enumerate() {
             for (motor, device) in motors.borrow_mut().iter_mut().enumerate() {
                 if let Some(mode) = select(MotorAddress { group, motor }) {
-                    result = result.and(device.brake(mode.into()));
+                    result = result.and(device.apply_brake(mode));
                 }
             }
         }
