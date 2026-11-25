@@ -208,14 +208,18 @@ impl Sensors {
         self,
         wheel: TrackingWheel<T>,
     ) -> Option<Self> {
-        wheel.valid().then(|| self.with_forward(move || wheel.travel().ok()))
+        wheel
+            .valid()
+            .then(|| self.with_forward(move || wheel.travel().ok()))
     }
 
     pub fn with_lateral_wheel<T: ReadPosition + 'static>(
         self,
         wheel: TrackingWheel<T>,
     ) -> Option<Self> {
-        wheel.valid().then(|| self.with_lateral(move || wheel.travel().ok()))
+        wheel
+            .valid()
+            .then(|| self.with_lateral(move || wheel.travel().ok()))
     }
 }
 

@@ -13,7 +13,10 @@ pub trait VoltageOutput {
 }
 
 /// An actuator that supports both voltage control and explicit stopping.
-pub trait MotorOutput: VoltageOutput + HasBraking<BrakeError = <Self as VoltageOutput>::Error> {}
+pub trait MotorOutput:
+    VoltageOutput + HasBraking<BrakeError = <Self as VoltageOutput>::Error>
+{
+}
 
 impl<T> MotorOutput for T where
     T: VoltageOutput + HasBraking<BrakeError = <T as VoltageOutput>::Error>

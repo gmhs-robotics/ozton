@@ -16,7 +16,7 @@ mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
 pub use ozton_drivetrain::{
-    BrakeMode, PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive,
+    BrakeMode, PoseDrive, RangeResetDrive, WheelActuation, WheelCommand,
 };
 pub use ozton_math::path::clearance::WallContact;
 use session::{PoseSession, Trajectory};
@@ -369,11 +369,14 @@ impl Seeking {
 
     /// Forward swing to an absolute heading with the inside wheel group held.
     /// Only drives with explicit mixed braking/velocity support can use it.
-    pub async fn swing_to_heading<D: WheelCommandDrive>(
+    pub async fn swing_to_heading<D: PoseDrive + WheelActuation>(
         &self,
         drive: &mut D,
         heading: Angle,
-    ) -> Result<(), PoseMotionError<D::Error>> {
+    ) -> Result<(), PoseMotionError<D::Error>>
+    where
+        D::Error: From<D::WheelError>,
+    {
         if !heading.value.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
@@ -403,7 +406,7 @@ impl Seeking {
                 |drive, speeds| {
                     let mut commands = speeds.map(WheelCommand::Velocity);
                     commands[held] = WheelCommand::Brake(BrakeMode::Hold);
-                    drive.drive_wheel_commands(commands)
+                    drive.drive_wheel_commands(commands).map_err(Into::into)
                 },
             )
             .await;

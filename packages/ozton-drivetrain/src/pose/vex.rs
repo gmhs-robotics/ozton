@@ -15,7 +15,7 @@ use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 
 use super::{PoseDrive, RangeResetDrive};
 use crate::{
-    BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint, WheelCommand, WheelCommandDrive,
+    BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint,
     model::{Differential, MotionGeometryFor, WheelSpeedError},
 };
 
@@ -165,16 +165,6 @@ where
 
     fn cancel_distance_reset(&mut self) {
         self.localization_mut().cancel_distance_reset();
-    }
-}
-
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> WheelCommandDrive
-    for TrackedDrive<G, S, B>
-where
-    Tracking<S>: HasDriveWheels,
-{
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error> {
-        self.command_wheels(commands).map_err(Into::into)
     }
 }
 

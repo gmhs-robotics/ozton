@@ -22,7 +22,7 @@ pub mod prelude {
         autonomous::{ControlError, ControlResult},
         drivetrain::{
             BrakeMode, BrakeMotors, Drive, Drivetrain, HasBraking, HasLocalization, LateralDrive,
-            MotorAddress, WheelCommand, WheelCommandDrive, model::DriveConfigError,
+            MotorAddress, WheelActuation, WheelCommand, model::DriveConfigError,
         },
         motion::{
             Arcade, DriveTuning, Follower, Holonomic, Seeking, Tank, arcade::ArcadeInput,

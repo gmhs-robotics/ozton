@@ -18,7 +18,7 @@ use wheels::WheelSpeedError;
 
 use super::{
     BrakeMotors, Drive, Footprint, HasBraking, HasLocalization, LateralDrive, MotorAddress,
-    WheelCommand, wheels,
+    WheelActuation, WheelCommand, wheels,
 };
 use crate::model::{Differential, MotionGeometry};
 
@@ -166,6 +166,18 @@ impl<M: Drive + BrakeMotors, T, L> BrakeMotors for Drivetrain<M, T, L> {
         select: impl FnMut(MotorAddress) -> Option<crate::BrakeMode>,
     ) -> Result<(), Self::BrakeError> {
         self.model.brake_motors(select)
+    }
+}
+
+impl<M, T, L> WheelActuation for Drivetrain<M, T, L>
+where
+    M: Drive + HasBraking + MotorGroups<WheelSpeeds = [Velocity; 2]>,
+    T: HasDriveWheels,
+{
+    type WheelError = WheelSpeedError;
+
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError> {
+        self.command_wheels(commands)
     }
 }
 

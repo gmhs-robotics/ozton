@@ -2,12 +2,11 @@
 
 use std::time::Duration;
 
+use ozton_drivetrain::BrakeMode;
 use ozton_math::{
     control::axis::{AxisController, AxisSample, Target},
     uom::si::{electric_potential::volt, f64::ElectricPotential},
 };
-use ozton_drivetrain::BrakeMode;
-
 use crate::device::{MotorOutput, ReadPosition, ReadVelocity, VoltageOutput};
 
 #[derive(Debug)]

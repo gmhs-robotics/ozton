@@ -6,10 +6,7 @@ use ozton_math::uom::si::{
     f64::{AngularVelocity, ElectricPotential, Torque},
     torque::newton_meter,
 };
-use vexide::{
-    prelude::Motor,
-    smart::PortError,
-};
+use vexide::{prelude::Motor, smart::PortError};
 
 use crate::device::{ReadTorque, ReadVelocity, VoltageOutput};
 

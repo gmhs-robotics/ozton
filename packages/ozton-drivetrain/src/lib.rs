@@ -1,11 +1,11 @@
 //! A motion model, the robot's physical geometry, and its tracking system.
 
 pub mod assist;
-pub mod device;
 mod braking;
 pub use braking::{
-    BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelCommand, WheelCommandDrive,
+    BrakeMode, BrakeMotors, HasBraking, MotorAddress, WheelActuation, WheelCommand,
 };
+pub mod device;
 pub mod model;
 mod pose;
 pub use model::{Drive, LateralDrive};

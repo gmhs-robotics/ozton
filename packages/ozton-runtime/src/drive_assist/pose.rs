@@ -4,8 +4,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use ozton_drivetrain::{
-    BrakeMode, BrakeMotors, Drive, DriveMotionFault, Footprint, HasBraking, MotorAddress,
-    PoseDrive, RangeResetDrive, WheelCommand, WheelCommandDrive,
+    Drive, DriveMotionFault, Footprint, PoseDrive, RangeResetDrive,
     model::{Differential, MotionGeometryFor},
 };
 use ozton_localization::{Feedback, differential::DifferentialLocalization, field::Boundary};
@@ -102,50 +101,6 @@ where
 
     fn cancel_distance_reset(&mut self) {
         self.drivetrain_mut().cancel_distance_reset();
-    }
-}
-
-impl<G, S, B, A> WheelCommandDrive for AssistedTrackedDrive<'_, G, S, B, A>
-where
-    B: Boundary,
-    G: MotionGeometryFor<B>,
-    S: TrackingSources,
-    Tracking<S>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
-{
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error> {
-        self.command_wheels(commands).map_err(Into::into)
-    }
-}
-
-impl<G, S, B, A> HasBraking for AssistedTrackedDrive<'_, G, S, B, A>
-where
-    B: Boundary,
-    G: MotionGeometryFor<B>,
-    S: TrackingSources,
-    Tracking<S>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
-{
-    type BrakeError = vexide::smart::PortError;
-
-    fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
-        self.drivetrain_mut().apply_brake(mode)
-    }
-}
-
-impl<G, S, B, A> BrakeMotors for AssistedTrackedDrive<'_, G, S, B, A>
-where
-    B: Boundary,
-    G: MotionGeometryFor<B>,
-    S: TrackingSources,
-    Tracking<S>: HasDriveWheels,
-    A: DriveAssist<Differential<G>, Tracking<S>, DifferentialLocalization<B>>,
-{
-    fn brake_motors(
-        &mut self,
-        select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
-    ) -> Result<(), Self::BrakeError> {
-        self.drivetrain_mut().brake_motors(select)
     }
 }
 

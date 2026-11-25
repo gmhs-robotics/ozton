@@ -3,7 +3,8 @@
 use std::time::{Duration, Instant};
 
 use ozton_drivetrain::{
-    Drivetrain, HasLocalization, MotorGroups, WheelSpeedError,
+    BrakeMode, BrakeMotors, Drivetrain, HasBraking, HasLocalization, MotorAddress, MotorGroups,
+    WheelActuation, WheelCommand, WheelSpeedError,
     model::{Drive, LateralDrive, tank_axes},
 };
 use ozton_math::{
@@ -150,16 +151,15 @@ impl<
 {
     /// Apply assists to a two-sided physical wheel velocity command.
     pub fn drive_wheel_speeds(&mut self, speeds: [Velocity; 2]) -> Result<(), WheelSpeedError> {
-        self.command_wheels(speeds.map(ozton_drivetrain::WheelCommand::Velocity))
+        self.command_wheels(speeds.map(WheelCommand::Velocity))
     }
 
     /// Preserve explicit stops while applying the ordinary drive assists to
     /// moving wheels. A stopped side cannot be reactivated by an assist.
     pub fn command_wheels(
         &mut self,
-        commands: [ozton_drivetrain::WheelCommand; 2],
+        commands: [WheelCommand; 2],
     ) -> Result<(), WheelSpeedError> {
-        use ozton_drivetrain::WheelCommand;
         let speeds = commands.map(|command| command.velocity().get::<meter_per_second>());
         let scale = speeds[0].abs().max(speeds[1].abs());
         if !commands.iter().all(|command| command.is_valid()) || scale == 0.0 {
@@ -178,6 +178,47 @@ impl<
         self.drivetrain
             .command_wheels(applied)
             .and(adjustment.map_err(WheelSpeedError::Port))
+    }
+}
+
+impl<M, T, L, A> HasBraking for AssistedDrivetrain<'_, M, T, L, A>
+where
+    M: Drive + HasBraking,
+    T: TrackingSystem,
+    A: DriveAssist<M, T, L>,
+{
+    type BrakeError = M::BrakeError;
+
+    fn apply_brake(&mut self, mode: BrakeMode) -> Result<(), Self::BrakeError> {
+        self.reset();
+        self.drivetrain.apply_brake(mode)
+    }
+}
+
+impl<M, T, L, A> BrakeMotors for AssistedDrivetrain<'_, M, T, L, A>
+where
+    M: Drive + BrakeMotors,
+    T: TrackingSystem,
+    A: DriveAssist<M, T, L>,
+{
+    fn brake_motors(
+        &mut self,
+        select: impl FnMut(MotorAddress) -> Option<BrakeMode>,
+    ) -> Result<(), Self::BrakeError> {
+        self.drivetrain.brake_motors(select)
+    }
+}
+
+impl<M, T, L, A> WheelActuation for AssistedDrivetrain<'_, M, T, L, A>
+where
+    M: Drive<Error = PortError> + HasBraking + MotorGroups<WheelSpeeds = [Velocity; 2]>,
+    T: HasDriveWheels,
+    A: DriveAssist<M, T, L>,
+{
+    type WheelError = WheelSpeedError;
+
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError> {
+        self.command_wheels(commands)
     }
 }
 

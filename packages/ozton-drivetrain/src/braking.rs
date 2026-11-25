@@ -63,11 +63,12 @@ impl WheelCommand {
     }
 }
 
-/// A differential drive capable of mixing velocity output and explicit stops.
-/// Keeping this capability separate permits hardware-independent PoseDrive
-/// implementations that cannot actively hold individual wheel groups.
-pub trait WheelCommandDrive: crate::PoseDrive + HasBraking {
-    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::Error>;
+/// Two-sided physical wheel actuation with independent braking.
+/// No localization or competition executor is required to implement this capability.
+pub trait WheelActuation: HasBraking {
+    type WheelError;
+
+    fn drive_wheel_commands(&mut self, commands: [WheelCommand; 2]) -> Result<(), Self::WheelError>;
 }
 
 #[cfg(test)]

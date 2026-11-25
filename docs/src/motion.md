@@ -170,3 +170,7 @@ const builder methods; configure only the differences from defaults. Pass a
 complete configuration with Seeking::with_config, or change one group with
 with_limits, with_safety, with_settling and the other group setters. Copy a configuration group and adjust only the settings needed for a per-route override. The public fields are now grouped (for example,
 config.limits.wheel_speed and config.safety.forward_braking).
+
+Swing turns require both `PoseDrive` and `WheelActuation`. Ordinary
+wheel actuation is independent of localization; the swing controller composes
+these capabilities instead of requiring a particular drivetrain or motor type.
