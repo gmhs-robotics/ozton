@@ -687,7 +687,7 @@ impl Progress {
             DifferentialTarget::DriveToPose { target, .. } => {
                 pose.position.distance(target.position)
                     + 0.1 * wrap_heading(target.heading - pose.heading).value.abs()
-            },
+            }
             DifferentialTarget::Turn { heading } => {
                 wrap_heading(heading - pose.heading).value.abs()
             }
