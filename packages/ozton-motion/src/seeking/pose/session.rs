@@ -100,9 +100,14 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
             timeout.as_millis()
         );
         let [x, y, heading, travel, radius, sweep] = match target {
-            DifferentialTarget::Turn { heading } => {
-                [f64::NAN, f64::NAN, heading.value, f64::NAN, f64::NAN, f64::NAN]
-            }
+            DifferentialTarget::Turn { heading } => [
+                f64::NAN,
+                f64::NAN,
+                heading.value,
+                f64::NAN,
+                f64::NAN,
+                f64::NAN,
+            ],
             DifferentialTarget::TurnToPoint { target }
             | DifferentialTarget::DriveToPoint { target, .. } => {
                 [target.x, target.y, f64::NAN, f64::NAN, f64::NAN, f64::NAN]

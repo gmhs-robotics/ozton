@@ -88,8 +88,7 @@ pub(crate) fn start_sd_logging() -> Option<vexide::task::Task<()>> {
                 }
                 // A slow SDK call cannot be preempted. Reduce I/O duty cycle
                 // instead of scheduling back-to-back writes on the executor.
-                delay = (elapsed * 8)
-                    .clamp(Duration::from_millis(40), Duration::from_millis(500));
+                delay = (elapsed * 8).clamp(Duration::from_millis(40), Duration::from_millis(500));
                 match result {
                     Err(error) if !failed => {
                         log_event!(

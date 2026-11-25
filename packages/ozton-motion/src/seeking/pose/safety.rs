@@ -177,9 +177,7 @@ pub(super) fn limit_wall_command(
     if full.is_some_and(|(min, max)| field.contains_aabb(min, max)) {
         return wheels;
     }
-    let clear = |scale| {
-        projected(scale).is_some_and(|(min, max)| field.contains_aabb(min, max))
-    };
+    let clear = |scale| projected(scale).is_some_and(|(min, max)| field.contains_aabb(min, max));
     let mut low = 0.0;
     let mut high = 1.0;
     for _ in 0..12 {
