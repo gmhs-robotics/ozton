@@ -405,7 +405,7 @@ impl ParticleFilter {
                 standard_deviation: deviation.extend(0.0),
             }
         } else {
-            self.estimate()
+            self.estimate(&orientations)
         };
         if let Some(contact) = self.contact {
             estimate.pose = contact.project(estimate.pose);
@@ -423,17 +423,21 @@ impl ParticleFilter {
 
     /// Weighted posterior XY covariance in square metres.
     pub fn position_covariance(&self) -> DMat2 {
-        let (mean, _) = self.position_moments();
+        let mean = self.position_mean();
         self.particles.iter().fold(DMat2::ZERO, |sum, p| {
             let d = p.pose.position - mean;
             sum + DMat2::from_cols(d * d.x, d * d.y) * p.weight
         })
     }
 
-    fn position_moments(&self) -> (DVec2, DVec2) {
-        let position = self.particles.iter().fold(DVec2::ZERO, |sum, particle| {
+    fn position_mean(&self) -> DVec2 {
+        self.particles.iter().fold(DVec2::ZERO, |sum, particle| {
             sum + particle.pose.position * particle.weight
-        });
+        })
+    }
+
+    fn position_moments(&self) -> (DVec2, DVec2) {
+        let position = self.position_mean();
         let variance = self.particles.iter().fold(DVec2::ZERO, |sum, particle| {
             let error = particle.pose.position - position;
             sum + error * error * particle.weight
@@ -444,12 +448,12 @@ impl ParticleFilter {
         )
     }
 
-    fn estimate(&self) -> Estimate {
+    fn estimate(&self, orientations: &[DVec2; MAX_PARTICLES]) -> Estimate {
         let mut position = DVec2::ZERO;
         let mut headings = DVec2::ZERO;
-        for particle in &self.particles {
+        for (particle, orientation) in self.particles.iter().zip(orientations) {
             position += particle.pose.position * particle.weight;
-            headings += direction(particle.pose.heading) * particle.weight;
+            headings += DVec2::new(-orientation.y, orientation.x) * particle.weight;
         }
         let heading = bearing(headings);
         let mut variance = DVec3::ZERO;

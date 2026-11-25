@@ -66,17 +66,15 @@ pub(in crate::localization) fn prepared_ray_distance(
     origin: DVec2,
     beam: DVec2,
     faces: &[RayFace],
-    mut mask: u128,
+    mask: u128,
     maximum: f64,
 ) -> Option<f64> {
     let mut nearest = maximum;
     let mut found = false;
-    while mask != 0 {
-        let index = mask.trailing_zeros() as usize;
+    for index in masked_indices(mask) {
         let Some(face) = faces.get(index) else {
             break;
         };
-        mask &= mask - 1;
         if let Some(distance) = face.nearer(origin, beam, nearest) {
             nearest = distance;
             found = true;
@@ -91,18 +89,56 @@ pub fn ray_distance(
     origin: DVec2,
     beam: DVec2,
     surfaces: &[Surface],
-    mut mask: u128,
+    mask: u128,
 ) -> Option<f64> {
     let mut nearest = f64::INFINITY;
-    while mask != 0 {
-        let index = mask.trailing_zeros() as usize;
+    for index in masked_indices(mask) {
         let Some(surface) = surfaces.get(index) else {
             break;
         };
-        mask &= mask - 1;
         if let Some(distance) = RayFace::new(*surface).nearer(origin, beam, nearest) {
             nearest = distance;
         }
     }
     nearest.is_finite().then_some(nearest)
+}
+
+/// Iterate the mask in native-sized words on 32-bit CPUs, preserving surface order.
+/// Avoid a multiword trailing-zero search and subtraction for each visible face.
+#[inline]
+fn masked_indices(mask: u128) -> impl Iterator<Item = usize> {
+    let words = [mask as usize, (mask >> usize::BITS) as usize];
+    #[cfg(target_pointer_width = "32")]
+    let words = [
+        words[0],
+        words[1],
+        (mask >> 64) as usize,
+        (mask >> 96) as usize,
+    ];
+    words.into_iter().enumerate().flat_map(|(word, mut bits)| {
+        core::iter::from_fn(move || {
+            if bits == 0 {
+                return None;
+            }
+            let index = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            Some(word * usize::BITS as usize + index)
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mask_iteration_preserves_surface_order_across_word_boundaries() {
+        let indices = [0, 31, 32, 63, 64, 95, 96, 127];
+        let mask = indices
+            .iter()
+            .fold(0_u128, |mask, index| mask | (1_u128 << index));
+        assert!(masked_indices(mask).eq(indices));
+        assert_eq!(masked_indices(0).next(), None);
+        assert!(masked_indices(u128::MAX).eq(0..128));
+    }
 }
