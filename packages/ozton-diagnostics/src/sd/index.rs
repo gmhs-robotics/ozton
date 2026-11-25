@@ -23,10 +23,11 @@ pub(super) fn open_log(directory: &Path) -> io::Result<(String, File)> {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("SD log index exhausted"))?;
         let name = format!("{highest}.log");
-        // VEXos supports create_new for write-only handles. Never truncate
-        // an existing log, even if a previous startup failed to save the index.
+        // VEXos checks create and create_new independently: create_new alone
+        // rejects missing files. Set both, retaining the existing-file check.
         let file = match OpenOptions::new()
             .write(true)
+            .create(true)
             .create_new(true)
             .truncate(true)
             .open(directory.join(&name))
