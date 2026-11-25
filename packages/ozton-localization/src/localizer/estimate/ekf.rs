@@ -4,6 +4,7 @@ use glam::DVec3;
 use ozton_math::{
     geometry::{BodyDelta, Pose, direction},
     localization::ekf::PoseEkf,
+    path::clearance::WallContact,
 };
 
 use super::{Observations, PoseEstimator, RangeRoles};
@@ -68,6 +69,14 @@ impl PoseEstimator for Ekf {
     }
     fn reset(&mut self, pose: Pose) {
         if let Some(filter) = PoseEkf::new(pose, self.config.initial_variance) {
+            self.filter = filter;
+        }
+    }
+    fn reset_at_contact(&mut self, pose: Pose, wall: WallContact) {
+        let mut variance = self.config.initial_variance;
+        variance[wall.axis()] = 0.0;
+        variance.z = 0.0;
+        if let Some(filter) = PoseEkf::new(pose, variance) {
             self.filter = filter;
         }
     }
