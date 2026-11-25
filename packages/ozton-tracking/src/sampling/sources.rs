@@ -70,8 +70,28 @@ impl<S: TrackingSource, const N: usize> TrackingSources for [S; N] {
     }
 }
 
+// Generate one non-overlapping implementation for every tuple element.
+macro_rules! source_indices {
+    (($($all:ident),+);) => {};
+    (($($all:ident),+); $name:ident:$index:tt $(, $rest:ident:$other:tt)*) => {
+        impl<$($all),+> SourceAt<$index> for super::Tracking<($($all,)+)> {
+            type Source = $name;
+
+            fn source_at(&self) -> &Self::Source {
+                &self.sources.$index
+            }
+
+            fn source_at_mut(&mut self) -> &mut Self::Source {
+                &mut self.sources.$index
+            }
+        }
+        source_indices!(($($all),+); $($rest:$other),*);
+    };
+}
+
 macro_rules! tracking_tuples {
     ($($name:ident:$index:tt),+) => {
+        source_indices!(($($name),+); $($name:$index),+);
         impl<$($name: TrackingSource),+> TrackingSources for ($($name,)+) {
             const SOURCE_COUNT: usize = [$(stringify!($name)),+].len();
 
@@ -112,44 +132,6 @@ tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
 tracking_tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
-
-// Generate one non-overlapping implementation for every tuple element.
-macro_rules! source_indices {
-    (($($all:ident),+);) => {};
-    (($($all:ident),+); $name:ident:$index:tt $(, $rest:ident:$other:tt)*) => {
-        impl<$($all),+> SourceAt<$index> for ($($all,)+) {
-            type Source = $name;
-
-            fn source_at(&self) -> &Self::Source {
-                &self.$index
-            }
-
-            fn source_at_mut(&mut self) -> &mut Self::Source {
-                &mut self.$index
-            }
-        }
-        source_indices!(($($all),+); $($rest:$other),*);
-    };
-}
-
-macro_rules! typed_sources {
-    ($($name:ident:$index:tt),+) => {
-        source_indices!(($($name),+); $($name:$index),+);
-    };
-}
-
-typed_sources!(A:0);
-typed_sources!(A:0, B:1);
-typed_sources!(A:0, B:1, C:2);
-typed_sources!(A:0, B:1, C:2, D:3);
-typed_sources!(A:0, B:1, C:2, D:3, E:4);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10);
-typed_sources!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11);
 
 #[doc(hidden)]
 pub struct Capture<'a> {

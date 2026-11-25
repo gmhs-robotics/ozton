@@ -30,14 +30,15 @@ pub struct AssistedDrivetrain<'a, M: Drive, T: TrackingSystem, L, A> {
     assists: &'a mut DriveAssists<A>,
 }
 
-impl<'a, M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> AssistedDrivetrain<'a, M, T, L, A> {
+impl<'a, M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>>
+    AssistedDrivetrain<'a, M, T, L, A>
+{
     pub fn new(drivetrain: &'a mut Drivetrain<M, T, L>, assists: &'a mut DriveAssists<A>) -> Self {
         Self {
             drivetrain,
             assists,
         }
     }
-
 }
 
 impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {

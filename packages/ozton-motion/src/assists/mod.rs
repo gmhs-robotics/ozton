@@ -38,7 +38,11 @@ where
         axes[1] = self.0.turn_with_period(
             axes[0],
             axes[1],
-            context.tracking.source_at().read_heading().map(|heading| -heading),
+            context
+                .tracking
+                .source_at()
+                .read_heading()
+                .map(|heading| -heading),
             context.elapsed,
         );
     }
@@ -81,10 +85,14 @@ where
     T::Source: ReadTilt,
 {
     fn apply(&mut self, axes: &mut [f64; 2], context: &AssistContext<'_, M, T, L>) {
-        let tilt = context.tracking.source_at().read_tilt().map(|[pitch, roll]| match self.axis {
-            TiltAxis::Pitch => pitch,
-            TiltAxis::Roll => roll,
-        });
+        let tilt = context
+            .tracking
+            .source_at()
+            .read_tilt()
+            .map(|[pitch, roll]| match self.axis {
+                TiltAxis::Pitch => pitch,
+                TiltAxis::Roll => roll,
+            });
         if let Some(tilt) = tilt {
             axes[0] += self.controller.correction(tilt, context.elapsed);
         } else {

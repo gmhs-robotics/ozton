@@ -5,10 +5,7 @@ use std::time::Duration;
 use futures_util::future::join_all;
 use glam::DVec3;
 pub use ozton_math::localization::observation::SensorSample;
-use ozton_math::{
-    localization::observation::{ObservationLayout, SourceAt},
-    uom::si::f64::Length,
-};
+use ozton_math::{localization::observation::ObservationLayout, uom::si::f64::Length};
 #[cfg(feature = "vex")]
 use vexide::time::LowResolutionTime;
 
@@ -85,18 +82,6 @@ pub struct Tracking<S> {
     range_layout: arrayvec::ArrayVec<(usize, RangeSensorConfig), MAX_RANGES>,
     wheel_mounts: Vec<(usize, DVec3)>,
     observations: Vec<Observation>,
-}
-
-impl<S: SourceAt<I>, const I: usize> SourceAt<I> for Tracking<S> {
-    type Source = S::Source;
-
-    fn source_at(&self) -> &Self::Source {
-        self.sources.source_at()
-    }
-
-    fn source_at_mut(&mut self) -> &mut Self::Source {
-        self.sources.source_at_mut()
-    }
 }
 
 impl<S: TrackingSources> TrackingSystem for Tracking<S> {
