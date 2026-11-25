@@ -359,13 +359,8 @@ mod tests {
         assert!(origin_acceleration(-arm.truncate() * 9.0, arm, yaw, DVec3::ZERO).length() < 1e-12);
         let pitch_alpha = DVec3::X * 2.0;
         assert!(
-            origin_acceleration(
-                DVec2::new(0.0, -2.0 * arm.z),
-                arm,
-                DVec3::ZERO,
-                pitch_alpha,
-            )
-            .length()
+            origin_acceleration(DVec2::new(0.0, -2.0 * arm.z), arm, DVec3::ZERO, pitch_alpha)
+                .length()
                 < 1e-12
         );
     }
