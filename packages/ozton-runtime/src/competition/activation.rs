@@ -32,6 +32,34 @@ pub(crate) fn advance() {
     ACTIVATION.set(current().wrapping_add(1));
 }
 
+// Keep SD I/O out of route execution, not the entire autonomous mode.
+#[cfg(all(feature = "logging", target_os = "vexos"))]
+static ROUTE_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(all(feature = "logging", target_os = "vexos"))]
+pub(crate) fn route_running() -> bool {
+    ROUTE_RUNNING.load(Ordering::Relaxed)
+}
+
+#[cfg(all(feature = "logging", target_os = "vexos"))]
+pub(super) struct RouteScope;
+
+#[cfg(all(feature = "logging", target_os = "vexos"))]
+impl RouteScope {
+    pub(super) fn enter() -> Self {
+        ROUTE_RUNNING.store(true, Ordering::Relaxed);
+        Self
+    }
+}
+
+#[cfg(all(feature = "logging", target_os = "vexos"))]
+impl Drop for RouteScope {
+    fn drop(&mut self) {
+        ROUTE_RUNNING.store(false, Ordering::Relaxed);
+    }
+}
+
 /// Invalidates work synchronously when vexide drops an active mode future.
 pub(super) struct Activation(u32);
 
