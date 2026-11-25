@@ -234,6 +234,12 @@ impl Distances {
     }
 }
 
+impl super::RangeSource for DistanceTracker {
+    fn range_config(&self) -> RangeSensorConfig {
+        self.config
+    }
+}
+
 impl crate::TrackingSource for DistanceTracker {
     const RANGE_SLOTS: usize = 1;
 
@@ -252,7 +258,7 @@ impl crate::TrackingSource for DistanceTracker {
     }
 
     fn range_mount(&self) -> Option<RangeSensorConfig> {
-        Some(self.config)
+        Some(super::RangeSource::range_config(self))
     }
 }
 

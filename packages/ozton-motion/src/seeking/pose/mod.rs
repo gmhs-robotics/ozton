@@ -16,7 +16,7 @@ mod safety;
 mod session;
 pub use actions::PathActions;
 pub use error::PoseMotionError;
-pub use ozton_drivetrain::PoseDrive;
+pub use ozton_drivetrain::{PoseDrive, RangeResetDrive};
 pub use safety::StoppingGovernor;
 use session::{PoseSession, Trajectory};
 
@@ -361,14 +361,14 @@ impl Seeking {
     }
 
     /// Hold the chassis still and try to correct the pose from fresh wall ranges.
-    pub async fn try_distance_reset<D: PoseDrive>(
+    pub async fn try_distance_reset<const I: usize, D: RangeResetDrive<I>>(
         &self,
         drive: &mut D,
         timeout: Duration,
     ) -> Result<bool, PoseMotionError<D::Error>> {
         let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
         let mut session = PoseSession::new(drive, options, self.config)?;
-        let result = session.try_distance_reset(timeout).await;
+        let result = session.try_distance_reset::<I>(timeout).await;
         session.finish(result)
     }
 }

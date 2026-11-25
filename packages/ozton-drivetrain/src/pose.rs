@@ -47,8 +47,8 @@ pub trait PoseDrive: DriveEncoders {
     fn brake(&mut self) -> Result<(), Self::Error>;
     /// Immediate active stop. Implementations must not silently coast.
     fn emergency_brake(&mut self) -> Result<(), Self::Error>;
-    fn request_distance_reset(&mut self);
-    fn cancel_distance_reset(&mut self);
+    /// Cancel a pending reset when stopping or interrupting motion.
+    fn cancel_distance_reset(&mut self) {}
 
     /// Yield until the monotonic deadline using the platform executor.
     fn wait_until(&mut self, deadline: Instant) -> impl Future<Output = ()>;
@@ -57,4 +57,17 @@ pub trait PoseDrive: DriveEncoders {
     fn motion_active(&self) -> bool;
 
     fn log_step(&mut self, _elapsed: Duration, _dt: Duration) {}
+}
+
+/// Distance reset requires a statically identified ranging source. The source
+/// index witnesses availability; the estimator may use every eligible range.
+///
+/// ```compile_fail
+/// use ozton_drivetrain::{PoseDrive, RangeResetDrive};
+/// fn request<D: PoseDrive>(drive: &mut D) {
+///     <D as RangeResetDrive<0>>::request_distance_reset(drive);
+/// }
+/// ```
+pub trait RangeResetDrive<const I: usize>: PoseDrive {
+    fn request_distance_reset(&mut self);
 }

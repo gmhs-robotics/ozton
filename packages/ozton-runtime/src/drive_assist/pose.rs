@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use ozton_drivetrain::{
-    Drive, DriveMotionFault, Footprint, PoseDrive,
+    Drive, DriveMotionFault, Footprint, PoseDrive, RangeResetDrive,
     model::{Differential, MotionGeometry},
 };
 use ozton_localization::{Feedback, differential::DifferentialLocalization};
@@ -13,7 +13,7 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
+use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range::RangeSource};
 
 use super::{AssistedDrivetrain, DriveAssist};
 
@@ -90,11 +90,20 @@ where
         self.drivetrain_mut().log_step(elapsed, dt);
     }
 
-    fn request_distance_reset(&mut self) {
-        self.drivetrain_mut().request_distance_reset();
-    }
-
     fn cancel_distance_reset(&mut self) {
         self.drivetrain_mut().cancel_distance_reset();
+    }
+}
+
+impl<G, S, D, A, const I: usize> RangeResetDrive<I> for AssistedTrackedDrive<'_, G, S, D, A>
+where
+    G: MotionGeometry,
+    S: TrackingSources,
+    Tracking<S, D>: HasDriveWheels + SourceAt<I>,
+    <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,
+    A: DriveAssist<Differential<G>, Tracking<S, D>, DifferentialLocalization>,
+{
+    fn request_distance_reset(&mut self) {
+        <_ as RangeResetDrive<I>>::request_distance_reset(self.drivetrain_mut());
     }
 }

@@ -8,7 +8,7 @@ use ozton_math::{
 };
 
 use super::{
-    PathActions, PoseDrive, PoseMotionError,
+    PathActions, PoseDrive, PoseMotionError, RangeResetDrive,
     safety::{body_rates, limit_wall_command, safe_feedback},
 };
 use crate::basic::differential::{
@@ -492,14 +492,17 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         }
     }
 
-    pub(super) async fn try_distance_reset(
+    pub(super) async fn try_distance_reset<const I: usize>(
         &mut self,
         timeout: Duration,
-    ) -> Result<bool, PoseMotionError<D::Error>> {
+    ) -> Result<bool, PoseMotionError<D::Error>>
+    where
+        D: RangeResetDrive<I>,
+    {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
         self.previous_tick = started;
-        self.drive.request_distance_reset();
+        <D as RangeResetDrive<I>>::request_distance_reset(self.drive);
         log_event!(
             Info,
             "localization",

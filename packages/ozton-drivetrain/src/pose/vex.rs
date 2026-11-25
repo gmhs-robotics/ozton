@@ -9,9 +9,9 @@ use ozton_math::{
     path::clearance::Obstacles,
     uom::si::f64::Velocity,
 };
-use ozton_tracking::{HasDriveWheels, Tracking, TrackingSources};
+use ozton_tracking::{HasDriveWheels, SourceAt, Tracking, TrackingSources, range::RangeSource};
 
-use super::PoseDrive;
+use super::{PoseDrive, RangeResetDrive};
 use crate::{
     Drive, Drivetrain, Footprint, MotorGroups,
     model::{Differential, MotionGeometry, WheelSpeedError},
@@ -163,11 +163,18 @@ where
         }
     }
 
-    fn request_distance_reset(&mut self) {
-        self.localization_mut().request_distance_reset();
-    }
-
     fn cancel_distance_reset(&mut self) {
         self.localization_mut().cancel_distance_reset();
+    }
+}
+
+impl<G: MotionGeometry, S: TrackingSources, D, const I: usize> RangeResetDrive<I>
+    for TrackedDrive<G, S, D>
+where
+    Tracking<S, D>: HasDriveWheels + SourceAt<I>,
+    <Tracking<S, D> as SourceAt<I>>::Source: RangeSource,
+{
+    fn request_distance_reset(&mut self) {
+        self.localization_mut().request_distance_reset();
     }
 }
