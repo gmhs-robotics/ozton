@@ -347,6 +347,20 @@ mod tests {
     use crate::path::clearance::Footprint;
 
     #[test]
+    fn cooperative_search_honors_cancellation() {
+        let route = super::super::complete_ready(LatticePlanner::new().plan_cooperative(
+            None,
+            Pose::default(),
+            DVec2::Y,
+            None,
+            None,
+            qty!(0.3 m),
+            async || false,
+        ));
+        assert!(route.is_none());
+    }
+
+    #[test]
     fn straight_near_wall_does_not_require_a_full_turning_disk() {
         let field = RectangularClearance::new(
             Footprint::new(qty!(0.2 m), qty!(0.4 m)).unwrap(),
