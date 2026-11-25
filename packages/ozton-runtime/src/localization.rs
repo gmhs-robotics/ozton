@@ -38,7 +38,8 @@ where
     fn sample(&mut self, tracking: &mut Tracking<S, D>) {
         const {
             assert!(
-                S::DIFFERENTIAL_COUNT == 0 || <Tracking<S, D> as TrackingSystem>::HAS_SELECTED_DRIVE,
+                S::DIFFERENTIAL_COUNT == 0
+                    || <Tracking<S, D> as TrackingSystem>::HAS_SELECTED_DRIVE,
                 "select the differential encoder source with with_drive_source before running localization"
             );
         }

@@ -66,9 +66,9 @@ impl std::fmt::Display for TrackingBuildError {
 impl std::error::Error for TrackingBuildError {}
 
 mod sources;
+pub use sources::TrackingSources;
 #[doc(hidden)]
 pub use sources::{Capture, SourceLayout};
-pub use sources::TrackingSources;
 
 /// Live sources and their observations. Pose and estimator state belong to localization.
 pub struct Tracking<S, D = ()> {
