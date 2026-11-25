@@ -42,6 +42,9 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         if !options.valid() || !config.valid() {
             return Err(PoseMotionError::Configuration);
         }
+        // Planning may run before the first control stage. Remove output
+        // before that synchronous work, not after it.
+        drive.brake().map_err(PoseMotionError::StopFailed)?;
         Ok(Self {
             drive,
             options,
@@ -119,6 +122,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
         status: &str,
     ) -> Result<(), PoseMotionError<D::Error>> {
         let started = Instant::now();
+        self.previous_tick = started;
+        let baseline = self
+            .drive
+            .pose_feedback()
+            .map_err(PoseMotionError::Drive)?
+            .map(|f| f.time);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut settled = Duration::ZERO;
         let mut progress = Progress::default();
@@ -149,6 +158,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 }
                 continue;
             };
+            if last_feedback.is_none() && baseline.is_some_and(|time| feedback.time <= time) {
+                if feedback_at.elapsed() > self.config.timing.maximum_gap {
+                    return Err(PoseMotionError::ControlGap);
+                }
+                continue;
+            }
             let dt = match last_feedback {
                 Some(previous) if feedback.time <= previous => {
                     if feedback_at.elapsed() > self.config.timing.maximum_gap {
@@ -260,6 +275,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
 
         use crate::pursuit::profiled::{self, FollowerSample, Progress as PathProgress};
         let start = Instant::now();
+        self.previous_tick = start;
+        let baseline = self
+            .drive
+            .pose_feedback()
+            .map_err(PoseMotionError::Drive)?
+            .map(|f| f.time);
         let mut progress = PathProgress::new(path);
         let mut controller = DifferentialFeedback::new(self.config.tuning).with_config(self.config);
         let mut last = None;
@@ -300,6 +321,12 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
                 }
                 continue;
             };
+            if last.is_none() && baseline.is_some_and(|time| feedback.time <= time) {
+                if fresh_at.elapsed() > self.config.timing.maximum_gap {
+                    return Err(PoseMotionError::ControlGap);
+                }
+                continue;
+            }
             let dt = match last {
                 Some(previous) if feedback.time <= previous => {
                     if fresh_at.elapsed() > self.config.timing.maximum_gap {
@@ -444,6 +471,7 @@ impl<'a, D: PoseDrive> PoseSession<'a, D> {
     ) -> Result<bool, PoseMotionError<D::Error>> {
         self.drive.brake().map_err(PoseMotionError::StopFailed)?;
         let started = Instant::now();
+        self.previous_tick = started;
         self.drive.request_distance_reset();
         log_event!(
             Info,
