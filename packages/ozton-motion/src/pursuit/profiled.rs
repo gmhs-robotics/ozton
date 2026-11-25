@@ -13,31 +13,12 @@ use ozton_math::{
     },
 };
 
-/// The spatial pursuit controller's geometric lookahead.
-#[derive(Debug, Clone, Copy)]
-pub enum Follower {
-    PurePursuit { lookahead: Length },
-    // Kept only until consumers migrate to the single spatial follower.
-    Ramsete { b: f64, zeta: f64 },
-}
-
-impl Follower {
-    pub fn is_valid(self) -> bool {
-        match self {
-            Self::PurePursuit { lookahead } => lookahead.value.is_finite() && lookahead.value > 0.0,
-            Self::Ramsete { b, zeta } => {
-                b.is_finite() && b > 0.0 && (0.0..=1.0).contains(&zeta) && zeta > 0.0
-            }
-        }
-    }
-}
-
 /// Progress and nominal remaining duration for nonblocking mechanism actions.
 pub(crate) struct PathObservation {
     pub distance: f64,
     pub cross_track: f64,
     pub remaining_time: f64,
-    pub reference_time: f64,
+    pub nominal_progress_time: f64,
 }
 
 /// The reference is determined solely by measured spatial progress.
@@ -48,11 +29,7 @@ pub(crate) struct ProfiledFollower<'path> {
 }
 
 impl<'path> ProfiledFollower<'path> {
-    pub fn new(path: &'path Path, follower: Follower, default_lookahead: Length) -> Self {
-        let lookahead = match follower {
-            Follower::PurePursuit { lookahead } => lookahead,
-            Follower::Ramsete { .. } => default_lookahead,
-        };
+    pub fn new(path: &'path Path, lookahead: Length) -> Self {
         Self {
             progress: Progress::new(path),
             geometric: path.start(),
@@ -69,7 +46,7 @@ impl<'path> ProfiledFollower<'path> {
             distance,
             cross_track: self.geometric.pose.position.distance(pose.position),
             remaining_time: (path.end().time - self.geometric.time).max(0.0),
-            reference_time: self.geometric.time,
+            nominal_progress_time: self.geometric.time,
         }
     }
 

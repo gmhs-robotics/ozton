@@ -14,6 +14,6 @@ async fn route_match(&mut self) -> ControlResult {
 }
 ```
 
-On the build host, use a native `Waypoint` slice and physical limits to prepare trajectory samples. Load the embedded samples with `Path::from_precomputed` on the Brain. Call `Seeking::follow_path` for Pure Pursuit or `Seeking::follow_trajectory` for RAMSETE.
+On the build host, use a native `Waypoint` slice and physical limits to prepare trajectory samples. Load the embedded samples with `Path::from_precomputed` on the Brain. Call `Seeking::follow_path` for curvature-regulated spatial Pure Pursuit.
 
 Coordinate mechanisms through their own handles and scoped `TaskSlot` work. Do not hold mutable device borrows across unrelated awaits. Propagate motion faults and timeouts rather than assuming that an unsuccessful move reached its target.

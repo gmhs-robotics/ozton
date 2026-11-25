@@ -19,6 +19,5 @@ pub use arcade::Arcade;
 pub use basic::differential::DriveTuning;
 pub use curvature::CurvatureDrive;
 pub use holonomic::Holonomic;
-pub use pursuit::profiled::Follower;
 pub use seeking::Seeking;
 pub use tank::Tank;

@@ -31,7 +31,24 @@ pub(super) async fn drive_to_target<D: MotionExecution>(
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
     let mut session = PoseSession::new(drive, options, settings.config())?;
-    let result = direct(&mut session, position, final_heading, settings).await;
+    let result = if final_heading.is_some() {
+        direct(&mut session, position, final_heading, settings).await
+    } else {
+        let pose = session.drive.localization().pose();
+        let reverse = settings.travel.map_or_else(
+            || wrap_heading(bearing(position - pose.position) - pose.heading)
+                .value.abs() > core::f64::consts::FRAC_PI_2,
+            |direction| direction == TravelDirection::Backward,
+        );
+        session.run(
+            DifferentialTarget::DriveToPoint {
+                target: position,
+                maximum_speed: options.maximum_wheel_speed,
+                reverse,
+            },
+            settings.config.timing.stage_timeout,
+        ).await
+    };
     session.finish(result)
 }
 

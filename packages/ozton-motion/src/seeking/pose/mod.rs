@@ -451,24 +451,6 @@ impl Seeking {
         self.follow_with_actions(
             drive,
             path,
-            self.config.path_follower(),
-            reverse,
-            &mut PathActions::new(),
-        )
-        .await
-    }
-
-    /// Track a host-timed trajectory with RAMSETE.
-    pub async fn follow_trajectory<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        path: &ozton_math::path::Path,
-        reverse: bool,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        self.follow_with_actions(
-            drive,
-            path,
-            self.config.trajectory_follower(),
             reverse,
             &mut PathActions::new(),
         )
@@ -480,7 +462,6 @@ impl Seeking {
         &self,
         drive: &mut D,
         path: &ozton_math::path::Path,
-        follower: crate::Follower,
         reverse: bool,
         actions: &mut PathActions<'_>,
     ) -> Result<(), PoseMotionError<D::Error>> {
@@ -492,7 +473,7 @@ impl Seeking {
         let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let start = path.start().pose;
         let actual = drive.localization().pose();
-        if !follower.is_valid() || !actual.is_finite() {
+        if !actual.is_finite() {
             return Err(PoseMotionError::Configuration);
         }
         if actual.position.distance(start.position) > 0.08
@@ -545,7 +526,6 @@ impl Seeking {
             .follow(
                 Trajectory {
                     path,
-                    follower,
                     reverse,
                     target,
                     timeout: self.config.timing.stage_timeout,

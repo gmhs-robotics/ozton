@@ -1,5 +1,5 @@
 //! Const construction of physical motion templates.
-use ozton_math::{control::Pid, following::Ramsete};
+use ozton_math::control::Pid;
 use ozton_motion::{DriveTuning, MotionConfig, MotionLimits};
 
 const PID: Pid = Pid::new(4.25, 0.0, 0.50, None);
@@ -11,14 +11,12 @@ const MOTION: MotionConfig = MotionConfig::new()
             .with_angular_acceleration(ozton_math::qty!(12 rad/s^2))
             .with_wheel_speed(ozton_math::qty!(1.2 m/s)),
     );
-const RAMSETE: Ramsete = Ramsete::new().with_b(2.5).with_zeta(0.8);
 
 #[test]
 fn constant_templates_preserve_configuration() {
     assert_eq!(MOTION.tuning.linear.gains(), (4.25, 0.0, 0.50));
     assert_eq!(MOTION.limits.acceleration.value, 2.5);
     assert_eq!(MOTION.limits.angular_acceleration.value, 12.0);
-    assert_eq!(RAMSETE.zeta, 0.8);
 }
 
 #[test]

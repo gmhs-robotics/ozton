@@ -1,8 +1,6 @@
 //! Hardware-independent path tracking laws.
 mod boomerang;
-mod ramsete;
 pub use boomerang::Boomerang;
-pub use ramsete::Ramsete;
 
 use crate::{
     geometry::{Pose, pursuit_curvature},

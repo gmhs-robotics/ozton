@@ -25,7 +25,7 @@ pub mod prelude {
             MotorAddress, WheelActuation, WheelCommand, model::DriveConfigError,
         },
         motion::{
-            Arcade, DriveTuning, Follower, Holonomic, Seeking, Tank, arcade::ArcadeInput,
+            Arcade, DriveTuning, Holonomic, Seeking, Tank, arcade::ArcadeInput,
             seeking::TravelDirection,
         },
         runtime::{

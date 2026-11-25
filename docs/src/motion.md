@@ -4,7 +4,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Profiled paths support both RAMSETE and Pure Pursuit.
+Seeking executes distances, turns, point and pose goals, arcs and prepared paths using calibrated physical wheel velocities, feedback and field clearance. Prepared paths use spatial Pure Pursuit with curvature-dependent physical velocity constraints.
 
 ## A first closed-loop move
 
@@ -68,7 +68,7 @@ A command finishes when the applicable error and velocity tolerances remain sati
 
 ## Following a prepared path
 
-Build a Path on the host from waypoints and physical limits in ozton::math::path, then embed its samples and load with Path::from_precomputed. Use Seeking::follow_path for Pure Pursuit or Seeking::follow_trajectory for RAMSETE. Use follow_with_actions for an explicit follower and mechanism callbacks. The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
+Build a Path on the host from waypoints and physical limits in ozton::math::path, then embed its samples and load with Path::from_precomputed. Use Seeking::follow_path for spatial Pure Pursuit, or follow_with_actions for the same follower with mechanism callbacks. The final stage settles against pose feedback. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
 
 ## Wheel-constrained trajectories
@@ -83,7 +83,7 @@ path::Limits::with_wheel_acceleration) to supply a characterized wheel accelerat
 limit. When unspecified, path construction uses the nominal linear acceleration.
 The live controller also constrains feedback wheel slew when explicitly configured.
 
-The moving RAMSETE reference is limited by arc-length lead over geometric progress.
+The reference follows measured geometric progress, not elapsed time. Host-profile timing remains a nominal estimate for mechanism actions.
 The same terminal pose controller handles convergence for both followers. Use
 PathConfig::with_maximum_cross_track_error to set the allowed tracking deviation.
 

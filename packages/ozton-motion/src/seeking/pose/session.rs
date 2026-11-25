@@ -14,7 +14,6 @@ use crate::basic::differential::{
 
 pub(super) struct Trajectory<'a> {
     pub path: &'a ozton_math::path::Path,
-    pub follower: crate::Follower,
     pub reverse: bool,
     pub target: ozton_math::geometry::Pose,
     pub timeout: Duration,
@@ -288,7 +287,6 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
     ) -> Result<(), PoseMotionError<D::Error>> {
         let Trajectory {
             path,
-            follower,
             reverse,
             target,
             timeout,
@@ -300,7 +298,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         let baseline = read_feedback(self.drive)
             .map_err(PoseMotionError::Tracking)?
             .map(|f| f.time);
-        let mut follower = ProfiledFollower::new(path, follower, self.config.path.lookahead);
+        let mut follower = ProfiledFollower::new(path, self.config.path.lookahead);
         let mut config = self.config;
         let limits = path.limits();
         config.limits.lateral_acceleration = config.limits.lateral_acceleration.min(limits.lateral_acceleration);
@@ -381,7 +379,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             actions
                 .advance(observation.distance, observation.remaining_time, false)
                 .map_err(PoseMotionError::Mechanism)?;
-            let reference_time = observation.reference_time;
+            let nominal_progress_time = observation.nominal_progress_time;
             let distance = feedback.pose.position.distance(target.position);
             let heading_error = wrap_heading(target.heading - feedback.pose.heading)
                 .value
@@ -432,7 +430,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             log_row!(
                 Trace,
                 "PATH_TICK",
-                "sample_ms={},nominal_progress_s={reference_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
+                "sample_ms={},nominal_progress_s={nominal_progress_time:.5},progress_m={:.5},cross_m={cross:.5},x_m={:.5},y_m={:.5},heading_rad={:.5},error_m={distance:.5},heading_error_rad={heading_error:.5},left_mps={:.5},right_mps={:.5},terminal={terminal},complete={complete},dt_us={},requested_left_mps={:.5},requested_right_mps={:.5},forward_mps={:.5},lateral_mps={:.5},yaw_radps={:.5}",
                 feedback.time.as_millis(),
                 observation.distance,
                 feedback.pose.position.x,

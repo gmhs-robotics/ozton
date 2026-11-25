@@ -323,8 +323,6 @@ pub struct PathConfig {
     pub lookahead: Length,
     /// Cross-track error threshold for a diagnostic warning, not an abort.
     pub maximum_cross_track_error: Length,
-    pub ramsete_b: f64,
-    pub ramsete_zeta: f64,
 }
 
 impl Default for PathConfig {
@@ -337,8 +335,6 @@ impl PathConfig {
     pub const DEFAULT: Self = Self {
         lookahead: ozton_math::qty!(0.16 m),
         maximum_cross_track_error: ozton_math::qty!(0.20 m),
-        ramsete_b: 2.0,
-        ramsete_zeta: 0.7,
     };
 
     pub const fn new() -> Self {
@@ -357,17 +353,6 @@ impl PathConfig {
         self
     }
 
-    #[must_use]
-    pub const fn with_ramsete_b(mut self, value: f64) -> Self {
-        self.ramsete_b = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn with_ramsete_zeta(mut self, value: f64) -> Self {
-        self.ramsete_zeta = value;
-        self
-    }
 }
 
 /// Point approach and terminal correction behavior.
@@ -554,8 +539,6 @@ impl MotionConfig {
                 self.settling.angular_velocity_tolerance.value,
                 self.path.lookahead.value,
                 self.path.maximum_cross_track_error.value,
-                self.path.ramsete_b,
-                self.path.ramsete_zeta,
                 self.approach.realign_enter.value,
                 self.approach.realign_exit.value,
                 self.approach.reversal_heading.value,
@@ -584,7 +567,6 @@ impl MotionConfig {
                 .limits
                 .yaw_braking
                 .is_none_or(|v| v.value.is_finite() && v.value > 0.0)
-            && self.path.ramsete_zeta <= 1.0
             && (0.0..1.0).contains(&self.approach.boomerang_lead)
             && self.approach.realign_exit < self.approach.realign_enter
             && self.approach.realign_enter.value < core::f64::consts::FRAC_PI_2
@@ -620,18 +602,5 @@ impl MotionConfig {
                 .wheel_acceleration
                 .unwrap_or(self.limits.acceleration),
         )
-    }
-
-    pub const fn path_follower(self) -> crate::Follower {
-        crate::Follower::PurePursuit {
-            lookahead: self.path.lookahead,
-        }
-    }
-
-    pub const fn trajectory_follower(self) -> crate::Follower {
-        crate::Follower::Ramsete {
-            b: self.path.ramsete_b,
-            zeta: self.path.ramsete_zeta,
-        }
     }
 }
