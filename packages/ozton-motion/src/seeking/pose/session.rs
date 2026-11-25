@@ -352,7 +352,11 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         } = trajectory;
 
         use crate::pursuit::profiled::ProfiledFollower;
-        let mut follower = ProfiledFollower::new(path, self.config.path.lookahead);
+        let mut follower = ProfiledFollower::new(
+            path,
+            self.config.path.lookahead,
+            self.config.tuning.angular,
+        );
         let mut config = self.config;
         let limits = path.limits();
         config.limits.lateral_acceleration = config
@@ -397,6 +401,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                     best = f64::INFINITY;
                     no_progress = Duration::ZERO;
                     terminal_pose = TerminalPose::default();
+                    follower.reset_feedback();
                 }
                 let observation = follower.observe(
                     feedback.pose,
@@ -430,6 +435,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                         feedback.forward_velocity,
                         feedback.angular_velocity,
                         config.limits.brake_latency,
+                        dt,
                     );
                     let (wheels, ready) = controller.limit_step(desired, false, dt, options);
                     (
