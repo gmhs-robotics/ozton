@@ -166,6 +166,9 @@ impl DifferentialFeedback {
     /// Reset command state when feedback is interrupted.
     pub fn reset(&mut self) {
         self.reset_feedback();
+        // A newly acquired point must use its requested direction, not the
+        // direction latched by the preceding terminal approach.
+        self.point_backing = None;
         self.last_wheels = [0.0; 2];
     }
 
