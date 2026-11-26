@@ -12,7 +12,7 @@ use super::{
     Engine, MotionExecution, PathActions, PoseMotionError, TravelDirection,
     session::{Arrival, PathStage, PoseSession, Trajectory},
 };
-use crate::{MotionConfig, MotionResult, config::blended_limits};
+use crate::{MotionResult, config::blended_limits};
 
 #[derive(Clone, Copy)]
 pub(in crate::seeking) enum Command<'a> {
@@ -402,7 +402,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{PurePursuit, Ramsete};
+    use crate::{MotionConfig, PurePursuit, Ramsete};
     fn path(a: f64, b: f64) -> Path {
         Path::new(
             &[
