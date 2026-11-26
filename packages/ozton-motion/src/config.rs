@@ -639,7 +639,9 @@ impl MotionConfig {
             && self.path.terminal.valid()
             && (0.1..=1.0).contains(&self.path.reference_speed_scale)
             && self.path.terminal_alignment_tolerance.is_none_or(|angle| {
-                angle.value.is_finite() && angle.value > 0.0 && angle.value <= core::f64::consts::FRAC_PI_2
+                angle.value.is_finite()
+                    && angle.value > 0.0
+                    && angle.value <= core::f64::consts::FRAC_PI_2
             })
             && [
                 self.limits.wheel_speed.value,

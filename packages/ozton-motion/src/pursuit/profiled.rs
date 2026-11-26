@@ -91,7 +91,11 @@ impl<'path> ProfiledFollower<'path> {
     }
 
     fn time_scale(&self) -> f64 {
-        if matches!(self.guidance, Guidance::PurePursuit) { 1.0 } else { self.reference_speed_scale }
+        if matches!(self.guidance, Guidance::PurePursuit) {
+            1.0
+        } else {
+            self.reference_speed_scale
+        }
     }
 
     pub fn planned_duration(&self) -> f64 {
@@ -548,17 +552,40 @@ mod tests {
 
     #[test]
     fn timed_reference_scaling_preserves_geometry_and_retimes_twist() {
-        let limits = Limits::from_units(qty!(0.33 m), qty!(1 m/s), qty!(1 m/s), qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2));
-        let path = Path::new(&[Waypoint::new(DVec2::ZERO, 1.0), Waypoint::new(DVec2::Y, 1.0)], limits).unwrap();
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
         let dt = core::time::Duration::from_millis(10);
         for guidance in [crate::PathGuidance::RAMSETE, crate::PathGuidance::LQR] {
-            let mut follower = ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None)).with_guidance(guidance);
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None))
+                    .with_guidance(guidance);
             follower.reference_speed_scale = 0.8;
             let mut follower = follower.prepare(dt, false).unwrap();
             let t = path.end().time * 0.5;
             follower.elapsed = t / 0.8;
             let sample = path.at_time(qty!((t) s));
-            let wheels = follower.command(sample.pose, false, [qty!(0 m/s); 2], qty!(0 rad/s), core::time::Duration::ZERO, dt);
+            let wheels = follower.command(
+                sample.pose,
+                false,
+                [qty!(0 m/s); 2],
+                qty!(0 rad/s),
+                core::time::Duration::ZERO,
+                dt,
+            );
             assert!(wheels.iter().all(|v| (*v - sample.speed * 0.8).abs() < 1e-9));
             follower.elapsed = path.end().time;
             assert!(!follower.is_terminal(0.01));
