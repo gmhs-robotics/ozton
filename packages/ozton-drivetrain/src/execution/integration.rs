@@ -10,7 +10,7 @@ use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
 use super::{MotionExecution, RangeResetDrive};
 use crate::{
     BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint,
-    model::{Differential, MotionGeometryFor, WheelSpeedError},
+    model::{Differential, MotionGeometry, WheelSpeedError},
 };
 
 type DriveOutputError = <Differential as Drive>::Error;
@@ -43,7 +43,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> MotionExecution
+impl<B: Boundary, G: MotionGeometry, S: TrackingSources> MotionExecution
     for TrackedDrive<G, S, B>
 where
     Tracking<S>: HasDriveWheels,
@@ -115,7 +115,7 @@ where
     }
 }
 
-impl<B: Boundary, G: MotionGeometryFor<B>, S: TrackingSources> RangeResetDrive
+impl<B: Boundary, G: MotionGeometry, S: TrackingSources> RangeResetDrive
     for TrackedDrive<G, S, B>
 where
     Tracking<S>: HasDriveWheels + HasRange,

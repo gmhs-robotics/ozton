@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use ozton_drivetrain::{
     Drive, DriveMotionFault, Footprint, MotionExecution, RangeResetDrive,
-    model::{Differential, MotionGeometryFor},
+    model::{Differential, MotionGeometry},
 };
 use ozton_localization::{Localization, field::Boundary};
 use ozton_math::uom::si::f64::Velocity;
@@ -19,7 +19,7 @@ type AssistedTrackedDrive<'a, G, S, B, A> =
 impl<G, S, B, A> MotionExecution for AssistedTrackedDrive<'_, G, S, B, A>
 where
     B: Boundary,
-    G: MotionGeometryFor<B>,
+    G: MotionGeometry,
     S: TrackingSources,
     Tracking<S>: HasDriveWheels,
     A: DriveAssist<Differential<G>, Tracking<S>, Localization<B>>,
@@ -59,7 +59,7 @@ where
 impl<G, S, B, A> RangeResetDrive for AssistedTrackedDrive<'_, G, S, B, A>
 where
     B: Boundary,
-    G: MotionGeometryFor<B>,
+    G: MotionGeometry,
     S: TrackingSources,
     Tracking<S>: HasDriveWheels + HasRange,
     A: DriveAssist<Differential<G>, Tracking<S>, Localization<B>>,

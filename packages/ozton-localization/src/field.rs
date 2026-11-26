@@ -1,7 +1,6 @@
 //! Optional surveyed VEX perimeter presets and physical wall-contact registration.
-use ozton_math::{geometry::DVec2, uom::si::f64::Length};
-
 pub use ozton_math::localization::surface::{MotionMap, Surface, SurfaceMap};
+use ozton_math::{geometry::DVec2, uom::si::f64::Length};
 
 /// Optional dimensions of a centered rectangular physical perimeter.
 /// A preset creates no geometry until explicitly converted into a surface map.

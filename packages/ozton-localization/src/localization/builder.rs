@@ -167,11 +167,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         require_ranges: bool,
     ) -> Option<Localization<B>> {
         let map: Vec<_> = self.map.faces().collect();
-        let mounts: Vec<_> = layout
-            .ranges
-            .iter()
-            .map(|&(_, mount)| mount)
-            .collect();
+        let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
                 OdometryConfig::for_mounted_wheels(self.odometry.maximum_gap),
@@ -269,27 +265,27 @@ mod tests {
 
     #[test]
     fn motion_only_geometry_does_not_change_localization_mask() {
-        use crate::field::{MotionMap, Surface};
         use ozton_math::{geometry::DVec2, qty};
+
+        use crate::field::{MotionMap, Surface};
 
         let ranges = Ranges([(
             0,
             RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg)),
         )]);
         let mut map = Field::METAL.surface_map().unwrap();
-        let obstacle = Surface::rectangle(
-            DVec2::new(-0.1, 0.4),
-            DVec2::new(0.1, 0.6),
-            qty!(10 in),
-        )
-        .unwrap();
+        let obstacle =
+            Surface::rectangle(DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(10 in)).unwrap();
         let mut motion = MotionMap::from_localization(&map);
         motion.add(obstacle);
         let before = LocalizationBuilder::new()
             .with_surface_map(map.clone())
             .build(&ranges)
             .unwrap();
-        assert_eq!(before.localizer.range_config(0).unwrap().surface_mask, 0b1111);
+        assert_eq!(
+            before.localizer.range_config(0).unwrap().surface_mask,
+            0b1111
+        );
         assert!(map.add(obstacle));
         let after = LocalizationBuilder::new()
             .with_surface_map(map)
