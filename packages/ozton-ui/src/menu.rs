@@ -1,63 +1,15 @@
 //! Competition-loop adapter around the shared selector, with Disable first.
 use vexide::display::Display;
 
-use crate::selector::{Background, Selector, SelectorItem, StatusHandle, THEME_DARK};
+use crate::selector::{
+    Background, Selector, SelectorItem, SimpleSelectTheme, StatusHandle, THEME_DARK,
+};
 
 /// A selector owns presentation while the competition runtime owns route dispatch.
 pub trait RouteSelector<A> {
     fn action(&self) -> A;
     fn poll(&mut self, selection_enabled: bool) -> Option<A>;
     fn status(&mut self, message: &str);
-}
-
-type RouteSelectorFactory<A> = dyn FnOnce(Vec<(String, A)>) -> Box<dyn RouteSelector<A>>;
-
-/// Build a stock Brain menu or give the route list to a custom UI factory.
-pub enum Ui<A> {
-    Brain(Display),
-    /// Stock route menu with an application-defined background decoration.
-    BrainWithBackground(Display, Background),
-    Custom(Box<RouteSelectorFactory<A>>),
-}
-
-impl<A: Copy + 'static> Ui<A> {
-    pub fn custom<S: RouteSelector<A> + 'static>(
-        make: impl FnOnce(Vec<(String, A)>) -> S + 'static,
-    ) -> Self {
-        Self::Custom(Box::new(|routes| Box::new(make(routes))))
-    }
-
-    pub fn build(self, disabled: A, routes: Vec<(String, A)>) -> Box<dyn RouteSelector<A>> {
-        self.build_with_default(disabled, routes, None)
-    }
-
-    /// Select an initial route by its index in `routes`. Custom UIs own their selection.
-    pub fn build_with_default(
-        self,
-        disabled: A,
-        routes: Vec<(String, A)>,
-        default: Option<usize>,
-    ) -> Box<dyn RouteSelector<A>> {
-        match self {
-            Self::Brain(display) => {
-                Box::new(RouteMenu::with_default(display, disabled, routes, default))
-            }
-            Self::BrainWithBackground(display, background) => {
-                Box::new(RouteMenu::with_default_and_background(
-                    display,
-                    disabled,
-                    routes,
-                    default,
-                    Some(background),
-                ))
-            }
-            Self::Custom(build) => {
-                let mut choices = vec![("Disable".into(), disabled)];
-                choices.extend(routes);
-                build(choices)
-            }
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -100,14 +52,15 @@ impl<A: Copy + 'static> RouteMenu<A> {
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
         default: Option<usize>,
     ) -> Self {
-        Self::with_default_and_background(display, disabled, routes, default, None)
+        Self::with_style(display, disabled, routes, default, THEME_DARK, None)
     }
 
-    fn with_default_and_background(
+    pub(crate) fn with_style(
         display: Display,
         disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
         default: Option<usize>,
+        theme: SimpleSelectTheme,
         background: Option<Background>,
     ) -> Self {
         let mut choices = vec![Choice {
@@ -123,7 +76,7 @@ impl<A: Copy + 'static> RouteMenu<A> {
             .filter(|&index| index < choices.len())
             .unwrap_or_default();
         let selector =
-            Selector::new_with_background(display, choices, selection, THEME_DARK, background);
+            Selector::new_with_background(display, choices, selection, theme, background);
         let status = selector.status_handle();
         status.set_selection_enabled(
             vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,

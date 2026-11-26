@@ -4,7 +4,8 @@ use std::time::Duration;
 use ozton::{
     drivetrain::{Drive, model::Differential},
     route,
-    runtime::{OztonCompete, competition::RobotRoute},
+    runtime::{OztonCompete, Runtime, competition::RobotRoute},
+    ui::Ui,
 };
 use vexide::{prelude::*, smart::PortError, time::sleep};
 
@@ -52,7 +53,8 @@ async fn main(p: Peripherals) -> std::process::ExitCode {
             ),
             controller: p.primary_controller,
         };
-        Ok::<_, PortError>(robot.with_brain(p.display))
+        let ui = Ui::builder(p.display).build();
+        Ok::<_, PortError>(Runtime::new(robot).with_ui(ui))
     })
     .await
 }

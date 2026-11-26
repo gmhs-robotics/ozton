@@ -19,7 +19,18 @@ const DEFAULT_ROUTE: Option<&'static str> = Some("Forward");
 
 Use distinct menu labels. If you omit `DEFAULT_ROUTE`, the menu starts at Disable. A driver-only robot can omit `ROUTES` as well. The selected route future is boxed once per autonomous activation so routines with different future types fit in the same static list.
 
-Return `robot.with_brain(display)` from the async startup block passed to `ozton::run`. For a custom UI use `Runtime::new(robot).with_ui(Ui::custom(...))`. Select a route while disabled. The selection is read when autonomous begins. See [the complete first robot](getting-started.md) for context.
+Build and attach the UI in the async startup block passed to `ozton::run`.
+
+```rust,ignore
+use ozton::{runtime::Runtime, ui::Ui};
+
+let ui = Ui::builder(display).build();
+let runtime = Runtime::new(robot).with_ui(ui);
+```
+
+The builder uses the stock dark theme. Use `with_theme` to change its colors or `with_background` to draw behind the menu. For a custom UI, pass a selector factory to `with_ui`. The factory receives the named choices, including Disable first, and returns a `RouteSelector`. A custom component can also implement `RouteUi` to receive the runtime's default route index.
+
+Select a route while disabled. Ozton reads the selection when autonomous begins. See [the complete first robot](getting-started.md) for context.
 
 ## Mode changes
 

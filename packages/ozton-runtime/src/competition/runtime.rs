@@ -2,10 +2,10 @@
 
 use std::{fmt::Display, time::Duration};
 
-use ozton_ui::RouteSelector;
-use vexide::{competition::CompetitionMode, display::Display as BrainDisplay};
+use ozton_ui::{RouteSelector, RouteUi};
+use vexide::competition::CompetitionMode;
 
-use super::{RobotRoute, Ui, selector_task::TaskSelector, session};
+use super::{RobotRoute, selector_task::TaskSelector, session};
 use crate::{clock::CONTROL_PERIOD, localization::LocalizationWorker};
 
 /// Hardware and behavior supplied by an application to the competition runtime.
@@ -40,11 +40,6 @@ pub trait OztonCompete: Sized + 'static {
 
     /// Reset application-owned transient state without writing motor outputs.
     fn mode_changed(&mut self, _mode: CompetitionMode) {}
-
-    /// Install the Brain route selector and prepare this robot to compete.
-    fn with_brain(self, display: BrainDisplay) -> Runtime<Self> {
-        Runtime::new(self).with_ui(Ui::Brain(display))
-    }
 }
 
 /// Runs competition lifecycle and owns its selector.
@@ -66,14 +61,11 @@ impl<R: OztonCompete> Runtime<R> {
 
     /// Give the runtime a selector for the robot's registered routes.
     #[must_use]
-    pub fn with_ui(mut self, ui: Ui<Option<RobotRoute<R>>>) -> Self {
-        let routes = R::ROUTES
-            .iter()
-            .map(|route| (route.label.into(), Some(*route)))
-            .collect();
+    pub fn with_ui(mut self, ui: impl RouteUi<Option<RobotRoute<R>>>) -> Self {
+        let routes = R::ROUTES.iter().map(|route| (route.label, Some(*route)));
         let default = R::DEFAULT_ROUTE
             .and_then(|label| R::ROUTES.iter().position(|route| route.label == label));
-        self.selector = TaskSelector::new(ui.build_with_default(None, routes, default));
+        self.selector = TaskSelector::new(Box::new(ui.into_selector(None, routes, default)));
         self
     }
 

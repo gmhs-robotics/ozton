@@ -72,9 +72,9 @@ fn route_choice_is_read_once_at_autonomous_entry() {
 
     vexide::runtime::block_on(async {
         let reads = Rc::new(Cell::new(0));
-        let mut runtime = Runtime::new(Application::default()).with_ui(Ui::<Selection>::custom({
+        let mut runtime = Runtime::new(Application::default()).with_ui({
             let reads = Rc::clone(&reads);
-            move |choices| {
+            move |choices: Vec<(String, Selection)>| {
                 assert_eq!(choices.len(), 2);
                 assert_eq!(choices[0].0, "Disable");
                 assert!(choices[0].1.is_none());
@@ -82,7 +82,7 @@ fn route_choice_is_read_once_at_autonomous_entry() {
                 assert_eq!(choices[1].1.map(|route| route.label), Some("Practice"));
                 Selector(reads, choices[1].1)
             }
-        }));
+        });
 
         session::CompetitionSession(&mut runtime).disabled().await;
         assert_eq!(runtime.robot.outputs.first().copied(), Some("stop drive"));
