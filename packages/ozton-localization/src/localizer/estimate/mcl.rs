@@ -6,7 +6,7 @@ use ozton_math::{
     geometry::{BodyDelta, Pose},
     localization::{
         mcl::{Beam, BeamQuality, ParticleConfig, ParticleFilter},
-        range::{Constraint, Rejection, cast_masked, fit_consensus},
+        range::{Constraint, Rejection, fit_consensus},
     },
     path::clearance::WallContactConstraint,
     uom::si::f64::Angle,
@@ -99,10 +99,18 @@ impl PoseEstimator for Mcl {
             min_range: ozton_math::qty!(0 m),
             sigma: self.config.range_sigma,
         }; MAX_RANGES];
-        let mut constraints = [(Constraint::default(), 0.0); MAX_RANGES];
+        let mut constraints = [None; MAX_RANGES];
+        let mut sensor_indices = [0; MAX_RANGES];
+        let mut submitted_mask = 0u8;
+        let mut residual_rejected = 0u8;
+        let mut geometry_rejected = 0u8;
         let mut count = 0;
-        let mut constraint_count = 0;
-        for (sensor, report) in observations.sensors.iter().zip(observations.reports) {
+        for (index, (sensor, report)) in observations
+            .sensors
+            .iter()
+            .zip(observations.reports)
+            .enumerate()
+        {
             let Some(report) = report else { continue };
             let Some(distance) = report.calibrated_distance else {
                 continue;
@@ -112,20 +120,24 @@ impl PoseEstimator for Mcl {
             match report.constraint {
                 Ok(_) | Err(Rejection::NearEdge | Rejection::Grazing) => {}
                 Err(Rejection::NoSurface) if sensor.surface.is_none() => {}
+                Err(Rejection::NoSurface | Rejection::WrongSurface) => {
+                    geometry_rejected |= 1 << index;
+                    continue;
+                }
                 Err(_) => continue,
             }
             if let Some(limit) = self.config.max_range_residual {
                 // Local tracking with an association gate requires a valid
                 // geometric constraint; grazing and edge returns are not
                 // reliable innovations even when their range residual is small.
-                if report.constraint.is_err() {
-                    continue;
-                }
-                let Some(hit) = cast_masked(predicted, sensor.mount, map, sensor.surface_mask)
-                else {
+                let Ok(constraint) = report.constraint else {
+                    geometry_rejected |= 1 << index;
                     continue;
                 };
-                if (distance.value - hit.distance).abs() > limit.value {
+                // The report was already raycast at the same predicted pose
+                // with the timestamp-aligned sensor mount. Reuse its residual.
+                if constraint.residual.abs() > limit.value {
+                    residual_rejected |= 1 << index;
                     continue;
                 }
             }
@@ -138,9 +150,8 @@ impl PoseEstimator for Mcl {
                 sigma: ozton_math::qty!((range_sigma) m),
             };
             if let Ok(constraint) = report.constraint {
-                constraints[constraint_count] =
-                    (constraint, range_sigma * constraint.hit.incidence.abs());
-                constraint_count += 1;
+                constraints[count] =
+                    Some((constraint, range_sigma * constraint.hit.incidence.abs()));
             }
             beams[count] = Beam {
                 mount: sensor.mount,
@@ -150,9 +161,18 @@ impl PoseEstimator for Mcl {
                     sensor.surface_mask & 1u128.checked_shl(surface as u32).unwrap_or(0)
                 }),
             };
+            sensor_indices[count] = index;
+            submitted_mask |= 1 << index;
             count += 1;
         }
         if count == 0 {
+            if residual_rejected != 0 || geometry_rejected != 0 {
+                log_row!(
+                    Trace,
+                    "MCL_BEAMS",
+                    "submitted=0,used=0,residual_rejected={residual_rejected},geometry_rejected={geometry_rejected}"
+                );
+            }
             let mut no_surface = 0;
             let mut no_new_packet = 0;
             let mut residual = 0;
@@ -180,14 +200,33 @@ impl PoseEstimator for Mcl {
         // Local Bayesian tracking must not create particles from the same
         // measurement used to weight them. Explicit DSR/set_pose is the
         // separate recovery path for a pose outside the motion prior.
-        let rank = || fit_consensus(&constraints[..constraint_count]).map_or(0, |fit| fit.axes);
         self.candidate.clone_from(&self.filter);
-        let Some(estimate) = self.candidate.observe_position_with_quality(
+        let estimate = self.candidate.observe_position_with_quality(
             &beams[..count],
             &qualities[..count],
             map,
             predicted.heading,
-        ) else {
+        );
+        let used = self.candidate.last_used_beams();
+        let mut used_mask = 0u8;
+        let mut used_constraints = [(Constraint::default(), 0.0); MAX_RANGES];
+        let mut constraint_count = 0;
+        for index in 0..count {
+            if used & (1 << index) != 0 {
+                used_mask |= 1 << sensor_indices[index];
+                if let Some(constraint) = constraints[index] {
+                    used_constraints[constraint_count] = constraint;
+                    constraint_count += 1;
+                }
+            }
+        }
+        log_row!(
+            Trace,
+            "MCL_BEAMS",
+            "submitted={submitted_mask},used={used_mask},residual_rejected={residual_rejected},geometry_rejected={geometry_rejected}"
+        );
+        let rank = || fit_consensus(&used_constraints[..constraint_count]).map_or(0, |fit| fit.axes);
+        let Some(estimate) = estimate else {
             log_row!(
                 Trace,
                 "MCL",

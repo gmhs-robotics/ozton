@@ -155,7 +155,9 @@ pub struct ParticleFilter {
     particles: Vec<Particle>,
     scratch: Vec<Particle>,
     random: Random,
+    ray_map: Vec<Surface>,
     ray_faces: Vec<RayFace>,
+    last_used_beams: u128,
     directed_faces: Vec<DirectedFace>,
     contact: Option<WallContactConstraint>,
 }
@@ -167,7 +169,9 @@ impl Clone for ParticleFilter {
             particles: self.particles.clone(),
             scratch: Vec::with_capacity(self.config.count),
             random: self.random.clone(),
-            ray_faces: Vec::with_capacity(self.ray_faces.capacity()),
+            ray_map: self.ray_map.clone(),
+            ray_faces: self.ray_faces.clone(),
+            last_used_beams: self.last_used_beams,
             directed_faces: Vec::with_capacity(self.directed_faces.capacity()),
             contact: self.contact,
         }
@@ -181,6 +185,7 @@ impl Clone for ParticleFilter {
         self.scratch.reserve(source.config.count);
         self.random.clone_from(&source.random);
         self.contact = source.contact;
+        self.last_used_beams = source.last_used_beams;
     }
 }
 
@@ -211,7 +216,9 @@ impl ParticleFilter {
             particles: Vec::with_capacity(config.count),
             scratch: Vec::with_capacity(config.count),
             random: Random::seeded(config.seed),
+            ray_map: Vec::new(),
             ray_faces: Vec::new(),
+            last_used_beams: 0,
             directed_faces: Vec::new(),
             contact: None,
         };
@@ -342,6 +349,7 @@ impl ParticleFilter {
         fixed_rotation: Option<DVec2>,
         quality: Option<&[BeamQuality]>,
     ) -> Option<Estimate> {
+        self.last_used_beams = 0;
         if beams.is_empty()
             || map.is_empty()
             || beams.iter().any(|beam| {
@@ -354,7 +362,13 @@ impl ParticleFilter {
         {
             return None;
         }
-        prepare_faces(map, &mut self.ray_faces);
+        // The immutable field normally stays unchanged for the full run.
+        // Compare values, not addresses: callers can edit a reused buffer.
+        if self.ray_map.as_slice() != map {
+            prepare_faces(map, &mut self.ray_faces);
+            self.ray_map.clear();
+            self.ray_map.extend_from_slice(map);
+        }
         let mut orientations = [DVec2::ZERO; MAX_PARTICLES];
         if fixed_rotation.is_none() {
             for (orientation, particle) in orientations.iter_mut().zip(&self.particles) {
@@ -449,6 +463,7 @@ impl ParticleFilter {
                     particle.weight *= likelihood / mean;
                 }
             }
+            self.last_used_beams |= 1u128.checked_shl(index as u32).unwrap_or(0);
             used = true;
         }
         if !used {
@@ -475,6 +490,12 @@ impl ParticleFilter {
             self.resample();
         }
         Some(estimate)
+    }
+
+    /// Bit i identifies a submitted beam that actually updated particle weights.
+    /// The mask reports up to 128 beams from the most recent observation.
+    pub fn last_used_beams(&self) -> u128 {
+        self.last_used_beams
     }
 
     /// Weighted posterior XY covariance in square metres.
