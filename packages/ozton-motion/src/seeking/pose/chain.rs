@@ -419,4 +419,156 @@ mod tests {
             Junction::Stop
         );
     }
+
+    /// Ideal differential plant driven through the real asynchronous executor.
+    /// Use virtual feedback time and a bounded real scheduling tick.
+    mod execution {
+        use super::*;
+        use ozton_drivetrain::{HasLocalization, model::DriveEncoders};
+        use ozton_localization::{Fault, Feedback};
+        use ozton_math::{
+            geometry::BodyDelta,
+            path::clearance::{Footprint, Obstacles, WallContact},
+            uom::si::f64::Velocity,
+        };
+        use std::future::{Future, Ready, ready};
+        use std::task::{Context, Poll, Waker};
+        use std::cell::Cell;
+
+        struct Estimate(Feedback);
+        impl LocalizationEstimate for Estimate {
+            fn pose(&self) -> Pose { self.0.pose }
+            fn pose_trusted(&self) -> bool { true }
+            fn feedback(&self) -> Result<Option<Feedback>, Fault> { Ok(Some(self.0)) }
+            fn rectangular_half_extents(&self) -> Option<DVec2> { None }
+            fn motion_obstacles(&self) -> Obstacles { Obstacles::default() }
+            fn wall_contact(&self) -> Option<WallContact> { None }
+            fn release_wall_contact(&mut self) {}
+            fn request_distance_reset(&mut self) {}
+            fn cancel_distance_reset(&mut self) {}
+        }
+
+        struct Plant {
+            estimate: Estimate,
+            wheels: [Velocity; 2],
+            commands: Vec<(f64, f64)>,
+            stops: Vec<f64>,
+        }
+
+        impl Plant {
+            fn new() -> Self {
+                Self {
+                    estimate: Estimate(Feedback {
+                        time: Duration::ZERO,
+                        pose: Pose::default(),
+                        forward_travel: Length::ZERO,
+                        forward_velocity: Velocity::ZERO,
+                        lateral_velocity: Velocity::ZERO,
+                        angular_velocity: qty!(0 rad/s),
+                        ranges: [None; _],
+                        reset_accepted: false,
+                    }),
+                    wheels: [Velocity::ZERO; 2],
+                    commands: Vec::new(),
+                    stops: Vec::new(),
+                }
+            }
+        }
+
+        impl HasLocalization for Plant {
+            type Localization = Estimate;
+            fn localization(&self) -> impl std::ops::Deref<Target = Estimate> { &self.estimate }
+            fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = Estimate> { &mut self.estimate }
+        }
+        impl DriveEncoders for Plant {
+            fn track_width(&self) -> Length { qty!(0.33 m) }
+            fn tracking_positions(&mut self) -> [Option<Length>; 2] { [None; 2] }
+        }
+        impl MotionExecution for Plant {
+            type Error = std::convert::Infallible;
+            fn footprint(&self) -> Option<Footprint> { None }
+            fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {
+                self.wheels = speeds;
+                self.commands.push((self.estimate.0.pose.position.y, (speeds[0].value + speeds[1].value) * 0.5));
+                Ok(())
+            }
+            fn brake(&mut self) -> Result<(), Self::Error> {
+                self.stops.push(self.estimate.0.pose.position.y);
+                self.wheels = [Velocity::ZERO; 2];
+                Ok(())
+            }
+            fn emergency_brake(&mut self) -> Result<(), Self::Error> { self.brake() }
+            fn wait_until(&mut self, _deadline: Instant) -> Ready<()> {
+                std::thread::sleep(Duration::from_micros(100));
+                let dt = 0.01;
+                let v = (self.wheels[0].value + self.wheels[1].value) * 0.5;
+                let w = (self.wheels[1].value - self.wheels[0].value) / self.track_width().value;
+                let f = &mut self.estimate.0;
+                f.time += Duration::from_millis(10);
+                f.pose = f.pose.integrate(BodyDelta {
+                    translation: DVec2::new(0.0, v * dt),
+                    heading: qty!((w * dt) rad),
+                });
+                f.forward_travel += qty!((v * dt) m);
+                f.forward_velocity = qty!((v) m/s);
+                f.angular_velocity = qty!((w) rad/s);
+                ready(())
+            }
+            fn motion_active(&self) -> bool { self.estimate.0.time < Duration::from_secs(20) }
+        }
+
+        fn dense_path(a: f64, b: f64, limits: Limits) -> Path {
+            let points: Vec<_> = (0..=20).map(|i| Waypoint::new(
+                DVec2::new(0.0, a + (b-a) * i as f64 / 20.0), 1.0
+            )).collect();
+            Path::new(&points, limits).unwrap()
+        }
+
+        fn run<F: Future>(future: F) -> F::Output {
+            let mut future = std::pin::pin!(future);
+            let mut context = Context::from_waker(Waker::noop());
+            match future.as_mut().poll(&mut context) {
+                Poll::Ready(value) => value,
+                Poll::Pending => panic!("ideal plant suspended unexpectedly"),
+            }
+        }
+
+        #[test]
+        fn live_chain_preserves_speed_across_same_and_mixed_guidance_and_reverses() {
+            let config = MotionConfig::new().with_limits(
+                crate::MotionLimits::new()
+                    .with_wheel_speed(qty!(0.8 m/s))
+                    .with_acceleration(qty!(1 m/s^2))
+                    .with_deceleration(qty!(1 m/s^2))
+            );
+            let limits = config.path_limits(qty!(0.33 m));
+            let a = dense_path(0.0, 0.5, limits);
+            let b = dense_path(0.5, 1.0, limits);
+            let c = dense_path(1.0, 1.5, limits);
+            let d = dense_path(1.5, 0.8, limits);
+            let mut plant = Plant::new();
+            let events = Cell::new(0);
+            let pursuit = PurePursuit::new().with_config(config);
+            let arrival = || {
+                events.set(events.get() + 1);
+                Ok::<_, std::convert::Infallible>(())
+            };
+            run(MotionChain::new()
+                .then(pursuit.follow(&a).with_actions(PathActions::new().on_arrival(arrival)))
+                .then(pursuit.follow(&b).with_actions(PathActions::new().on_arrival(arrival)))
+                .then(Ramsete::new().with_config(config).follow(&c))
+                .then(pursuit.with_travel(TravelDirection::Backward).follow(&d))
+                .run(&mut plant)).unwrap();
+            assert_eq!(events.get(), 2);
+            for seam in [0.5, 1.0] {
+                assert!(plant.commands.iter().any(|&(y, v)| (y - seam).abs() < 0.04 && v > 0.3));
+                assert!(!plant.stops.iter().any(|&y| (y - seam).abs() < 0.04),
+                    "unexpected stop near {seam}: {:?}", plant.stops);
+            }
+            assert!(plant.stops.iter().any(|&y| (y - 1.5).abs() < 0.04));
+            assert!(plant.commands.iter().any(|&(y, v)| y > 1.2 && v < -0.1));
+            assert!((plant.estimate.0.pose.position.y - 0.8).abs() < 0.04);
+            assert!(plant.estimate.0.pose.heading.value.abs() < 0.06);
+        }
+    }
 }
