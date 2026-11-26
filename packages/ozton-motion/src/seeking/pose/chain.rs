@@ -218,13 +218,33 @@ fn scale(config: MotionConfig) -> f64 {
     }
 }
 
+struct PathPlan {
+    start: usize,
+    end: usize,
+    arrival: Arrival,
+    joined: Option<Path>,
+    uniform_scale: bool,
+}
+
+enum PlannedMotion {
+    Direct(usize),
+    Path(PathPlan),
+}
+
 async fn execute<D: MotionExecution>(
     drive: &mut D,
     segments: &mut [MotionSegment<'_>],
 ) -> MotionResult<D> {
-    if segments.iter().any(|s| !s.valid()) {
+    if segments.iter().any(|s| {
+        !s.valid() || s.path().is_some_and(|p| {
+            (p.limits().track_width.value - drive.track_width().value).abs() > 1e-8
+        })
+    }) {
         return Err(PoseMotionError::Configuration);
     }
+    // Plan all compatible groups before output starts. No path joining or
+    // allocation-heavy reparameterization at a physical reversal.
+    let mut plan = Vec::new();
     let mut index = 0;
     while index < segments.len() {
         if !drive.motion_active() {
@@ -238,7 +258,6 @@ async fn execute<D: MotionExecution>(
             {
                 count += segments[end].path().unwrap().samples().len() - 1;
                 if count > MAX_POINTS {
-                    // A separate stopped group is preferable to exceeding the bounded path storage.
                     break;
                 }
                 end += 1;
@@ -250,36 +269,52 @@ async fn execute<D: MotionExecution>(
             } else {
                 Arrival::Stop
             };
-            run_paths(drive, &mut segments[index..end], arrival).await?;
+            let (joined, uniform_scale) = plan_paths(drive, &segments[index..end]).await?;
+            plan.push(PlannedMotion::Path(PathPlan {
+                start: index, end, arrival, joined, uniform_scale
+            }));
             index = end;
         } else {
-            let segment = &segments[index];
-            segment.direct(drive).await?;
-            if let Some(name) = segment.name {
-                let pose = drive.localization().pose();
-                ozton_diagnostics::log_row!(
-                    Info,
-                    "MOTION_DIRECT_RESULT",
-                    "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}",
-                    pose.position.x,
-                    pose.position.y,
-                    pose.heading.value
-                );
-                let _ = (name, pose);
-            }
+            plan.push(PlannedMotion::Direct(index));
             index += 1;
+        }
+    }
+    for step in plan {
+        if !drive.motion_active() {
+            return Err(PoseMotionError::Cancelled);
+        }
+        match step {
+            PlannedMotion::Path(group) => {
+                run_paths(drive, &mut segments[group.start..group.end], &group).await?;
+            }
+            PlannedMotion::Direct(index) => {
+                let segment = &segments[index];
+                segment.direct(drive).await?;
+                if let Some(name) = segment.name {
+                    let pose = drive.localization().pose();
+                    ozton_diagnostics::log_row!(
+                        Info,
+                        "MOTION_DIRECT_RESULT",
+                        "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}",
+                        pose.position.x, pose.position.y, pose.heading.value
+                    );
+                    let _ = (name, pose);
+                }
+            }
         }
     }
     Ok(())
 }
 
-async fn run_paths<D: MotionExecution>(
+async fn plan_paths<D: MotionExecution>(
     drive: &mut D,
-    segments: &mut [MotionSegment<'_>],
-    arrival: Arrival,
-) -> MotionResult<D> {
+    segments: &[MotionSegment<'_>],
+) -> MotionResult<D, (Option<Path>, bool)> {
+    if segments.len() == 1 {
+        return Ok((None, true));
+    }
+    drive.brake().map_err(PoseMotionError::StopFailed)?;
     let paths: Vec<_> = segments.iter().map(|s| s.path().unwrap()).collect();
-    let reverse = segments[0].reverse();
     let first_config = segments[0].engine.config;
     let first_scale = scale(first_config);
     let mut limits = paths[0].limits();
@@ -304,7 +339,7 @@ async fn run_paths<D: MotionExecution>(
     let joined = if segments.len() > 1 {
         Some(
             Path::join_cooperative(&paths, limits, async || {
-                drive.wait_until(Instant::now()).await;
+                drive.wait_until(Instant::now() + Duration::from_millis(1)).await;
                 drive.motion_active()
             })
             .await
@@ -319,7 +354,16 @@ async fn run_paths<D: MotionExecution>(
     } else {
         None
     };
-    let path = joined.as_ref().unwrap_or(paths[0]);
+    Ok((joined, uniform_scale))
+}
+
+async fn run_paths<D: MotionExecution>(
+    drive: &mut D,
+    segments: &mut [MotionSegment<'_>],
+    plan: &PathPlan,
+) -> MotionResult<D> {
+    let reverse = segments[0].reverse();
+    let path = plan.joined.as_ref().unwrap_or(segments[0].path().unwrap());
     let start = body_pose(path.start().pose, reverse);
     let target = body_pose(path.end().pose, reverse);
     let actual = drive.localization().pose();
@@ -342,10 +386,10 @@ async fn run_paths<D: MotionExecution>(
     let mut distance = 0.0;
     let mut timeout = Duration::ZERO;
     let mut stages = Vec::with_capacity(segments.len());
-    for (segment, source) in segments.iter_mut().zip(paths) {
-        distance += source.end().distance;
+    for segment in segments.iter_mut() {
+        distance += segment.path().unwrap().end().distance;
         let mut config = segment.engine.config;
-        if !uniform_scale {
+        if !plan.uniform_scale {
             config.path.reference_speed_scale = 1.0;
         }
         timeout = timeout.saturating_add(config.timing.stage_timeout);
@@ -368,7 +412,7 @@ async fn run_paths<D: MotionExecution>(
                 timeout,
             },
             &mut stages,
-            arrival,
+            plan.arrival,
         )
         .await;
     session.finish(result)
@@ -441,7 +485,7 @@ mod tests {
         use ozton_math::{
             geometry::BodyDelta,
             path::clearance::{Footprint, Obstacles, WallContact},
-            uom::si::f64::Velocity,
+            uom::{ConstZero, si::f64::Velocity},
         };
 
         use super::*;
