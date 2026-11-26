@@ -26,9 +26,16 @@ Motor rows use the port number as the stable identifier. Shared Ozton motor grou
 
 The scheduler may produce fewer samples; use actual timestamps. Serialization reuses scratch buffers and a bounded schema dictionary. `ozton::run` handles startup error and panic logging, SD writer lifetime and the startup duration. With logging disabled, no hardware-sampling task is started.
 
-Use `ozton::run_with_metadata` with a `runtime::BuildMetadata` value to emit one
-BUILD record before device initialization. The application supplies build-time
-information. Override captures both Git commits and reports each source tree
+For a flat `#[vexide::main]`, return `Result<(), StartupError>` and bind
+`let startup = Startup::with_metadata(metadata);` before constructing devices.
+`StartupError` logs initialization errors propagated with `?`. Call
+`startup.ready()` just before awaiting `runtime.compete()` to record initialization
+time. Keep the guard in scope through competition so it owns the SD writer.
+`Startup`, `StartupError`, and `BuildMetadata` are available in `ozton::runtime`.
+Applications using an initialization future can use `ozton::run_with_metadata`.
+
+The application supplies build-time information for the BUILD record.
+Override captures both Git commits and reports each source tree
 as `clean`, `dirty`, or `unknown` when repository information is unavailable.
 A dirty commit identifies the base revision. Keep the build inputs or commit
 the changes when exact reproduction matters. `configuration` is the selected

@@ -67,26 +67,13 @@ pub async fn run_with_metadata<A: Application, E: Display>(
 }
 
 async fn run_application<A: Application, E: Display>(
-    #[cfg_attr(not(feature = "logging"), allow(unused_variables))] metadata: Option<BuildMetadata>,
+    metadata: Option<BuildMetadata>,
     initialize: impl Future<Output = Result<A, E>>,
 ) -> ExitCode {
-    #[cfg(feature = "logging")]
-    let started = std::time::Instant::now();
-    let _startup = Startup::begin();
-    #[cfg(feature = "logging")]
-    if let Some(metadata) = metadata {
-        metadata.record();
-    }
-    crate::log_event!(Info, "startup", "Initializing robot");
+    let startup = Startup::initialize(metadata);
     match initialize.await {
         Ok(runtime) => {
-            #[cfg(feature = "logging")]
-            crate::log_event!(
-                Info,
-                "startup",
-                "Robot ready in {:.3}s",
-                started.elapsed().as_secs_f64()
-            );
+            startup.ready();
             runtime.compete().await
         }
         Err(error) => {
@@ -110,16 +97,50 @@ impl<R: crate::OztonCompete> Application for crate::Runtime<R> {
     }
 }
 
-/// Owns startup logging until application exit or cancellation.
-pub(crate) struct Startup {
+/// Keeps startup diagnostics alive while the robot initializes and competes.
+#[must_use = "keep the startup guard alive through competition"]
+pub struct Startup {
     #[cfg(feature = "logging")]
     _writer: Option<vexide::task::Task<()>>,
+    #[cfg(feature = "logging")]
+    started: std::time::Instant,
 }
 
 impl Startup {
+    /// Start diagnostics and record build provenance before initializing any devices.
+    pub fn with_metadata(metadata: BuildMetadata) -> Self {
+        Self::initialize(Some(metadata))
+    }
+
+    fn initialize(
+        #[cfg_attr(not(feature = "logging"), allow(unused_variables))] metadata: Option<
+            BuildMetadata,
+        >,
+    ) -> Self {
+        let startup = Self::begin();
+        #[cfg(feature = "logging")]
+        if let Some(metadata) = metadata {
+            metadata.record();
+        }
+        crate::log_event!(Info, "startup", "Initializing robot");
+        startup
+    }
+
+    /// Record the time spent initializing the robot.
+    pub fn ready(&self) {
+        #[cfg(feature = "logging")]
+        crate::log_event!(
+            Info,
+            "startup",
+            "Robot ready in {:.3}s",
+            self.started.elapsed().as_secs_f64()
+        );
+    }
+
     pub(crate) fn begin() -> Self {
         #[cfg(feature = "logging")]
         {
+            let started = std::time::Instant::now();
             ozton_diagnostics::serial::set_clock(vexide::time::user_uptime);
             // Keep the platform panic handler: diagnostics supplement it rather
             // than suppressing its normal display and backtrace behavior.
@@ -134,6 +155,7 @@ impl Startup {
             });
             Self {
                 _writer: crate::diagnostics::start_sd_logging(),
+                started,
             }
         }
         #[cfg(not(feature = "logging"))]
@@ -145,6 +167,24 @@ impl Drop for Startup {
     fn drop(&mut self) {
         #[cfg(feature = "logging")]
         crate::diagnostics::flush_sd_logging();
+    }
+}
+
+/// Return this error from the entry point to record failures propagated with `?`
+/// before the startup guard flushes the log.
+pub struct StartupError(String);
+
+impl std::fmt::Debug for StartupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Could not initialize robot ({})", self.0)
+    }
+}
+
+impl<E: Display> From<E> for StartupError {
+    fn from(error: E) -> Self {
+        let message = error.to_string();
+        crate::log_event!(Error, "startup", "Could not initialize robot ({message})");
+        Self(message)
     }
 }
 
@@ -164,5 +204,18 @@ mod tests {
     fn startup_error_returns_failure_without_starting_competition() {
         let exit = vexide::runtime::block_on(run(async { Err::<NeverStart, _>("bad geometry") }));
         assert_eq!(exit, ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn flat_entry_point_preserves_the_initialization_error() {
+        fn initialize() -> Result<(), StartupError> {
+            Err("bad geometry")?;
+            Ok(())
+        }
+
+        assert_eq!(
+            format!("{:?}", initialize().unwrap_err()),
+            "Could not initialize robot (bad geometry)"
+        );
     }
 }
