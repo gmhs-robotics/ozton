@@ -35,6 +35,7 @@ pub(crate) struct ProfiledFollower<'path> {
     adaptive_lookahead: Option<core::time::Duration>,
     heading_recovery: bool,
     elapsed: f64,
+    reference_speed_scale: f64,
     lqr: Option<LqrSchedule>,
 }
 
@@ -51,6 +52,7 @@ impl<'path> ProfiledFollower<'path> {
             adaptive_lookahead: None,
             heading_recovery: false,
             elapsed: 0.0,
+            reference_speed_scale: 1.0,
             lqr: None,
         }
     }
@@ -63,6 +65,7 @@ impl<'path> ProfiledFollower<'path> {
 
     pub fn with_config(mut self, config: crate::PathConfig) -> Self {
         self.guidance = config.guidance.into();
+        self.reference_speed_scale = config.reference_speed_scale;
         self.prediction_latency = config.prediction_latency;
         self.adaptive_lookahead = config.adaptive_lookahead;
         self.heading_recovery = config.heading_recovery;
@@ -70,17 +73,29 @@ impl<'path> ProfiledFollower<'path> {
     }
 
     pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Option<Self> {
+        let scale = self.reference_speed_scale;
+        if !(0.1..=1.0).contains(&scale) {
+            return None;
+        }
         if let Guidance::Lqr(controller) = self.guidance {
             let path = self.progress.path();
             self.lqr = Some(
-                controller.prepare(path.end().time, period.as_secs_f64(), |t| {
-                    let sample = path.at_time(ozton_math::qty!((t) s));
+                controller.prepare(path.end().time / scale, period.as_secs_f64(), |t| {
+                    let sample = path.at_time(ozton_math::qty!((t * scale) s));
                     let v = if reverse { -sample.speed } else { sample.speed };
-                    [v, sample.speed * sample.curvature]
+                    [v * scale, sample.speed * sample.curvature * scale]
                 })?,
             );
         }
         Some(self)
+    }
+
+    fn time_scale(&self) -> f64 {
+        if matches!(self.guidance, Guidance::PurePursuit) { 1.0 } else { self.reference_speed_scale }
+    }
+
+    pub fn planned_duration(&self) -> f64 {
+        self.progress.path().end().time / self.time_scale()
     }
 
     pub fn observe(&mut self, pose: Pose, advance_limit: Length) -> PathObservation {
@@ -91,7 +106,7 @@ impl<'path> ProfiledFollower<'path> {
         PathObservation {
             distance,
             cross_track: self.geometric.pose.position.distance(pose.position),
-            remaining_time: (path.end().time - self.geometric.time).max(0.0),
+            remaining_time: (path.end().time - self.geometric.time).max(0.0) / self.time_scale(),
             nominal_progress_time: self.geometric.time,
         }
     }
@@ -104,7 +119,7 @@ impl<'path> ProfiledFollower<'path> {
         if matches!(self.guidance, Guidance::PurePursuit) {
             self.progress.distance() >= self.progress.path().end().distance - position_tolerance
         } else {
-            self.elapsed >= self.progress.path().end().time
+            self.elapsed >= self.planned_duration()
         }
     }
 
@@ -133,14 +148,15 @@ impl<'path> ProfiledFollower<'path> {
             let delay = self
                 .prediction_latency
                 .map_or(0.0, |[forward, _]| forward.as_secs_f64());
-            let t = (self.elapsed + delay).min(path.end().time);
+            let scale = self.reference_speed_scale;
+            let t = (self.elapsed + delay).min(path.end().time / scale);
             let horizon = (t - self.elapsed).max(0.0);
             self.elapsed += dt.as_secs_f64();
             let predicted = pose.integrate(BodyDelta {
                 translation: DVec2::new(measured_lateral.value, measured_speed.value) * horizon,
                 heading: ozton_math::qty!((measured_yaw.value * horizon) rad),
             });
-            let reference = path.at_time(ozton_math::qty!((t) s));
+            let reference = path.at_time(ozton_math::qty!((t * scale) s));
             let local = predicted.to_local(reference.pose.position);
             let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
             let velocity = if reverse {
@@ -148,7 +164,7 @@ impl<'path> ProfiledFollower<'path> {
             } else {
                 reference.speed
             };
-            let twist = [velocity, reference.speed * reference.curvature];
+            let twist = [velocity * scale, reference.speed * reference.curvature * scale];
             let error = [local.y, -local.x, heading];
             let [linear, angular] = match self.guidance {
                 Guidance::Ramsete(controller) => controller.calculate(error, twist),
@@ -527,6 +543,27 @@ mod tests {
                 tick,
             );
             assert!(wheels.iter().all(|v| *v > 0.0));
+        }
+    }
+
+    #[test]
+    fn timed_reference_scaling_preserves_geometry_and_retimes_twist() {
+        let limits = Limits::from_units(qty!(0.33 m), qty!(1 m/s), qty!(1 m/s), qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2));
+        let path = Path::new(&[Waypoint::new(DVec2::ZERO, 1.0), Waypoint::new(DVec2::Y, 1.0)], limits).unwrap();
+        let dt = core::time::Duration::from_millis(10);
+        for guidance in [crate::PathGuidance::RAMSETE, crate::PathGuidance::LQR] {
+            let mut follower = ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None)).with_guidance(guidance);
+            follower.reference_speed_scale = 0.8;
+            let mut follower = follower.prepare(dt, false).unwrap();
+            let t = path.end().time * 0.5;
+            follower.elapsed = t / 0.8;
+            let sample = path.at_time(qty!((t) s));
+            let wheels = follower.command(sample.pose, false, [qty!(0 m/s); 2], qty!(0 rad/s), core::time::Duration::ZERO, dt);
+            assert!(wheels.iter().all(|v| (*v - sample.speed * 0.8).abs() < 1e-9));
+            follower.elapsed = path.end().time;
+            assert!(!follower.is_terminal(0.01));
+            follower.elapsed = follower.planned_duration();
+            assert!(follower.is_terminal(0.01));
         }
     }
 

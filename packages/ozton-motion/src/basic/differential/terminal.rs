@@ -50,6 +50,8 @@ impl TerminalPose {
             <= options.speed_tolerance.value.powi(2)
             && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
         let mut changed = false;
+        let alignment_tolerance = controller.config.path.terminal_alignment_tolerance
+            .unwrap_or(options.heading_tolerance).max(options.heading_tolerance);
         // A point terminal uses the conventional rotate-drive-rotate
         // sequence. Brake before changing the motion primitive.
         if matches!(self.phase, Phase::Acquire) {
@@ -101,7 +103,7 @@ impl TerminalPose {
             self.phase = if matches!(
                 controller.config.path.terminal,
                 crate::TerminalGuidance::Point
-            ) && travel_error > options.heading_tolerance.value
+            ) && travel_error > alignment_tolerance.value
             {
                 Phase::Align
             } else {
@@ -119,8 +121,9 @@ impl TerminalPose {
             let heading = bearing(target.position - feedback.pose.position)
                 + ozton_math::qty!((if self.approach_reverse.unwrap_or(reverse) { core::f64::consts::PI } else { 0.0 }) rad);
             let error = wrap_heading(heading - feedback.pose.heading).value.abs();
-            let (wheels, ready) =
-                controller.step(DifferentialTarget::Turn { heading }, feedback, dt, options);
+            let mut align_options = options;
+            align_options.heading_tolerance = alignment_tolerance;
+            let (wheels, ready) = controller.step(DifferentialTarget::Turn { heading }, feedback, dt, align_options);
             if ready {
                 self.phase = Phase::Approach;
                 controller.reset();

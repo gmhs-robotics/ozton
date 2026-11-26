@@ -461,11 +461,12 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         let mut terminal = false;
         log_event!(Info, "motion", "Trajectory: started");
         let end = path.end();
+        let planned_duration = follower.planned_duration();
         log_row!(
             Debug,
             "PATH_PLAN",
             "duration_s={:.5},length_m={:.5},reverse={reverse},x_m={:.5},y_m={:.5},heading_rad={:.5},samples={},lookahead_m={:.5},guidance={:?}",
-            end.time,
+            planned_duration,
             end.distance,
             target.position.x,
             target.position.y,
@@ -599,9 +600,9 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             Info,
             "PATH_TIMING",
             "planned_s={:.5},actual_s={:.5},ratio={:.5}",
-            end.time,
+            planned_duration,
             elapsed.as_secs_f64(),
-            elapsed.as_secs_f64() / end.time
+            elapsed.as_secs_f64() / planned_duration
         );
         log_event!(Info, "motion", "Trajectory: settled");
         Ok(())

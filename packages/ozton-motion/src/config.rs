@@ -383,6 +383,10 @@ pub struct PathConfig {
     pub guidance: PathGuidance,
     pub terminal: TerminalGuidance,
     pub lookahead: Length,
+    /// Uniform time dilation for timed reference trajectories; pure pursuit is unaffected.
+    pub reference_speed_scale: f64,
+    /// Intermediate point-capture bearing tolerance; final heading tolerance is unchanged.
+    pub terminal_alignment_tolerance: Option<Angle>,
     /// Optional speed-dependent lookahead horizon, independent of prediction.
     pub adaptive_lookahead: Option<Duration>,
     /// Optional forward/yaw prediction horizons; disabled by default.
@@ -406,6 +410,8 @@ impl PathConfig {
         guidance: PathGuidance::PurePursuit,
         terminal: TerminalGuidance::Point,
         lookahead: ozton_math::qty!(0.16 m),
+        reference_speed_scale: 1.0,
+        terminal_alignment_tolerance: None,
         adaptive_lookahead: None,
         prediction_latency: None,
         heading_recovery: false,
@@ -431,6 +437,18 @@ impl PathConfig {
     #[must_use]
     pub const fn with_lookahead(mut self, value: Length) -> Self {
         self.lookahead = value;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_reference_speed_scale(mut self, scale: f64) -> Self {
+        self.reference_speed_scale = scale;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_terminal_alignment_tolerance(mut self, tolerance: Angle) -> Self {
+        self.terminal_alignment_tolerance = Some(tolerance);
         self
     }
 
@@ -619,6 +637,10 @@ impl MotionConfig {
         self.tuning.valid()
             && self.path.guidance.valid()
             && self.path.terminal.valid()
+            && (0.1..=1.0).contains(&self.path.reference_speed_scale)
+            && self.path.terminal_alignment_tolerance.is_none_or(|angle| {
+                angle.value.is_finite() && angle.value > 0.0 && angle.value <= core::f64::consts::FRAC_PI_2
+            })
             && [
                 self.limits.wheel_speed.value,
                 self.limits.acceleration.value,
