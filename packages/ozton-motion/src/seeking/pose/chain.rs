@@ -236,9 +236,10 @@ async fn execute<D: MotionExecution>(
     segments: &mut [MotionSegment<'_>],
 ) -> MotionResult<D> {
     if segments.iter().any(|s| {
-        !s.valid() || s.path().is_some_and(|p| {
-            (p.limits().track_width.value - drive.track_width().value).abs() > 1e-8
-        })
+        !s.valid()
+            || s.path().is_some_and(|p| {
+                (p.limits().track_width.value - drive.track_width().value).abs() > 1e-8
+            })
     }) {
         return Err(PoseMotionError::Configuration);
     }
@@ -271,7 +272,11 @@ async fn execute<D: MotionExecution>(
             };
             let (joined, uniform_scale) = plan_paths(drive, &segments[index..end]).await?;
             plan.push(PlannedMotion::Path(PathPlan {
-                start: index, end, arrival, joined, uniform_scale
+                start: index,
+                end,
+                arrival,
+                joined,
+                uniform_scale,
             }));
             index = end;
         } else {
@@ -296,7 +301,9 @@ async fn execute<D: MotionExecution>(
                         Info,
                         "MOTION_DIRECT_RESULT",
                         "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}",
-                        pose.position.x, pose.position.y, pose.heading.value
+                        pose.position.x,
+                        pose.position.y,
+                        pose.heading.value
                     );
                     let _ = (name, pose);
                 }
@@ -339,7 +346,9 @@ async fn plan_paths<D: MotionExecution>(
     let joined = if segments.len() > 1 {
         Some(
             Path::join_cooperative(&paths, limits, async || {
-                drive.wait_until(Instant::now() + Duration::from_millis(1)).await;
+                drive
+                    .wait_until(Instant::now() + Duration::from_millis(1))
+                    .await;
                 drive.motion_active()
             })
             .await
