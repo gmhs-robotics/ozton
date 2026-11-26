@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, Pose, wrap_heading},
-    path::{Limits, MAX_POINTS, Path},
+    path::{MAX_POINTS, Path},
     uom::si::f64::{Angle, Length},
 };
 
@@ -304,9 +304,12 @@ async fn plan_paths<D: MotionExecution>(
     }
     drive.brake().map_err(PoseMotionError::StopFailed)?;
     let paths: Vec<_> = segments.iter().map(|s| s.path().unwrap()).collect();
-    let (limits, uniform_scale) =
-        blended_limits(segments.iter().map(|s| (s.path().unwrap(), s.engine.config)))
-            .ok_or(PoseMotionError::Configuration)?;
+    let (limits, uniform_scale) = blended_limits(
+        segments
+            .iter()
+            .map(|s| (s.path().unwrap(), s.engine.config)),
+    )
+    .ok_or(PoseMotionError::Configuration)?;
     let joined = if segments.len() > 1 {
         Some(
             Path::join_cooperative(&paths, limits, async || {
@@ -393,7 +396,10 @@ async fn run_paths<D: MotionExecution>(
 
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
-    use ozton_math::{path::Waypoint, qty};
+    use ozton_math::{
+        path::{Limits, Waypoint},
+        qty,
+    };
 
     use super::*;
     use crate::{PurePursuit, Ramsete};

@@ -10,8 +10,8 @@ use ozton_math::{
 
 use crate::{
     MotionConfig,
-    config::blended_limits,
     basic::differential::{DifferentialFeedback, TerminalPose},
+    config::blended_limits,
     pursuit::profiled::ProfiledFollower,
 };
 
@@ -181,7 +181,10 @@ pub fn simulate_path_group_with_lateral(
     let joined = {
         let future = Path::join_cooperative(&paths, limits, async || true);
         let mut future = std::pin::pin!(future);
-        match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        match future
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+        {
             Poll::Ready(Ok(path)) => path,
             _ => return None,
         }
@@ -228,7 +231,9 @@ fn simulate_profile(
         .map(|(_, config)| config.constrained_for_path(config.options(limits.track_width), limits))
         .collect();
     let (mut config, mut options) = *configs.first()?;
-    if configs.iter().any(|(config, options)| !config.valid() || !options.valid())
+    if configs
+        .iter()
+        .any(|(config, options)| !config.valid() || !options.valid())
         || !initial_pose.is_finite()
         || !response.forward.valid()
         || !response.yaw.valid()
