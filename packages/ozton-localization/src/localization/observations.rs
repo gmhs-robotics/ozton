@@ -2,12 +2,12 @@ use ozton_math::{
     geometry::compass_heading,
     localization::observation::{
         DisplacementObservation, HeadingObservation, MAX_RANGES, Measurement, ObservationLayout,
-        RangeObservation, SensorSample, Snapshot,
+        RangeObservation, SensorSample,
     },
     uom::si::f64::Length,
 };
 
-use crate::MotionObservations;
+use crate::{MotionObservations, Snapshot};
 
 pub(super) struct Observations {
     wheel_sources: Vec<usize>,

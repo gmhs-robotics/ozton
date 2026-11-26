@@ -6,6 +6,10 @@
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
+mod curvature;
+mod driver;
+pub use curvature::CurvatureDrive;
+
 #[cfg(feature = "vex")]
 pub(crate) mod actuation;
 #[cfg(feature = "vex")]
@@ -28,6 +32,17 @@ pub trait Drive {
     type Error;
 
     fn drive_vector(&mut self, vector: Vec2, turn: f64) -> Result<(), Self::Error>;
+
+    /// Drive with normalized forward and turn axes.
+    fn arcade(&mut self, forward: f64, turn: f64) -> Result<(), Self::Error> {
+        driver::drive_command(self, Vec2::new(0.0, forward), turn, "arcade")
+    }
+
+    /// Drive with normalized left and right axes.
+    fn tank(&mut self, left: f64, right: f64) -> Result<(), Self::Error> {
+        let (forward, turn) = tank_axes([left, right]);
+        driver::drive_command(self, Vec2::new(0.0, forward), turn, "tank")
+    }
 
     /// Immediately remove output, bypassing command transforms where applicable.
     fn stop_now(&mut self) -> Result<(), Self::Error> {
@@ -67,7 +82,12 @@ impl MotionGeometry for UnboundedMotion {
 }
 
 /// A model capable of lateral motion.
-pub trait LateralDrive: Drive {}
+pub trait LateralDrive: Drive {
+    /// Drive with normalized right and forward translation and a normalized turn.
+    fn holonomic(&mut self, translation: Vec2, turn: f64) -> Result<(), Self::Error> {
+        driver::drive_command(self, translation, turn, "holonomic")
+    }
+}
 
 /// A model that can limit its own commands using its installed actuators' capacity.
 pub trait Balancing: Drive {

@@ -106,9 +106,7 @@ impl Telemetry {
             Level::Trace,
             "TRACKING_INPUT",
             format_args!(
-                "left_m={left:.5},right_m={right:.5},forward_m={:.5},lateral_m={:.5},imu_rad={:.5},occluded_mask={occluded},raw_forward_mps={:.5},raw_yaw_radps={:.5},accel_right_mps2={:.5},accel_forward_mps2={:.5}",
-                meters(update.raw.forward),
-                meters(update.raw.lateral),
+                "left_m={left:.5},right_m={right:.5},imu_rad={:.5},occluded_mask={occluded},raw_forward_mps={:.5},raw_yaw_radps={:.5},accel_right_mps2={:.5},accel_forward_mps2={:.5}",
                 update.raw.imu.map_or(f64::NAN, |angle| angle.value),
                 rates.forward_rate.unwrap_or(f64::NAN),
                 rates.yaw_rate.unwrap_or(f64::NAN),

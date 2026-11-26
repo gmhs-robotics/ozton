@@ -1,7 +1,6 @@
 //! Competition routes and lifecycle for application-owned robots.
 
 pub use ozton_ui::Ui;
-pub use vexide::competition::Compete;
 use vexide::competition::CompetitionMode;
 
 pub(crate) mod activation;
@@ -10,8 +9,6 @@ mod runtime;
 mod selector_task;
 mod session;
 
-#[doc(hidden)]
-pub use routes::IntoRouteResult;
 pub use routes::RobotRoute;
 pub use runtime::{OztonCompete, Runtime};
 pub(crate) use session::while_in_mode;

@@ -5,13 +5,16 @@ use std::{fmt::Display, time::Duration};
 use ozton_ui::RouteSelector;
 use vexide::{competition::CompetitionMode, display::Display as BrainDisplay};
 
-use super::{Compete, RobotRoute, Ui, selector_task::TaskSelector, session};
+use super::{RobotRoute, Ui, selector_task::TaskSelector, session};
 use crate::{clock::CONTROL_PERIOD, localization::LocalizationWorker};
 
 /// Hardware and behavior supplied by an application to the competition runtime.
 #[allow(async_fn_in_trait)]
 pub trait OztonCompete: Sized + 'static {
     type Error: Display + 'static;
+
+    /// Set this to an application enum, or `Infallible` for a driver-only robot.
+    type Route: Copy + Eq + 'static;
 
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
@@ -24,10 +27,13 @@ pub trait OztonCompete: Sized + 'static {
         self.stop()
     }
 
-    const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[];
+    const ROUTES: &'static [RobotRoute<Self::Route>] = &[];
 
-    /// Initial Brain menu selection. An absent or unknown label selects Disable.
-    const DEFAULT_ROUTE: Option<&'static str> = None;
+    /// Initial Brain menu selection. An unregistered ID selects Disable.
+    const DEFAULT_ROUTE: Option<Self::Route> = None;
+
+    /// Run the route selected from `ROUTES` for one autonomous activation.
+    async fn autonomous(&mut self, route: Self::Route) -> Result<(), Self::Error>;
 
     /// Create the localization worker once, after hardware initialization.
     fn start_localization(&self) -> Option<LocalizationWorker> {
@@ -49,7 +55,7 @@ pub trait OztonCompete: Sized + 'static {
 /// Runs competition lifecycle and owns its selector.
 pub struct Runtime<R: OztonCompete> {
     pub(super) robot: R,
-    pub(super) selector: TaskSelector<Option<RobotRoute<R, R::Error>>>,
+    pub(super) selector: TaskSelector<Option<RobotRoute<R::Route>>>,
     localization: Option<LocalizationWorker>,
 }
 
@@ -65,12 +71,14 @@ impl<R: OztonCompete> Runtime<R> {
 
     /// Give the runtime a selector for the robot's registered routes.
     #[must_use]
-    pub fn with_ui(mut self, ui: Ui<Option<RobotRoute<R, R::Error>>>) -> Self {
+    pub fn with_ui(mut self, ui: Ui<Option<RobotRoute<R::Route>>>) -> Self {
         let routes = R::ROUTES
             .iter()
-            .map(|route| (route.label().into(), Some(*route)))
+            .map(|route| (route.label.into(), Some(*route)))
             .collect();
-        self.selector = TaskSelector::new(ui.build_with_default(None, routes, R::DEFAULT_ROUTE));
+        let default =
+            R::DEFAULT_ROUTE.and_then(|id| R::ROUTES.iter().position(|route| route.id == id));
+        self.selector = TaskSelector::new(ui.build_with_default(None, routes, default));
         self
     }
 
@@ -96,12 +104,6 @@ impl<A> RouteSelector<Option<A>> for DisabledSelector {
 }
 
 impl<R: OztonCompete> Runtime<R> {
-    pub(super) fn selected_autonomous(&self) -> Option<RobotRoute<R, R::Error>> {
-        self.selector
-            .action()
-            .filter(|route| route.allows_autonomous())
-    }
-
     pub(super) fn mode_changed(&mut self, mode: CompetitionMode) {
         if mode == CompetitionMode::Disabled {
             self.selector.status("Select autonomous route");
@@ -112,53 +114,9 @@ impl<R: OztonCompete> Runtime<R> {
         self.robot.mode_changed(mode);
     }
 
-    pub(super) fn route_failed(&mut self, route: RobotRoute<R, R::Error>, error: R::Error) {
-        crate::log_event!(
-            Error,
-            "autonomous",
-            "Route {:?} stopped ({error})",
-            route.label()
-        );
+    pub(super) fn route_failed(&mut self, label: &str, error: R::Error) {
+        crate::log_event!(Error, "autonomous", "Route {label:?} stopped ({error})");
         self.selector.status("Autonomous stopped");
-    }
-}
-
-impl<R: OztonCompete> Compete for Runtime<R> {
-    async fn connected(&mut self) {
-        super::activation::advance();
-        session::CompetitionSession(self).stop();
-    }
-
-    async fn disconnected(&mut self) {
-        super::activation::advance();
-        session::CompetitionSession(self).stop();
-    }
-
-    async fn disabled(&mut self) {
-        session::run_mode(
-            self,
-            CompetitionMode::Disabled,
-            vexide::competition::is_connected(),
-        )
-        .await;
-    }
-
-    async fn driver(&mut self) {
-        session::run_mode(
-            self,
-            CompetitionMode::Driver,
-            vexide::competition::is_connected(),
-        )
-        .await;
-    }
-
-    async fn autonomous(&mut self) {
-        session::run_mode(
-            self,
-            CompetitionMode::Autonomous,
-            vexide::competition::is_connected(),
-        )
-        .await;
     }
 }
 

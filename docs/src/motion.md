@@ -4,7 +4,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. The built-in controllers share calibrated velocity feedback and cancellation handling. Custom controllers can implement individual capability traits against any `MotionExecution` backend. For a custom trajectory follower, implement `FollowPath` with its own `RunMotion` command type. The built-in followers return `MotionSegment`, which also works with `MotionChain`.
 
 ## A first closed-loop move
 
@@ -36,13 +36,22 @@ the required trait prevents constructing AssistedDrivetrain. Custom sensors may
 implement either capability without depending on VEX.
 
 ```rust,ignore
+use ozton::drivetrain::{
+    Drive,
+    assist::{AntiTipAssist, DriveAssists, HeadingHoldAssist, MotorBalanceAssist, TiltAxis},
+};
+
 let mut assists = DriveAssists::new((
     HeadingHoldAssist::new(1.5, 0.2),
     AntiTipAssist::new(TiltAxis::Pitch, anti_tip_controller),
     MotorBalanceAssist,
 ));
-let mut drive = AssistedDrivetrain::new(&mut drivetrain, &mut assists);
+let mut drive = assists.apply_to(&mut drivetrain);
+drive.arcade(forward, turn)?;
 ```
+
+Use `Drive::tank` for left and right inputs, or `LateralDrive::holonomic`
+for a drivetrain that supports sideways translation.
 
 DSR requires RangeResetDrive, which the built-in drivetrain implements only for a nonempty range bank. Only installed assists read the corresponding capability. A temporarily unavailable
 sensor observation resets that controller rather than pretending a zero angle.

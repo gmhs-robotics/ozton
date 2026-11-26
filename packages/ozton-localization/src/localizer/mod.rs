@@ -10,14 +10,13 @@ use ozton_math::{
         range::Surface,
     },
     path::clearance::{WallContact, WallContactConstraint},
-    uom::si::f64::{Angle, Time},
+    uom::si::f64::{Angle, Length, Time},
 };
 
 mod estimate;
 mod history;
 mod ranges;
 mod reset;
-mod snapshot;
 mod velocity;
 pub use estimate::{Ekf, EkfConfig, Estimator, Filter, Mcl, Observations, Odometry, PoseEstimator};
 use history::PoseHistory;
@@ -28,9 +27,23 @@ pub use ranges::RangeReport;
 use ranges::{RangeMasks, RangeTick, inspect};
 pub use reset::DsrConfig;
 use reset::{ResetResult, ResetTick, ResetWindow};
-pub use snapshot::{Fault, OdometryConfig, Snapshot};
 use velocity::VelocityEstimator;
 pub use velocity::{MotionObservations, VelocityConfig};
+
+/// Cumulative drive positions and heading at a localization sample time.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Snapshot {
+    pub time: Duration,
+    pub drive: [Option<Length>; 2],
+    pub imu: Option<Angle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    Initializing,
+    Time,
+    InvalidEstimate,
+}
 
 /// Sensor recovery does not prove that the robot stayed at its old field position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +55,7 @@ pub enum PoseTrust {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
-    pub odometry: OdometryConfig,
+    pub maximum_gap: Duration,
     pub estimator: Estimator,
     /// Run the estimator for diagnostics while motion uses dead reckoning.
     pub shadow: bool,
@@ -50,9 +63,9 @@ pub struct Config {
 
 impl Config {
     /// Select odometry and an external pose estimator.
-    pub const fn new(odometry: OdometryConfig, estimator: Estimator, shadow: bool) -> Self {
+    pub const fn new(maximum_gap: Duration, estimator: Estimator, shadow: bool) -> Self {
         Self {
-            odometry,
+            maximum_gap,
             estimator,
             shadow,
         }
@@ -145,7 +158,7 @@ impl<'a> Localizer<'a> {
         map: Cow<'a, [Surface]>,
         mut sensors: Cow<'a, [RangeSensorConfig]>,
     ) -> Option<Self> {
-        if !config.odometry.is_valid()
+        if config.maximum_gap.is_zero()
             || !pose.is_finite()
             || map.len() > u128::BITS as usize
             || sensors.len() > MAX_RANGES
@@ -267,11 +280,6 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
     /// Explicit resets still use their own independently compiled role.
     pub(crate) fn disable_range_inspection(&mut self) {
         self.filter_ranges = 0;
-    }
-
-    /// Odometry limits and legacy snapshot geometry.
-    pub fn odometry_config(&self) -> OdometryConfig {
-        self.config.odometry
     }
 
     /// Covariance of the published position, if the active estimator provides it.
@@ -428,50 +436,14 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         self.reset = None;
     }
 
+    /// Update from cumulative observations, with one caller-supplied body-motion model.
+    /// The model runs only after two valid, consecutive timestamps are available.
     pub fn update(
         &mut self,
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
-    ) -> Result<Update, Fault> {
-        self.update_from(
-            raw,
-            observations,
-            MotionObservations::default(),
-            snapshot::delta,
-        )
-    }
-
-    /// Apply a custom wheel layout while sharing the localizer's timing, pose
-    /// baselines and external correction pipeline.
-    pub fn update_with_odometry(
-        &mut self,
-        raw: Snapshot,
-        observations: &[Option<RangeObservation>],
-        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig, Duration) -> Result<BodyDelta, Fault>,
-    ) -> Result<Update, Fault> {
-        self.update_with_motion(raw, observations, MotionObservations::default(), motion)
-    }
-
-    /// Odometry and direct kinematic observations share one timestamp and estimator.
-    pub fn update_with_motion(
-        &mut self,
-        raw: Snapshot,
-        observations: &[Option<RangeObservation>],
         rates: MotionObservations,
-        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig, Duration) -> Result<BodyDelta, Fault>,
-    ) -> Result<Update, Fault> {
-        self.update_from(raw, observations, rates, |previous, next, config| {
-            let dt = snapshot::interval(previous, next, config)?;
-            Ok((motion(previous, next, config, dt)?, dt))
-        })
-    }
-
-    fn update_from(
-        &mut self,
-        raw: Snapshot,
-        observations: &[Option<RangeObservation>],
-        rates: MotionObservations,
-        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
+        motion: impl FnOnce(Snapshot, Snapshot) -> BodyDelta,
     ) -> Result<Update, Fault> {
         let result = self.update_inner(raw, observations, rates, motion);
         if result
@@ -488,23 +460,25 @@ impl<'a, E: PoseEstimator> Localizer<'a, E> {
         raw: Snapshot,
         observations: &[Option<RangeObservation>],
         rates: MotionObservations,
-        motion: impl FnOnce(Snapshot, Snapshot, OdometryConfig) -> Result<(BodyDelta, Duration), Fault>,
+        motion: impl FnOnce(Snapshot, Snapshot) -> BodyDelta,
     ) -> Result<Update, Fault> {
-        if self.previous.is_some_and(|last| raw.time <= last.time) {
-            return Err(Fault::Time);
-        }
-        let Some(previous) = self.previous.replace(raw) else {
+        let Some(previous) = self.previous else {
+            self.previous = Some(raw);
             self.history.record(raw.time, self.odometry);
             return Err(Fault::Initializing);
         };
-        let (movement, dt) = match motion(previous, raw, self.config.odometry) {
-            Ok(sample) => sample,
-            Err(fault) => {
-                self.forward_velocity = 0.0;
-                self.angular_velocity = 0.0;
-                return Err(fault);
-            }
-        };
+        let dt = raw
+            .time
+            .checked_sub(previous.time)
+            .filter(|dt| !dt.is_zero())
+            .ok_or(Fault::Time)?;
+        self.previous = Some(raw);
+        if dt > self.config.maximum_gap {
+            self.forward_velocity = 0.0;
+            self.angular_velocity = 0.0;
+            return Err(Fault::Time);
+        }
+        let movement = motion(previous, raw);
         let seconds = dt.as_secs_f64();
         let odometry = self.odometry.integrate(movement);
         let predicted = if self.pose == self.odometry {
@@ -708,3 +682,6 @@ impl<E: PoseEstimator> TracksVelocity for Localizer<'_, E> {
         self.angular_velocity
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -56,18 +56,20 @@ fn borrowed_assists_preserve_order_state_and_capabilities() {
     let mut drive = Drivetrain::new(Model::default(), (), Estimate(0.5));
     let mut assists = DriveAssists::new((Limit, Steering::default()));
 
-    AssistedDrivetrain::new(&mut drive, &mut assists)
+    assists
+        .apply_to(&mut drive)
         .drive_vector(DVec2::new(0.0, 0.5), 0.25)
         .unwrap();
     assert_eq!((drive.model.0.y, drive.model.1), (0.25, 0.25));
     assert!(drive.take_output());
 
-    AssistedDrivetrain::new(&mut drive, &mut assists)
+    assists
+        .apply_to(&mut drive)
         .drive_vector(DVec2::new(0.0, 0.5), 0.25)
         .unwrap();
     assert_eq!((drive.model.0.y, drive.model.1), (0.25, 0.375));
 
-    let mut assisted = AssistedDrivetrain::new(&mut drive, &mut assists);
+    let mut assisted = assists.apply_to(&mut drive);
     assert_holonomic(&assisted);
     assert_eq!(assisted.localization().0, 0.5);
     assisted.stop_now().unwrap();

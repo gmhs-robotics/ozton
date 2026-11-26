@@ -19,7 +19,7 @@ use ozton_math::{
 };
 pub use wheel_odometry::DriveWheels as DriveEncoderUse;
 use wheel_odometry::WheelOdometry;
-mod wheel_odometry;
+pub(crate) mod wheel_odometry;
 
 use crate::{
     Feedback, RangeFeedback,
@@ -246,16 +246,12 @@ impl<B: Boundary> Localization<B> {
             rates.acceleration = None;
         }
         self.wheels.observe(wheels);
-        let update = match self.localizer.update_with_motion(
-            snapshot,
-            &ranges,
-            rates,
-            |before, after, _, _| {
-                Ok(self
-                    .wheels
-                    .delta(before, after, self.drive, track_width, self.use_imu))
-            },
-        ) {
+        let update = match self
+            .localizer
+            .update(snapshot, &ranges, rates, |before, after| {
+                self.wheels
+                    .delta(before, after, self.drive, track_width, self.use_imu)
+            }) {
             Ok(update) => {
                 #[cfg(feature = "logging")]
                 if self.fault.take().is_some() {
@@ -278,9 +274,6 @@ impl<B: Boundary> Localization<B> {
                     let reason = match fault {
                         Fault::Initializing => "Waiting for a second tracking observation",
                         Fault::Time => "Tracking timestamp repeated or exceeded maximum gap",
-                        Fault::Forward => "Forward travel unavailable",
-                        Fault::Heading => "Heading unavailable",
-                        Fault::Lateral => "Lateral travel unavailable",
                         Fault::InvalidEstimate => "Estimator produced an invalid pose",
                     };
                     log_event!(

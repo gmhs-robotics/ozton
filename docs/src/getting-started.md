@@ -20,11 +20,11 @@ The code below is included directly from the repository's [first_robot.rs](https
 {{#include ../../packages/ozton/examples/first_robot.rs}}
 ```
 
-Differential owns the left and right motor groups. Arcade::drive mixes a forward input and a turn input. Both are normalized, typically between -1 and 1; 0.25 is a quarter of the available voltage command, not a physical speed.
+`Differential` owns the left and right motor groups. `Drive::arcade` mixes normalized forward and turn inputs, typically between −1 and 1. A value of 0.25 commands a quarter of the available voltage.
 
 The async main function uses vexide's normal entry attribute and passes a robot-initialization block to `ozton::run`. Ozton handles startup failures, startup timing and optional diagnostics. Return the configured runtime with `Ok(...)`; Ozton runs competition for you. No separate initialization function or custom entry macro is required.
 
-Runtime owns your Robot. The route macro gives the autonomous function a name in the Brain selector. Driver control repeats the controller read every control interval. The sleep is important: it lets the executor run the other tasks and notice a mode change.
+`Runtime` owns the robot. The `RobotRoute` entry names the single autonomous choice in the Brain selector. Driver control reads the controller each interval and yields so the executor can run other tasks and observe mode changes.
 
 The example's Forward route is intentionally timed. It demonstrates competition dispatch, not accurate distance control. Next, read [coordinates](coordinates.md) and [localization](localization.md).
 

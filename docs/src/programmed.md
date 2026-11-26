@@ -1,6 +1,6 @@
 # Programmed autonomous
 
-An autonomous route is an async method on the application robot. Register it using `route!("Match", Self::route_match)` in `OztonCompete::ROUTES`.
+Register each choice with `RobotRoute::new("Match", Route::Match)` in `OztonCompete::ROUTES`, then dispatch the ID from `OztonCompete::autonomous`. See [Competition routes](routes.md) for a complete registration example.
 
 Use `Basic` for distance, heading and point commands, `Boomerang` for continuous pose acquisition, and a typed trajectory follower for prepared paths. Import `ozton::motion::capabilities::*` to use the supported commands. Register the surveyed starting pose through the drivetrain localization before executing motion.
 

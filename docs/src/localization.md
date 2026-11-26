@@ -129,9 +129,7 @@ No motion session maintains a separate packet-spike workaround.
 DistanceTracker sources do not block Tracking::new on optional range readiness.
 Normal capture checks the device and requires a newly observed packet edge before
 publishing a timestamped range. Disconnected sensors keep their configured slots
-and can recover on later captures. The required IMU calibration still blocks
-startup until it succeeds; explicit Distances::initialize remains available for
-applications that intentionally wait on range readiness.
+and can recover on later captures. Startup waits for the required IMU calibration.
 
 
 ## Incomplete maps and efficient beam updates

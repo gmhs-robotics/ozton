@@ -1,20 +1,18 @@
 //! Stock drive assists.
 
-pub use ozton_drivetrain::assist::MotorBalanceAssist;
-use ozton_drivetrain::{
-    Drive,
-    assist::{AssistContext, DriveAssist},
-};
 use ozton_math::{
     control::{Pid, drive::AntiTip, heading_corrector::HeadingCorrector},
     localization::observation::{ReadHeading, ReadTilt},
 };
 
+use super::{AssistContext, DriveAssist};
+use crate::Drive;
+
 /// Heading hold using the configured heading capability.
 ///
 /// ```compile_fail
 /// use ozton_drivetrain::{Drive, assist::DriveAssist};
-/// use ozton_motion::assists::HeadingHoldAssist;
+/// use ozton_drivetrain::assist::HeadingHoldAssist;
 /// fn require<M: Drive, A: DriveAssist<M, (), ()>>() {}
 /// fn missing_heading<M: Drive>() {
 ///     require::<M, HeadingHoldAssist>();
@@ -65,7 +63,7 @@ pub enum TiltAxis {
 ///
 /// ```compile_fail
 /// use ozton_drivetrain::{Drive, assist::DriveAssist};
-/// use ozton_motion::assists::AntiTipAssist;
+/// use ozton_drivetrain::assist::AntiTipAssist;
 /// fn require<M: Drive, A: DriveAssist<M, (), ()>>() {}
 /// fn missing_tilt<M: Drive>() {
 ///     require::<M, AntiTipAssist>();

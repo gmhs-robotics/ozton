@@ -56,11 +56,6 @@ impl Frame {
             ),
         );
     }
-
-    /// Record a debug sample. The legacy USB flag is ignored.
-    pub fn emit(&self, kind: &str, fields: fmt::Arguments<'_>, _usb: bool) {
-        self.row(kind, fields);
-    }
 }
 
 /// An informational event independent of periodic sampling.

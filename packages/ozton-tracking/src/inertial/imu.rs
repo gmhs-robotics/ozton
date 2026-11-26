@@ -70,11 +70,6 @@ impl From<InertialSensor> for InertialSensorTracking {
 }
 
 impl InertialSensorTracking {
-    pub(crate) async fn initialize(mut self) -> Option<Self> {
-        self.calibrate().await?;
-        Some(self)
-    }
-
     async fn calibrate(&mut self) -> Option<()> {
         if !self.valid() {
             return None;

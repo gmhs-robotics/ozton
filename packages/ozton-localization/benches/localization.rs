@@ -7,7 +7,8 @@ use std::{
 use ozton_localization::{
     field::{Field, OVERRIDE},
     localizer::{
-        Config, Estimator, Localizer, OdometryConfig, RangeObservation, RangeSensorConfig, Snapshot,
+        Config, Estimator, Localizer, MotionObservations, RangeObservation, RangeSensorConfig,
+        Snapshot,
     },
 };
 use ozton_math::{
@@ -144,13 +145,7 @@ fn main() -> Result<(), &'static str> {
         ),
     ] {
         let config = Config {
-            odometry: OdometryConfig {
-                track_width: Length::new::<meter>(0.3),
-                forward_offset: Length::new::<meter>(0.0),
-                lateral_offset: Length::new::<meter>(0.0),
-
-                max_gap: Duration::from_millis(100),
-            },
+            maximum_gap: Duration::from_millis(100),
             estimator,
             shadow: false,
         };
@@ -175,9 +170,10 @@ fn main() -> Result<(), &'static str> {
                     time,
                     drive: [Some(Length::new::<meter>(0.0)); 2],
                     imu: Some(Angle::new::<radian>(0.0)),
-                    ..Default::default()
                 }),
                 black_box(&ranges),
+                MotionObservations::default(),
+                |_, _| BodyDelta::default(),
             ))
             .ok();
         });

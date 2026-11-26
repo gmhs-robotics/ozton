@@ -4,13 +4,32 @@ VEX competition control has three modes: disabled, autonomous and driver. Ozton'
 
 ## Application-owned robots
 
-Implement OztonCompete for your robot struct. Register each routine with route!("Label", Self::function) in the ROUTES constant. Each function takes &mut self and returns a Result with the same error type as your driver callback.
+Implement `OztonCompete` for your robot. Give each autonomous choice an ID in your own route enum, register its label, and dispatch the ID in `autonomous`. Autonomous and driver callbacks borrow the same robot and use the same error type.
 
-```rust
-const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[
-    route!("Forward", Self::forward),
+```rust,ignore
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Forward,
+    Skills,
+}
+
+// Inside impl OztonCompete for Robot
+type Route = Route;
+const ROUTES: &'static [RobotRoute<Route>] = &[
+    RobotRoute::new("Forward", Route::Forward),
+    RobotRoute::new("Skills", Route::Skills),
 ];
+const DEFAULT_ROUTE: Option<Route> = Some(Route::Forward);
+
+async fn autonomous(&mut self, route: Route) -> Result<(), Self::Error> {
+    match route {
+        Route::Forward => self.forward().await,
+        Route::Skills => self.skills().await,
+    }
+}
 ```
+
+A driver-only robot can use `std::convert::Infallible` as its route type, leave the route list empty, and write `match route {}` in its autonomous callback.
 
 Return `robot.with_brain(display)` from the async startup block passed to `ozton::run`. For a custom UI use `Runtime::new(robot).with_ui(Ui::custom(...))`. Select a route while disabled. The selection is read when autonomous begins. See [the complete first robot](getting-started.md) for context.
 

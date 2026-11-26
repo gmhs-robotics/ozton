@@ -11,7 +11,7 @@ use std::{
 
 use ozton_ui::RouteSelector;
 use vexide::{
-    competition::{self, Compete, CompetitionMode, CompetitionRuntime},
+    competition::{self, CompetitionMode, CompetitionRuntime},
     time::sleep,
 };
 
@@ -30,21 +30,9 @@ pub(crate) async fn compete<R: OztonCompete>(robot: Runtime<R>) -> ! {
         "Ready with {:.1} ms control period",
         R::CONTROL_PERIOD.as_secs_f64() * 1000.0
     );
-    // Capture the connection identity when vexide creates the callback, not
-    // when it first polls it. An unpolled callback may already be obsolete.
     match CompetitionRuntime::<Runtime<R>, Infallible, _, _, _, _, _>::builder(robot)
-        .on_connect(|robot| {
-            Box::pin(async {
-                robot.connected().await;
-                ControlFlow::Continue(())
-            })
-        })
-        .on_disconnect(|robot| {
-            Box::pin(async {
-                robot.disconnected().await;
-                ControlFlow::Continue(())
-            })
-        })
+        .on_connect(connection_changed)
+        .on_disconnect(connection_changed)
         .while_disabled(|robot| mode_future(robot, CompetitionMode::Disabled))
         .while_autonomous(|robot| mode_future(robot, CompetitionMode::Autonomous))
         .while_driving(|robot| mode_future(robot, CompetitionMode::Driver))
@@ -52,19 +40,30 @@ pub(crate) async fn compete<R: OztonCompete>(robot: Runtime<R>) -> ! {
         .await {}
 }
 
+fn connection_changed<R: OztonCompete>(
+    robot: &mut Runtime<R>,
+) -> Pin<Box<dyn Future<Output = ControlFlow<Infallible>> + '_>> {
+    Box::pin(async {
+        super::activation::advance();
+        CompetitionSession(robot).stop();
+        ControlFlow::Continue(())
+    })
+}
+
 /// Vexide 0.9 polls the old callback once after observing a phase change.
 /// Returning Ready here can make it incorrectly consume the connected or
 /// disconnected phase as if that hook had completed. Quiesce and let vexide
 /// drop the old callback instead.
 async fn hold_mode(work: impl Future<Output = ()>, mut active: impl FnMut() -> bool) {
-    let mut work = Some(Box::pin(work));
+    let mut work = pin!(Some(work));
     poll_fn(|cx| {
         if !active()
             || work
                 .as_mut()
-                .is_some_and(|future| future.as_mut().poll(cx).is_ready())
+                .as_pin_mut()
+                .is_some_and(|future| future.poll(cx).is_ready())
         {
-            work = None;
+            work.set(None);
         }
         // Never signal completion of a mode callback to a different phase.
         Poll::<()>::Pending
@@ -72,11 +71,7 @@ async fn hold_mode(work: impl Future<Output = ()>, mut active: impl FnMut() -> b
     .await;
 }
 
-pub(super) async fn run_mode<R: OztonCompete>(
-    robot: &mut Runtime<R>,
-    mode: CompetitionMode,
-    connected: bool,
-) {
+async fn run_mode<R: OztonCompete>(robot: &mut Runtime<R>, mode: CompetitionMode, connected: bool) {
     let work = async {
         let mut session = CompetitionSession(robot);
         match mode {
@@ -96,6 +91,8 @@ fn mode_future<R: OztonCompete>(
     robot: &mut Runtime<R>,
     mode: CompetitionMode,
 ) -> Pin<Box<dyn Future<Output = ControlFlow<Infallible>> + '_>> {
+    // Capture the connection identity when vexide creates the callback, not
+    // when it first polls it. An unpolled callback may already be obsolete.
     let connected = competition::is_connected();
     Box::pin(async move {
         run_mode(robot, mode, connected).await;
@@ -166,47 +163,44 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
         let mode = CompetitionMode::Autonomous;
         self.enter(mode);
         let runtime = &mut *self.0;
-        if let Some(route) = runtime.selected_autonomous() {
+        if let Some(route) = runtime.selector.action() {
             // The scope ends on completion, fault, or cancellation, even if the
             // competition switch remains in Autonomous.
             #[cfg(all(feature = "logging", target_os = "vexos"))]
             let _route_scope = super::activation::RouteScope::enter();
             runtime
                 .selector
-                .status(&format!("Autonomous: {}", route.label()));
-            crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label());
-            let result =
-                while_in_mode(route.run(&mut runtime.robot), mode, R::CONTROL_PERIOD).await;
-            if competition::mode() != mode || result.is_none() {
+                .status(&format!("Autonomous: {}", route.label));
+            crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label);
+            let Some(result) =
+                while_in_mode(runtime.robot.autonomous(route.id), mode, R::CONTROL_PERIOD).await
+            else {
+                return;
+            };
+            if competition::mode() != mode {
                 // Do not write motor outputs or status for an obsolete activation.
                 return;
             }
             activation.renew();
             let completed = match result {
-                Some(Ok(())) => match runtime.robot.stop() {
+                Ok(()) => match runtime.robot.stop() {
                     Ok(()) => {
-                        crate::log_event!(
-                            Info,
-                            "autonomous",
-                            "Completed route {:?}",
-                            route.label()
-                        );
+                        crate::log_event!(Info, "autonomous", "Completed route {:?}", route.label);
                         true
                     }
                     Err(error) => {
-                        runtime.route_failed(route, error);
+                        runtime.route_failed(route.label, error);
                         false
                     }
                 },
-                Some(Err(error)) => {
+                Err(error) => {
                     let stopped = runtime.robot.fault_stop();
-                    runtime.route_failed(route, error);
+                    runtime.route_failed(route.label, error);
                     if let Err(error) = stopped {
-                        runtime.route_failed(route, error);
+                        runtime.route_failed(route.label, error);
                     }
                     false
                 }
-                None => return,
             };
             // Stop outputs and record the actual motion end before SD I/O.
             // Do not announce completion until the entire log is checkpointed.

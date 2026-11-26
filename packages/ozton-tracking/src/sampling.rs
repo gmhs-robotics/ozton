@@ -24,12 +24,7 @@ use crate::{
 };
 
 #[cfg(feature = "vex")]
-mod vex;
-#[cfg(feature = "vex")]
-pub use vex::{Sensors, SharedSensors};
-
-#[cfg(feature = "vex")]
-pub(crate) fn stamp(time: LowResolutionTime) -> Duration {
+fn stamp(time: LowResolutionTime) -> Duration {
     time.duration_since(LowResolutionTime::EPOCH)
 }
 

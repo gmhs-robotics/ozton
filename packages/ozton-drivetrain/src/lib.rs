@@ -9,7 +9,7 @@ pub mod model;
 #[cfg(feature = "vex")]
 pub use execution::DriveMotionFault;
 pub use execution::{MotionExecution, RangeResetDrive};
-pub use model::{Drive, LateralDrive};
+pub use model::{CurvatureDrive, Drive, LateralDrive};
 pub use ozton_math::path::clearance::Footprint;
 pub use ozton_tracking::odometric::WheelFeedback;
 

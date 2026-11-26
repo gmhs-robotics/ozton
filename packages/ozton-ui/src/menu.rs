@@ -31,12 +31,12 @@ impl<A: Copy + 'static> Ui<A> {
         self.build_with_default(disabled, routes, None)
     }
 
-    /// Select a named initial route on the stock Brain menu; custom UIs own their selection.
+    /// Select an initial route by its index in `routes`. Custom UIs own their selection.
     pub fn build_with_default(
         self,
         disabled: A,
         routes: Vec<(String, A)>,
-        default: Option<&str>,
+        default: Option<usize>,
     ) -> Box<dyn RouteSelector<A>> {
         match self {
             Self::Brain(display) => {
@@ -93,12 +93,12 @@ impl<A: Copy + 'static> RouteMenu<A> {
         Self::with_default(display, disabled, routes, None)
     }
 
-    /// Keep Disable first while optionally selecting a named route at startup.
+    /// Keep Disable first while optionally selecting a route by its index in `routes`.
     pub fn with_default(
         display: Display,
         disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
-        default: Option<&str>,
+        default: Option<usize>,
     ) -> Self {
         Self::with_default_and_background(display, disabled, routes, default, None)
     }
@@ -107,7 +107,7 @@ impl<A: Copy + 'static> RouteMenu<A> {
         display: Display,
         disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
-        default: Option<&str>,
+        default: Option<usize>,
         background: Option<Background>,
     ) -> Self {
         let mut choices = vec![Choice {
@@ -119,7 +119,8 @@ impl<A: Copy + 'static> RouteMenu<A> {
             action,
         }));
         let selection = default
-            .and_then(|label| choices.iter().position(|choice| choice.label == label))
+            .and_then(|index| index.checked_add(1))
+            .filter(|&index| index < choices.len())
             .unwrap_or_default();
         let selector =
             Selector::new_with_background(display, choices, selection, THEME_DARK, background);

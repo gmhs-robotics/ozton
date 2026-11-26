@@ -1,27 +1,20 @@
 //! VEX distance sensors, readiness, and packet freshness.
 
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
 
-use arrayvec::ArrayVec;
-use futures_util::future::join_all;
 use ozton_diagnostics::log_event;
 #[cfg(feature = "logging")]
 use ozton_diagnostics::log_row;
 use ozton_math::uom::si::f64::{Angle as UomAngle, Length};
-use vexide::{
-    prelude::DistanceSensor,
-    smart::{SmartDevice, distance::DistanceReadyError},
-    time::LowResolutionTime,
-};
+use vexide::{prelude::DistanceSensor, smart::SmartDevice, time::LowResolutionTime};
 
 use crate::{
     mount::Vec3,
-    range::{MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig},
-    sampling::stamp,
+    range::{RangeObservation, RangeRoles, RangeSensorConfig},
 };
 
 mod compat;
-use compat::{ALTERNATE_READY_STATUS, read_object};
+use compat::read_object;
 
 // Poll for packet edges faster than the sensor's roughly 33 ms update interval.
 const RANGE_POLL_PERIOD: Duration = Duration::from_millis(10);
@@ -29,7 +22,13 @@ const MAX_POLL_GAP: Duration = Duration::from_millis(40);
 
 /// An owned distance sensor and its surveyed right/forward/up mounting point.
 pub struct DistanceTracker {
-    device: DistanceDevice,
+    sensor: DistanceSensor,
+    clock: PacketClock,
+    last_poll: Option<Duration>,
+    #[cfg(feature = "logging")]
+    packet_report: PacketReport,
+    latency: Duration,
+    cached: Option<RangeObservation>,
     config: RangeSensorConfig,
 }
 
@@ -37,16 +36,13 @@ impl DistanceTracker {
     /// Mount the device at a surveyed XYZ position and beam heading.
     pub fn at_mount(sensor: DistanceSensor, (position, bearing): (Vec3<Length>, UomAngle)) -> Self {
         Self {
-            device: DistanceDevice {
-                sensor,
-                readiness: Cell::default(),
-                clock: PacketClock::default(),
-                last_poll: None,
-                #[cfg(feature = "logging")]
-                packet_report: PacketReport::default(),
-                latency: Duration::ZERO,
-                cached: None,
-            },
+            sensor,
+            clock: PacketClock::default(),
+            last_poll: None,
+            #[cfg(feature = "logging")]
+            packet_report: PacketReport::default(),
+            latency: Duration::ZERO,
+            cached: None,
             config: RangeSensorConfig::at_mount((position, bearing)),
         }
     }
@@ -54,7 +50,7 @@ impl DistanceTracker {
     /// Correct a characterized sensor transport/acquisition delay.
     #[must_use]
     pub fn with_latency(mut self, latency: Duration) -> Self {
-        self.device.latency = latency;
+        self.latency = latency;
         self
     }
 
@@ -92,26 +88,6 @@ impl DistanceTracker {
     pub fn with_gate(mut self, gate: ozton_math::localization::range::RangeGate) -> Self {
         self.config.gate = gate;
         self
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct RangeReadiness {
-    ready: bool,
-    generation: u32,
-}
-
-impl RangeReadiness {
-    fn set(&mut self, ready: bool) {
-        if self.ready && !ready {
-            self.generation = self.generation.wrapping_add(1);
-        }
-        self.ready = ready;
-    }
-
-    fn current<T>(self, cached: Option<(u32, T)>) -> Option<T> {
-        let (generation, value) = cached?;
-        (self.ready && self.generation == generation).then_some(value)
     }
 }
 
@@ -155,119 +131,6 @@ impl PacketReport {
     }
 }
 
-struct DistanceDevice {
-    sensor: DistanceSensor,
-    readiness: Cell<RangeReadiness>,
-    clock: PacketClock,
-    last_poll: Option<Duration>,
-    #[cfg(feature = "logging")]
-    packet_report: PacketReport,
-    latency: Duration,
-    cached: Option<(u32, RangeObservation)>,
-}
-
-impl DistanceDevice {
-    fn set_ready(&self, ready: bool) {
-        let mut readiness = self.readiness.get();
-        readiness.set(ready);
-        self.readiness.set(readiness);
-    }
-
-    async fn initialize(&self) {
-        log_event!(
-            Info,
-            "distance",
-            "Waiting for sensor on port {}",
-            self.sensor.port_number()
-        );
-        let ready = match self.sensor.wait_ready().await {
-            Err(DistanceReadyError::UnknownStatusCode {
-                code: ALTERNATE_READY_STATUS,
-            }) => Ok(()),
-            result => result,
-        };
-        self.set_ready(ready.is_ok());
-        match ready {
-            Ok(()) => log_event!(
-                Info,
-                "distance",
-                "Sensor on port {} ready",
-                self.sensor.port_number()
-            ),
-            Err(error) => log_event!(
-                Warn,
-                "distance",
-                "Sensor on port {} unavailable ({error}). Continuing without its readings.",
-                self.sensor.port_number()
-            ),
-        }
-    }
-}
-
-/// Distance devices polled once per packet window and shared by higher-level
-/// consumers through the cached observations.
-#[derive(Default)]
-pub struct Distances {
-    devices: ArrayVec<DistanceDevice, MAX_RANGES>,
-    configs: ArrayVec<RangeSensorConfig, MAX_RANGES>,
-    last_occluded: u8,
-}
-
-impl Distances {
-    /// Register mounts in route index order.
-    pub fn new(devices: impl IntoIterator<Item = DistanceTracker>) -> Option<Self> {
-        let mut distances = Self::default();
-        for DistanceTracker { device, config } in devices {
-            distances.devices.try_push(device).ok()?;
-            distances.configs.push(config);
-        }
-        Some(distances)
-    }
-
-    /// Wait for each sensor to finish initializing. Devices that return errors
-    /// keep their observation slots and are checked again during capture.
-    pub async fn initialize(self) -> Self {
-        join_all(self.devices.iter().map(DistanceDevice::initialize)).await;
-        self
-    }
-
-    pub fn configs(&self) -> &[RangeSensorConfig] {
-        &self.configs
-    }
-
-    pub fn len(&self) -> usize {
-        self.devices.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.devices.is_empty()
-    }
-
-    /// Count responsive devices, including those that see no object.
-    pub fn ready_count(&self) -> usize {
-        self.devices
-            .iter()
-            .filter(|device| device.readiness.get().ready)
-            .count()
-    }
-
-    /// Return the most recent packet without another device read.
-    pub fn latest(&self, index: usize) -> Option<RangeObservation> {
-        self.devices
-            .get(index)?
-            .latest(self.last_occluded & (1 << index) != 0)
-    }
-
-    pub(crate) fn capture(&mut self, occluded: u8) -> [Option<RangeObservation>; MAX_RANGES] {
-        let time = stamp(LowResolutionTime::now());
-        for (index, device) in self.devices.iter_mut().enumerate() {
-            device.poll(time, occluded & (1 << index) != 0, index);
-        }
-        self.last_occluded = occluded;
-        core::array::from_fn(|index| self.latest(index))
-    }
-}
-
 impl super::RangeSource for DistanceTracker {
     fn range_config(&self) -> RangeSensorConfig {
         self.config
@@ -281,20 +144,20 @@ impl crate::TrackingSource for DistanceTracker {
     // booting sensor must not delay Tracking::new. Runtime packet validation
     // establishes readiness and requires a fresh packet before emitting data.
     fn sample(&mut self, sink: &mut crate::MeasurementSink<'_>) {
-        self.device.poll(
+        self.poll(
             sink.time,
             sink.range_occluded,
             sink.range_index.unwrap_or(sink.source),
         );
-        if let Some(range) = self.device.latest(sink.range_occluded) {
+        if let Some(range) = self.latest(sink.range_occluded) {
             sink.push(crate::Measurement::Range(range));
         }
     }
 }
 
-impl DistanceDevice {
+impl DistanceTracker {
     fn latest(&self, occluded: bool) -> Option<RangeObservation> {
-        let mut observation = self.readiness.get().current(self.cached)?;
+        let mut observation = self.cached?;
         observation.occluded |= occluded;
         Some(observation)
     }
@@ -348,9 +211,7 @@ impl DistanceDevice {
                 );
             }
         }
-        self.set_ready(observation.is_ok());
-        let generation = self.readiness.get().generation;
-        self.cached = observation.ok().flatten().map(|value| (generation, value));
+        self.cached = observation.ok().flatten();
         self.last_poll = Some(time);
     }
 
@@ -360,7 +221,7 @@ impl DistanceDevice {
         // sensor produces measurements at about 30 Hz. Inspect packet edges
         // without repeatedly decoding the same measurement.
         if self.clock.last.is_some_and(|(packet, _)| packet == before) {
-            return Ok(self.readiness.get().current(self.cached));
+            return Ok(self.cached);
         }
         let object = read_object(&self.sensor)?;
         let after = self.sensor.timestamp().map_err(|_| ())?;

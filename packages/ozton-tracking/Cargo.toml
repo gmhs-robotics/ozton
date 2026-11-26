@@ -13,7 +13,7 @@ edition = "2024"
 workspace = true
 
 [dependencies]
-ozton-diagnostics = { workspace = true }
+ozton-diagnostics = { workspace = true, optional = true }
 arrayvec = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 glam = { workspace = true }
@@ -23,8 +23,8 @@ vexide = { workspace = true, optional = true }
 
 [features]
 default = ["vex"]
-vex = ["dep:vexide", "dep:vex-sdk"]
-logging = ["ozton-diagnostics/logging"]
+vex = ["dep:ozton-diagnostics", "dep:vexide", "dep:vex-sdk"]
+logging = ["ozton-diagnostics?/logging"]
 
 [package.metadata.docs.rs]
 targets = ["thumbv7a-vex-v5"]

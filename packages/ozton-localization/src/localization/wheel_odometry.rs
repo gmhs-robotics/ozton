@@ -1,9 +1,11 @@
 use glam::{DVec2, DVec3};
 use ozton_math::{
     geometry::{BodyDelta, wrap_heading},
-    localization::{observation::Snapshot, wheel_fit::fit_wheel_motion},
+    localization::wheel_fit::fit_wheel_motion,
     uom::si::f64::Length,
 };
+
+use crate::Snapshot;
 
 /// How paired drive encoder readings can constrain the pose.
 #[derive(Clone, Copy)]

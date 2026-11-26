@@ -4,7 +4,7 @@ use ozton_math::localization::observation::{
 
 use super::*;
 use crate::{
-    Config, DsrConfig, OdometryConfig, RangeRoles,
+    Config, DsrConfig, RangeRoles,
     field::{Boundary, FieldBoundary, SurfaceMap},
 };
 
@@ -163,11 +163,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         let map: Vec<_> = self.map.faces().collect();
         let mounts: Vec<_> = layout.ranges.iter().map(|&(_, mount)| mount).collect();
         let mut localizer = Localizer::new_owned(
-            Config::new(
-                OdometryConfig::for_mounted_wheels(self.odometry.maximum_gap),
-                self.estimator,
-                false,
-            ),
+            Config::new(self.odometry.maximum_gap, self.estimator, false),
             Pose::default(),
             map,
             mounts,

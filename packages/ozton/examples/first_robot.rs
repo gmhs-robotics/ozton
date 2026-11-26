@@ -2,9 +2,7 @@
 use std::time::Duration;
 
 use ozton::{
-    drivetrain::model::Differential,
-    motion::Arcade,
-    route,
+    drivetrain::{Drive, model::Differential},
     runtime::{OztonCompete, competition::RobotRoute},
 };
 use vexide::{prelude::*, smart::PortError, time::sleep};
@@ -14,26 +12,26 @@ struct Robot {
     controller: Controller,
 }
 
-impl Robot {
-    async fn forward(&mut self) -> Result<(), PortError> {
-        Arcade::drive(&mut self.drive, 0.25, 0.0)?;
+impl OztonCompete for Robot {
+    type Error = PortError;
+    type Route = ();
+    const ROUTES: &'static [RobotRoute<()>] = &[RobotRoute::new("Forward", ())];
+
+    async fn autonomous(&mut self, (): ()) -> Result<(), PortError> {
+        self.drive.arcade(0.25, 0.0)?;
         sleep(Duration::from_millis(500)).await;
         self.stop()
     }
-}
-
-impl OztonCompete for Robot {
-    type Error = PortError;
-    const ROUTES: &'static [RobotRoute<Self, Self::Error>] = &[route!("Forward", Self::forward)];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        Arcade::drive(&mut self.drive, 0.0, 0.0)
+        self.drive.arcade(0.0, 0.0)
     }
 
     async fn driver(&mut self) -> Result<(), Self::Error> {
         loop {
             if let Ok(input) = self.controller.state() {
-                Arcade::drive(&mut self.drive, input.left_stick.y(), input.right_stick.x())?;
+                self.drive
+                    .arcade(input.left_stick.y(), input.right_stick.x())?;
             } else {
                 self.stop()?;
             }

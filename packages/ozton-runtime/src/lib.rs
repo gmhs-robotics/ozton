@@ -5,7 +5,6 @@ pub mod competition;
 pub mod control_error;
 pub use ozton_drivetrain::device;
 pub mod diagnostics;
-pub mod drive_assist;
 pub mod mechanism;
 pub mod motor;
 mod startup;

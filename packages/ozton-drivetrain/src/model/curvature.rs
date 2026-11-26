@@ -1,8 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use ozton_drivetrain::Drive;
-
-use crate::Arcade;
+use super::Drive;
 
 /// Curvature Drive (aka Cheesy Drive) Controller
 ///
@@ -10,9 +8,9 @@ use crate::Arcade;
 /// driver intuition and precise handling, it smooths inputs and adapts to the situation. Unlike
 /// other algorithms such as Arcade Drive and Tank Drive, it performs some mathematical computations
 /// and accepts some constants and maintains an internal state that changes every time the algorithm
-/// is ran using [`CurvatureDrive::update`].
+/// is run using [`CurvatureDrive::update`].
 ///
-/// This implemenation is based on <https://wiki.purduesigbots.com/software/robotics-basics/curvature-cheesy-drive>.
+/// This implementation is based on <https://wiki.purduesigbots.com/software/robotics-basics/curvature-cheesy-drive>.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CurvatureDrive {
     /// Determines how fast the robot's turn traverses a sine curve, and affects
@@ -109,7 +107,7 @@ impl CurvatureDrive {
     /// # Examples
     /// ```no_run
     /// use ozton_drivetrain::Drive;
-    /// use ozton_motion::CurvatureDrive;
+    /// use ozton_drivetrain::CurvatureDrive;
     ///
     /// fn drive_tick<M: Drive>(
     ///     curvature: &mut CurvatureDrive,
@@ -162,7 +160,7 @@ impl CurvatureDrive {
         self.prev_turn = turn;
         self.prev_throttle = throttle;
 
-        Arcade::drive(drivetrain, linear_power, angular_power)
+        drivetrain.arcade(linear_power, angular_power)
     }
 
     fn remap_turn(&self, turn: f64) -> f64 {

@@ -10,13 +10,11 @@ mod absolute;
 mod capabilities;
 mod orientation;
 mod range;
-mod snapshot;
 
 pub use absolute::PoseObservation;
 pub use capabilities::*;
 pub use orientation::Orientation;
 pub use range::{MAX_RANGES, RangeObservation, RangeRoles, RangeSensorConfig};
-pub use snapshot::Snapshot;
 
 /// Observations captured on the same tick, in source order.
 pub struct SensorSample<'a> {

@@ -8,7 +8,7 @@ use ozton_math::{
     uom::si::f64::{Angle, Length, Velocity},
 };
 
-use super::{Engine, MotionSegment, PoseMotionError, TravelDirection, pose::Command};
+use super::{Engine, MotionSegment, PoseMotionError, RunMotion, TravelDirection, pose::Command};
 use crate::{
     DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance,
 };
@@ -90,7 +90,9 @@ pub mod capabilities {
 
     /// Follow a prepared trajectory using this controller's tracking law.
     pub trait FollowPath {
-        fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a>;
+        type Command<'a>: RunMotion + 'a;
+
+        fn follow<'a>(&self, path: &'a Path) -> Self::Command<'a>;
     }
 }
 
@@ -414,7 +416,9 @@ macro_rules! path_follower {
         }
 
         impl FollowPath for $name {
-            fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a> {
+            type Command<'a> = MotionSegment<'a>;
+
+            fn follow<'a>(&self, path: &'a Path) -> Self::Command<'a> {
                 (*self).follow(path)
             }
         }

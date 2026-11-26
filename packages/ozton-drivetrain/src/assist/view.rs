@@ -2,11 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use ozton_drivetrain::{
-    BrakeMode, BrakeMotors, Drivetrain, HasBraking, HasLocalization, MotorAddress, MotorGroups,
-    WheelActuation, WheelCommand, WheelSpeedError,
-    model::{Drive, LateralDrive, tank_axes},
-};
 use ozton_math::{
     desaturate,
     geometry::DVec2,
@@ -18,38 +13,51 @@ use ozton_math::{
 use ozton_tracking::{HasDriveWheels, TrackingSystem, odometric::DriveEncoders};
 use vexide::smart::PortError;
 
-mod collection;
+use crate::{
+    BrakeMode, BrakeMotors, Drivetrain, HasBraking, HasLocalization, MotorAddress, MotorGroups,
+    WheelActuation, WheelCommand, WheelSpeedError,
+    model::{Drive, LateralDrive, tank_axes},
+};
+
 mod execution;
-pub use collection::{DriveAssists, ResetDriveAssists};
-pub use ozton_drivetrain::assist::{AssistContext, DriveAssist, MotorBalanceAssist};
+
+use super::{AssistContext, DriveAssist};
 
 const MAX_CONTROL_GAP: Duration = Duration::from_millis(100);
+
+/// Assist configuration and timing state, retained across borrowed drive views.
+pub struct DriveAssists<A> {
+    items: A,
+    last_tick: Option<(Instant, bool)>,
+}
+
+impl<A> DriveAssists<A> {
+    pub const fn new(items: A) -> Self {
+        Self {
+            items,
+            last_tick: None,
+        }
+    }
+
+    /// Borrow a drivetrain for commands with these assists applied.
+    pub fn apply_to<'a, M: Drive, T: TrackingSystem, L>(
+        &'a mut self,
+        drivetrain: &'a mut Drivetrain<M, T, L>,
+    ) -> AssistedDrivetrain<'a, M, T, L, A>
+    where
+        A: DriveAssist<M, T, L>,
+    {
+        AssistedDrivetrain {
+            drivetrain,
+            assists: self,
+        }
+    }
+}
 
 /// A temporary drive view over an assembled drivetrain and its installed assists.
 pub struct AssistedDrivetrain<'a, M: Drive, T: TrackingSystem, L, A> {
     drivetrain: &'a mut Drivetrain<M, T, L>,
     assists: &'a mut DriveAssists<A>,
-}
-
-impl<'a, M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>>
-    AssistedDrivetrain<'a, M, T, L, A>
-{
-    pub fn new(drivetrain: &'a mut Drivetrain<M, T, L>, assists: &'a mut DriveAssists<A>) -> Self {
-        Self {
-            drivetrain,
-            assists,
-        }
-    }
-}
-
-impl<'a, M: Drive, T: TrackingSystem, L, A> AssistedDrivetrain<'a, M, T, L, A> {
-    pub fn drivetrain(&self) -> &Drivetrain<M, T, L> {
-        self.drivetrain
-    }
-
-    pub fn drivetrain_mut(&mut self) -> &mut Drivetrain<M, T, L> {
-        self.drivetrain
-    }
 }
 
 impl<M: Drive, T: TrackingSystem, L, A: DriveAssist<M, T, L>> AssistedDrivetrain<'_, M, T, L, A> {
@@ -153,11 +161,6 @@ impl<
     A: DriveAssist<M, T, L>,
 > AssistedDrivetrain<'_, M, T, L, A>
 {
-    /// Apply assists to a two-sided physical wheel velocity command.
-    pub fn drive_wheel_speeds(&mut self, speeds: [Velocity; 2]) -> Result<(), WheelSpeedError> {
-        self.command_wheels(speeds.map(WheelCommand::Velocity))
-    }
-
     /// Preserve explicit stops while applying the ordinary drive assists to
     /// moving wheels. A stopped side cannot be reactivated by an assist.
     pub fn command_wheels(&mut self, commands: [WheelCommand; 2]) -> Result<(), WheelSpeedError> {

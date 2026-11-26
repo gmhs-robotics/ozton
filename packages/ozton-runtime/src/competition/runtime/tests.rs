@@ -2,33 +2,34 @@ use vex_sdk_mock as _;
 
 use super::*;
 
-struct FakeDrive {
-    writes: Vec<&'static str>,
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Practice,
 }
 
-impl FakeDrive {
-    fn stop(&mut self) -> Result<(), &'static str> {
-        self.writes.push("stop drive");
-        Ok(())
-    }
-}
-
+#[derive(Default)]
 struct Application {
-    drive: FakeDrive,
-    driver_entries: usize,
+    outputs: Vec<&'static str>,
 }
 
 impl OztonCompete for Application {
     type Error = &'static str;
+    type Route = Route;
+
     const CONTROL_PERIOD: Duration = Duration::from_millis(1);
+    const ROUTES: &'static [RobotRoute<Route>] = &[RobotRoute::new("Practice", Route::Practice)];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
-        self.drive.stop()
+        self.outputs.push("stop drive");
+        Ok(())
+    }
+
+    async fn autonomous(&mut self, _: Route) -> Result<(), Self::Error> {
+        Ok(())
     }
 
     async fn driver(&mut self) -> Result<(), Self::Error> {
-        self.driver_entries += 1;
-        self.drive.writes.push("drive");
+        self.outputs.push("drive");
         Err("driver fault")
     }
 }
@@ -36,20 +37,18 @@ impl OztonCompete for Application {
 #[test]
 fn application_driver_runs_once_per_activation_with_fault_cleanup() {
     vexide::runtime::block_on(async {
+        // A direct enabled handoff preserves the previous mode's output until
+        // the driver writes. Only the fault stops the drive.
         let mut runtime = Runtime::new(Application {
-            drive: FakeDrive { writes: Vec::new() },
-            driver_entries: 0,
+            outputs: vec!["auton"],
         });
-
-        for activation in 1..=2 {
+        for _ in 0..2 {
             session::CompetitionSession(&mut runtime).driver().await;
-            let robot = &runtime.robot;
-            assert_eq!(robot.driver_entries, activation);
-            assert_eq!(
-                &robot.drive.writes[(activation - 1) * 2..],
-                ["drive", "stop drive"]
-            );
         }
+        assert_eq!(
+            runtime.robot.outputs,
+            ["auton", "drive", "stop drive", "drive", "stop drive"]
+        );
     });
 }
 
@@ -57,15 +56,16 @@ fn application_driver_runs_once_per_activation_with_fault_cleanup() {
 fn route_choice_is_read_once_at_autonomous_entry() {
     use std::{cell::Cell, rc::Rc};
 
-    struct Selector(Rc<Cell<usize>>);
+    type Selection = Option<RobotRoute<Route>>;
+    struct Selector(Rc<Cell<usize>>, Selection);
 
-    impl RouteSelector<Option<RobotRoute<Application, &'static str>>> for Selector {
-        fn action(&self) -> Option<RobotRoute<Application, &'static str>> {
+    impl RouteSelector<Selection> for Selector {
+        fn action(&self) -> Selection {
             self.0.set(self.0.get() + 1);
-            None
+            self.1
         }
 
-        fn poll(&mut self, _: bool) -> Option<Option<RobotRoute<Application, &'static str>>> {
+        fn poll(&mut self, _: bool) -> Option<Selection> {
             None
         }
 
@@ -74,42 +74,28 @@ fn route_choice_is_read_once_at_autonomous_entry() {
 
     vexide::runtime::block_on(async {
         let reads = Rc::new(Cell::new(0));
-        let mut runtime = Runtime::new(Application {
-            drive: FakeDrive { writes: Vec::new() },
-            driver_entries: 0,
-        })
-        .with_ui(Ui::custom({
+        let mut runtime = Runtime::new(Application::default()).with_ui(Ui::<Selection>::custom({
             let reads = Rc::clone(&reads);
-            move |_| Selector(reads)
+            move |choices| {
+                assert_eq!(choices.len(), 2);
+                assert_eq!(choices[0].0, "Disable");
+                assert!(choices[0].1.is_none());
+                assert_eq!(choices[1].0, "Practice");
+                assert!(matches!(
+                    choices[1].1.map(|route| route.id),
+                    Some(Route::Practice)
+                ));
+                Selector(reads, choices[1].1)
+            }
         }));
 
         session::CompetitionSession(&mut runtime).disabled().await;
-        assert_eq!(
-            runtime.robot.drive.writes.first().copied(),
-            Some("stop drive")
-        );
+        assert_eq!(runtime.robot.outputs.first().copied(), Some("stop drive"));
         session::CompetitionSession(&mut runtime).driver().await;
         assert_eq!(reads.get(), 0);
         session::CompetitionSession(&mut runtime).autonomous().await;
         assert_eq!(reads.get(), 1);
         session::CompetitionSession(&mut runtime).autonomous().await;
         assert_eq!(reads.get(), 2);
-    });
-}
-
-#[test]
-fn direct_enabled_handoff_does_not_stop_latched_outputs() {
-    vexide::runtime::block_on(async {
-        let mut runtime = Runtime::new(Application {
-            drive: FakeDrive {
-                writes: vec!["auton"],
-            },
-            driver_entries: 0,
-        });
-
-        // Simulate an already-commanded motor and an enabled driver entry.
-        // The driver itself writes output, then faults; only the fault stops it.
-        session::CompetitionSession(&mut runtime).driver().await;
-        assert_eq!(runtime.robot.drive.writes, ["auton", "drive", "stop drive"]);
     });
 }

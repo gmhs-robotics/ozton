@@ -4,7 +4,14 @@ use std::time::Duration;
 use crate::model::Drive;
 
 mod balance;
+mod heading;
+#[cfg(feature = "vex")]
+mod view;
+
 pub use balance::MotorBalanceAssist;
+pub use heading::{AntiTipAssist, HeadingHoldAssist, TiltAxis};
+#[cfg(feature = "vex")]
+pub use view::{AssistedDrivetrain, DriveAssists};
 
 /// Observations and estimates borrowed from the drive for a single command.
 pub struct AssistContext<'a, M, T, L> {

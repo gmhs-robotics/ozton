@@ -14,15 +14,6 @@
 //! - [`TracksVelocity`], for tracking the robot's linear and angular velocity.
 //! - [`TracksForwardTravel`], for tracking the robot's signed forward wheel travel.
 //!
-//! Below is an example of a motion algorithm function that is generic across all differential
-//! drivetrains with tracking systems that measure a robot's forward wheel travel:
-//!
-//! ```ignore
-//! async fn motion(drivetrain: &mut Drivetrain<Differential, impl TrackingSystem, impl TracksForwardTravel>) {
-//!     // Motion goes here...
-//! }
-//! ```
-//!
 //! Use mounted wheel observations with the localization crate for pose estimation.
 //!
 //! # Units
@@ -42,7 +33,6 @@ pub mod odometric;
 pub mod range;
 pub mod sampling;
 pub mod sensor;
-pub mod snapshot;
 
 pub use sensor::{ReadPosition, SetPosition};
 
