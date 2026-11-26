@@ -225,7 +225,8 @@ impl PoseEstimator for Mcl {
             "MCL_BEAMS",
             "submitted={submitted_mask},used={used_mask},residual_rejected={residual_rejected},geometry_rejected={geometry_rejected}"
         );
-        let rank = || fit_consensus(&used_constraints[..constraint_count]).map_or(0, |fit| fit.axes);
+        let rank =
+            || fit_consensus(&used_constraints[..constraint_count]).map_or(0, |fit| fit.axes);
         let Some(estimate) = estimate else {
             log_row!(
                 Trace,

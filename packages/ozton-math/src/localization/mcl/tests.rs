@@ -229,3 +229,55 @@ fn surveyed_flush_contact_conditions_particles_and_releases_without_reset() {
     });
     assert!(filter.position_covariance().y_axis.y > 0.0);
 }
+
+#[test]
+fn prepared_geometry_and_beam_mask_follow_each_observation() {
+    let wall = |y| {
+        Surface::new(
+            DVec2::new(-1.0, y),
+            DVec2::new(1.0, y),
+            crate::qty!(1 m),
+        )
+    };
+    let mut map = [wall(1.0)];
+    let mut filter = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
+    for particle in &mut filter.particles {
+        particle.pose = Pose::default();
+    }
+    let beam = Beam {
+        mount: Pose::default(),
+        distance: crate::qty!(1 m),
+        max_range: crate::qty!(2 m),
+        surface_mask: 1,
+    };
+    let missing = Beam {
+        surface_mask: 0,
+        ..beam
+    };
+    assert!(
+        filter
+            .observe_position(&[missing, beam], &map, Angle::default())
+            .is_some()
+    );
+    assert_eq!(filter.last_used_beams(), 0b10);
+
+    // Reuse the same allocation but move the wall. A pointer-based cache
+    // would retain the old ray geometry and reject this measurement.
+    map[0] = wall(1.5);
+    let moved = Beam {
+        distance: crate::qty!(1.5 m),
+        ..beam
+    };
+    assert!(
+        filter
+            .observe_position(&[moved, missing], &map, Angle::default())
+            .is_some()
+    );
+    assert_eq!(filter.last_used_beams(), 0b01);
+    assert!(
+        filter
+            .observe_position(&[missing], &map, Angle::default())
+            .is_none()
+    );
+    assert_eq!(filter.last_used_beams(), 0);
+}
