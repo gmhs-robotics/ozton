@@ -157,42 +157,49 @@ impl<'path> ProfiledFollower<'path> {
         // Trajectory controllers track a timed reference, not a nearest-point
         // projection. The geometric cursor remains available for mechanisms.
         if !matches!(self.guidance, Guidance::PurePursuit) {
-            // Standard constant-twist delay compensation: predict the
-            // measured pose and sample the reference at the same future
-            // time. Keep the trajectory clock independent of that preview.
-            let delay = self
+            // Predict the pose and sample the reference at each actuator's
+            // effective response time. Both outputs share the same trajectory
+            // clock; a preview never advances that clock.
+            let [forward_delay, yaw_delay] = self
                 .prediction_latency
-                .map_or(0.0, |[forward, _]| forward.as_secs_f64());
+                .unwrap_or([core::time::Duration::ZERO; 2]);
             let scale = self.reference_speed_scale;
-            let t = (self.elapsed + delay).min(path.end().time / scale);
-            let horizon = (t - self.elapsed).max(0.0);
+            let control_at = |delay: core::time::Duration| {
+                let t = (self.elapsed + delay.as_secs_f64()).min(path.end().time / scale);
+                let horizon = (t - self.elapsed).max(0.0);
+                let predicted = pose.integrate(BodyDelta {
+                    translation: DVec2::new(measured_lateral.value, measured_speed.value) * horizon,
+                    heading: ozton_math::qty!((measured_yaw.value * horizon) rad),
+                });
+                let reference = path.at_time(ozton_math::qty!((t * scale) s));
+                let local = predicted.to_local(reference.pose.position);
+                let heading =
+                    wrap_heading(reference.pose.heading + facing - predicted.heading).value;
+                let velocity = if reverse {
+                    -reference.speed
+                } else {
+                    reference.speed
+                };
+                let twist = [
+                    velocity * scale,
+                    reference.speed * reference.curvature * scale,
+                ];
+                let error = [local.y, -local.x, heading];
+                match self.guidance {
+                    Guidance::Ramsete(controller) => controller.calculate(error, twist),
+                    Guidance::Lqr(_) => self
+                        .lqr
+                        .as_ref()
+                        .expect("LQR schedule")
+                        .calculate(t, error, twist),
+                    Guidance::PurePursuit => unreachable!(),
+                }
+            };
+            let [linear, mut angular] = control_at(forward_delay);
+            if yaw_delay != forward_delay {
+                angular = control_at(yaw_delay)[1];
+            }
             self.elapsed += dt.as_secs_f64();
-            let predicted = pose.integrate(BodyDelta {
-                translation: DVec2::new(measured_lateral.value, measured_speed.value) * horizon,
-                heading: ozton_math::qty!((measured_yaw.value * horizon) rad),
-            });
-            let reference = path.at_time(ozton_math::qty!((t * scale) s));
-            let local = predicted.to_local(reference.pose.position);
-            let heading = wrap_heading(reference.pose.heading + facing - predicted.heading).value;
-            let velocity = if reverse {
-                -reference.speed
-            } else {
-                reference.speed
-            };
-            let twist = [
-                velocity * scale,
-                reference.speed * reference.curvature * scale,
-            ];
-            let error = [local.y, -local.x, heading];
-            let [linear, angular] = match self.guidance {
-                Guidance::Ramsete(controller) => controller.calculate(error, twist),
-                Guidance::Lqr(_) => self
-                    .lqr
-                    .as_ref()
-                    .expect("LQR schedule")
-                    .calculate(t, error, twist),
-                Guidance::PurePursuit => unreachable!(),
-            };
             return wheel_speeds(
                 Velocity::new::<meter_per_second>(linear),
                 AngularVelocity::new::<radian_per_second>(angular),
@@ -660,6 +667,52 @@ mod tests {
             assert!(!follower.is_terminal(0.01));
             follower.elapsed = follower.planned_duration();
             assert!(follower.is_terminal(0.01));
+        }
+    }
+
+    #[test]
+    fn timed_yaw_preview_uses_its_own_latency() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let tick = core::time::Duration::from_millis(10);
+        let forward_delay = core::time::Duration::from_millis(100);
+        let pose = Pose::new(DVec2::new(0.04, 0.3), qty!(5 deg));
+        for guidance in [crate::PathGuidance::RAMSETE, crate::PathGuidance::LQR] {
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.2 m), Pid::new(4.0, 0.0, 0.4, None))
+                    .with_guidance(guidance)
+                    .prepare(tick, false)
+                    .unwrap();
+            let mut command = |yaw_delay| {
+                follower.seek(0.3);
+                follower.prediction_latency = Some([forward_delay, yaw_delay]);
+                follower.command(
+                    pose,
+                    false,
+                    [qty!(0 m/s), qty!(0.3 m/s)],
+                    qty!(0.5 rad/s),
+                    forward_delay,
+                    tick,
+                )
+            };
+            let a = command(forward_delay);
+            let b = command(core::time::Duration::from_millis(180));
+            assert!((a[0] + a[1] - b[0] - b[1]).abs() < 1e-12);
+            assert!((a[1] - a[0] - b[1] + b[0]).abs() > 1e-5);
         }
     }
 
