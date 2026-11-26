@@ -33,7 +33,11 @@ impl<'path> Progress<'path> {
     /// Initialize another controller at a measured arc-length handoff.
     pub fn seek(&mut self, distance: f64) {
         self.distance = distance.clamp(0.0, self.path.end().distance);
-        self.segment = self.path.samples().partition_point(|s| s.distance <= self.distance).saturating_sub(1);
+        self.segment = self
+            .path
+            .samples()
+            .partition_point(|s| s.distance <= self.distance)
+            .saturating_sub(1);
     }
 
     /// Advances within a bounded local window to disambiguate crossing paths.

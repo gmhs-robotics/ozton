@@ -378,7 +378,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             name: None,
             actions,
         }];
-        self.follow_group(trajectory, &mut stages, Arrival::Stop).await
+        self.follow_group(trajectory, &mut stages, Arrival::Stop)
+            .await
     }
 
     /// Execute a shared path profile, switching tracking laws at measured
@@ -389,22 +390,33 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         stages: &mut [PathStage<'_, '_>],
         arrival: Arrival,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        let Trajectory { path, reverse, target, timeout } = trajectory;
+        let Trajectory {
+            path,
+            reverse,
+            target,
+            timeout,
+        } = trajectory;
         use crate::pursuit::profiled::ProfiledFollower;
         let width = self.options.track_width;
-        let configs: Vec<_> = stages.iter().map(|stage| {
-            stage.config.constrained_for_path(stage.config.options(width), path.limits())
-        }).collect();
+        let configs: Vec<_> = stages
+            .iter()
+            .map(|stage| {
+                stage
+                    .config
+                    .constrained_for_path(stage.config.options(width), path.limits())
+            })
+            .collect();
         let mut followers = Vec::with_capacity(stages.len());
         for (index, &(config, _)) in configs.iter().enumerate() {
             if index > 0 && config == configs[index - 1].0 {
                 followers.push(None);
                 continue;
             }
-            let follower = ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
-                .with_config(config.path)
-                .prepare(config.timing.period, reverse)
-                .ok_or(PoseMotionError::Configuration)?;
+            let follower =
+                ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
+                    .with_config(config.path)
+                    .prepare(config.timing.period, reverse)
+                    .ok_or(PoseMotionError::Configuration)?;
             followers.push(Some(follower));
         }
         let mut follower = followers[0].take().ok_or(PoseMotionError::Configuration)?;
@@ -562,7 +574,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             &mut |drive, wheels| drive.drive_wheels(wheels),
         )
         .await?;
-        stages[stage_index].actions
+        stages[stage_index]
+            .actions
             .advance(end.distance - stage_start, 0.0, true)
             .map_err(PoseMotionError::Mechanism)?;
         let elapsed = started.elapsed();
@@ -592,7 +605,18 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             elapsed.as_secs_f64() / planned_duration
         );
         let final_name = stages[stage_index].name;
-        log_checkpoint(final_name, if arrival == Arrival::Reverse { "reverse" } else { "stop" }, end.pose, reverse, pose, 0.0);
+        log_checkpoint(
+            final_name,
+            if arrival == Arrival::Reverse {
+                "reverse"
+            } else {
+                "stop"
+            },
+            end.pose,
+            reverse,
+            pose,
+            0.0,
+        );
         log_event!(Info, "motion", "Trajectory: settled");
         Ok(())
     }
@@ -679,9 +703,17 @@ fn log_checkpoint(
     let heading = target.heading + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
     let error = target.position.distance(actual.position);
     let heading_error = wrap_heading(heading - actual.heading).value;
-    log_row!(Info, "MOTION_CHECKPOINT", "stage={name},junction={junction},target_x_m={:.6},target_y_m={:.6},target_heading_rad={:.6},x_m={:.6},y_m={:.6},heading_rad={:.6},error_m={error:.6},heading_error_rad={heading_error:.6},forward_mps={speed:.5}",
-        target.position.x, target.position.y, heading.value,
-        actual.position.x, actual.position.y, actual.heading.value);
+    log_row!(
+        Info,
+        "MOTION_CHECKPOINT",
+        "stage={name},junction={junction},target_x_m={:.6},target_y_m={:.6},target_heading_rad={:.6},x_m={:.6},y_m={:.6},heading_rad={:.6},error_m={error:.6},heading_error_rad={heading_error:.6},forward_mps={speed:.5}",
+        target.position.x,
+        target.position.y,
+        heading.value,
+        actual.position.x,
+        actual.position.y,
+        actual.heading.value
+    );
     let _ = (name, junction, error, heading_error, speed);
 }
 

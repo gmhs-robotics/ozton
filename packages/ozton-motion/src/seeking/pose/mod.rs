@@ -13,8 +13,8 @@ use crate::basic::differential::DriveOptions;
 mod actions;
 mod approach;
 mod chain;
-pub use chain::{MotionChain, MotionSegment, RunMotion};
 pub(super) use chain::Command;
+pub use chain::{MotionChain, MotionSegment, RunMotion};
 mod error;
 mod session;
 pub use actions::PathActions;
@@ -350,4 +350,3 @@ impl Engine {
         session.finish(result)
     }
 }
-

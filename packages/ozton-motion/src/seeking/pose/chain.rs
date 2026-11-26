@@ -4,12 +4,14 @@ use std::time::{Duration, Instant};
 use ozton_localization::LocalizationEstimate;
 use ozton_math::{
     geometry::{DVec2, Pose, wrap_heading},
-    path::{Limits, Path, MAX_POINTS},
+    path::{Limits, MAX_POINTS, Path},
     uom::si::f64::{Angle, Length},
 };
 
-use super::{Engine, MotionExecution, PathActions, PoseMotionError, TravelDirection};
-use super::session::{Arrival, PathStage, PoseSession, Trajectory};
+use super::{
+    Engine, MotionExecution, PathActions, PoseMotionError, TravelDirection,
+    session::{Arrival, PathStage, PoseSession, Trajectory},
+};
 use crate::{MotionConfig, MotionResult, PathGuidance};
 
 #[derive(Clone, Copy)]
@@ -35,7 +37,13 @@ pub struct MotionSegment<'a> {
 
 impl<'a> MotionSegment<'a> {
     pub(in crate::seeking) fn new(engine: Engine, command: Command<'a>) -> Self {
-        Self { engine, command, stop: false, name: None, actions: PathActions::new() }
+        Self {
+            engine,
+            command,
+            stop: false,
+            name: None,
+            actions: PathActions::new(),
+        }
     }
 
     #[must_use]
@@ -67,15 +75,25 @@ impl<'a> MotionSegment<'a> {
     }
 
     fn valid(&self) -> bool {
-        self.engine.config.valid() && match self.command {
-            Command::Path(path) => self.actions.valid(path),
-            Command::Distance(d) => self.actions.is_empty() && d.value.is_finite(),
-            Command::Heading(h) => self.actions.is_empty() && h.value.is_finite(),
-            Command::Point(p) | Command::TurnPoint(p) => self.actions.is_empty() && p.is_finite(),
-            Command::Pose(p) | Command::StraightPose(p) => self.actions.is_empty() && p.is_finite(),
-            Command::Arc(r, s) => self.actions.is_empty() && r.value.is_finite()
-                && r.value > 0.0 && s.value.is_finite() && s.value.abs() <= core::f64::consts::TAU,
-        }
+        self.engine.config.valid()
+            && match self.command {
+                Command::Path(path) => self.actions.valid(path),
+                Command::Distance(d) => self.actions.is_empty() && d.value.is_finite(),
+                Command::Heading(h) => self.actions.is_empty() && h.value.is_finite(),
+                Command::Point(p) | Command::TurnPoint(p) => {
+                    self.actions.is_empty() && p.is_finite()
+                }
+                Command::Pose(p) | Command::StraightPose(p) => {
+                    self.actions.is_empty() && p.is_finite()
+                }
+                Command::Arc(r, s) => {
+                    self.actions.is_empty()
+                        && r.value.is_finite()
+                        && r.value > 0.0
+                        && s.value.is_finite()
+                        && s.value.abs() <= core::f64::consts::TAU
+                }
+            }
     }
 
     async fn direct<D: MotionExecution>(&self, drive: &mut D) -> MotionResult<D> {
@@ -112,7 +130,9 @@ pub struct MotionChain<'a> {
 
 impl<'a> MotionChain<'a> {
     pub const fn new() -> Self {
-        Self { segments: Vec::new() }
+        Self {
+            segments: Vec::new(),
+        }
     }
 
     #[must_use]
@@ -148,7 +168,11 @@ fn body_pose(mut pose: Pose, reverse: bool) -> Pose {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Junction { Blend, Reverse, Stop }
+enum Junction {
+    Blend,
+    Reverse,
+    Stop,
+}
 
 fn junction(a: &MotionSegment<'_>, b: &MotionSegment<'_>) -> Junction {
     if a.stop {
@@ -187,8 +211,11 @@ fn restrictive(mut a: Limits, b: Limits) -> Limits {
 }
 
 fn scale(config: MotionConfig) -> f64 {
-    if config.path.guidance == PathGuidance::PurePursuit { 1.0 }
-    else { config.path.reference_speed_scale }
+    if config.path.guidance == PathGuidance::PurePursuit {
+        1.0
+    } else {
+        config.path.reference_speed_scale
+    }
 }
 
 async fn execute<D: MotionExecution>(
@@ -200,11 +227,15 @@ async fn execute<D: MotionExecution>(
     }
     let mut index = 0;
     while index < segments.len() {
-        if !drive.motion_active() { return Err(PoseMotionError::Cancelled); }
+        if !drive.motion_active() {
+            return Err(PoseMotionError::Cancelled);
+        }
         if let Some(path) = segments[index].path() {
             let mut end = index + 1;
             let mut count = path.samples().len();
-            while end < segments.len() && junction(&segments[end - 1], &segments[end]) == Junction::Blend {
+            while end < segments.len()
+                && junction(&segments[end - 1], &segments[end]) == Junction::Blend
+            {
                 count += segments[end].path().unwrap().samples().len() - 1;
                 if count > MAX_POINTS {
                     // A separate stopped group is preferable to exceeding the bounded path storage.
@@ -212,9 +243,13 @@ async fn execute<D: MotionExecution>(
                 }
                 end += 1;
             }
-            let arrival = if end < segments.len() && junction(&segments[end - 1], &segments[end]) == Junction::Reverse {
+            let arrival = if end < segments.len()
+                && junction(&segments[end - 1], &segments[end]) == Junction::Reverse
+            {
                 Arrival::Reverse
-            } else { Arrival::Stop };
+            } else {
+                Arrival::Stop
+            };
             run_paths(drive, &mut segments[index..end], arrival).await?;
             index = end;
         } else {
@@ -239,7 +274,10 @@ async fn run_paths<D: MotionExecution>(
     let mut uniform_scale = true;
     for (segment, path) in segments.iter().zip(&paths) {
         limits = restrictive(limits, path.limits());
-        limits = restrictive(limits, segment.engine.config.path_limits(limits.track_width));
+        limits = restrictive(
+            limits,
+            segment.engine.config.path_limits(limits.track_width),
+        );
         let s = scale(segment.engine.config);
         minimum_scale = minimum_scale.min(s);
         uniform_scale &= (s - first_scale).abs() < 1e-9;
@@ -251,53 +289,100 @@ async fn run_paths<D: MotionExecution>(
         limits.wheel_speed.value *= minimum_scale;
     }
     let joined = if segments.len() > 1 {
-        Some(Path::join_cooperative(&paths, limits, async || {
-            drive.wait_until(Instant::now()).await;
-            drive.motion_active()
-        }).await.map_err(|e| {
-            if e == ozton_math::path::PathError::Cancelled { PoseMotionError::Cancelled }
-            else { PoseMotionError::Configuration }
-        })?)
-    } else { None };
+        Some(
+            Path::join_cooperative(&paths, limits, async || {
+                drive.wait_until(Instant::now()).await;
+                drive.motion_active()
+            })
+            .await
+            .map_err(|e| {
+                if e == ozton_math::path::PathError::Cancelled {
+                    PoseMotionError::Cancelled
+                } else {
+                    PoseMotionError::Configuration
+                }
+            })?,
+        )
+    } else {
+        None
+    };
     let path = joined.as_ref().unwrap_or(paths[0]);
     let start = body_pose(path.start().pose, reverse);
     let target = body_pose(path.end().pose, reverse);
     let actual = drive.localization().pose();
-    if !actual.is_finite() { return Err(PoseMotionError::Configuration); }
+    if !actual.is_finite() {
+        return Err(PoseMotionError::Configuration);
+    }
     if actual.position.distance(start.position) > 0.08
         || wrap_heading(start.heading - actual.heading).value.abs() > 0.35
     {
-        ozton_diagnostics::log_event!(Warn, "motion", "Trajectory start offset exceeds tuning threshold; continuing feedback");
+        ozton_diagnostics::log_event!(
+            Warn,
+            "motion",
+            "Trajectory start offset exceeds tuning threshold; continuing feedback"
+        );
     }
-    let options = segments[0].engine.options(drive).ok_or(PoseMotionError::Configuration)?;
+    let options = segments[0]
+        .engine
+        .options(drive)
+        .ok_or(PoseMotionError::Configuration)?;
     let mut distance = 0.0;
     let mut timeout = Duration::ZERO;
     let mut stages = Vec::with_capacity(segments.len());
     for (segment, source) in segments.iter_mut().zip(paths) {
         distance += source.end().distance;
         let mut config = segment.engine.config;
-        if !uniform_scale { config.path.reference_speed_scale = 1.0; }
+        if !uniform_scale {
+            config.path.reference_speed_scale = 1.0;
+        }
         timeout = timeout.saturating_add(config.timing.stage_timeout);
-        stages.push(PathStage { config, end_distance: distance.min(path.end().distance),
-            name: segment.name, actions: &mut segment.actions });
+        stages.push(PathStage {
+            config,
+            end_distance: distance.min(path.end().distance),
+            name: segment.name,
+            actions: &mut segment.actions,
+        });
     }
     stages.last_mut().unwrap().end_distance = path.end().distance;
     drive.localization_mut().release_wall_contact();
     let mut session = PoseSession::new(drive, options, stages[0].config)?;
-    let result = session.follow_group(Trajectory { path, reverse, target, timeout }, &mut stages, arrival).await;
+    let result = session
+        .follow_group(
+            Trajectory {
+                path,
+                reverse,
+                target,
+                timeout,
+            },
+            &mut stages,
+            arrival,
+        )
+        .await;
     session.finish(result)
 }
 
 #[cfg(all(test, not(target_os = "vexos")))]
 mod tests {
+    use ozton_math::{path::Waypoint, qty};
+
     use super::*;
     use crate::{PurePursuit, Ramsete};
-    use ozton_math::{path::Waypoint, qty};
     fn path(a: f64, b: f64) -> Path {
-        Path::new(&[Waypoint::new(DVec2::new(0.0, a), 1.0),
-                    Waypoint::new(DVec2::new(0.0, b), 1.0)],
-            Limits::from_units(qty!(0.33 m), qty!(1 m/s), qty!(1 m/s),
-                qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2))).unwrap()
+        Path::new(
+            &[
+                Waypoint::new(DVec2::new(0.0, a), 1.0),
+                Waypoint::new(DVec2::new(0.0, b), 1.0),
+            ],
+            Limits::from_units(
+                qty!(0.33 m),
+                qty!(1 m/s),
+                qty!(1 m/s),
+                qty!(1 m/s^2),
+                qty!(1 m/s^2),
+                qty!(1 m/s^2),
+            ),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -307,9 +392,25 @@ mod tests {
         let c = path(1.0, 0.0);
         let pp = PurePursuit::new().follow(&a);
         assert_eq!(junction(&pp, &Ramsete::new().follow(&b)), Junction::Blend);
-        assert_eq!(junction(&pp, &Ramsete::new().with_travel(TravelDirection::Backward).follow(&c)), Junction::Reverse);
-        assert_eq!(junction(&pp, &PurePursuit::new().follow(&c)), Junction::Stop);
-        let chain = MotionChain::new().then_stop(pp).then(Ramsete::new().follow(&b));
-        assert_eq!(junction(&chain.segments[0], &chain.segments[1]), Junction::Stop);
+        assert_eq!(
+            junction(
+                &pp,
+                &Ramsete::new()
+                    .with_travel(TravelDirection::Backward)
+                    .follow(&c)
+            ),
+            Junction::Reverse
+        );
+        assert_eq!(
+            junction(&pp, &PurePursuit::new().follow(&c)),
+            Junction::Stop
+        );
+        let chain = MotionChain::new()
+            .then_stop(pp)
+            .then(Ramsete::new().follow(&b));
+        assert_eq!(
+            junction(&chain.segments[0], &chain.segments[1]),
+            Junction::Stop
+        );
     }
 }

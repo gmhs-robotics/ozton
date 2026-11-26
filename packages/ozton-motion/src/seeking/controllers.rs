@@ -8,8 +8,7 @@ use ozton_math::{
     uom::si::f64::{Angle, Length, Velocity},
 };
 
-use super::{Engine, MotionSegment, PathActions, PoseMotionError, TravelDirection};
-use super::pose::Command;
+use super::{Engine, MotionSegment, PathActions, PoseMotionError, TravelDirection, pose::Command};
 use crate::{
     DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance,
 };

@@ -1,7 +1,6 @@
 //! Prepared differential paths shared by importers and followers.
 
-use alloc::borrow::Cow;
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 #[cfg(not(target_os = "vexos"))]
 use glam::DVec2;
@@ -270,7 +269,9 @@ impl Path {
                 let start = path.start();
                 if previous.pose.position.distance(start.pose.position) > 1e-6
                     || crate::geometry::wrap_heading(previous.pose.heading - start.pose.heading)
-                        .value.abs() > 0.04
+                        .value
+                        .abs()
+                        > 0.04
                 {
                     return Err(PathError::InvalidPoint(samples.len() - 1));
                 }
@@ -312,7 +313,11 @@ impl Path {
                 return Err(PathError::InvalidPoint(i));
             }
             let denominator = incoming.length() * outgoing.length() * chord.length();
-            let curvature = if denominator > 0.0 { 2.0 * cross / denominator } else { 0.0 };
+            let curvature = if denominator > 0.0 {
+                2.0 * cross / denominator
+            } else {
+                0.0
+            };
             let sample = &mut samples[i];
             sample.curvature = curvature;
             sample.pose.heading = crate::geometry::bearing(chord);
@@ -326,7 +331,10 @@ impl Path {
             }
         }
         parameterize(&mut samples, limits, &mut checkpoint).await?;
-        Ok(Self { samples: Cow::Owned(samples), limits })
+        Ok(Self {
+            samples: Cow::Owned(samples),
+            limits,
+        })
     }
 
     /// Borrow a host-generated trajectory without allocating or parameterizing
@@ -512,15 +520,27 @@ mod join_tests {
 
     #[test]
     fn joined_paths_match_one_continuous_profile_and_preserve_speed_caps() {
-        let limits = Limits::from_units(qty!(0.33 m), qty!(1 m/s), qty!(1 m/s),
-            qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2));
-        let points: Vec<_> = (0..=20).map(|i| Waypoint::new(
-            DVec2::new(0.0, i as f64 * 0.1), if i == 10 { 0.6 } else { 1.0 }
-        )).collect();
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let points: Vec<_> = (0..=20)
+            .map(|i| {
+                Waypoint::new(
+                    DVec2::new(0.0, i as f64 * 0.1),
+                    if i == 10 { 0.6 } else { 1.0 },
+                )
+            })
+            .collect();
         let full = Path::new(&points, limits).unwrap();
         let a = Path::new(&points[..=10], limits).unwrap();
         let b = Path::new(&points[10..], limits).unwrap();
-        let joined = complete_ready(Path::join_cooperative(&[&a, &b], limits, async || true)).unwrap();
+        let joined =
+            complete_ready(Path::join_cooperative(&[&a, &b], limits, async || true)).unwrap();
         assert!(joined.samples()[10].speed > 0.5);
         for (a, b) in joined.samples().iter().zip(full.samples()) {
             assert!((a.speed - b.speed).abs() < 1e-9);

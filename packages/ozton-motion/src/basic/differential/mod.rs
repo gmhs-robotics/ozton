@@ -411,8 +411,7 @@ impl DifferentialFeedback {
                 // Latch travel direction. Near the goal, allow a deliberate reversal
                 // only after nearly stopping, with a wide hysteresis band.
                 if distance
-                        <= config.approach.reversal_distance_factor
-                            * options.position_tolerance.value
+                    <= config.approach.reversal_distance_factor * options.position_tolerance.value
                     && heading.abs() > config.approach.reversal_heading.value
                     && forward_rate.abs() <= 2.0 * options.speed_tolerance.value
                     && yaw_rate.abs() <= config.approach.reversal_yaw_rate.value
