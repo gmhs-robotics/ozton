@@ -10,7 +10,7 @@ use ozton_math::{
         MAX_RANGES, SensorSample, TracksForwardTravel, TracksHeading, TracksPosition,
         TracksVelocity,
     },
-    path::clearance::{Footprint, Obstacles, WallContact, WallContactConstraint},
+    path::clearance::{Footprint, WallContact, WallContactConstraint},
     uom::si::{
         angular_velocity::radian_per_second,
         f64::{Angle, AngularVelocity, Length, Velocity},
@@ -37,8 +37,6 @@ pub use builder::{LocalizationBuilder, OdometrySettings, RangeRequired};
 pub struct Localization<B = ()> {
     localizer: Localizer<'static>,
     boundary: B,
-    motion_obstacles: Obstacles,
-    movable_obstacles: Obstacles,
     wheels: WheelOdometry,
     observations: observations::Observations,
     drive: Option<DriveEncoderUse>,
@@ -94,16 +92,10 @@ impl Localization<FieldBoundary> {
         self.log_pose_registration(pose, true);
         true
     }
-
-    /// Update containment dimensions without removing the boundary.
-    /// The new dimensions must already have been validated.
-    pub fn set_motion_bounds(&mut self, boundary: FieldBoundary) {
-        self.boundary = boundary;
-    }
 }
 
 impl<B: Boundary> Localization<B> {
-    /// The validated boundary state, or unit for an unbounded estimator.
+    /// Surveyed contact registration bounds, or unit when not configured.
     pub fn boundary(&self) -> B {
         self.boundary
     }
@@ -114,16 +106,6 @@ impl<B: Boundary> Localization<B> {
 
     pub fn release_wall_contact(&mut self) {
         self.localizer.release_wall_contact();
-    }
-
-    /// Fixed footprints projected from the unified field geometry.
-    pub fn motion_obstacles(&self) -> Obstacles {
-        self.motion_obstacles
-    }
-
-    /// Movable footprints projected from the same faces used by localization.
-    pub fn movable_obstacles(&self) -> Obstacles {
-        self.movable_obstacles
     }
 
     /// Keep raw tracking and logging active while suspending all external corrections.

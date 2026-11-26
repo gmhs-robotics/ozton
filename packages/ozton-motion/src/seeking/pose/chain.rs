@@ -493,7 +493,7 @@ mod tests {
         use ozton_localization::{Fault, Feedback};
         use ozton_math::{
             geometry::BodyDelta,
-            path::clearance::{Footprint, Obstacles, WallContact},
+            path::clearance::{Footprint, WallContact},
             uom::{ConstZero, si::f64::Velocity},
         };
 
@@ -509,12 +509,6 @@ mod tests {
             }
             fn feedback(&self) -> Result<Option<Feedback>, Fault> {
                 Ok(Some(self.0))
-            }
-            fn rectangular_half_extents(&self) -> Option<DVec2> {
-                None
-            }
-            fn motion_obstacles(&self) -> Obstacles {
-                Obstacles::default()
             }
             fn wall_contact(&self) -> Option<WallContact> {
                 None

@@ -10,6 +10,7 @@
 # Build your robot
 
 - [Tracking and localization](localization.md)
+- [Surface maps](surface-maps.md)
 - [Motion commands](motion.md)
 - [Competition routes](routes.md)
 - [Programmed autonomous](programmed.md)

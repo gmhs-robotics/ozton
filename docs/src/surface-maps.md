@@ -17,11 +17,11 @@ motion.add(Surface::wall(DVec2::new(-1.0, 0.0), DVec2::new(1.0, 0.0), qty!(0.1 m
 ```
 
 Pass the optical map to `LocalizationBuilder::with_surface_map`. For existing
-wall-contact start registration, convert it into `FieldMap` and explicitly
-supply validated rectangular bounds with `with_motion_bounds`; bounds do not
-create optical faces. Each map is flattened once when localization is built;
-sensor-height masks and prepared particle rays retain the existing efficient
-range implementation. At most 128 optical faces are supported.
+wall-contact start registration, separately supply validated rectangular physical
+dimensions via `with_contact_bounds`; contact bounds do not create optical
+faces or motion constraints. Each map is flattened once when localization is
+built; sensor-height masks and prepared particle rays retain the existing
+efficient range implementation. At most 128 optical faces are supported.
 
 Motion may start empty or inherit the physical map; adding a surface to
 `MotionMap` does not change localization. Motion ignores the height band.
@@ -29,5 +29,3 @@ Motion may start empty or inherit the physical map; adding a surface to
 model, with explicitly supplied containment dimensions and footprint. It does
 not enable runtime avoidance or replanning.
 
-The previous FieldMap object-policy methods remain temporarily available for
-existing callers; new code should use the separate maps.

@@ -5,7 +5,7 @@ use ozton_math::localization::observation::{
 use super::*;
 use crate::{
     Config, DsrConfig, OdometryConfig, RangeRoles,
-    field::{Boundary, FieldMap},
+    field::{Boundary, FieldBoundary, SurfaceMap},
 };
 
 /// Which available observations contribute to the odometry prediction.
@@ -62,7 +62,8 @@ pub struct RangeRequired;
 /// Assemble an estimator from the measured tracking layout, without sampling hardware.
 #[must_use]
 pub struct LocalizationBuilder<B = (), R = ()> {
-    field: FieldMap<B>,
+    map: SurfaceMap,
+    boundary: B,
     estimator: Estimator,
     odometry: OdometrySettings,
     dsr: Option<DsrConfig>,
@@ -73,7 +74,8 @@ pub struct LocalizationBuilder<B = (), R = ()> {
 impl Default for LocalizationBuilder {
     fn default() -> Self {
         Self {
-            field: FieldMap::default(),
+            map: SurfaceMap::new(),
+            boundary: (),
             estimator: Estimator::Odometry,
             odometry: OdometrySettings::new(),
             dsr: None,
@@ -90,13 +92,23 @@ impl LocalizationBuilder {
 }
 
 impl<B: Boundary, R> LocalizationBuilder<B, R> {
+    /// Supply the surveyed optical map. No motion policy is attached.
     #[must_use]
-    pub fn with_field<C: Boundary>(
+    pub fn with_surface_map(mut self, map: SurfaceMap) -> Self {
+        self.map = map;
+        self
+    }
+
+    /// Optional measured physical bounds for corner/flush-wall registration.
+    /// Does not add optical faces or configure motion containment.
+    #[must_use]
+    pub fn with_contact_bounds(
         self,
-        field: impl Into<FieldMap<C>>,
-    ) -> LocalizationBuilder<C, R> {
+        boundary: FieldBoundary,
+    ) -> LocalizationBuilder<FieldBoundary, R> {
         LocalizationBuilder {
-            field: field.into(),
+            map: self.map,
+            boundary,
             estimator: self.estimator,
             odometry: self.odometry,
             dsr: self.dsr,
@@ -105,15 +117,10 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         }
     }
 
-    /// Supply surveyed optical surfaces independently of any motion geometry.
-    #[must_use]
-    pub fn with_surface_map(self, map: crate::field::SurfaceMap) -> LocalizationBuilder<(), R> {
-        self.with_field(FieldMap::from(map))
-    }
-
     fn require_ranges(self) -> LocalizationBuilder<B, RangeRequired> {
         LocalizationBuilder {
-            field: self.field,
+            map: self.map,
+            boundary: self.boundary,
             estimator: self.estimator,
             odometry: self.odometry,
             dsr: self.dsr,
@@ -159,12 +166,11 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         layout: ObservationLayout<'_>,
         require_ranges: bool,
     ) -> Option<Localization<B>> {
-        let projection = self.field.motion_projection()?;
-        let map: Vec<_> = self.field.surfaces().collect();
+        let map: Vec<_> = self.map.faces().collect();
         let mounts: Vec<_> = layout
             .ranges
             .iter()
-            .map(|&(_, mount)| self.field.range_config(mount))
+            .map(|&(_, mount)| mount)
             .collect();
         let mut localizer = Localizer::new_owned(
             Config::new(
@@ -199,9 +205,7 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         }
         Some(Localization {
             localizer,
-            boundary: projection.boundary,
-            motion_obstacles: projection.fixed,
-            movable_obstacles: projection.movable,
+            boundary: self.boundary,
             wheels: WheelOdometry::new(layout.wheels.iter().map(|&(_, projection)| projection)),
             observations: super::observations::Observations::new(layout),
             drive: self.odometry.drive,
@@ -264,36 +268,34 @@ mod tests {
     }
 
     #[test]
-    fn builder_excludes_movable_faces_only_when_requested() {
+    fn motion_only_geometry_does_not_change_localization_mask() {
+        use crate::field::{MotionMap, Surface};
         use ozton_math::{geometry::DVec2, qty};
 
         let ranges = Ranges([(
             0,
             RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg)),
         )]);
-        for exclude in [false, true] {
-            let mut field = FieldMap::from(Field::METAL);
-            assert!(field.add_movable_box(
-                DVec2::new(-0.1, 0.4),
-                DVec2::new(0.1, 0.6),
-                qty!(10 in),
-            ));
-            if exclude {
-                field = field.without_movable_range_landmarks();
-            }
-            let localization = LocalizationBuilder::new()
-                .with_field(field)
-                .build(&ranges)
-                .unwrap();
-            let mask = localization.localizer.range_config(0).unwrap().surface_mask;
-            assert_eq!(mask, if exclude { 0b1111 } else { 0xff });
-            assert!(
-                localization
-                    .movable_obstacles()
-                    .into_iter()
-                    .any(|item| item.is_some())
-            );
-        }
+        let mut map = Field::METAL.surface_map().unwrap();
+        let obstacle = Surface::rectangle(
+            DVec2::new(-0.1, 0.4),
+            DVec2::new(0.1, 0.6),
+            qty!(10 in),
+        )
+        .unwrap();
+        let mut motion = MotionMap::from_localization(&map);
+        motion.add(obstacle);
+        let before = LocalizationBuilder::new()
+            .with_surface_map(map.clone())
+            .build(&ranges)
+            .unwrap();
+        assert_eq!(before.localizer.range_config(0).unwrap().surface_mask, 0b1111);
+        assert!(map.add(obstacle));
+        let after = LocalizationBuilder::new()
+            .with_surface_map(map)
+            .build(&ranges)
+            .unwrap();
+        assert_eq!(after.localizer.range_config(0).unwrap().surface_mask, 0xff);
     }
 
     #[test]
@@ -310,7 +312,7 @@ mod tests {
         );
         assert!(
             LocalizationBuilder::new()
-                .with_field(Field::METAL)
+                .with_surface_map(Field::METAL.surface_map().unwrap())
                 .with_distance_reset(DsrConfig::default())
                 .build(&ranges)
                 .is_some()
@@ -321,7 +323,7 @@ mod tests {
         )]);
         assert!(
             LocalizationBuilder::new()
-                .with_field(Field::METAL)
+                .with_surface_map(Field::METAL.surface_map().unwrap())
                 .with_distance_reset(DsrConfig::default())
                 .build(&high)
                 .is_none()

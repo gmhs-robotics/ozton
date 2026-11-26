@@ -25,7 +25,7 @@ let tracking = Tracking::builder()
     .build()
     .await?;
 let localization = Localization::builder()
-    .with_field(field)
+    .with_surface_map(field)
     .build(&tracking)
     .expect("check tracking geometry");
 let drivetrain = Drivetrain::builder(model.with_footprint(footprint))
@@ -83,9 +83,9 @@ Application-owned robots can return LocalizationWorker::start from OztonCompete:
 
 Register the actual starting pose with drivetrain.localization_mut().set_pose(pose), and check its boolean result. The worker needs fresh samples before feedback becomes available. Pausing invalidates the old baseline. Do not use an unregistered or stale pose for field motion.
 
-In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). set_motion_bounds accepts a validated FieldBoundary and can provide a virtual boundary without replacing the surveyed wall map. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
+In an open calibration area, select Estimator::Odometry and turn off external corrections using set_corrections_enabled(false). Optional physical contact registration dimensions are supplied through `with_contact_bounds`; motion geometry is separate. Re-enable the correct estimator and register the physical starting pose when returning to a walled field.
 
-A fixed wall is a single `Surface::new(start_xy, end_xy, height)` with a continuous vertical face from the floor to `height`. For an elevated fixture, use `.with_base_height(base)` on the same type. Sensor-height masks are resolved at localizer construction, so rays above or below the face cannot contribute to MCL or DSR. Planar ray-casting primitives still accept precomputed masks.
+A fixed wall is a single `Surface::wall(start_xy, end_xy, height)` with a continuous vertical face from the floor to `height`. For an elevated fixture, use `.with_base_height(base)` on the same type. Sensor-height masks are resolved at localizer construction, so rays above or below the face cannot contribute to MCL or DSR. Planar ray-casting primitives still accept precomputed masks.
 
 
 ## Velocity estimation
@@ -208,22 +208,14 @@ per particle. Sensors with an empty mask are excluded from MCL, EKF and DSR;
 they remain available for raw or relative-distance feedback. Heights assume
 a level chassis and horizontal center rays, not a full optical cone model.
 
-FieldMap::add_fixed_box(min, max, height) registers a solid floor-mounted
-rectangle as four reflecting faces plus an independent hard motion obstacle.
-The builder carries the physical footprint into motion clearance even if no
-sensor can see any of the four faces. Interior physical faces registered with
-FieldMap::add are projected as hard motion obstacles; perimeter faces use the
-closed containment boundary. Movable mapped boxes remain soft planning costs.
-
-Use `FieldMap::add_motion_box(min, max)` or `add_motion_polygon(vertices)` for
-virtual hard exclusion zones. They have no height or reflecting surfaces, never
-enter MCL, EKF or DSR, and share the fixed obstacle capacity of eight polygons.
-Both physical and virtual polygons enter the same hard collision checks. For
-example, a forbidden autonomous region can be a virtual rectangle; no phantom
-range hit will be predicted at its edge. Unmapped real objects can still return
-ranges; MCL's short-return/outlier mixture and the residual gates reject
-inconsistent observations, but an unmapped return is not guaranteed to be rejected.
-Validate all geometry registration results and the localization builder result.
+Start with an empty `SurfaceMap`. Add physical walls and convex extruded
+polygons using the shared `Surface` constructors. Only these explicitly
+registered surfaces are used for optical localization. Use
+`MotionMap::from_localization(&map)` to reuse their XY footprints for optional
+host-side clearance checks. Additional motion surfaces do not affect range
+association, even if their XY location intersects a sensor ray. See
+[Surface maps](surface-maps.md) for examples. Validate geometry registration
+and localization construction results.
 
 Range consensus checks both each normalized residual and their combined squared
 sum against the residual degrees of freedom. This prevents contradictory
