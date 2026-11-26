@@ -247,8 +247,8 @@ impl<'path> ProfiledFollower<'path> {
         let curvature_speed = |curvature: f64| {
             // Limit speed on the actual pursuit arc, not only the authored
             // trajectory. Both bounds preserve geometric curvature.
-            let wheel = limits.wheel_speed.value
-                / (1.0 + limits.track_width.value * curvature.abs() * 0.5);
+            let wheel =
+                limits.wheel_speed.value / (1.0 + limits.track_width.value * curvature.abs() * 0.5);
             let lateral = (limits.lateral_acceleration.value / curvature.abs()).sqrt();
             let speed = speed.min(wheel).min(lateral);
             (speed, speed * curvature)
