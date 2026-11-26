@@ -216,6 +216,12 @@ impl PolarPose {
     /// are application constraints, not part of the polar feedback law.
     pub fn calculate(self, pose: Pose, target: Pose, reverse: bool, max_speed: f64) -> [f64; 2] {
         let delta = target.position - pose.position;
+        if delta.length_squared() <= 1e-12 {
+            return [
+                0.0,
+                self.k_alpha * wrap_heading(target.heading - pose.heading).value,
+            ];
+        }
         let facing = crate::qty!((if reverse { 180.0 } else { 0.0 }) deg);
         let direction = bearing(delta);
         let alpha = wrap_heading(direction - pose.heading - facing).value;

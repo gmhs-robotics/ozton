@@ -45,6 +45,16 @@ impl TerminalPose {
             .value
             .abs();
         let inside = distance <= options.position_tolerance.value;
+        // Reserve some position tolerance for the final in-place turn. This
+        // only tightens an already necessary point approach, not acceptance.
+        let mut approach_options = options;
+        if matches!(
+            controller.config.path.terminal,
+            crate::TerminalGuidance::Point
+        ) {
+            approach_options.position_tolerance.value *= 0.75;
+        }
+        let captured = distance <= approach_options.position_tolerance.value;
         let slow = feedback.forward_velocity.value.powi(2)
             + feedback.lateral_velocity.value.powi(2)
             <= options.speed_tolerance.value.powi(2)
@@ -70,7 +80,7 @@ impl TerminalPose {
                 changed = true;
             }
         }
-        if matches!(self.phase, Phase::Approach) && inside {
+        if matches!(self.phase, Phase::Approach) && captured {
             self.phase = Phase::Brake(Duration::ZERO);
             controller.reset();
             changed = true;
@@ -190,7 +200,12 @@ impl TerminalPose {
                 .map(|speed| speed.value);
                 controller.limit_step(desired, false, dt, options)
             }
-            _ => controller.step(command, feedback, dt, options),
+            _ => controller.step(
+                command,
+                feedback,
+                dt,
+                if turning { options } else { approach_options },
+            ),
         };
         let objective = if turning {
             options.track_width.value * heading_error * 0.5

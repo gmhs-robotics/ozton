@@ -244,27 +244,32 @@ impl<'path> ProfiledFollower<'path> {
         let travel_pose = Pose::new(predicted.position, predicted.heading - facing);
         let carrot = self.progress.lookahead(predicted.position, lookahead);
         let curvature = PurePursuit::new().forward_curvature(travel_pose, carrot);
+        let curvature_speed = |curvature: f64| {
+            // Limit speed on the actual pursuit arc, not only the authored
+            // trajectory. Both bounds preserve geometric curvature.
+            let wheel = limits.wheel_speed.value
+                / (1.0 + limits.track_width.value * curvature.abs() * 0.5);
+            let lateral = (limits.lateral_acceleration.value / curvature.abs()).sqrt();
+            let speed = speed.min(wheel).min(lateral);
+            (speed, speed * curvature)
+        };
         let (speed, angular) = match curvature {
-            Some(curvature) => (speed, speed * curvature),
+            Some(curvature) => curvature_speed(curvature),
             None if self.heading_recovery => {
                 // If the carrot is behind the robot, turn in place to
                 // reacquire it; do not substitute another path controller.
                 let error = bearing(travel_pose.to_local(carrot)).value;
-                (
+                let max_yaw = 2.0 * limits.wheel_speed.value / limits.track_width.value;
+                let yaw = self.yaw.update_with_rate(
+                    error,
+                    -measured_yaw.value,
+                    dt,
+                    core::time::Duration::ZERO,
                     0.0,
-                    self.yaw.update_with_rate(
-                        error,
-                        -measured_yaw.value,
-                        dt,
-                        core::time::Duration::ZERO,
-                        0.0,
-                    ),
-                )
+                );
+                (0.0, yaw.clamp(-max_yaw, max_yaw))
             }
-            None => (
-                speed,
-                speed * pursuit_curvature(travel_pose.to_local(carrot)),
-            ),
+            None => curvature_speed(pursuit_curvature(travel_pose.to_local(carrot))),
         };
         let linear = if reverse { -speed } else { speed };
         wheel_speeds(
@@ -285,6 +290,52 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn near_endpoint_pursuit_requests_feasible_wheels_in_both_directions() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(0.4 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        for reverse in [false, true] {
+            let mut follower =
+                ProfiledFollower::new(&path, qty!(0.27 m), Pid::new(3.0, 0.0, 0.4, None));
+            follower.seek(0.95);
+            let pose = Pose::new(
+                DVec2::new(0.04, 0.95),
+                qty!((if reverse { 180.0 } else { 0.0 }) deg),
+            );
+            let wheels = follower.command(
+                pose,
+                reverse,
+                [qty!(0 m/s); 2],
+                qty!(0 rad/s),
+                core::time::Duration::from_millis(150),
+                core::time::Duration::from_millis(10),
+            );
+            assert!(
+                wheels
+                    .iter()
+                    .all(|v| v.abs() <= limits.wheel_speed.value + 1e-12)
+            );
+            let v = (wheels[0] + wheels[1]) * 0.5;
+            let w = (wheels[1] - wheels[0]) / limits.track_width.value;
+            assert!((v * w).abs() <= limits.lateral_acceleration.value + 1e-12);
+            assert!(v.abs() > 0.0);
+        }
+    }
 
     #[test]
     fn predicted_yaw_changes_pursuit_curvature() {

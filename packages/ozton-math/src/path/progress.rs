@@ -4,7 +4,7 @@ use glam::DVec2;
 use uom::si::f64::Length;
 
 use super::Path;
-use crate::geometry::circle_segment_fractions;
+use crate::geometry::{circle_segment_fractions, direction};
 
 #[derive(Debug)]
 pub struct Progress<'path> {
@@ -116,6 +116,17 @@ impl<'path> Progress<'path> {
                 return a.pose.position.lerp(b.pose.position, exit);
             }
         }
+        // Extend the final tangent for a full-radius carrot when the remaining
+        // path lies inside the lookahead circle. Only guidance is extended;
+        // progress, braking distance and the physical endpoint are unchanged.
+        let end = path.end();
+        let offset = end.pose.position - position;
+        if end.distance <= maximum && offset.length_squared() < radius * radius {
+            let tangent = direction(end.pose.heading);
+            let along = offset.dot(tangent);
+            let reach = libm::sqrt(along * along + radius * radius - offset.length_squared());
+            return end.pose.position + tangent * (reach - along);
+        }
         path.at_distance(crate::qty!((self.distance + radius) m))
             .pose
             .position
@@ -131,6 +142,34 @@ mod tests {
         path::{Limits, Waypoint},
         qty,
     };
+
+    #[test]
+    fn final_tangent_preserves_lookahead_without_extending_progress() {
+        let limits = Limits::from_units(
+            qty!(0.33 m),
+            qty!(1 m/s),
+            qty!(1 m/s),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+            qty!(1 m/s^2),
+        );
+        let path = Path::new(
+            &[
+                Waypoint::new(DVec2::ZERO, 1.0),
+                Waypoint::new(DVec2::Y, 1.0),
+            ],
+            limits,
+        )
+        .unwrap();
+        let mut progress = Progress::new(&path);
+        progress.seek(0.95);
+        for position in [DVec2::new(0.02, 0.95), DVec2::new(0.02, 1.02)] {
+            let carrot = progress.lookahead(position, 0.27);
+            assert!((carrot.distance(position) - 0.27).abs() < 1e-10);
+            assert!(carrot.y > 1.0);
+            assert_eq!(progress.distance(), 0.95);
+        }
+    }
 
     #[test]
     fn dense_path_lookahead_reaches_the_circle() {
