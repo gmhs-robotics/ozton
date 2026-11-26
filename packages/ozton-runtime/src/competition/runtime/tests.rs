@@ -12,7 +12,10 @@ impl OztonCompete for Application {
     type Error = &'static str;
 
     const CONTROL_PERIOD: Duration = Duration::from_millis(1);
-    const ROUTES: &'static [RobotRoute<Self>] = &[route!("Practice", Self::practice)];
+    const ROUTES: &'static [RobotRoute<Self>] = &[
+        route!("Practice", Self::practice),
+        route!("Do nothing", async |_| Ok(())),
+    ];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.outputs.push("stop drive");
@@ -76,11 +79,11 @@ fn route_choice_is_read_once_at_autonomous_entry() {
             let reads = Rc::clone(&reads);
             move |choices: Vec<(String, Selection)>| {
                 assert_eq!(choices.len(), 2);
-                assert_eq!(choices[0].0, "Disable");
-                assert!(choices[0].1.is_none());
-                assert_eq!(choices[1].0, "Practice");
-                assert_eq!(choices[1].1.map(|route| route.label), Some("Practice"));
-                Selector(reads, choices[1].1)
+                assert_eq!(choices[0].0, "Practice");
+                assert_eq!(choices[0].1.map(|route| route.label), Some("Practice"));
+                assert_eq!(choices[1].0, "Do nothing");
+                assert!(choices[1].1.is_some());
+                Selector(reads, choices[0].1)
             }
         });
 

@@ -32,13 +32,13 @@ impl<R: OztonCompete> Clone for RobotRoute<R> {
     }
 }
 
-/// Register an async function or method, for example `route!("Skills", Self::skills)`.
+/// Register an async function, method, or closure, such as `route!("Skills", Self::skills)`.
 /// The handler takes `&mut R` and returns `Result<(), R::Error>`.
 #[macro_export]
 macro_rules! route {
-    ($label:expr, $handler:path $(,)?) => {
+    ($label:expr, $handler:expr $(,)?) => {
         $crate::competition::RobotRoute::new($label, |robot| {
-            ::std::boxed::Box::pin($handler(robot))
+            ::std::boxed::Box::pin(($handler)(robot))
         })
     };
 }

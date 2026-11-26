@@ -4,7 +4,7 @@ VEX competition control has three modes: disabled, autonomous and driver. Ozton'
 
 ## Application-owned robots
 
-Implement `OztonCompete` for your robot and list its autonomous routines in `ROUTES`. Each `route!` entry pairs a menu label with an async method on your robot or an async function that takes `&mut Robot`. Routines return `Result<(), Self::Error>` when defined as methods. Ozton runs the selected routine on the same robot used by driver control.
+Implement `OztonCompete` for your robot and list its autonomous routines in `ROUTES`. Each `route!` entry pairs a menu label with an async method, function, or closure that takes `&mut Robot` and returns `Result<(), Robot::Error>`, where `Error` is the robot's `OztonCompete` associated type. Ozton runs the selected routine on the same robot used by driver control.
 
 ```rust,ignore
 use ozton::{route, runtime::competition::RobotRoute};
@@ -13,11 +13,11 @@ use ozton::{route, runtime::competition::RobotRoute};
 const ROUTES: &'static [RobotRoute<Self>] = &[
     route!("Forward", Self::forward),
     route!("Skills", Self::skills),
+    route!("Disable", async |_| Ok(())),
 ];
-const DEFAULT_ROUTE: Option<&'static str> = Some("Forward");
 ```
 
-Use distinct menu labels. If you omit `DEFAULT_ROUTE`, the menu starts at Disable. A driver-only robot can omit `ROUTES` as well. The selected route future is boxed once per autonomous activation so routines with different future types fit in the same static list.
+Use distinct menu labels. The Brain menu displays the registered routes in order and starts on the first one. Add a no-op route explicitly to offer a Disable option. A driver-only robot can omit `ROUTES` to skip the selector. The selected route future is boxed once per autonomous activation so routines with different future types fit in the same static list.
 
 Build and attach the UI in the async startup block passed to `ozton::run`.
 
@@ -28,7 +28,7 @@ let ui = Ui::builder(display).build();
 let runtime = Runtime::new(robot).with_ui(ui);
 ```
 
-The builder uses the stock dark theme. Use `with_theme` to change its colors or `with_background` to draw behind the menu. For a custom UI, pass a selector factory to `with_ui`. The factory receives the named choices, including Disable first, and returns a `RouteSelector`. A custom component can also implement `RouteUi` to receive the runtime's default route index.
+The builder uses the stock dark theme. Use `with_theme` to change its colors or `with_background` to draw behind the menu. For a custom UI, pass a selector factory to `with_ui`. The factory receives the registered choices in order and returns a `RouteSelector`. Initialize it on the first choice.
 
 Select a route while disabled. Ozton reads the selection when autonomous begins. See [the complete first robot](getting-started.md) for context.
 

@@ -1,4 +1,4 @@
-//! Competition-loop adapter around the shared selector, with Disable first.
+//! Competition-loop adapter around the shared selector.
 use vexide::display::Display;
 
 use crate::selector::{
@@ -23,8 +23,7 @@ impl<A: Copy> SelectorItem for Choice<A> {
     }
 }
 
-/// Call `poll` every tick to lock selection while enabled. No routine is registered
-/// implicitly; construction provides only the caller's disabled action.
+/// Call `poll` every tick to lock selection while enabled.
 pub struct RouteMenu<A: Copy + 'static> {
     _selector: Selector<Choice<A>>,
     status: StatusHandle<Choice<A>>,
@@ -32,51 +31,30 @@ pub struct RouteMenu<A: Copy + 'static> {
     last_status: String,
 }
 impl<A: Copy + 'static> RouteMenu<A> {
-    pub fn new(display: Display, disabled: A) -> Self {
-        Self::with_choices(display, disabled, std::iter::empty::<(&str, A)>())
-    }
-
-    /// Build all choices before starting the selector, always with Disable first.
+    /// Build the choices in route order and select the first.
+    ///
+    /// Panics if `routes` is empty.
     pub fn with_choices(
         display: Display,
-        disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
     ) -> Self {
-        Self::with_default(display, disabled, routes, None)
-    }
-
-    /// Keep Disable first while optionally selecting a route by its index in `routes`.
-    pub fn with_default(
-        display: Display,
-        disabled: A,
-        routes: impl IntoIterator<Item = (impl Into<String>, A)>,
-        default: Option<usize>,
-    ) -> Self {
-        Self::with_style(display, disabled, routes, default, THEME_DARK, None)
+        Self::with_style(display, routes, THEME_DARK, None)
     }
 
     pub(crate) fn with_style(
         display: Display,
-        disabled: A,
         routes: impl IntoIterator<Item = (impl Into<String>, A)>,
-        default: Option<usize>,
         theme: SimpleSelectTheme,
         background: Option<Background>,
     ) -> Self {
-        let mut choices = vec![Choice {
-            label: "Disable".into(),
-            action: disabled,
-        }];
-        choices.extend(routes.into_iter().map(|(label, action)| Choice {
-            label: label.into(),
-            action,
-        }));
-        let selection = default
-            .and_then(|index| index.checked_add(1))
-            .filter(|&index| index < choices.len())
-            .unwrap_or_default();
-        let selector =
-            Selector::new_with_background(display, choices, selection, theme, background);
+        let choices = routes
+            .into_iter()
+            .map(|(label, action)| Choice {
+                label: label.into(),
+                action,
+            })
+            .collect();
+        let selector = Selector::new_with_background(display, choices, 0, theme, background);
         let status = selector.status_handle();
         status.set_selection_enabled(
             vexide::competition::mode() == vexide::competition::CompetitionMode::Disabled,
@@ -84,7 +62,7 @@ impl<A: Copy + 'static> RouteMenu<A> {
         Self {
             _selector: selector,
             status,
-            last_selection: selection,
+            last_selection: 0,
             last_status: String::new(),
         }
     }

@@ -27,9 +27,6 @@ pub trait OztonCompete: Sized + 'static {
     /// Autonomous routines offered by the Brain selector, in menu order.
     const ROUTES: &'static [RobotRoute<Self>] = &[];
 
-    /// Initial Brain menu selection by label. An absent or unknown label selects Disable.
-    const DEFAULT_ROUTE: Option<&'static str> = None;
-
     /// Create the localization worker once, after hardware initialization.
     fn start_localization(&self) -> Option<LocalizationWorker> {
         None
@@ -60,12 +57,13 @@ impl<R: OztonCompete> Runtime<R> {
     }
 
     /// Give the runtime a selector for the robot's registered routes.
+    /// An empty route list leaves the runtime without a selector.
     #[must_use]
     pub fn with_ui(mut self, ui: impl RouteUi<Option<RobotRoute<R>>>) -> Self {
-        let routes = R::ROUTES.iter().map(|route| (route.label, Some(*route)));
-        let default = R::DEFAULT_ROUTE
-            .and_then(|label| R::ROUTES.iter().position(|route| route.label == label));
-        self.selector = TaskSelector::new(Box::new(ui.into_selector(None, routes, default)));
+        if !R::ROUTES.is_empty() {
+            let routes = R::ROUTES.iter().map(|route| (route.label, Some(*route)));
+            self.selector = TaskSelector::new(Box::new(ui.into_selector(routes)));
+        }
         self
     }
 

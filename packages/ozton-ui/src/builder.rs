@@ -7,12 +7,10 @@ use crate::{
 
 /// A competition UI component that turns the runtime's routes into a selector.
 pub trait RouteUi<A> {
-    /// `default` indexes `routes`, which excludes the Disable choice.
+    /// Present the supplied nonempty route list in order and select the first route.
     fn into_selector(
         self,
-        disabled: A,
         routes: impl Iterator<Item = (&'static str, A)>,
-        default: Option<usize>,
     ) -> impl RouteSelector<A> + 'static;
 }
 
@@ -56,21 +54,19 @@ impl UiBuilder {
 impl<A: Copy + 'static> RouteUi<A> for Ui {
     fn into_selector(
         self,
-        disabled: A,
         routes: impl Iterator<Item = (&'static str, A)>,
-        default: Option<usize>,
     ) -> impl RouteSelector<A> + 'static {
         let UiBuilder {
             display,
             theme,
             background,
         } = self.0;
-        RouteMenu::with_style(display, disabled, routes, default, theme, background)
+        RouteMenu::with_style(display, routes, theme, background)
     }
 }
 
-/// A custom selector factory receives all choices in menu order, with Disable first.
-/// The factory controls its initial selection.
+/// A custom selector factory receives exactly the registered routes in order.
+/// The first choice is the default.
 impl<A, F, S> RouteUi<A> for F
 where
     F: FnOnce(Vec<(String, A)>) -> S,
@@ -78,12 +74,9 @@ where
 {
     fn into_selector(
         self,
-        disabled: A,
         routes: impl Iterator<Item = (&'static str, A)>,
-        _default: Option<usize>,
     ) -> impl RouteSelector<A> + 'static {
-        let choices = std::iter::once(("Disable", disabled))
-            .chain(routes)
+        let choices = routes
             .map(|(label, action)| (label.into(), action))
             .collect();
         self(choices)
