@@ -232,13 +232,7 @@ fn surveyed_flush_contact_conditions_particles_and_releases_without_reset() {
 
 #[test]
 fn prepared_geometry_and_beam_mask_follow_each_observation() {
-    let wall = |y| {
-        Surface::new(
-            DVec2::new(-1.0, y),
-            DVec2::new(1.0, y),
-            crate::qty!(1 m),
-        )
-    };
+    let wall = |y| Surface::new(DVec2::new(-1.0, y), DVec2::new(1.0, y), crate::qty!(1 m));
     let mut map = [wall(1.0)];
     let mut filter = ParticleFilter::new(Pose::default(), ParticleConfig::default()).unwrap();
     for particle in &mut filter.particles {
