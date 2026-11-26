@@ -62,6 +62,16 @@ impl Field {
     }
 }
 
+/// Shared physical geometry API, also available to host-side motion planning.
+pub use ozton_math::localization::surface::{MotionMap, Surface as MappedSurface, SurfaceMap};
+
+impl From<SurfaceMap> for FieldMap<()> {
+    fn from(map: SurfaceMap) -> Self {
+        // Pure localization: do not populate the legacy motion policy arrays.
+        Self { faces: map.faces().collect(), ..Self::default() }
+    }
+}
+
 /// Motion policy attached to a physical object, not a second geometry map.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ObjectPolicy {

@@ -105,6 +105,12 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         }
     }
 
+    /// Supply surveyed optical surfaces independently of any motion geometry.
+    #[must_use]
+    pub fn with_surface_map(self, map: crate::field::SurfaceMap) -> LocalizationBuilder<(), R> {
+        self.with_field(FieldMap::from(map))
+    }
+
     fn require_ranges(self) -> LocalizationBuilder<B, RangeRequired> {
         LocalizationBuilder {
             field: self.field,

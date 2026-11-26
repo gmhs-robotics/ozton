@@ -5,6 +5,7 @@ pub mod mcl;
 pub mod odometry;
 pub use mcl::{Mcl, MclConfig};
 pub mod range;
+pub mod surface;
 
 pub mod wheel_fit;
 
