@@ -116,6 +116,13 @@ impl<'path> ProfiledFollower<'path> {
         }
     }
 
+    /// Initialize a new tracking law at the shared geometric progress.
+    pub fn seek(&mut self, distance: f64) {
+        self.progress.seek(distance);
+        self.geometric = self.progress.path().at_distance(ozton_math::qty!((distance) m));
+        self.elapsed = self.geometric.time / self.time_scale();
+    }
+
     pub fn reset_feedback(&mut self) {
         self.yaw.reset();
     }

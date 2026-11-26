@@ -1,7 +1,6 @@
 //! Prepared differential paths shared by importers and followers.
 
 use alloc::borrow::Cow;
-#[cfg(not(target_os = "vexos"))]
 use alloc::vec::Vec;
 
 #[cfg(not(target_os = "vexos"))]
@@ -16,7 +15,6 @@ mod chain;
 #[cfg(not(target_os = "vexos"))]
 pub use chain::PathChain;
 pub mod clearance;
-#[cfg(not(target_os = "vexos"))]
 mod parameterization;
 pub mod progress;
 
@@ -127,6 +125,8 @@ pub struct PathSample {
     pub curvature: f64,
     pub distance: f64,
     pub speed: f64,
+    /// Authored linear velocity ceiling before acceleration/braking parameterization.
+    pub speed_cap: f64,
     pub time: f64,
 }
 
@@ -218,22 +218,13 @@ impl Path {
             let distance = samples
                 .last()
                 .map_or(0.0, |sample| sample.distance + incoming_length);
-            let mut speed = (point.speed_fraction * limits.linear_speed.value).min(
+            let speed_cap = point.speed_fraction * limits.linear_speed.value;
+            let mut speed = speed_cap.min(
                 limits.wheel_speed.value / (1.0 + curvature.abs() * limits.track_width.value / 2.0),
             );
             if curvature != 0.0 {
                 speed = speed.min(crate::numeric::sqrt(
                     limits.lateral_acceleration.value / curvature.abs(),
-                ));
-            }
-            if index == 0 || index == last {
-                speed = 0.0;
-            }
-            if let Some(previous) = samples.last() {
-                speed = speed.min(reachable(
-                    previous.speed,
-                    limits.acceleration.value,
-                    incoming_length,
                 ));
             }
             if !distance.is_finite() || !curvature.is_finite() {
@@ -244,42 +235,98 @@ impl Path {
                 curvature,
                 distance,
                 speed,
+                speed_cap,
                 time: 0.0,
             });
             incoming_length = outgoing_length;
         }
-        for index in (0..last).rev() {
-            if index % 32 == 0 && !checkpoint().await {
-                return Err(PathError::Cancelled);
-            }
-            let next = samples[index + 1];
-            let current = &mut samples[index];
-            current.speed = current.speed.min(reachable(
-                next.speed,
-                limits.deceleration.value,
-                next.distance - current.distance,
-            ));
-        }
-        parameterization::limit_wheels(&mut samples, limits, &mut checkpoint).await?;
-        for index in 1..=last {
-            if index % 32 == 0 && !checkpoint().await {
-                return Err(PathError::Cancelled);
-            }
-            let previous = samples[index - 1];
-            let current = &mut samples[index];
-            let speed_sum = current.speed + previous.speed;
-            if speed_sum <= 0.0 {
-                return Err(PathError::BlockedSegment(index));
-            }
-            current.time = previous.time + 2.0 * (current.distance - previous.distance) / speed_sum;
-            if !current.time.is_finite() {
-                return Err(PathError::InvalidPoint(index));
-            }
-        }
+        parameterize(&mut samples, limits, &mut checkpoint).await?;
         Ok(Self {
             samples: Cow::Owned(samples),
             limits,
         })
+    }
+
+    /// Reparameterize tangent-connected paths as one continuous trajectory.
+    /// Authored speed caps survive the original stop-at-end profiles.
+    /// The caller supplies the common physical limits. No geometric replanning occurs.
+    pub async fn join_cooperative<F>(
+        paths: &[&Path],
+        limits: Limits,
+        mut checkpoint: F,
+    ) -> Result<Self, PathError>
+    where
+        F: core::ops::AsyncFnMut() -> bool,
+    {
+        if !limits.is_valid() {
+            return Err(PathError::InvalidLimits);
+        }
+        let mut samples: Vec<PathSample> = Vec::new();
+        for path in paths {
+            if (path.limits.track_width.value - limits.track_width.value).abs() > 1e-8 {
+                return Err(PathError::InvalidLimits);
+            }
+            if let Some(previous) = samples.last_mut() {
+                let start = path.start();
+                if previous.pose.position.distance(start.pose.position) > 1e-6
+                    || crate::geometry::wrap_heading(previous.pose.heading - start.pose.heading)
+                        .value.abs() > 0.04
+                {
+                    return Err(PathError::InvalidPoint(samples.len() - 1));
+                }
+                previous.speed_cap = previous.speed_cap.min(start.speed_cap);
+            }
+            let offset = samples.last().map_or(0.0, |s| s.distance);
+            let skip = usize::from(!samples.is_empty());
+            for (i, source) in path.samples().iter().enumerate().skip(skip) {
+                if i % 32 == 0 && !checkpoint().await {
+                    return Err(PathError::Cancelled);
+                }
+                if samples.len() >= MAX_POINTS {
+                    return Err(PathError::TooManyPoints);
+                }
+                let mut sample = *source;
+                sample.distance += offset;
+                sample.time = 0.0;
+                samples.push(sample);
+            }
+        }
+        if samples.len() < 3 {
+            return Err(PathError::TooFewPoints);
+        }
+        // Recompute the tangent/curvature at joined samples, exactly as in
+        // ordinary path generation; this also preserves curvature continuity.
+        let last = samples.len() - 1;
+        for i in 0..=last {
+            if i % 32 == 0 && !checkpoint().await {
+                return Err(PathError::Cancelled);
+            }
+            let before = samples[i.saturating_sub(1)].pose.position;
+            let after = samples[(i + 1).min(last)].pose.position;
+            let position = samples[i].pose.position;
+            let incoming = position - before;
+            let outgoing = after - position;
+            let chord = after - before;
+            let cross = incoming.perp_dot(outgoing);
+            if i > 0 && i < last && incoming.dot(outgoing) < 0.0 && cross.abs() < 1e-9 {
+                return Err(PathError::InvalidPoint(i));
+            }
+            let denominator = incoming.length() * outgoing.length() * chord.length();
+            let curvature = if denominator > 0.0 { 2.0 * cross / denominator } else { 0.0 };
+            let sample = &mut samples[i];
+            sample.curvature = curvature;
+            sample.pose.heading = crate::geometry::bearing(chord);
+            sample.speed = sample.speed_cap.min(limits.linear_speed.value).min(
+                limits.wheel_speed.value / (1.0 + curvature.abs() * limits.track_width.value / 2.0),
+            );
+            if curvature != 0.0 {
+                sample.speed = sample.speed.min(crate::numeric::sqrt(
+                    limits.lateral_acceleration.value / curvature.abs(),
+                ));
+            }
+        }
+        parameterize(&mut samples, limits, &mut checkpoint).await?;
+        Ok(Self { samples: Cow::Owned(samples), limits })
     }
 
     /// Borrow a host-generated trajectory without allocating or parameterizing
@@ -303,6 +350,9 @@ impl Path {
                 || !sample.curvature.is_finite()
                 || !sample.distance.is_finite()
                 || !sample.time.is_finite()
+                || !sample.speed_cap.is_finite()
+                || sample.speed_cap < 0.0
+                || sample.speed > sample.speed_cap + 1e-8
                 || !sample.speed.is_finite()
                 || sample.speed < 0.0
                 || (i == 0 && (sample.distance != 0.0 || sample.time != 0.0))
@@ -390,12 +440,93 @@ fn blend(a: PathSample, b: PathSample, distance: f64, time: f64, speed: f64) -> 
         pose: a.pose.interpolate(b.pose, fraction),
         curvature: a.curvature + (b.curvature - a.curvature) * fraction,
         speed,
+        speed_cap: a.speed_cap + (b.speed_cap - a.speed_cap) * fraction,
         distance,
         time,
     }
 }
 
-#[cfg(not(target_os = "vexos"))]
 fn reachable(speed: f64, acceleration: f64, distance: f64) -> f64 {
     crate::numeric::sqrt(speed * speed + 2.0 * acceleration * distance)
+}
+
+/// Shared forward/backward velocity parameterization for authored and joined paths.
+async fn parameterize<F>(
+    samples: &mut [PathSample],
+    limits: Limits,
+    checkpoint: &mut F,
+) -> Result<(), PathError>
+where
+    F: core::ops::AsyncFnMut() -> bool,
+{
+    let last = samples.len() - 1;
+    samples[0].speed = 0.0;
+    samples[last].speed = 0.0;
+    for i in 1..=last {
+        if i % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
+        let previous = samples[i - 1];
+        let sample = &mut samples[i];
+        sample.speed = sample.speed.min(reachable(
+            previous.speed,
+            limits.acceleration.value,
+            sample.distance - previous.distance,
+        ));
+    }
+    for index in (0..last).rev() {
+        if index % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
+        let next = samples[index + 1];
+        let current = &mut samples[index];
+        current.speed = current.speed.min(reachable(
+            next.speed,
+            limits.deceleration.value,
+            next.distance - current.distance,
+        ));
+    }
+    parameterization::limit_wheels(samples, limits, checkpoint).await?;
+    for index in 1..=last {
+        if index % 32 == 0 && !checkpoint().await {
+            return Err(PathError::Cancelled);
+        }
+        let previous = samples[index - 1];
+        let current = &mut samples[index];
+        let speed_sum = current.speed + previous.speed;
+        if speed_sum <= 0.0 {
+            return Err(PathError::BlockedSegment(index));
+        }
+        current.time = previous.time + 2.0 * (current.distance - previous.distance) / speed_sum;
+        if !current.time.is_finite() {
+            return Err(PathError::InvalidPoint(index));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(test, not(target_os = "vexos")))]
+mod join_tests {
+    use super::*;
+    use crate::qty;
+
+    #[test]
+    fn joined_paths_match_one_continuous_profile_and_preserve_speed_caps() {
+        let limits = Limits::from_units(qty!(0.33 m), qty!(1 m/s), qty!(1 m/s),
+            qty!(1 m/s^2), qty!(1 m/s^2), qty!(1 m/s^2));
+        let points: Vec<_> = (0..=20).map(|i| Waypoint::new(
+            DVec2::new(0.0, i as f64 * 0.1), if i == 10 { 0.6 } else { 1.0 }
+        )).collect();
+        let full = Path::new(&points, limits).unwrap();
+        let a = Path::new(&points[..=10], limits).unwrap();
+        let b = Path::new(&points[10..], limits).unwrap();
+        let joined = complete_ready(Path::join_cooperative(&[&a, &b], limits, async || true)).unwrap();
+        assert!(joined.samples()[10].speed > 0.5);
+        for (a, b) in joined.samples().iter().zip(full.samples()) {
+            assert!((a.speed - b.speed).abs() < 1e-9);
+            assert!((a.time - b.time).abs() < 1e-9);
+        }
+        assert_eq!(joined.start().speed, 0.0);
+        assert_eq!(joined.end().speed, 0.0);
+    }
 }
