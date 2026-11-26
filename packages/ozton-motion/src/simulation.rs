@@ -10,6 +10,7 @@ use ozton_math::{
 
 use crate::{
     MotionConfig,
+    config::blended_limits,
     basic::differential::{DifferentialFeedback, TerminalPose},
     pursuit::profiled::ProfiledFollower,
 };
@@ -125,12 +126,109 @@ pub fn simulate_path_with_lateral(
     initial_pose: Pose,
     reverse: bool,
     maximum_time: Duration,
+    clear: impl FnMut(Pose) -> bool,
+) -> Option<SimulationReport> {
+    simulate_profile(
+        path,
+        &[(path.end().distance, config)],
+        response,
+        lateral,
+        initial_pose,
+        reverse,
+        maximum_time,
+        clear,
+    )
+}
+
+/// Simulate compatible, same-direction path stages without stopping at their
+/// junctions. Uses the executor's common limits and controller handoff.
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_path_group_with_lateral(
+    segments: &[(&Path, MotionConfig)],
+    response: ChassisResponse,
+    lateral: LateralResponse,
+    initial_pose: Pose,
+    reverse: bool,
+    maximum_time: Duration,
+    clear: impl FnMut(Pose) -> bool,
+) -> Option<SimulationReport> {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+
+    let &(first, first_config) = segments.first()?;
+    if segments.len() == 1 {
+        return simulate_path_with_lateral(
+            first,
+            first_config,
+            response,
+            lateral,
+            initial_pose,
+            reverse,
+            maximum_time,
+            clear,
+        );
+    }
+    if segments.iter().any(|(_, config)| {
+        config.timing.period != first_config.timing.period
+            || config.timing.maximum_gap != first_config.timing.maximum_gap
+    }) {
+        return None;
+    }
+    let (limits, uniform_scale) = blended_limits(segments.iter().copied())?;
+    let paths: Vec<_> = segments.iter().map(|(path, _)| *path).collect();
+    let joined = {
+        let future = Path::join_cooperative(&paths, limits, async || true);
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(Ok(path)) => path,
+            _ => return None,
+        }
+    };
+    let mut distance = 0.0;
+    let mut stages: Vec<_> = segments
+        .iter()
+        .map(|(path, config)| {
+            distance += path.end().distance;
+            let mut config = *config;
+            if !uniform_scale {
+                config.path.reference_speed_scale = 1.0;
+            }
+            (distance.min(joined.end().distance), config)
+        })
+        .collect();
+    stages.last_mut()?.0 = joined.end().distance;
+    simulate_profile(
+        &joined,
+        &stages,
+        response,
+        lateral,
+        initial_pose,
+        reverse,
+        maximum_time,
+        clear,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simulate_profile(
+    path: &Path,
+    stages: &[(f64, MotionConfig)],
+    response: ChassisResponse,
+    lateral: LateralResponse,
+    initial_pose: Pose,
+    reverse: bool,
+    maximum_time: Duration,
     mut clear: impl FnMut(Pose) -> bool,
 ) -> Option<SimulationReport> {
     let limits = path.limits();
-    let (config, options) = config.constrained_for_path(config.options(limits.track_width), limits);
-    if !config.valid()
-        || !options.valid()
+    let configs: Vec<_> = stages
+        .iter()
+        .map(|(_, config)| config.constrained_for_path(config.options(limits.track_width), limits))
+        .collect();
+    let (mut config, mut options) = *configs.first()?;
+    if configs.iter().any(|(config, options)| !config.valid() || !options.valid())
         || !initial_pose.is_finite()
         || !response.forward.valid()
         || !response.yaw.valid()
@@ -149,9 +247,20 @@ pub fn simulate_path_with_lateral(
         return None;
     }
     let mut commands = VecDeque::from(vec![[0.0; 2]; capacity]);
-    let mut follower = ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
-        .with_config(config.path)
-        .prepare(tick, reverse)?;
+    let mut followers = Vec::with_capacity(stages.len());
+    for (index, &(config, _)) in configs.iter().enumerate() {
+        if index > 0 && config == configs[index - 1].0 {
+            followers.push(None);
+            continue;
+        }
+        followers.push(Some(
+            ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
+                .with_config(config.path)
+                .prepare(tick, reverse)?,
+        ));
+    }
+    let mut follower = followers[0].take()?;
+    let mut stage_index = 0;
     let mut controller = DifferentialFeedback::new(config.tuning).with_config(config);
     let mut terminal_pose = TerminalPose::default();
     let mut terminal = false;
@@ -182,7 +291,19 @@ pub fn simulate_path_with_lateral(
         let observation =
             follower.observe(pose, qty!((options.maximum_wheel_speed.value * dt * 2.0) m));
         progress = observation.distance;
-        if !terminal && follower.is_terminal(options.position_tolerance.value) {
+        while stage_index + 1 < stages.len() && progress >= stages[stage_index].0 - 1e-7 {
+            stage_index += 1;
+            (config, options) = configs[stage_index];
+            if let Some(mut next) = followers[stage_index].take() {
+                next.seek(progress);
+                follower = next;
+                controller.reconfigure(config);
+            }
+        }
+        if !terminal
+            && stage_index + 1 == stages.len()
+            && follower.is_terminal(options.position_tolerance.value)
+        {
             terminal = true;
             terminal_started = Some(elapsed);
             controller.reset_feedback();

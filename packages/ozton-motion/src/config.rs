@@ -1,8 +1,9 @@
 //! Robot-specific physical motion configuration. All scalar dynamics use SI units.
 use std::time::Duration;
 
-use ozton_math::uom::si::f64::{
-    Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity,
+use ozton_math::{
+    path::{Limits, Path},
+    uom::si::f64::{Acceleration, Angle, AngularAcceleration, AngularVelocity, Length, Velocity},
 };
 
 use crate::basic::differential::{DriveOptions, DriveTuning};
@@ -737,4 +738,48 @@ impl MotionConfig {
                 .unwrap_or(self.limits.acceleration),
         )
     }
+}
+
+fn restrictive(mut a: Limits, b: Limits) -> Limits {
+    a.linear_speed = a.linear_speed.min(b.linear_speed);
+    a.wheel_speed = a.wheel_speed.min(b.wheel_speed);
+    a.acceleration = a.acceleration.min(b.acceleration);
+    a.deceleration = a.deceleration.min(b.deceleration);
+    a.lateral_acceleration = a.lateral_acceleration.min(b.lateral_acceleration);
+    a.wheel_acceleration = a.wheel_acceleration.min(b.wheel_acceleration);
+    a
+}
+
+fn scale(config: MotionConfig) -> f64 {
+    if config.path.guidance == PathGuidance::PurePursuit {
+        1.0
+    } else {
+        config.path.reference_speed_scale
+    }
+}
+
+/// Shared limits for a compatible, continuous multi-controller trajectory.
+pub(crate) fn blended_limits<'a>(
+    segments: impl IntoIterator<Item = (&'a Path, MotionConfig)>,
+) -> Option<(Limits, bool)> {
+    let mut segments = segments.into_iter().peekable();
+    let &(first, config) = segments.peek()?;
+    let first_scale = scale(config);
+    let mut limits = first.limits();
+    let mut minimum_scale = first_scale;
+    let mut uniform_scale = true;
+    for (path, config) in segments {
+        limits = restrictive(limits, path.limits());
+        limits = restrictive(limits, config.path_limits(limits.track_width));
+        let s = scale(config);
+        minimum_scale = minimum_scale.min(s);
+        uniform_scale &= (s - first_scale).abs() < 1e-9;
+    }
+    // A mixed time scale uses one common speed ceiling, never independent
+    // time dilation at the controller junction.
+    if !uniform_scale {
+        limits.linear_speed.value *= minimum_scale;
+        limits.wheel_speed.value *= minimum_scale;
+    }
+    Some((limits, uniform_scale))
 }

@@ -12,7 +12,7 @@ use super::{
     Engine, MotionExecution, PathActions, PoseMotionError, TravelDirection,
     session::{Arrival, PathStage, PoseSession, Trajectory},
 };
-use crate::{MotionConfig, MotionResult, PathGuidance};
+use crate::{MotionConfig, MotionResult, config::blended_limits};
 
 #[derive(Clone, Copy)]
 pub(in crate::seeking) enum Command<'a> {
@@ -200,24 +200,6 @@ fn junction(a: &MotionSegment<'_>, b: &MotionSegment<'_>) -> Junction {
     Junction::Blend
 }
 
-fn restrictive(mut a: Limits, b: Limits) -> Limits {
-    a.linear_speed = a.linear_speed.min(b.linear_speed);
-    a.wheel_speed = a.wheel_speed.min(b.wheel_speed);
-    a.acceleration = a.acceleration.min(b.acceleration);
-    a.deceleration = a.deceleration.min(b.deceleration);
-    a.lateral_acceleration = a.lateral_acceleration.min(b.lateral_acceleration);
-    a.wheel_acceleration = a.wheel_acceleration.min(b.wheel_acceleration);
-    a
-}
-
-fn scale(config: MotionConfig) -> f64 {
-    if config.path.guidance == PathGuidance::PurePursuit {
-        1.0
-    } else {
-        config.path.reference_speed_scale
-    }
-}
-
 struct PathPlan {
     start: usize,
     end: usize,
@@ -322,27 +304,9 @@ async fn plan_paths<D: MotionExecution>(
     }
     drive.brake().map_err(PoseMotionError::StopFailed)?;
     let paths: Vec<_> = segments.iter().map(|s| s.path().unwrap()).collect();
-    let first_config = segments[0].engine.config;
-    let first_scale = scale(first_config);
-    let mut limits = paths[0].limits();
-    let mut minimum_scale = first_scale;
-    let mut uniform_scale = true;
-    for (segment, path) in segments.iter().zip(&paths) {
-        limits = restrictive(limits, path.limits());
-        limits = restrictive(
-            limits,
-            segment.engine.config.path_limits(limits.track_width),
-        );
-        let s = scale(segment.engine.config);
-        minimum_scale = minimum_scale.min(s);
-        uniform_scale &= (s - first_scale).abs() < 1e-9;
-    }
-    // A mixed time scale must not produce a reference-velocity discontinuity.
-    // Use the conservative common speed ceiling, not independent time dilation.
-    if !uniform_scale {
-        limits.linear_speed.value *= minimum_scale;
-        limits.wheel_speed.value *= minimum_scale;
-    }
+    let (limits, uniform_scale) =
+        blended_limits(segments.iter().map(|s| (s.path().unwrap(), s.engine.config)))
+            .ok_or(PoseMotionError::Configuration)?;
     let joined = if segments.len() > 1 {
         Some(
             Path::join_cooperative(&paths, limits, async || {
