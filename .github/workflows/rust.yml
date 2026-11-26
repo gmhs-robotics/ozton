@@ -37,7 +37,7 @@ jobs:
           cache-on-failure: 'true'
       - name: Verify platform-independent dependency boundaries
         run: |
-          for package in ozton-math ozton-localization ozton-motion ozton-diagnostics ozton-tools; do
+          for package in ozton-assist ozton-math ozton-localization ozton-motion ozton-diagnostics ozton-tools; do
             tree="$(cargo tree --locked -p "$package" --all-features -e normal)"
             if grep -E 'vexide v|vex-sdk v' <<< "$tree"; then
               echo "$package must not depend on the VEX SDK"

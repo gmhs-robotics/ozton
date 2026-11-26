@@ -20,6 +20,7 @@ vexide = { workspace = true, features = ["full", "default-sdk"] }
 vex-sdk-mock = "0.2.0"
 
 [dependencies]
+ozton-assist = { workspace = true }
 ozton-ui = { workspace = true }
 ozton-localization = { workspace = true }
 ozton-diagnostics = { workspace = true }

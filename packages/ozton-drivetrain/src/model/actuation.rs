@@ -15,6 +15,12 @@ pub enum WheelSpeedError {
     Port(PortError),
 }
 
+impl From<PortError> for WheelSpeedError {
+    fn from(error: PortError) -> Self {
+        Self::Port(error)
+    }
+}
+
 impl fmt::Display for WheelSpeedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

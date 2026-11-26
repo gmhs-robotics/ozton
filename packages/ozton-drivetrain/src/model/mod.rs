@@ -6,9 +6,7 @@
 use glam::DVec2 as Vec2;
 use ozton_math::desaturate;
 
-mod curvature;
 mod driver;
-pub use curvature::CurvatureDrive;
 
 #[cfg(feature = "vex")]
 pub(crate) mod actuation;

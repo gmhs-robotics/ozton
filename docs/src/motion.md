@@ -29,16 +29,21 @@ Both point and pose targets use the same controller configuration. `move_to_poin
 
 ## Typed driver assistance
 
-Supply the orientation source through Sources::with_orientation.
-HeadingHoldAssist requires ReadHeading; AntiTipAssist
-requires ReadTilt, which supplies pitch and roll in that order. A source without
-the required trait prevents constructing AssistedDrivetrain. Custom sensors may
-implement either capability without depending on VEX.
+Use `ozton::assist` for optional command transforms and `ozton::drivetrain` for
+models and actuation. A custom model implements `Drive::drive_vector` and can
+implement `LateralDrive` when it also supports strafing. It can run directly or
+be assembled with sensors and an estimate using `Drivetrain::new`.
+
+`HeadingHoldAssist` uses `ReadHeading`, `AntiTipAssist` uses `ReadTilt`
+(pitch, roll), and `MotorBalanceAssist` uses `Balancing`. A `Drivetrain`
+forwards the heading and tilt capabilities from its tracking source. Select
+that source with `Sources::with_orientation` or implement the traits on your
+own drive.
 
 ```rust,ignore
-use ozton::drivetrain::{
-    Drive,
+use ozton::{
     assist::{AntiTipAssist, DriveAssists, HeadingHoldAssist, MotorBalanceAssist, TiltAxis},
+    drivetrain::Drive,
 };
 
 let mut assists = DriveAssists::new((
@@ -51,10 +56,20 @@ drive.arcade(forward, turn)?;
 ```
 
 Use `Drive::tank` for left and right inputs, or `LateralDrive::holonomic`
-for a drivetrain that supports sideways translation.
+for a drivetrain that supports sideways translation. `CurvatureDrive` also
+lives in `ozton::assist`.
 
-DSR requires RangeResetDrive, which the built-in drivetrain implements only for a nonempty range bank. Only installed assists read the corresponding capability. A temporarily unavailable
-sensor observation resets that controller rather than pretending a zero angle.
+Implement `DriveAssist<D>` for a custom command transform. Bound `D` by
+`Drive` plus the capabilities the transform uses. `AssistContext::drive`
+gives read access to those capabilities. A tuple runs its transforms in order
+using static dispatch. If a sensor reading is temporarily unavailable, the
+stock assist resets its controller.
+
+Any custom backend can implement `MotionExecution` for the built-in pose
+controllers. An assembled VEX model can use the stock adapter by providing
+two calibrated motor groups, braking, and an explicit `MotionGeometry`
+policy. DSR additionally requires `RangeResetDrive`. The stock adapter
+implements it for tracking with a nonempty range bank.
 
 ## Configure once
 

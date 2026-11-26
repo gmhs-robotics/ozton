@@ -1,88 +1,35 @@
-//! Drivetrain wrapper for a model, tracking sources, and localization.
+//! Assemble a motion model with its tracking and localization state.
+#[cfg(feature = "logging")]
+use std::{cell::Cell, time::Duration};
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
     rc::Rc,
-    time::Duration,
 };
 
-use ozton_math::uom::si::f64::{ElectricPotential, Length, Velocity};
-use ozton_tracking::{
-    HasDriveWheels, TrackingSystem,
-    odometric::{DriveEncoders, SharedMotors, WheelFeedback},
+use ozton_math::{
+    localization::observation::{ReadHeading, ReadTilt},
+    uom::si::f64::{Angle, Length},
 };
-use vexide::{
-    prelude::Motor,
-    smart::{PortError, motor::BrakeMode},
-};
+use ozton_tracking::odometric::DriveEncoders;
 
-use super::{
+use crate::{
     BrakeMotors, Drive, Footprint, HasBraking, HasLocalization, LateralDrive, MotorAddress,
-    WheelActuation, WheelCommand,
-};
-use crate::model::{
-    Differential, MotionGeometry,
-    actuation::{WheelSpeedError, coast, command_groups, drive_commands},
+    model::{Balancing, MotionGeometry},
 };
 
+#[cfg(feature = "vex")]
 mod device;
-
-/// Access the model's motor groups in their fixed wheel order.
-pub trait MotorGroups {
-    /// Physical wheel-speed commands, one entry per group in model order.
-    type WheelSpeeds: AsRef<[Velocity]>;
-    /// Voltage commands in the same model order.
-    type WheelVoltages: AsRef<[ElectricPotential]>;
-
-    fn motor_groups(&self) -> &[SharedMotors];
-    fn motor_groups_mut(&mut self) -> &mut [SharedMotors];
-}
+#[cfg(feature = "vex")]
+pub(crate) mod vex;
 
 /// A drivetrain owns geometry and feedback calibration independently of how it mixes motor outputs.
 pub struct Drivetrain<M: Drive, T = (), L = ()> {
     pub model: M,
     state: Rc<RefCell<(T, L)>>,
     driver_output: bool,
+    #[cfg(feature = "logging")]
     diagnostic_stamp: Rc<Cell<Option<Duration>>>,
-}
-
-/// Assemble a drivetrain from its model, tracking and localization.
-#[must_use]
-pub struct DrivetrainBuilder<M: Drive, T = (), L = ()> {
-    model: M,
-    tracking: T,
-    localization: L,
-}
-
-impl<M: Drive> Drivetrain<M> {
-    pub fn builder(model: M) -> DrivetrainBuilder<M> {
-        DrivetrainBuilder {
-            model,
-            tracking: (),
-            localization: (),
-        }
-    }
-}
-
-impl<M: Drive, T, L> DrivetrainBuilder<M, T, L> {
-    pub fn with_tracking<S>(self, tracking: S) -> DrivetrainBuilder<M, S, L> {
-        DrivetrainBuilder {
-            model: self.model,
-            tracking,
-            localization: self.localization,
-        }
-    }
-
-    pub fn with_localization<E>(self, localization: E) -> DrivetrainBuilder<M, T, E> {
-        DrivetrainBuilder {
-            model: self.model,
-            tracking: self.tracking,
-            localization,
-        }
-    }
-
-    pub fn build(self) -> Drivetrain<M, T, L> {
-        Drivetrain::new(self.model, self.tracking, self.localization)
-    }
 }
 
 impl<M: Drive, T, L> Drivetrain<M, T, L> {
@@ -91,11 +38,13 @@ impl<M: Drive, T, L> Drivetrain<M, T, L> {
             model,
             state: Rc::new(RefCell::new((tracking, localization))),
             driver_output: false,
+            #[cfg(feature = "logging")]
             diagnostic_stamp: Rc::new(Cell::new(None)),
         }
     }
 
     /// Shared rate gate for independently scheduled diagnostic reporters.
+    #[cfg(feature = "logging")]
     #[doc(hidden)]
     pub fn diagnostic_stamp(&self) -> Rc<Cell<Option<Duration>>> {
         Rc::clone(&self.diagnostic_stamp)
@@ -129,52 +78,63 @@ impl<M: Drive, T, L> Drivetrain<M, T, L> {
     }
 }
 
-impl<M: Drive, T: HasDriveWheels, L> Drivetrain<M, T, L> {
-    pub fn track_width(&self) -> Length {
-        self.tracking().calibrated_drive().track_width()
-    }
-
-    pub fn wheel_diameter(&self) -> Length {
-        self.tracking().calibrated_drive().wheels().diameter()
+impl<M: Drive + MotionGeometry, T, L> Drivetrain<M, T, L> {
+    pub fn footprint(&self) -> Option<Footprint> {
+        self.model.footprint()
     }
 }
 
-impl<M: Drive + MotorGroups<WheelSpeeds = [Velocity; 2]>, T: HasDriveWheels, L>
-    Drivetrain<M, T, L>
-{
-    /// Apply physical wheel velocity targets in model group order.
-    /// Conversion to motor RPM uses the same geometry as odometry.
-    pub fn drive_wheel_speeds(&mut self, speeds: M::WheelSpeeds) -> Result<(), WheelSpeedError> {
-        self.command_wheels(speeds.map(WheelCommand::Velocity))
+impl<M: Drive, T: DriveEncoders, L> DriveEncoders for Drivetrain<M, T, L> {
+    fn track_width(&self) -> Length {
+        self.tracking().track_width()
     }
-
-    /// Apply calibrated velocities and explicit braking modes in group order.
-    pub fn command_wheels(&mut self, commands: [WheelCommand; 2]) -> Result<(), WheelSpeedError> {
-        let groups = self.model.motor_groups_mut();
-        let state = self.state.borrow();
-        let result = drive_commands(state.0.calibrated_drive().wheels(), groups, &commands);
-        if matches!(result, Err(WheelSpeedError::InvalidCommand)) {
-            let _ = coast(groups);
-        }
-        result
+    fn tracking_positions(&mut self) -> [Option<Length>; 2] {
+        self.tracking_mut().tracking_positions()
     }
 }
 
-impl From<crate::BrakeMode> for BrakeMode {
-    fn from(mode: crate::BrakeMode) -> Self {
-        match mode {
-            crate::BrakeMode::Coast => Self::Coast,
-            crate::BrakeMode::Brake => Self::Brake,
-            crate::BrakeMode::Hold => Self::Hold,
-        }
+impl<M: Drive, T, L> HasLocalization for Drivetrain<M, T, L> {
+    type Localization = L;
+
+    fn localization(&self) -> impl Deref<Target = L> {
+        Drivetrain::localization(self)
+    }
+
+    fn localization_mut(&mut self) -> impl DerefMut<Target = L> {
+        Drivetrain::localization_mut(self)
     }
 }
 
-impl HasBraking for Motor {
-    type BrakeError = PortError;
+impl<M: Drive, T, L> Drive for Drivetrain<M, T, L> {
+    type Error = M::Error;
 
-    fn apply_brake(&mut self, mode: crate::BrakeMode) -> Result<(), Self::BrakeError> {
-        self.brake(mode.into())
+    fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
+        self.driver_output = true;
+        self.model.drive_vector(vector, turn)
+    }
+
+    fn stop_now(&mut self) -> Result<(), Self::Error> {
+        self.model.stop_now()
+    }
+}
+
+impl<M: LateralDrive, T, L> LateralDrive for Drivetrain<M, T, L> {}
+
+impl<M: Drive, T: ReadHeading, L> ReadHeading for Drivetrain<M, T, L> {
+    fn read_heading(&self) -> Option<Angle> {
+        self.tracking().read_heading()
+    }
+}
+
+impl<M: Drive, T: ReadTilt, L> ReadTilt for Drivetrain<M, T, L> {
+    fn read_tilt(&self) -> Option<[Angle; 2]> {
+        self.tracking().read_tilt()
+    }
+}
+
+impl<M: Balancing, T, L> Balancing for Drivetrain<M, T, L> {
+    fn balance(&self, command: &mut [f64; 2]) -> Result<(), Self::Error> {
+        self.model.balance(command)
     }
 }
 
@@ -194,108 +154,3 @@ impl<M: Drive + BrakeMotors, T, L> BrakeMotors for Drivetrain<M, T, L> {
         self.model.brake_motors(select)
     }
 }
-
-impl<M, T, L> WheelActuation for Drivetrain<M, T, L>
-where
-    M: Drive + HasBraking + MotorGroups<WheelSpeeds = [Velocity; 2]>,
-    T: HasDriveWheels,
-{
-    type WheelError = WheelSpeedError;
-
-    fn drive_wheel_commands(
-        &mut self,
-        commands: [WheelCommand; 2],
-    ) -> Result<(), Self::WheelError> {
-        self.command_wheels(commands)
-    }
-}
-
-impl<M: Drive + MotorGroups, T, L> Drivetrain<M, T, L> {
-    /// Apply absolute volts to each motor in groups, within their hardware limits.
-    pub fn drive_volts(&mut self, volts: M::WheelVoltages) -> Result<(), PortError> {
-        let groups = self.model.motor_groups_mut();
-        let volts = volts.as_ref();
-        if volts.len() != groups.len() || volts.iter().any(|voltage| !voltage.value.is_finite()) {
-            return coast(groups);
-        }
-        command_groups(
-            groups.iter_mut().zip(volts.iter().copied()),
-            |motor, voltage| {
-                if voltage.value == 0.0 {
-                    return motor.brake(BrakeMode::Coast);
-                }
-                let limit = motor.max_voltage();
-                motor.set_voltage(voltage.value.clamp(-limit, limit))
-            },
-        )
-    }
-}
-
-impl<M: Drive + MotorGroups, T: HasDriveWheels, L> Drivetrain<M, T, L> {
-    pub fn sample_feedback(&mut self) -> [Option<WheelFeedback>; 2] {
-        self.tracking_mut().calibrated_drive_mut().read_wheels()
-    }
-
-    /// Read the last measured translation and velocity without advancing odometry.
-    pub fn feedback(&self) -> [Option<WheelFeedback>; 2] {
-        self.tracking().calibrated_drive().feedback()
-    }
-}
-
-impl<G: MotionGeometry, T: TrackingSystem, L> Drivetrain<Differential<G>, T, L> {
-    pub fn footprint(&self) -> Option<Footprint> {
-        self.model.footprint()
-    }
-}
-
-impl<G, T: TrackingSystem, L> Drivetrain<Differential<G>, T, L> {
-    pub fn measured_voltage(&self) -> [Option<ElectricPotential>; 2] {
-        std::array::from_fn(|side| {
-            self.model.motor_groups()[side]
-                .borrow()
-                .first()?
-                .voltage()
-                .ok()
-                .map(ElectricPotential::new::<ozton_math::uom::si::electric_potential::volt>)
-        })
-    }
-}
-
-impl<G, T: HasDriveWheels, L> DriveEncoders for Drivetrain<Differential<G>, T, L> {
-    fn track_width(&self) -> Length {
-        self.tracking().calibrated_drive().track_width()
-    }
-    fn tracking_positions(&mut self) -> [Option<Length>; 2] {
-        self.tracking_mut()
-            .calibrated_drive_mut()
-            .read_wheels()
-            .map(|sample| sample.map(|sample| sample.position))
-    }
-}
-
-impl<M: Drive, T, L> HasLocalization for Drivetrain<M, T, L> {
-    type Localization = L;
-
-    fn localization(&self) -> impl std::ops::Deref<Target = L> {
-        Drivetrain::localization(self)
-    }
-
-    fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = L> {
-        Drivetrain::localization_mut(self)
-    }
-}
-
-impl<M: Drive, T, L> Drive for Drivetrain<M, T, L> {
-    type Error = M::Error;
-
-    fn drive_vector(&mut self, vector: glam::DVec2, turn: f64) -> Result<(), Self::Error> {
-        self.driver_output = true;
-        self.model.drive_vector(vector, turn)
-    }
-
-    fn stop_now(&mut self) -> Result<(), Self::Error> {
-        self.model.stop_now()
-    }
-}
-
-impl<M: LateralDrive, T, L> LateralDrive for Drivetrain<M, T, L> {}

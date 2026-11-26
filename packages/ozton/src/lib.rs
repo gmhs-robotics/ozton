@@ -2,6 +2,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub use ozton_assist as assist;
 pub use ozton_diagnostics as diagnostics;
 pub use ozton_drivetrain as drivetrain;
 pub use ozton_localization as localization;
@@ -19,12 +20,11 @@ pub mod autonomous;
 
 pub mod prelude {
     pub use crate::{
+        assist::{CurvatureDrive, DriveAssist, DriveAssists},
         autonomous::{ControlError, ControlResult},
         drivetrain::{
-            BrakeMode, BrakeMotors, CurvatureDrive, Drive, Drivetrain, HasBraking, HasLocalization,
-            LateralDrive, MotorAddress, WheelActuation, WheelCommand,
-            assist::{DriveAssist, DriveAssists},
-            model::DriveConfigError,
+            BrakeMode, BrakeMotors, Drive, Drivetrain, HasBraking, HasLocalization, LateralDrive,
+            MotorAddress, WheelActuation, WheelCommand, model::DriveConfigError,
         },
         motion::{
             Basic, Boomerang, DriveTuning, LtvLqr, PurePursuit, Ramsete, RunMotion,

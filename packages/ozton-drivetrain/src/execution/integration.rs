@@ -6,19 +6,19 @@ use std::time::Instant;
 use ozton_localization::{Localization, field::Boundary};
 use ozton_math::uom::si::f64::Velocity;
 use ozton_tracking::{HasDriveWheels, HasRange, Tracking, TrackingSources};
+use vexide::smart::PortError;
 
 use super::{MotionExecution, RangeResetDrive};
 use crate::{
-    BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint,
-    model::{Differential, MotionGeometry, WheelSpeedError},
+    BrakeMode, BrakeMotors, Drive, Drivetrain, Footprint, MotorGroups, WheelSpeedError,
+    model::MotionGeometry,
 };
 
-type DriveOutputError = <Differential as Drive>::Error;
-type TrackedDrive<G, S, B> = Drivetrain<Differential<G>, Tracking<S>, Localization<B>>;
+type TrackedDrive<M, S, B> = Drivetrain<M, Tracking<S>, Localization<B>>;
 #[derive(Clone, Copy, Debug)]
 pub enum DriveMotionFault {
-    Output(DriveOutputError),
-    Brake(DriveOutputError),
+    Output(PortError),
+    Brake(PortError),
     InvalidCommand,
 }
 
@@ -34,6 +34,12 @@ impl std::fmt::Display for DriveMotionFault {
 
 impl std::error::Error for DriveMotionFault {}
 
+impl From<PortError> for DriveMotionFault {
+    fn from(error: PortError) -> Self {
+        Self::Output(error)
+    }
+}
+
 impl From<WheelSpeedError> for DriveMotionFault {
     fn from(error: WheelSpeedError) -> Self {
         match error {
@@ -43,8 +49,14 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometry, S: TrackingSources> MotionExecution for TrackedDrive<G, S, B>
+impl<M, S, B> MotionExecution for TrackedDrive<M, S, B>
 where
+    M: Drive<Error = PortError>
+        + BrakeMotors<BrakeError = PortError>
+        + MotorGroups<WheelSpeeds = [Velocity; 2]>
+        + MotionGeometry,
+    S: TrackingSources,
+    B: Boundary,
     Tracking<S>: HasDriveWheels,
 {
     type Error = DriveMotionFault;
@@ -114,7 +126,10 @@ where
     }
 }
 
-impl<B: Boundary, G: MotionGeometry, S: TrackingSources> RangeResetDrive for TrackedDrive<G, S, B> where
-    Tracking<S>: HasDriveWheels + HasRange
+impl<M, S, B> RangeResetDrive for TrackedDrive<M, S, B>
+where
+    M: Drive,
+    Self: MotionExecution,
+    Tracking<S>: HasRange,
 {
 }

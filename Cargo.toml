@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "packages/ozton",
+  "packages/ozton-assist",
   "packages/ozton-diagnostics",
   "packages/ozton-drivetrain",
   "packages/ozton-localization",
@@ -20,6 +21,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 arrayvec = { version = "0.7", default-features = false }
 vexide = "0.9.0-beta.1"
+ozton-assist = { version = "0.4.0", path = "packages/ozton-assist" }
 ozton-diagnostics = { version = "0.4.0", path = "packages/ozton-diagnostics", default-features = false }
 ozton-drivetrain = { version = "0.4.0", path = "packages/ozton-drivetrain", default-features = false }
 ozton-localization = { version = "0.4.0", path = "packages/ozton-localization", default-features = false }

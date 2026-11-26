@@ -1,6 +1,6 @@
 use std::f64::consts::FRAC_PI_2;
 
-use super::Drive;
+use ozton_drivetrain::Drive;
 
 /// Curvature Drive (aka Cheesy Drive) Controller
 ///
@@ -107,7 +107,7 @@ impl CurvatureDrive {
     /// # Examples
     /// ```no_run
     /// use ozton_drivetrain::Drive;
-    /// use ozton_drivetrain::CurvatureDrive;
+    /// use ozton_assist::CurvatureDrive;
     ///
     /// fn drive_tick<M: Drive>(
     ///     curvature: &mut CurvatureDrive,

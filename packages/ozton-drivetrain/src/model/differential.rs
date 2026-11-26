@@ -62,8 +62,8 @@ impl<G> Differential<G> {
     }
 }
 
-impl<G: MotionGeometry> Differential<G> {
-    pub fn footprint(&self) -> Option<Footprint> {
+impl<G: MotionGeometry> MotionGeometry for Differential<G> {
+    fn footprint(&self) -> Option<Footprint> {
         self.geometry.footprint()
     }
 }

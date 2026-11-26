@@ -16,7 +16,7 @@ use vexide::time::LowResolutionTime;
 use crate::{
     HasDriveWheels,
     inertial::{InertialSensorTracking, Orientation},
-    odometric::DifferentialTracking,
+    odometric::{DifferentialTracking, DriveEncoders},
 };
 use crate::{
     HasRange, Observation, ReadHeading, ReadTilt, TrackingSystem,
@@ -155,6 +155,22 @@ impl<H: TrackingSources, R: RangeRole, E: TrackingSources> HasDriveWheels
 
     fn calibrated_drive_mut(&mut self) -> &mut DifferentialTracking {
         &mut self.sources.drive.0
+    }
+}
+
+#[cfg(feature = "vex")]
+impl<S> DriveEncoders for Tracking<S>
+where
+    Self: HasDriveWheels,
+{
+    fn track_width(&self) -> Length {
+        self.calibrated_drive().track_width()
+    }
+
+    fn tracking_positions(&mut self) -> [Option<Length>; 2] {
+        self.calibrated_drive_mut()
+            .read_wheels()
+            .map(|sample| sample.map(|sample| sample.position))
     }
 }
 

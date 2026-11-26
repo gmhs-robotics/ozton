@@ -5,6 +5,7 @@ Start with the ozton facade crate. It re-exports the workspace modules, macros a
 ## Hardware and control
 
 - [drivetrain](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton-drivetrain/src/lib.rs): Drive, Drivetrain, differential and other drive models, wheel output and footprint.
+- [assist](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton-assist/src/lib.rs): Optional drive transforms, heading hold, anti-tip, balancing, and curvature input control.
 - [tracking](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton-tracking/src/lib.rs): Tracking, TrackingSource, encoders, IMU and distance devices.
 - [localization](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton-localization/src/lib.rs): estimator types, feedback, field maps and LocalizationBuilder.
 - [control](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton-math/src/control/mod.rs): PID, feedforward and mechanism control helpers.

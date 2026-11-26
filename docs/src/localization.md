@@ -28,10 +28,7 @@ let localization = Localization::builder()
     .with_surface_map(field)
     .build(&tracking)
     .expect("check tracking geometry");
-let drivetrain = Drivetrain::builder(model.with_footprint(footprint))
-    .with_tracking(tracking)
-    .with_localization(localization)
-    .build();
+let drivetrain = Drivetrain::new(model.with_footprint(footprint), tracking, localization);
 ```
 
 The source types automatically determine the tracking capabilities, regardless of tuple order. A calibrated differential encoder source grants `HasDriveWheels`; an orientation source grants `ReadHeading` or `ReadTilt` when it implements the corresponding interface; at least one statically declared range source grants `HasRange`. No sensor indices are needed in application code. Custom sources declare their interfaces with `TrackingSource::Capabilities`. Duplicate differential sources and more than eight statically declared range slots are rejected at compile time; geometry is validated during assembly. The tuple constructor `Tracking::new` is also available. Named roles make the selected drive and orientation explicit.
