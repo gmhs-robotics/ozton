@@ -1,5 +1,6 @@
 //! Shared surveyed 2.5D geometry. Optical and motion maps are independent consumers.
 use alloc::vec::Vec;
+
 use glam::DVec2;
 use uom::si::f64::Length;
 
@@ -47,7 +48,11 @@ impl Surface {
     }
 
     fn checked(geometry: Geometry, bottom: Length, height: Length) -> Option<Self> {
-        let surface = Self { geometry, bottom, height };
+        let surface = Self {
+            geometry,
+            bottom,
+            height,
+        };
         surface.faces().all(Face::is_valid).then_some(surface)
     }
 
@@ -81,11 +86,13 @@ impl Surface {
     }
 
     fn on_boundary(&self, half: DVec2) -> bool {
-        let Geometry::Wall([a, b]) = self.geometry else { return false };
+        let Geometry::Wall([a, b]) = self.geometry else {
+            return false;
+        };
         (0..2).any(|axis| {
-            [-half[axis], half[axis]].into_iter().any(|edge| {
-                (a[axis] - edge).abs() < 1e-9 && (b[axis] - edge).abs() < 1e-9
-            })
+            [-half[axis], half[axis]]
+                .into_iter()
+                .any(|edge| (a[axis] - edge).abs() < 1e-9 && (b[axis] - edge).abs() < 1e-9)
         })
     }
 }
@@ -115,7 +122,9 @@ impl SurfaceMap {
 
     /// Convenience for four physical walls, not an implicit motion boundary.
     pub fn add_perimeter(&mut self, min: DVec2, max: DVec2, height: Length) -> bool {
-        if !min.is_finite() || !max.is_finite() || !min.cmplt(max).all()
+        if !min.is_finite()
+            || !max.is_finite()
+            || !min.cmplt(max).all()
             || self.face_count + 4 > u128::BITS as usize
         {
             return false;
@@ -155,7 +164,9 @@ impl MotionMap {
     }
 
     pub fn from_localization(map: &SurfaceMap) -> Self {
-        Self { surfaces: map.surfaces.clone() }
+        Self {
+            surfaces: map.surfaces.clone(),
+        }
     }
 
     pub fn add(&mut self, surface: Surface) {
@@ -205,13 +216,17 @@ mod tests {
     fn nearest_surface_depends_on_height() {
         let mut map = SurfaceMap::new();
         assert!(map.add_perimeter(-DVec2::ONE, DVec2::ONE, qty!(1 m)));
-        assert!(map.add(Surface::rectangle(
-            DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(0.2 m)
-        ).unwrap()));
+        assert!(map.add(
+            Surface::rectangle(DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(0.2 m)).unwrap()
+        ));
         let faces: Vec<_> = map.faces().collect();
         for (height, expected) in [(qty!(0.1 m), 0.4), (qty!(0.5 m), 1.0)] {
             let mask = faces.iter().enumerate().fold(0u128, |mask, (i, face)| {
-                if face.visible_at(height) { mask | (1u128 << i) } else { mask }
+                if face.visible_at(height) {
+                    mask | (1u128 << i)
+                } else {
+                    mask
+                }
             });
             let hit = cast_masked(Pose::default(), Pose::default(), &faces, mask).unwrap();
             assert!((hit.distance - expected).abs() < 1e-10);

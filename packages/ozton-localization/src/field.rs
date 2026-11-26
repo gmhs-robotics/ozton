@@ -68,7 +68,10 @@ pub use ozton_math::localization::surface::{MotionMap, Surface as MappedSurface,
 impl From<SurfaceMap> for FieldMap<()> {
     fn from(map: SurfaceMap) -> Self {
         // Pure localization: do not populate the legacy motion policy arrays.
-        Self { faces: map.faces().collect(), ..Self::default() }
+        Self {
+            faces: map.faces().collect(),
+            ..Self::default()
+        }
     }
 }
 
