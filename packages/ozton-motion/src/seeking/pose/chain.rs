@@ -257,7 +257,14 @@ async fn execute<D: MotionExecution>(
             segment.direct(drive).await?;
             if let Some(name) = segment.name {
                 let pose = drive.localization().pose();
-                ozton_diagnostics::log_row!(Info, "MOTION_DIRECT_RESULT", "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}", pose.position.x, pose.position.y, pose.heading.value);
+                ozton_diagnostics::log_row!(
+                    Info,
+                    "MOTION_DIRECT_RESULT",
+                    "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}",
+                    pose.position.x,
+                    pose.position.y,
+                    pose.heading.value
+                );
                 let _ = (name, pose);
             }
             index += 1;
@@ -423,7 +430,12 @@ mod tests {
     /// Ideal differential plant driven through the real asynchronous executor.
     /// Use virtual feedback time and a bounded real scheduling tick.
     mod execution {
-        use super::*;
+        use std::{
+            cell::Cell,
+            future::{Future, ready},
+            task::{Context, Poll, Waker},
+        };
+
         use ozton_drivetrain::{HasLocalization, model::DriveEncoders};
         use ozton_localization::{Fault, Feedback};
         use ozton_math::{
@@ -431,18 +443,29 @@ mod tests {
             path::clearance::{Footprint, Obstacles, WallContact},
             uom::si::f64::Velocity,
         };
-        use std::future::{Future, Ready, ready};
-        use std::task::{Context, Poll, Waker};
-        use std::cell::Cell;
+
+        use super::*;
 
         struct Estimate(Feedback);
         impl LocalizationEstimate for Estimate {
-            fn pose(&self) -> Pose { self.0.pose }
-            fn pose_trusted(&self) -> bool { true }
-            fn feedback(&self) -> Result<Option<Feedback>, Fault> { Ok(Some(self.0)) }
-            fn rectangular_half_extents(&self) -> Option<DVec2> { None }
-            fn motion_obstacles(&self) -> Obstacles { Obstacles::default() }
-            fn wall_contact(&self) -> Option<WallContact> { None }
+            fn pose(&self) -> Pose {
+                self.0.pose
+            }
+            fn pose_trusted(&self) -> bool {
+                true
+            }
+            fn feedback(&self) -> Result<Option<Feedback>, Fault> {
+                Ok(Some(self.0))
+            }
+            fn rectangular_half_extents(&self) -> Option<DVec2> {
+                None
+            }
+            fn motion_obstacles(&self) -> Obstacles {
+                Obstacles::default()
+            }
+            fn wall_contact(&self) -> Option<WallContact> {
+                None
+            }
             fn release_wall_contact(&mut self) {}
             fn request_distance_reset(&mut self) {}
             fn cancel_distance_reset(&mut self) {}
@@ -477,19 +500,32 @@ mod tests {
 
         impl HasLocalization for Plant {
             type Localization = Estimate;
-            fn localization(&self) -> impl std::ops::Deref<Target = Estimate> { &self.estimate }
-            fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = Estimate> { &mut self.estimate }
+            fn localization(&self) -> impl std::ops::Deref<Target = Estimate> {
+                &self.estimate
+            }
+            fn localization_mut(&mut self) -> impl std::ops::DerefMut<Target = Estimate> {
+                &mut self.estimate
+            }
         }
         impl DriveEncoders for Plant {
-            fn track_width(&self) -> Length { qty!(0.33 m) }
-            fn tracking_positions(&mut self) -> [Option<Length>; 2] { [None; 2] }
+            fn track_width(&self) -> Length {
+                qty!(0.33 m)
+            }
+            fn tracking_positions(&mut self) -> [Option<Length>; 2] {
+                [None; 2]
+            }
         }
         impl MotionExecution for Plant {
             type Error = std::convert::Infallible;
-            fn footprint(&self) -> Option<Footprint> { None }
+            fn footprint(&self) -> Option<Footprint> {
+                None
+            }
             fn drive_wheels(&mut self, speeds: [Velocity; 2]) -> Result<(), Self::Error> {
                 self.wheels = speeds;
-                self.commands.push((self.estimate.0.pose.position.y, (speeds[0].value + speeds[1].value) * 0.5));
+                self.commands.push((
+                    self.estimate.0.pose.position.y,
+                    (speeds[0].value + speeds[1].value) * 0.5,
+                ));
                 Ok(())
             }
             fn brake(&mut self) -> Result<(), Self::Error> {
@@ -497,8 +533,10 @@ mod tests {
                 self.wheels = [Velocity::ZERO; 2];
                 Ok(())
             }
-            fn emergency_brake(&mut self) -> Result<(), Self::Error> { self.brake() }
-            fn wait_until(&mut self, _deadline: Instant) -> Ready<()> {
+            fn emergency_brake(&mut self) -> Result<(), Self::Error> {
+                self.brake()
+            }
+            fn wait_until(&mut self, _deadline: Instant) -> impl Future<Output = ()> {
                 std::thread::sleep(Duration::from_micros(100));
                 let dt = 0.01;
                 let v = (self.wheels[0].value + self.wheels[1].value) * 0.5;
@@ -514,13 +552,15 @@ mod tests {
                 f.angular_velocity = qty!((w) rad/s);
                 ready(())
             }
-            fn motion_active(&self) -> bool { self.estimate.0.time < Duration::from_secs(20) }
+            fn motion_active(&self) -> bool {
+                self.estimate.0.time < Duration::from_secs(20)
+            }
         }
 
         fn dense_path(a: f64, b: f64, limits: Limits) -> Path {
-            let points: Vec<_> = (0..=20).map(|i| Waypoint::new(
-                DVec2::new(0.0, a + (b-a) * i as f64 / 20.0), 1.0
-            )).collect();
+            let points: Vec<_> = (0..=20)
+                .map(|i| Waypoint::new(DVec2::new(0.0, a + (b - a) * i as f64 / 20.0), 1.0))
+                .collect();
             Path::new(&points, limits).unwrap()
         }
 
@@ -539,7 +579,7 @@ mod tests {
                 crate::MotionLimits::new()
                     .with_wheel_speed(qty!(0.8 m/s))
                     .with_acceleration(qty!(1 m/s^2))
-                    .with_deceleration(qty!(1 m/s^2))
+                    .with_deceleration(qty!(1 m/s^2)),
             );
             let limits = config.path_limits(qty!(0.33 m));
             let a = dense_path(0.0, 0.5, limits);
@@ -554,16 +594,33 @@ mod tests {
                 Ok::<_, std::convert::Infallible>(())
             };
             run(MotionChain::new()
-                .then(pursuit.follow(&a).with_actions(PathActions::new().on_arrival(arrival)))
-                .then(pursuit.follow(&b).with_actions(PathActions::new().on_arrival(arrival)))
+                .then(
+                    pursuit
+                        .follow(&a)
+                        .with_actions(PathActions::new().on_arrival(arrival)),
+                )
+                .then(
+                    pursuit
+                        .follow(&b)
+                        .with_actions(PathActions::new().on_arrival(arrival)),
+                )
                 .then(Ramsete::new().with_config(config).follow(&c))
                 .then(pursuit.with_travel(TravelDirection::Backward).follow(&d))
-                .run(&mut plant)).unwrap();
+                .run(&mut plant))
+            .unwrap();
             assert_eq!(events.get(), 2);
             for seam in [0.5, 1.0] {
-                assert!(plant.commands.iter().any(|&(y, v)| (y - seam).abs() < 0.04 && v > 0.3));
-                assert!(!plant.stops.iter().any(|&y| (y - seam).abs() < 0.04),
-                    "unexpected stop near {seam}: {:?}", plant.stops);
+                assert!(
+                    plant
+                        .commands
+                        .iter()
+                        .any(|&(y, v)| (y - seam).abs() < 0.04 && v > 0.3)
+                );
+                assert!(
+                    !plant.stops.iter().any(|&y| (y - seam).abs() < 0.04),
+                    "unexpected stop near {seam}: {:?}",
+                    plant.stops
+                );
             }
             assert!(plant.stops.iter().any(|&y| (y - 1.5).abs() < 0.04));
             assert!(plant.commands.iter().any(|&(y, v)| y > 1.2 && v < -0.1));

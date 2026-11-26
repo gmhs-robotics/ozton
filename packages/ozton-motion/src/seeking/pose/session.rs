@@ -408,7 +408,10 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             .collect();
         let end_times: Vec<_> = stages
             .iter()
-            .map(|stage| path.at_distance(ozton_math::qty!((stage.end_distance) m)).time)
+            .map(|stage| {
+                path.at_distance(ozton_math::qty!((stage.end_distance) m))
+                    .time
+            })
             .collect();
         let mut followers = Vec::with_capacity(stages.len());
         for (index, &(config, _)) in configs.iter().enumerate() {
