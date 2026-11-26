@@ -1,11 +1,7 @@
 use vex_sdk_mock as _;
 
 use super::*;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Route {
-    Practice,
-}
+use crate::route;
 
 #[derive(Default)]
 struct Application {
@@ -14,23 +10,25 @@ struct Application {
 
 impl OztonCompete for Application {
     type Error = &'static str;
-    type Route = Route;
 
     const CONTROL_PERIOD: Duration = Duration::from_millis(1);
-    const ROUTES: &'static [RobotRoute<Route>] = &[RobotRoute::new("Practice", Route::Practice)];
+    const ROUTES: &'static [RobotRoute<Self>] = &[route!("Practice", Self::practice)];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.outputs.push("stop drive");
         Ok(())
     }
 
-    async fn autonomous(&mut self, _: Route) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
     async fn driver(&mut self) -> Result<(), Self::Error> {
         self.outputs.push("drive");
         Err("driver fault")
+    }
+}
+
+impl Application {
+    async fn practice(&mut self) -> Result<(), &'static str> {
+        self.outputs.push("practice");
+        Err("practice fault")
     }
 }
 
@@ -56,7 +54,7 @@ fn application_driver_runs_once_per_activation_with_fault_cleanup() {
 fn route_choice_is_read_once_at_autonomous_entry() {
     use std::{cell::Cell, rc::Rc};
 
-    type Selection = Option<RobotRoute<Route>>;
+    type Selection = Option<RobotRoute<Application>>;
     struct Selector(Rc<Cell<usize>>, Selection);
 
     impl RouteSelector<Selection> for Selector {
@@ -81,10 +79,7 @@ fn route_choice_is_read_once_at_autonomous_entry() {
                 assert_eq!(choices[0].0, "Disable");
                 assert!(choices[0].1.is_none());
                 assert_eq!(choices[1].0, "Practice");
-                assert!(matches!(
-                    choices[1].1.map(|route| route.id),
-                    Some(Route::Practice)
-                ));
+                assert_eq!(choices[1].1.map(|route| route.label), Some("Practice"));
                 Selector(reads, choices[1].1)
             }
         }));
@@ -97,5 +92,11 @@ fn route_choice_is_read_once_at_autonomous_entry() {
         assert_eq!(reads.get(), 1);
         session::CompetitionSession(&mut runtime).autonomous().await;
         assert_eq!(reads.get(), 2);
+        let selected = runtime.selector.action().unwrap();
+        assert_eq!(
+            selected.run(&mut runtime.robot).await,
+            Err("practice fault")
+        );
+        assert_eq!(runtime.robot.outputs.last(), Some(&"practice"));
     });
 }

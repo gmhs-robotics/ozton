@@ -24,7 +24,7 @@ The code below is included directly from the repository's [first_robot.rs](https
 
 The async main function uses vexide's normal entry attribute and passes a robot-initialization block to `ozton::run`. Ozton handles startup failures, startup timing and optional diagnostics. Return the configured runtime with `Ok(...)`; Ozton runs competition for you. No separate initialization function or custom entry macro is required.
 
-`Runtime` owns the robot. The `RobotRoute` entry names the single autonomous choice in the Brain selector. Driver control reads the controller each interval and yields so the executor can run other tasks and observe mode changes.
+`Runtime` owns the robot. The `route!` entry registers the single autonomous choice in the Brain selector. Driver control reads the controller each interval and yields so the executor can run other tasks and observe mode changes.
 
 The example's Forward route is intentionally timed. It demonstrates competition dispatch, not accurate distance control. Next, read [coordinates](coordinates.md) and [localization](localization.md).
 

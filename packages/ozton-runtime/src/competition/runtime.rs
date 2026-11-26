@@ -13,9 +13,6 @@ use crate::{clock::CONTROL_PERIOD, localization::LocalizationWorker};
 pub trait OztonCompete: Sized + 'static {
     type Error: Display + 'static;
 
-    /// Set this to an application enum, or `Infallible` for a driver-only robot.
-    type Route: Copy + Eq + 'static;
-
     const CONTROL_PERIOD: Duration = CONTROL_PERIOD;
 
     /// Stop outputs after disable, connection changes, completion or failure.
@@ -27,13 +24,11 @@ pub trait OztonCompete: Sized + 'static {
         self.stop()
     }
 
-    const ROUTES: &'static [RobotRoute<Self::Route>] = &[];
+    /// Autonomous routines offered by the Brain selector, in menu order.
+    const ROUTES: &'static [RobotRoute<Self>] = &[];
 
-    /// Initial Brain menu selection. An unregistered ID selects Disable.
-    const DEFAULT_ROUTE: Option<Self::Route> = None;
-
-    /// Run the route selected from `ROUTES` for one autonomous activation.
-    async fn autonomous(&mut self, route: Self::Route) -> Result<(), Self::Error>;
+    /// Initial Brain menu selection by label. An absent or unknown label selects Disable.
+    const DEFAULT_ROUTE: Option<&'static str> = None;
 
     /// Create the localization worker once, after hardware initialization.
     fn start_localization(&self) -> Option<LocalizationWorker> {
@@ -55,7 +50,7 @@ pub trait OztonCompete: Sized + 'static {
 /// Runs competition lifecycle and owns its selector.
 pub struct Runtime<R: OztonCompete> {
     pub(super) robot: R,
-    pub(super) selector: TaskSelector<Option<RobotRoute<R::Route>>>,
+    pub(super) selector: TaskSelector<Option<RobotRoute<R>>>,
     localization: Option<LocalizationWorker>,
 }
 
@@ -71,13 +66,13 @@ impl<R: OztonCompete> Runtime<R> {
 
     /// Give the runtime a selector for the robot's registered routes.
     #[must_use]
-    pub fn with_ui(mut self, ui: Ui<Option<RobotRoute<R::Route>>>) -> Self {
+    pub fn with_ui(mut self, ui: Ui<Option<RobotRoute<R>>>) -> Self {
         let routes = R::ROUTES
             .iter()
             .map(|route| (route.label.into(), Some(*route)))
             .collect();
-        let default =
-            R::DEFAULT_ROUTE.and_then(|id| R::ROUTES.iter().position(|route| route.id == id));
+        let default = R::DEFAULT_ROUTE
+            .and_then(|label| R::ROUTES.iter().position(|route| route.label == label));
         self.selector = TaskSelector::new(ui.build_with_default(None, routes, default));
         self
     }

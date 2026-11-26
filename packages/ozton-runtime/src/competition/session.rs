@@ -173,7 +173,7 @@ impl<R: OztonCompete> CompetitionSession<'_, R> {
                 .status(&format!("Autonomous: {}", route.label));
             crate::log_event!(Info, "autonomous", "Starting route {:?}", route.label);
             let Some(result) =
-                while_in_mode(runtime.robot.autonomous(route.id), mode, R::CONTROL_PERIOD).await
+                while_in_mode(route.run(&mut runtime.robot), mode, R::CONTROL_PERIOD).await
             else {
                 return;
             };

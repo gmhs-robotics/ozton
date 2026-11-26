@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use ozton::{
     drivetrain::{Drive, model::Differential},
+    route,
     runtime::{OztonCompete, competition::RobotRoute},
 };
 use vexide::{prelude::*, smart::PortError, time::sleep};
@@ -12,16 +13,17 @@ struct Robot {
     controller: Controller,
 }
 
-impl OztonCompete for Robot {
-    type Error = PortError;
-    type Route = ();
-    const ROUTES: &'static [RobotRoute<()>] = &[RobotRoute::new("Forward", ())];
-
-    async fn autonomous(&mut self, (): ()) -> Result<(), PortError> {
+impl Robot {
+    async fn forward(&mut self) -> Result<(), PortError> {
         self.drive.arcade(0.25, 0.0)?;
         sleep(Duration::from_millis(500)).await;
         self.stop()
     }
+}
+
+impl OztonCompete for Robot {
+    type Error = PortError;
+    const ROUTES: &'static [RobotRoute<Self>] = &[route!("Forward", Self::forward)];
 
     fn stop(&mut self) -> Result<(), Self::Error> {
         self.drive.arcade(0.0, 0.0)

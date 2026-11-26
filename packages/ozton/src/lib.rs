@@ -12,7 +12,7 @@ pub use ozton_math::{
 };
 pub use ozton_motion as motion;
 pub use ozton_runtime as runtime;
-pub use ozton_runtime::{run, run_with_metadata};
+pub use ozton_runtime::{route, run, run_with_metadata};
 pub use ozton_tracking::{self as tracking, shared_motors};
 pub use ozton_ui as ui;
 
@@ -30,6 +30,7 @@ pub mod prelude {
             Basic, Boomerang, DriveTuning, LtvLqr, PurePursuit, Ramsete, RunMotion,
             TravelDirection, capabilities::*,
         },
+        route,
         runtime::{
             OztonCompete, Runtime,
             competition::{RobotRoute, Ui},

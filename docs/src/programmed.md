@@ -1,6 +1,6 @@
 # Programmed autonomous
 
-Register each choice with `RobotRoute::new("Match", Route::Match)` in `OztonCompete::ROUTES`, then dispatch the ID from `OztonCompete::autonomous`. See [Competition routes](routes.md) for a complete registration example.
+Register each choice with `route!("Match", Self::match_route)` in `OztonCompete::ROUTES`. Ozton dispatches the selected async routine. See [Competition routes](routes.md) for a complete registration example.
 
 Use `Basic` for distance, heading and point commands, `Boomerang` for continuous pose acquisition, and a typed trajectory follower for prepared paths. Import `ozton::motion::capabilities::*` to use the supported commands. Register the surveyed starting pose through the drivetrain localization before executing motion.
 
