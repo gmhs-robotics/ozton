@@ -363,16 +363,17 @@ mod tests {
         use ozton_math::{localization::observation::ObservationLayout, qty};
 
         let mut field = FieldMap::from(Field::METAL).without_movable_range_landmarks();
-        assert!(field.add_movable_box(
-            DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(10 in)
-        ));
+        assert!(field.add_movable_box(DVec2::new(-0.1, 0.4), DVec2::new(0.1, 0.6), qty!(10 in)));
         let mount = RangeSensorConfig::at_mount(position_xyzh!(0 in, 0 in, 4 in, 0 deg));
         assert_eq!(field.range_config(mount).surface_mask, 0b1111);
         assert!(field.motion_projection().unwrap().movable[0].is_some());
         let ranges = [(0, mount)];
         let localization = crate::LocalizationBuilder::new()
             .with_field(field)
-            .build(&ObservationLayout { wheels: &[], ranges: &ranges })
+            .build(&ObservationLayout {
+                wheels: &[],
+                ranges: &ranges,
+            })
             .unwrap();
         assert!(localization.boundary().half_extents().x > 0.0);
     }

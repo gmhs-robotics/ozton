@@ -281,7 +281,12 @@ mod tests {
                 .unwrap();
             let mask = localization.localizer.range_config(0).unwrap().surface_mask;
             assert_eq!(mask, if exclude { 0b1111 } else { 0xff });
-            assert!(localization.movable_obstacles().into_iter().any(|item| item.is_some()));
+            assert!(
+                localization
+                    .movable_obstacles()
+                    .into_iter()
+                    .any(|item| item.is_some())
+            );
         }
     }
 

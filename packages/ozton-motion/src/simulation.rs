@@ -78,6 +78,14 @@ pub struct SimulationReport {
     pub final_position_error_m: f64,
     pub final_heading_error_rad: f64,
     pub absolute_rotation_rad: f64,
+    /// Time spent after the path follower hands off to the terminal controller.
+    pub terminal_elapsed: Duration,
+    pub terminal_rotation_rad: f64,
+    /// Measured yaw on straight interiors, excluding the approach to bends.
+    pub straight_yaw_rms_radps: f64,
+    pub straight_samples: u32,
+    /// Fraction of moving commands exceeding wheel or lateral acceleration limits.
+    pub saturation_fraction: f64,
     pub first_clearance_violation: Option<Duration>,
 }
 
@@ -159,6 +167,11 @@ pub fn simulate_path_with_lateral(
     let mut yaw = 0.0;
     let mut travel = 0.0;
     let mut rotation = 0.0;
+    let mut terminal_started = None;
+    let mut terminal_rotation = 0.0;
+    let mut straight_yaw_squared = 0.0;
+    let mut straight_samples = 0_u32;
+    let mut saturated = 0_u32;
     let mut squared_cross = 0.0;
     let mut max_cross: f64 = 0.0;
     let mut samples = 0_u32;
@@ -171,6 +184,7 @@ pub fn simulate_path_with_lateral(
         progress = observation.distance;
         if !terminal && follower.is_terminal(options.position_tolerance.value) {
             terminal = true;
+            terminal_started = Some(elapsed);
             controller.reset_feedback();
         }
         let feedback = Feedback {
@@ -191,6 +205,24 @@ pub fn simulate_path_with_lateral(
             samples += 1;
             squared_cross += observation.cross_track.powi(2);
             max_cross = max_cross.max(observation.cross_track);
+            // Check tangent across a full lookahead-sized neighborhood, so
+            // intentional entry/exit steering does not count as wobble.
+            let radius = config.path.lookahead.value.max(0.35);
+            let distance = observation.distance;
+            let extent = path.end().distance;
+            if distance > radius && distance + radius < extent && velocity.abs() > 0.15 {
+                let heading = path.at_distance(qty!((distance) m)).pose.heading;
+                let straight = [-radius, -radius * 0.5, radius * 0.5, radius]
+                    .into_iter()
+                    .all(|offset| {
+                        let sample = path.at_distance(qty!((distance + offset) m));
+                        wrap_heading(sample.pose.heading - heading).value.abs() < 0.025
+                    });
+                if straight {
+                    straight_samples += 1;
+                    straight_yaw_squared += yaw * yaw;
+                }
+            }
             let desired = follower.command(
                 pose,
                 reverse,
@@ -199,6 +231,13 @@ pub fn simulate_path_with_lateral(
                 config.limits.brake_latency,
                 tick,
             );
+            let v = (desired[0] + desired[1]) * 0.5;
+            let w = (desired[1] - desired[0]) / limits.track_width.value;
+            if desired.iter().any(|speed| speed.abs() > options.maximum_wheel_speed.value)
+                || (v * w).abs() > config.limits.lateral_acceleration.value
+            {
+                saturated += 1;
+            }
             controller.limit_step(desired, false, tick, options)
         };
         settled_time = if ready {
@@ -242,6 +281,9 @@ pub fn simulate_path_with_lateral(
         yaw = next_w;
         travel += ds;
         rotation += dh.abs();
+        if terminal {
+            terminal_rotation += dh.abs();
+        }
         elapsed += tick;
         if first_violation.is_none()
             && (1..=4).any(|i| !clear(previous.interpolate(pose, f64::from(i) / 4.0)))
@@ -259,6 +301,12 @@ pub fn simulate_path_with_lateral(
         final_position_error_m: pose.position.distance(target.position),
         final_heading_error_rad: wrap_heading(target.heading - pose.heading).value.abs(),
         absolute_rotation_rad: rotation,
+        terminal_elapsed: terminal_started.map_or(Duration::ZERO, |t| elapsed - t),
+        terminal_rotation_rad: terminal_rotation,
+        straight_yaw_rms_radps: (straight_yaw_squared / f64::from(straight_samples.max(1)))
+            .sqrt(),
+        straight_samples,
+        saturation_fraction: f64::from(saturated) / f64::from(samples.max(1)),
         first_clearance_violation: first_violation,
     })
 }
