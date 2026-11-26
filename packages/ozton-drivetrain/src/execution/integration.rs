@@ -43,8 +43,7 @@ impl From<WheelSpeedError> for DriveMotionFault {
     }
 }
 
-impl<B: Boundary, G: MotionGeometry, S: TrackingSources> MotionExecution
-    for TrackedDrive<G, S, B>
+impl<B: Boundary, G: MotionGeometry, S: TrackingSources> MotionExecution for TrackedDrive<G, S, B>
 where
     Tracking<S>: HasDriveWheels,
 {
@@ -115,9 +114,7 @@ where
     }
 }
 
-impl<B: Boundary, G: MotionGeometry, S: TrackingSources> RangeResetDrive
-    for TrackedDrive<G, S, B>
-where
-    Tracking<S>: HasDriveWheels + HasRange,
+impl<B: Boundary, G: MotionGeometry, S: TrackingSources> RangeResetDrive for TrackedDrive<G, S, B> where
+    Tracking<S>: HasDriveWheels + HasRange
 {
 }
