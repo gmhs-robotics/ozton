@@ -233,7 +233,9 @@ pub fn simulate_path_with_lateral(
             );
             let v = (desired[0] + desired[1]) * 0.5;
             let w = (desired[1] - desired[0]) / limits.track_width.value;
-            if desired.iter().any(|speed| speed.abs() > options.maximum_wheel_speed.value)
+            if desired
+                .iter()
+                .any(|speed| speed.abs() > options.maximum_wheel_speed.value)
                 || (v * w).abs() > config.limits.lateral_acceleration.value
             {
                 saturated += 1;
@@ -303,8 +305,7 @@ pub fn simulate_path_with_lateral(
         absolute_rotation_rad: rotation,
         terminal_elapsed: terminal_started.map_or(Duration::ZERO, |t| elapsed - t),
         terminal_rotation_rad: terminal_rotation,
-        straight_yaw_rms_radps: (straight_yaw_squared / f64::from(straight_samples.max(1)))
-            .sqrt(),
+        straight_yaw_rms_radps: (straight_yaw_squared / f64::from(straight_samples.max(1))).sqrt(),
         straight_samples,
         saturation_fraction: f64::from(saturated) / f64::from(samples.max(1)),
         first_clearance_violation: first_violation,
