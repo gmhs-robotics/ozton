@@ -406,6 +406,10 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                     .constrained_for_path(stage.config.options(width), path.limits())
             })
             .collect();
+        let end_times: Vec<_> = stages
+            .iter()
+            .map(|stage| path.at_distance(ozton_math::qty!((stage.end_distance) m)).time)
+            .collect();
         let mut followers = Vec::with_capacity(stages.len());
         for (index, &(config, _)) in configs.iter().enumerate() {
             if index > 0 && config == configs[index - 1].0 {
@@ -474,6 +478,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                     stage_start = stage.end_distance;
                     stage_index += 1;
                     (config, options) = configs[stage_index];
+                    log_row!(Info, "MOTION_GUIDANCE", "index={stage_index},guidance={:?},reverse={reverse},progress_m={:.5}", config.path.guidance, observation.distance);
                     if let Some(mut next) = followers[stage_index].take() {
                         next.seek(observation.distance);
                         follower = next;
@@ -483,9 +488,12 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 let cross = observation.cross_track;
                 tick.warnings.cross_track(cross, config.path.maximum_cross_track_error.value);
                 let stage = &mut stages[stage_index];
-                let end_time = path.at_distance(ozton_math::qty!((stage.end_distance) m)).time;
-                let remaining = (end_time - observation.nominal_progress_time).max(0.0)
-                    * follower.planned_duration() / path.end().time;
+                let remaining = if stage_index + 1 == end_times.len() {
+                    observation.remaining_time
+                } else {
+                    (end_times[stage_index] - observation.nominal_progress_time).max(0.0)
+                        * follower.planned_duration() / path.end().time
+                };
                 stage.actions
                     .advance((observation.distance - stage_start).max(0.0), remaining, false)
                     .map_err(PoseMotionError::Mechanism)?;
@@ -605,6 +613,10 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             elapsed.as_secs_f64() / planned_duration
         );
         let final_name = stages[stage_index].name;
+        let forward = read_feedback(self.drive)
+            .ok()
+            .flatten()
+            .map_or(f64::NAN, |feedback| feedback.forward_velocity.value);
         log_checkpoint(
             final_name,
             if arrival == Arrival::Reverse {
@@ -615,7 +627,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             end.pose,
             reverse,
             pose,
-            0.0,
+            forward,
         );
         log_event!(Info, "motion", "Trajectory: settled");
         Ok(())

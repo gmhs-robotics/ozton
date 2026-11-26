@@ -253,7 +253,13 @@ async fn execute<D: MotionExecution>(
             run_paths(drive, &mut segments[index..end], arrival).await?;
             index = end;
         } else {
-            segments[index].direct(drive).await?;
+            let segment = &segments[index];
+            segment.direct(drive).await?;
+            if let Some(name) = segment.name {
+                let pose = drive.localization().pose();
+                ozton_diagnostics::log_row!(Info, "MOTION_DIRECT_RESULT", "stage={name},x_m={:.6},y_m={:.6},heading_rad={:.6}", pose.position.x, pose.position.y, pose.heading.value);
+                let _ = (name, pose);
+            }
             index += 1;
         }
     }
