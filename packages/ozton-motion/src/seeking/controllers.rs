@@ -8,7 +8,7 @@ use ozton_math::{
     uom::si::f64::{Angle, Length, Velocity},
 };
 
-use super::{Engine, MotionSegment, PathActions, PoseMotionError, TravelDirection, pose::Command};
+use super::{Engine, MotionSegment, PoseMotionError, TravelDirection, pose::Command};
 use crate::{
     DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance,
 };
@@ -91,21 +91,6 @@ pub mod capabilities {
     /// Follow a prepared trajectory using this controller's tracking law.
     pub trait FollowPath {
         fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a>;
-
-        async fn follow_path<D: MotionExecution>(
-            &self,
-            drive: &mut D,
-            path: &Path,
-        ) -> MotionResult<D> {
-            self.follow(path).run(drive).await
-        }
-
-        async fn follow_path_with_actions<D: MotionExecution>(
-            &self,
-            drive: &mut D,
-            path: &Path,
-            actions: &mut PathActions<'_>,
-        ) -> MotionResult<D>;
     }
 }
 
@@ -431,22 +416,6 @@ macro_rules! path_follower {
         impl FollowPath for $name {
             fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a> {
                 (*self).follow(path)
-            }
-
-            async fn follow_path_with_actions<D: MotionExecution>(
-                &self,
-                drive: &mut D,
-                path: &Path,
-                actions: &mut PathActions<'_>,
-            ) -> MotionResult<D> {
-                self.engine
-                    .follow_with_actions(
-                        drive,
-                        path,
-                        self.engine.travel == Some(TravelDirection::Backward),
-                        actions,
-                    )
-                    .await
             }
         }
     )+};

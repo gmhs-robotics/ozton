@@ -69,13 +69,13 @@ A command finishes when the applicable error and velocity tolerances remain sati
 
 ## Following a prepared path
 
-Build a `Path` on the host with the robot's physical limits, then embed the samples and `limits.as_array()`. Use `motion::prepare_path` to validate the generated limits against the live calibration and `FollowPath::follow_path` on a selected controller to execute it. `follow_path_with_actions` adds nonblocking mechanism callbacks. The final stage settles against pose feedback.
+Build a `Path` on the host with the robot's physical limits, then embed the samples and `limits.as_array()`. Use `motion::prepare_path` to validate the generated limits against the live calibration and the selected controller’s `.run(&mut drive, &path)` to execute it. Use `.follow(&path).with_actions(actions).run(&mut drive)` for nonblocking mechanism callbacks. The final stage settles against pose feedback.
 
 ```rust,ignore
-use ozton::motion::{PurePursuit, capabilities::FollowPath, prepare_path};
+use ozton::motion::{PurePursuit, prepare_path};
 let path = prepare_path(&drivetrain, MOTION, SAMPLES, GENERATED_LIMITS)?;
 PurePursuit::new().with_config(MOTION)
-    .follow_path(&mut drivetrain, &path).await?;
+    .run(&mut drivetrain, &path).await?;
 ```
 
 Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` computes finite-horizon discrete Riccati gains along the curved, timed trajectory before motion begins. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.

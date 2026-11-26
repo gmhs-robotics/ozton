@@ -23,7 +23,7 @@ pub use ozton_drivetrain::{
     BrakeMode, MotionExecution, RangeResetDrive, WheelActuation, WheelCommand,
 };
 pub use ozton_math::path::clearance::WallContact;
-use session::{PoseSession, Trajectory};
+use session::PoseSession;
 
 use super::Engine;
 
@@ -274,54 +274,6 @@ impl Engine {
         }
         ozton_math::path::Path::from_precomputed(samples, limits)
             .map_err(|_| PoseMotionError::Configuration)
-    }
-
-    /// Execute a continuous trajectory with nonblocking mechanism actions.
-    pub async fn follow_with_actions<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        path: &ozton_math::path::Path,
-        reverse: bool,
-        actions: &mut PathActions<'_>,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        if !actions.valid(path) {
-            return Err(PoseMotionError::Configuration);
-        }
-        let options = self.options(drive).ok_or(PoseMotionError::Configuration)?;
-        let facing = ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
-        let start = path.start().pose;
-        let actual = drive.localization().pose();
-        if !actual.is_finite() {
-            return Err(PoseMotionError::Configuration);
-        }
-        if actual.position.distance(start.position) > 0.08
-            || ozton_math::geometry::wrap_heading(start.heading + facing - actual.heading)
-                .value
-                .abs()
-                > 0.35
-        {
-            ozton_diagnostics::log_event!(
-                Warn,
-                "motion",
-                "Trajectory start offset exceeds tuning threshold; continuing feedback"
-            );
-        }
-        let end = path.end().pose;
-        let target = Pose::new(end.position, end.heading + facing);
-        drive.localization_mut().release_wall_contact();
-        let mut session = PoseSession::new(drive, options, self.config)?;
-        let result = session
-            .follow(
-                Trajectory {
-                    path,
-                    reverse,
-                    target,
-                    timeout: self.config.timing.stage_timeout,
-                },
-                actions,
-            )
-            .await;
-        session.finish(result)
     }
 
     /// Hold the chassis still and try to correct the pose from fresh wall ranges.

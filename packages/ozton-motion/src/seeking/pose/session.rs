@@ -366,22 +366,6 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         .await
     }
 
-    /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
-    pub(super) async fn follow(
-        &mut self,
-        trajectory: Trajectory<'_>,
-        actions: &mut PathActions<'_>,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        let mut stages = [PathStage {
-            config: self.config,
-            end_distance: trajectory.path.end().distance,
-            name: None,
-            actions,
-        }];
-        self.follow_group(trajectory, &mut stages, Arrival::Stop)
-            .await
-    }
-
     /// Execute a shared path profile, switching tracking laws at measured
     /// transit gates. The feedback loop and wheel limiter never restart there.
     pub(super) async fn follow_group(
