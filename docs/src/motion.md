@@ -4,7 +4,7 @@ Choose the simplest motion that solves the task. Drive straight when you need a 
 
 ## Motion controller
 
-Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose and waypoint commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
+Controllers implement independent motion capability traits, borrowing the drivetrain only for a command. `Basic` supports distance, point, heading, swing, arc, straight pose commands. `Boomerang` supports continuous pose acquisition. `PurePursuit`, `Ramsete` and `LtvLqr` implement `FollowPath`. All share calibrated physical velocity feedback, and cancellation handling.
 
 ## A first closed-loop move
 
@@ -25,7 +25,7 @@ Boomerang::new().with_config(motion.config())
     .move_to_pose(&mut drivetrain, position_xyh!(0 in, 0 in, 0 deg)).await?;
 ```
 
-Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `Boomerang::move_to_pose` uses allocation-free continuous Boomerang feedback toward a final heading. `Basic::move_to_pose` and `follow_poses` use straight legs and stationary turns. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
+Both point and pose targets use the same controller configuration. `move_to_point` leaves the final heading free; `Boomerang::move_to_pose` uses allocation-free continuous Boomerang feedback toward a final heading. `Basic::move_to_pose` uses straight legs and stationary turns. The robot must have room for these moves and a correct starting pose. The destination heading is absolute. A distance may be negative for reverse travel; `with_travel(TravelDirection::Backward)` selects a backward point or pose approach. drive_arc accepts a positive radius and signed sweep.
 
 ## Typed driver assistance
 
@@ -80,6 +80,35 @@ PurePursuit::new().with_config(MOTION)
 
 Select a controller by constructing its type, for example `Ramsete::new().with_config(MOTION).with_gains(2.0, 0.7)`. `LtvLqr` computes finite-horizon discrete Riccati gains along the curved, timed trajectory before motion begins. Reusable mathematical laws live in `ozton::math::following`; motion wrappers select references, apply physical limits, and execute the commands. A path generated from a map is not a guarantee against obstacles: inspect the real field and keep disable available.
 
+
+## Chaining motions
+
+Use the same runnable motion descriptions for a single command or a chain:
+
+```rust,ignore
+use ozton::motion::{MotionChain, PurePursuit, Ramsete, Boomerang};
+PurePursuit::new().with_config(MOTION).follow(&path_a).run(&mut drivetrain).await?;
+
+MotionChain::new()
+    .then(PurePursuit::new().with_config(MOTION).follow(&path_a))
+    .then(Ramsete::new().with_config(MOTION).follow(&path_b))
+    .then_stop(Boomerang::new().with_config(MOTION).to_pose(goal))
+    .run(&mut drivetrain).await?;
+```
+
+Compatible tangent-connected paths share one velocity profile, including
+authored speed caps and the most restrictive physical limits. Identical
+controller configurations keep the same follower state. Different laws
+initialize at measured progress and retain the shared wheel limiter.
+Direction changes with matching body heading brake to zero without requiring
+a dwell when within arrival tolerances. Incompatible geometry, direct point,
+heading and pose primitives, explicit stops and the final command settle
+normally. Use `PathChain` only to generate geometry, not to execute motions.
+
+`RunMotion` is the common trait for a bound motion and a chain. Path followers
+also support `controller.run(&mut drivetrain, &path)` as shorthand.
+`MotionSegment::named` labels checkpoint telemetry; `with_actions` attaches
+nonblocking path actions.
 
 ## Optional controller features
 

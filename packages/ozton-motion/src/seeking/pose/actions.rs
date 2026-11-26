@@ -86,6 +86,10 @@ impl<'a> PathActions<'a> {
         self
     }
 
+    pub(super) fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
     pub(super) fn valid(&self, path: &Path) -> bool {
         self.events.iter().all(|event| match event.trigger {
             Trigger::Distance(distance) => {

@@ -310,37 +310,6 @@ fn point_seeking_translates_while_correcting_moderate_heading_error() {
 }
 
 #[test]
-fn transit_point_does_not_apply_endpoint_braking_envelope() {
-    let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(1 m/s));
-    let tick = Duration::from_millis(10);
-    let target = DifferentialTarget::DriveToPoint {
-        target: DVec2::new(0.0, 0.08),
-        reverse: false,
-        maximum_speed: options.maximum_wheel_speed,
-    };
-    let feedback = Feedback {
-        time: tick,
-        pose: Pose::default(),
-        forward_travel: Length::ZERO,
-        forward_velocity: ozton_math::qty!(0.5 m/s),
-        lateral_velocity: Velocity::ZERO,
-        angular_velocity: AngularVelocity::ZERO,
-        ranges: [None; _],
-        reset_accepted: false,
-    };
-    let tuning = DriveTuning::STANDARD
-        .with_linear_controller(ozton_math::control::Pid::new(20.0, 0.0, 0.0, None));
-    let mut terminal = DifferentialFeedback::new(tuning);
-    let mut transit = DifferentialFeedback::new(tuning);
-    terminal.record_applied_wheels([0.5; 2]);
-    transit.record_applied_wheels([0.5; 2]);
-    let (stopping, _) = terminal.step(target, feedback, tick, options);
-    let (passing, ready) = transit.step_through(target, feedback, tick, options);
-    assert!(!ready);
-    assert!(passing[0] > stopping[0], "{passing:?} vs {stopping:?}");
-}
-
-#[test]
 fn point_direction_is_reacquired_after_terminal_reset() {
     let options = DriveOptions::differential(ozton_math::qty!(0.33 m), ozton_math::qty!(0.5 m/s));
     let mut controller = DifferentialFeedback::default();

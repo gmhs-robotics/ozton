@@ -158,6 +158,13 @@ impl DifferentialFeedback {
         self
     }
 
+    /// Switch feedback settings without discarding the applied wheel state.
+    pub(crate) fn reconfigure(&mut self, config: crate::MotionConfig) {
+        let wheels = self.last_wheels;
+        *self = Self::new(config.tuning).with_config(config);
+        self.last_wheels = wheels;
+    }
+
     /// Reset feedback without losing the wheel command used by the slew limiter.
     pub(crate) fn reset_feedback(&mut self) {
         self.pid.reset();
@@ -181,19 +188,7 @@ impl DifferentialFeedback {
         dt: Duration,
         options: DriveOptions,
     ) -> ([f64; 2], bool) {
-        self.step_inner(target, feedback, dt, options, false)
-    }
-
-    /// Track an intermediate point without its endpoint braking envelope.
-    /// The chain executor must hand off before entering the arrival tolerance.
-    pub(crate) fn step_through(
-        &mut self,
-        target: DifferentialTarget,
-        feedback: Feedback,
-        dt: Duration,
-        options: DriveOptions,
-    ) -> ([f64; 2], bool) {
-        self.step_inner(target, feedback, dt, options, true)
+        self.step_inner(target, feedback, dt, options)
     }
 
     fn step_inner(
@@ -202,7 +197,6 @@ impl DifferentialFeedback {
         feedback: Feedback,
         dt: Duration,
         options: DriveOptions,
-        through: bool,
     ) -> ([f64; 2], bool) {
         let linear_rate_squared = feedback.forward_velocity.value * feedback.forward_velocity.value
             + feedback.lateral_velocity.value * feedback.lateral_velocity.value;
@@ -416,8 +410,7 @@ impl DifferentialFeedback {
                 });
                 // Latch travel direction. Near the goal, allow a deliberate reversal
                 // only after nearly stopping, with a wide hysteresis band.
-                if !through
-                    && distance
+                if distance
                         <= config.approach.reversal_distance_factor
                             * options.position_tolerance.value
                     && heading.abs() > config.approach.reversal_heading.value
@@ -439,11 +432,7 @@ impl DifferentialFeedback {
                 let linear = forward(
                     &mut self.pid,
                     sign * distance * heading.cos().max(0.0),
-                    if through {
-                        maximum_speed.value
-                    } else {
-                        stopping_limit(distance, maximum_speed.value)
-                    },
+                    stopping_limit(distance, maximum_speed.value),
                 );
                 let turn = angular(&mut self.pid, heading);
                 (drive(linear, turn), reached && slow)

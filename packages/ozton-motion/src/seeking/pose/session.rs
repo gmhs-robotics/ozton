@@ -19,6 +19,21 @@ pub(super) struct Trajectory<'a> {
     pub timeout: Duration,
 }
 
+/// A path segment's controller and nonblocking mechanism actions.
+pub(super) struct PathStage<'s, 'a> {
+    pub config: crate::MotionConfig,
+    pub end_distance: f64,
+    pub name: Option<&'a str>,
+    pub actions: &'s mut PathActions<'a>,
+}
+
+/// A direction cusp must reach zero velocity, but does not require a dwell.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Arrival {
+    Stop,
+    Reverse,
+}
+
 pub(super) struct PoseSession<'a, D: MotionExecution> {
     pub(super) drive: &'a mut D,
     pub(super) options: DriveOptions,
@@ -351,110 +366,53 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         .await
     }
 
-    /// Traverse intermediate points in one feedback session, preserving wheel slew.
-    pub(super) async fn through_points(
-        &mut self,
-        points: &[ozton_math::geometry::DVec2],
-        radius: f64,
-        reverse: bool,
-        straight: bool,
-    ) -> Result<(), PoseMotionError<D::Error>> {
-        let config = self.config;
-        let options = self.options;
-        let mut index = 0;
-        let mut progress = Progress::default();
-        self.execute(
-            config,
-            options,
-            config.timing.stage_timeout,
-            |controller, tick| {
-                if tick.interrupted {
-                    progress = Progress::default();
-                }
-                let position = tick.feedback.pose.position;
-                let next = if straight {
-                    next_straight_point(points, index, position, radius)
-                } else {
-                    next_point(points, index, position, radius)
-                };
-                if next != index {
-                    for gate in index..next {
-                        let error = position.distance(points[gate]);
-                        log_row!(
-                            Info,
-                            "POINT_CHAIN",
-                            "index={},gate_error_m={error:.6},forward_mps={:.6}",
-                            gate + 1,
-                            tick.feedback.forward_velocity.value
-                        );
-                    }
-                    index = next;
-                    if !straight {
-                        controller.reset_feedback();
-                        progress = Progress::default();
-                        tick.warnings.progress_reported = false;
-                    }
-                }
-                // Collinear gates do not impose a new velocity objective.
-                // Brake for the actual corner, not every waypoint along the edge.
-                let target_index = if straight { points.len() - 1 } else { index };
-                let final_point = target_index + 1 == points.len();
-                let target = DifferentialTarget::DriveToPoint {
-                    target: points[target_index],
-                    reverse,
-                    maximum_speed: options.maximum_wheel_speed,
-                };
-                let (wheels, ready) = if final_point {
-                    controller.step(target, tick.feedback, tick.dt, options)
-                } else {
-                    controller.step_through(target, tick.feedback, tick.dt, options)
-                };
-                let ready = final_point && ready;
-                if progress.stalled(
-                    target,
-                    tick.feedback,
-                    ready,
-                    tick.dt,
-                    config.timing.progress_timeout,
-                ) {
-                    tick.warnings.progress();
-                } else {
-                    tick.warnings.progress_reported = false;
-                }
-                Ok(ControlCommand {
-                    wheels,
-                    complete: tick.arrived(ready),
-                    brake: ready,
-                    emergency_brake: false,
-                })
-            },
-            &mut |drive, wheels| drive.drive_wheels(wheels),
-        )
-        .await
-    }
-
     /// Execute a prepared trajectory with live feedback and a common PID terminal stage.
     pub(super) async fn follow(
         &mut self,
         trajectory: Trajectory<'_>,
         actions: &mut PathActions<'_>,
     ) -> Result<(), PoseMotionError<D::Error>> {
-        let Trajectory {
-            path,
-            reverse,
-            target,
-            timeout,
-        } = trajectory;
+        let mut stages = [PathStage {
+            config: self.config,
+            end_distance: trajectory.path.end().distance,
+            name: None,
+            actions,
+        }];
+        self.follow_group(trajectory, &mut stages, Arrival::Stop).await
+    }
 
+    /// Execute a shared path profile, switching tracking laws at measured
+    /// transit gates. The feedback loop and wheel limiter never restart there.
+    pub(super) async fn follow_group(
+        &mut self,
+        trajectory: Trajectory<'_>,
+        stages: &mut [PathStage<'_, '_>],
+        arrival: Arrival,
+    ) -> Result<(), PoseMotionError<D::Error>> {
+        let Trajectory { path, reverse, target, timeout } = trajectory;
         use crate::pursuit::profiled::ProfiledFollower;
-        let mut follower =
-            ProfiledFollower::new(path, self.config.path.lookahead, self.config.tuning.angular)
-                .with_config(self.config.path)
-                .prepare(self.config.timing.period, reverse)
+        let width = self.options.track_width;
+        let configs: Vec<_> = stages.iter().map(|stage| {
+            stage.config.constrained_for_path(stage.config.options(width), path.limits())
+        }).collect();
+        let mut followers = Vec::with_capacity(stages.len());
+        for (index, &(config, _)) in configs.iter().enumerate() {
+            if index > 0 && config == configs[index - 1].0 {
+                followers.push(None);
+                continue;
+            }
+            let follower = ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
+                .with_config(config.path)
+                .prepare(config.timing.period, reverse)
                 .ok_or(PoseMotionError::Configuration)?;
-        let (config, options) = self
-            .config
-            .constrained_for_path(self.options, path.limits());
+            followers.push(Some(follower));
+        }
+        let mut follower = followers[0].take().ok_or(PoseMotionError::Configuration)?;
+        let mut stage_index = 0;
+        let (mut config, mut options) = configs[0];
+        let initial_config = config;
+        let final_options = configs.last().ok_or(PoseMotionError::Configuration)?.1;
+        let mut stage_start = 0.0;
         let mut best = f64::INFINITY;
         let mut no_progress = Duration::ZERO;
         let mut terminal_pose = TerminalPose::default();
@@ -477,8 +435,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
         );
         let started = Instant::now();
         self.execute(
-            config,
-            options,
+            initial_config,
+            final_options,
             timeout,
             |controller, tick| {
                 let feedback = tick.feedback;
@@ -493,24 +451,53 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                     feedback.pose,
                     ozton_math::qty!((options.maximum_wheel_speed.value * dt.as_secs_f64() * 2.0) m),
                 );
+                while stage_index + 1 < stages.len()
+                    && observation.distance >= stages[stage_index].end_distance - 1e-7
+                {
+                    let stage = &mut stages[stage_index];
+                    stage.actions.advance(stage.end_distance - stage_start, 0.0, true)
+                        .map_err(PoseMotionError::Mechanism)?;
+                    let junction = path.at_distance(ozton_math::qty!((stage.end_distance) m)).pose;
+                    log_checkpoint(stage.name, "blend", junction, reverse, feedback.pose, feedback.forward_velocity.value);
+                    stage_start = stage.end_distance;
+                    stage_index += 1;
+                    (config, options) = configs[stage_index];
+                    if let Some(mut next) = followers[stage_index].take() {
+                        next.seek(observation.distance);
+                        follower = next;
+                        controller.reconfigure(config);
+                    }
+                }
                 let cross = observation.cross_track;
                 tick.warnings.cross_track(cross, config.path.maximum_cross_track_error.value);
-                actions
-                    .advance(observation.distance, observation.remaining_time, false)
+                let stage = &mut stages[stage_index];
+                let end_time = path.at_distance(ozton_math::qty!((stage.end_distance) m)).time;
+                let remaining = (end_time - observation.nominal_progress_time).max(0.0)
+                    * follower.planned_duration() / path.end().time;
+                stage.actions
+                    .advance((observation.distance - stage_start).max(0.0), remaining, false)
                     .map_err(PoseMotionError::Mechanism)?;
                 let nominal_progress_time = observation.nominal_progress_time;
                 let distance = feedback.pose.position.distance(target.position);
                 let heading_error = wrap_heading(target.heading - feedback.pose.heading)
                     .value
                     .abs();
-                if !terminal && follower.is_terminal(options.position_tolerance.value) {
+                if !terminal && stage_index + 1 == stages.len() && follower.is_terminal(options.position_tolerance.value) {
                     terminal = true;
                     log_event!(Info, "motion", "Trajectory: entering final pose correction");
                     best = f64::INFINITY;
                     no_progress = Duration::ZERO;
                     controller.reset_feedback();
                 }
-                let (requested, wheels, ready, objective, phase_changed) = if terminal {
+                let cusp_ready = terminal && arrival == Arrival::Reverse
+                    && distance <= options.position_tolerance.value
+                    && heading_error <= options.heading_tolerance.value
+                    && feedback.forward_velocity.value.powi(2) + feedback.lateral_velocity.value.powi(2)
+                        <= options.speed_tolerance.value.powi(2)
+                    && feedback.angular_velocity.value.abs() <= options.angular_speed_tolerance.value;
+                let (requested, wheels, ready, objective, phase_changed) = if cusp_ready {
+                    ([0.0; 2], [0.0; 2], true, 0.0, false)
+                } else if terminal {
                     let (wheels, ready, objective, changed) =
                         terminal_pose.step(controller, target, reverse, feedback, dt, options);
                     (wheels, wheels, ready, objective, changed)
@@ -546,7 +533,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
                 if no_progress >= config.timing.progress_timeout {
                     tick.warnings.progress();
                 }
-                let complete = tick.arrived(ready);
+                let complete = if arrival == Arrival::Reverse { ready } else { tick.arrived(ready) };
                 log_row!(
                     Trace,
                     "PATH_TICK",
@@ -575,8 +562,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             &mut |drive, wheels| drive.drive_wheels(wheels),
         )
         .await?;
-        actions
-            .advance(end.distance, 0.0, true)
+        stages[stage_index].actions
+            .advance(end.distance - stage_start, 0.0, true)
             .map_err(PoseMotionError::Mechanism)?;
         let elapsed = started.elapsed();
         let pose = self.drive.localization().pose();
@@ -604,6 +591,8 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             elapsed.as_secs_f64(),
             elapsed.as_secs_f64() / planned_duration
         );
+        let final_name = stages[stage_index].name;
+        log_checkpoint(final_name, if arrival == Arrival::Reverse { "reverse" } else { "stop" }, end.pose, reverse, pose, 0.0);
         log_event!(Info, "motion", "Trajectory: settled");
         Ok(())
     }
@@ -678,72 +667,22 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
     }
 }
 
-/// Intermediate points are transit gates, never settled endpoints.
-fn next_point(
-    points: &[ozton_math::geometry::DVec2],
-    mut index: usize,
-    position: ozton_math::geometry::DVec2,
-    radius: f64,
-) -> usize {
-    while index + 1 < points.len() && position.distance(points[index]) <= radius {
-        index += 1;
-    }
-    index
-}
-
-/// A straight transit gate is crossed when its perpendicular plane is passed.
-/// This prevents a small lateral tracking error from trapping the chain at a
-/// waypoint that is already behind the chassis.
-fn next_straight_point(
-    points: &[ozton_math::geometry::DVec2],
-    mut index: usize,
-    position: ozton_math::geometry::DVec2,
-    radius: f64,
-) -> usize {
-    if points.len() < 2 {
-        return index;
-    }
-    let direction = (points[points.len() - 1] - points[0]).normalize();
-    while index + 1 < points.len()
-        && (position.distance(points[index]) <= radius
-            || (position - points[index]).dot(direction) >= 0.0)
-    {
-        index += 1;
-    }
-    index
-}
-
-#[cfg(test)]
-mod chain_tests {
-    use ozton_math::geometry::DVec2;
-
-    use super::{next_point, next_straight_point};
-
-    #[test]
-    fn straight_gate_advances_after_crossing_even_with_lateral_error() {
-        let points = [DVec2::Y, DVec2::Y * 2.0, DVec2::Y * 3.0];
-        assert_eq!(
-            next_straight_point(&points, 0, DVec2::new(0.2, 0.8), 0.1),
-            0
-        );
-        assert_eq!(
-            next_straight_point(&points, 0, DVec2::new(0.2, 1.1), 0.1),
-            1
-        );
-        assert_eq!(
-            next_straight_point(&points, 1, DVec2::new(0.2, 3.1), 0.1),
-            2
-        );
-    }
-
-    #[test]
-    fn intermediate_gate_advances_but_final_point_never_skips() {
-        let points = [DVec2::Y, DVec2::Y * 2.0, DVec2::Y * 3.0];
-        assert_eq!(next_point(&points, 0, DVec2::new(0.0, 0.8), 0.1), 0);
-        assert_eq!(next_point(&points, 0, DVec2::new(0.0, 0.95), 0.1), 1);
-        assert_eq!(next_point(&points, 1, DVec2::Y * 2.0, 0.1), 2);
-        assert_eq!(next_point(&points, 2, DVec2::Y * 3.0, 0.1), 2);
-    }
+fn log_checkpoint(
+    name: Option<&str>,
+    junction: &str,
+    target: ozton_math::geometry::Pose,
+    reverse: bool,
+    actual: ozton_math::geometry::Pose,
+    speed: f64,
+) {
+    let name = name.unwrap_or("path");
+    let heading = target.heading + ozton_math::qty!((if reverse { 180.0 } else { 0.0 }) deg);
+    let error = target.position.distance(actual.position);
+    let heading_error = wrap_heading(heading - actual.heading).value;
+    log_row!(Info, "MOTION_CHECKPOINT", "stage={name},junction={junction},target_x_m={:.6},target_y_m={:.6},target_heading_rad={:.6},x_m={:.6},y_m={:.6},heading_rad={:.6},error_m={error:.6},heading_error_rad={heading_error:.6},forward_mps={speed:.5}",
+        target.position.x, target.position.y, heading.value,
+        actual.position.x, actual.position.y, actual.heading.value);
+    let _ = (name, junction, error, heading_error, speed);
 }
 
 /// Fresh feedback and arrival state shared by every autonomous controller.

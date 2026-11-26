@@ -3,7 +3,7 @@
 mod controllers;
 mod pose;
 pub use controllers::*;
-pub use pose::{PathActions, PoseMotionError, TravelDirection, WallContact};
+pub use pose::{MotionChain, MotionSegment, PathActions, PoseMotionError, RunMotion, TravelDirection, WallContact};
 
 /// Private execution configuration, not a public controller.
 #[derive(Clone, Copy, Debug, PartialEq)]

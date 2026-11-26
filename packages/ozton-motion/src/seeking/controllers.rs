@@ -8,7 +8,8 @@ use ozton_math::{
     uom::si::f64::{Angle, Length, Velocity},
 };
 
-use super::{Engine, PathActions, PoseMotionError, TravelDirection};
+use super::{Engine, MotionSegment, PathActions, PoseMotionError, TravelDirection};
+use super::pose::Command;
 use crate::{
     DriveTuning, MotionConfig, MotionLimits, PathGuidance, SettlingConfig, TerminalGuidance,
 };
@@ -77,35 +78,6 @@ pub mod capabilities {
         ) -> MotionResult<D>;
     }
 
-    /// Follow straight legs with chained collinear transit points.
-    pub trait FollowWaypoints {
-        async fn follow_waypoints<D: MotionExecution>(
-            &self,
-            drive: &mut D,
-            points: &[DVec2],
-            handoff_radius: Length,
-        ) -> MotionResult<D>;
-    }
-
-    /// Chain transit points where corner cutting is acceptable.
-    pub trait MoveThroughPoints {
-        async fn move_through_points<D: MotionExecution>(
-            &self,
-            drive: &mut D,
-            points: &[DVec2],
-            handoff_radius: Length,
-        ) -> MotionResult<D>;
-    }
-
-    /// Follow a sequence of settled poses.
-    pub trait FollowPoses {
-        async fn follow_poses<D: MotionExecution>(
-            &self,
-            drive: &mut D,
-            poses: &[Pose],
-        ) -> MotionResult<D>;
-    }
-
     /// Swing to a heading with one wheel group held.
     pub trait SwingToHeading {
         async fn swing_to_heading<D: MotionExecution + WheelActuation>(
@@ -119,13 +91,14 @@ pub mod capabilities {
 
     /// Follow a prepared trajectory using this controller's tracking law.
     pub trait FollowPath {
+        fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a>;
+
         async fn follow_path<D: MotionExecution>(
             &self,
             drive: &mut D,
             path: &Path,
         ) -> MotionResult<D> {
-            self.follow_path_with_actions(drive, path, &mut PathActions::new())
-                .await
+            self.follow(path).run(drive).await
         }
 
         async fn follow_path_with_actions<D: MotionExecution>(
@@ -240,13 +213,39 @@ controller!(
     PathGuidance::LQR
 );
 
+impl Basic {
+    pub fn distance(self, distance: Length) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::Distance(distance))
+    }
+
+    pub fn to_heading(self, heading: Angle) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::Heading(heading))
+    }
+
+    pub fn toward(self, point: DVec2) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::TurnPoint(point))
+    }
+
+    pub fn to_point(self, point: DVec2) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::Point(point))
+    }
+
+    pub fn to_pose(self, pose: Pose) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::StraightPose(pose))
+    }
+
+    pub fn arc(self, radius: Length, sweep: Angle) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::Arc(radius, sweep))
+    }
+}
+
 impl DriveDistance for Basic {
     async fn drive_distance<D: MotionExecution>(
         &self,
         drive: &mut D,
         distance: Length,
     ) -> MotionResult<D> {
-        self.engine.drive_distance(drive, distance).await
+        self.distance(distance).run(drive).await
     }
 }
 
@@ -256,7 +255,7 @@ impl TurnToHeading for Basic {
         drive: &mut D,
         heading: Angle,
     ) -> MotionResult<D> {
-        self.engine.turn_to_heading(drive, heading).await
+        self.to_heading(heading).run(drive).await
     }
 }
 
@@ -266,7 +265,7 @@ impl TurnToPoint for Basic {
         drive: &mut D,
         point: DVec2,
     ) -> MotionResult<D> {
-        self.engine.turn_to_point(drive, point).await
+        self.toward(point).run(drive).await
     }
 }
 
@@ -276,13 +275,13 @@ impl MoveToPoint for Basic {
         drive: &mut D,
         point: DVec2,
     ) -> MotionResult<D> {
-        self.engine.move_to_point(drive, point).await
+        self.to_point(point).run(drive).await
     }
 }
 
 impl MoveToPose for Basic {
     async fn move_to_pose<D: MotionExecution>(&self, drive: &mut D, pose: Pose) -> MotionResult<D> {
-        self.engine.move_to_pose_straight(drive, pose).await
+        self.to_pose(pose).run(drive).await
     }
 }
 
@@ -293,43 +292,7 @@ impl DriveArc for Basic {
         radius: Length,
         sweep: Angle,
     ) -> MotionResult<D> {
-        self.engine.drive_arc(drive, radius, sweep).await
-    }
-}
-
-impl FollowWaypoints for Basic {
-    async fn follow_waypoints<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        points: &[DVec2],
-        handoff_radius: Length,
-    ) -> MotionResult<D> {
-        self.engine
-            .move_through_points_straight(drive, points, handoff_radius)
-            .await
-    }
-}
-
-impl MoveThroughPoints for Basic {
-    async fn move_through_points<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        points: &[DVec2],
-        handoff_radius: Length,
-    ) -> MotionResult<D> {
-        self.engine
-            .move_through_points(drive, points, handoff_radius)
-            .await
-    }
-}
-
-impl FollowPoses for Basic {
-    async fn follow_poses<D: MotionExecution>(
-        &self,
-        drive: &mut D,
-        poses: &[Pose],
-    ) -> MotionResult<D> {
-        self.engine.follow_poses(drive, poses).await
+        self.arc(radius, sweep).run(drive).await
     }
 }
 
@@ -348,7 +311,7 @@ impl SwingToHeading for Basic {
 
 impl MoveToPose for Boomerang {
     async fn move_to_pose<D: MotionExecution>(&self, drive: &mut D, pose: Pose) -> MotionResult<D> {
-        self.engine.move_to_pose(drive, pose).await
+        self.to_pose(pose).run(drive).await
     }
 }
 
@@ -399,6 +362,10 @@ impl PurePursuit {
 }
 
 impl Boomerang {
+    pub fn to_pose(self, pose: Pose) -> MotionSegment<'static> {
+        MotionSegment::new(self.engine, Command::Pose(pose))
+    }
+
     /// Fraction of remaining distance projected behind the goal.
     #[must_use]
     pub const fn with_lead(mut self, lead: f64) -> Self {
@@ -428,6 +395,16 @@ impl LtvLqr {
 macro_rules! path_follower {
     ($($name:ident),+ $(,)?) => {$(
         impl $name {
+            /// Bind a prepared trajectory to this tracking law.
+            pub fn follow(self, path: &Path) -> MotionSegment<'_> {
+                MotionSegment::new(self.engine, Command::Path(path))
+            }
+
+            /// Run a single trajectory without constructing a chain.
+            pub async fn run<D: MotionExecution>(self, drive: &mut D, path: &Path) -> MotionResult<D> {
+                self.follow(path).run(drive).await
+            }
+
             /// Select the endpoint pose controller independently of tracking.
             #[must_use]
             pub const fn with_terminal(mut self, terminal: TerminalGuidance) -> Self {
@@ -453,6 +430,10 @@ macro_rules! path_follower {
         }
 
         impl FollowPath for $name {
+            fn follow<'a>(&self, path: &'a Path) -> MotionSegment<'a> {
+                (*self).follow(path)
+            }
+
             async fn follow_path_with_actions<D: MotionExecution>(
                 &self,
                 drive: &mut D,
