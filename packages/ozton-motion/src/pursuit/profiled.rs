@@ -79,13 +79,14 @@ impl<'path> ProfiledFollower<'path> {
         }
         if let Guidance::Lqr(controller) = self.guidance {
             let path = self.progress.path();
-            self.lqr = Some(
-                controller.prepare(path.end().time / scale, period.as_secs_f64(), |t| {
-                    let sample = path.at_time(ozton_math::qty!((t * scale) s));
-                    let v = if reverse { -sample.speed } else { sample.speed };
-                    [v * scale, sample.speed * sample.curvature * scale]
-                })?,
-            );
+            self.lqr =
+                Some(
+                    controller.prepare(path.end().time / scale, period.as_secs_f64(), |t| {
+                        let sample = path.at_time(ozton_math::qty!((t * scale) s));
+                        let v = if reverse { -sample.speed } else { sample.speed };
+                        [v * scale, sample.speed * sample.curvature * scale]
+                    })?,
+                );
         }
         Some(self)
     }
@@ -168,7 +169,10 @@ impl<'path> ProfiledFollower<'path> {
             } else {
                 reference.speed
             };
-            let twist = [velocity * scale, reference.speed * reference.curvature * scale];
+            let twist = [
+                velocity * scale,
+                reference.speed * reference.curvature * scale,
+            ];
             let error = [local.y, -local.x, heading];
             let [linear, angular] = match self.guidance {
                 Guidance::Ramsete(controller) => controller.calculate(error, twist),
@@ -586,7 +590,11 @@ mod tests {
                 core::time::Duration::ZERO,
                 dt,
             );
-            assert!(wheels.iter().all(|v| (*v - sample.speed * 0.8).abs() < 1e-9));
+            assert!(
+                wheels
+                    .iter()
+                    .all(|v| (*v - sample.speed * 0.8).abs() < 1e-9)
+            );
             follower.elapsed = path.end().time;
             assert!(!follower.is_terminal(0.01));
             follower.elapsed = follower.planned_duration();
