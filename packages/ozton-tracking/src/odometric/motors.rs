@@ -25,7 +25,7 @@ macro_rules! shared_motors {
 
 #[cfg(feature = "logging")]
 std::thread_local! {
-    static GROUPS: RefCell<Vec<std::rc::Weak<RefCell<[Motor]>>>> = RefCell::new(Vec::new());
+    static GROUPS: RefCell<Vec<std::rc::Weak<RefCell<[Motor]>>>> = const { RefCell::new(Vec::new()) };
 }
 
 #[cfg(feature = "logging")]

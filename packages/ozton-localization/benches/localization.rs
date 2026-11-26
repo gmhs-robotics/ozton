@@ -4,15 +4,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ozton_localization::localizer::{
-    Config, Estimator, Localizer, OdometryConfig, RangeObservation, RangeSensorConfig, Snapshot,
+use ozton_localization::{
+    field::{Field, OVERRIDE},
+    localizer::{
+        Config, Estimator, Localizer, OdometryConfig, RangeObservation, RangeSensorConfig, Snapshot,
+    },
 };
 use ozton_math::{
-    geometry::{BodyDelta, Pose},
+    geometry::{BodyDelta, DVec2, Pose},
     localization::{
-        mcl::{ParticleConfig, ParticleFilter},
-        range::{Surface, cast},
+        mcl::{Beam, ParticleConfig, ParticleFilter},
+        range::{Surface, cast, cast_masked},
     },
+    position_xyzh, qty,
     uom::si::{
         angle::radian,
         f64::{Angle, Length},
@@ -34,6 +38,47 @@ fn measure(name: &str, count: usize, mut step: impl FnMut(usize)) {
         "{name}: {:.1} ns/tick (median of 5, {count} ticks)",
         timings[2]
     );
+}
+
+fn benchmark_override() -> Result<(), &'static str> {
+    let map: Vec<_> = OVERRIDE
+        .surface_map(Field::PORTABLE)
+        .ok_or("invalid Override surface map")?
+        .faces()
+        .collect();
+    let sensors = [
+        position_xyzh!(0 cm, 13 cm, 92 mm, 0 deg),
+        position_xyzh!(-13 cm, 0 cm, 206 mm, 90 deg),
+        position_xyzh!(0 cm, -13 cm, 92 mm, 180 deg),
+        position_xyzh!(13 cm, 0 cm, 206 mm, -90 deg),
+    ]
+    .map(|mount| RangeSensorConfig::at_mount(mount).with_visible_surfaces(&map));
+    let pose = Pose::new(DVec2::new(0.25, 0.22), qty!(5 deg));
+    let beams = sensors
+        .into_iter()
+        .map(|sensor| {
+            let hit = cast_masked(pose, sensor.mount, &map, sensor.surface_mask)
+                .ok_or("benchmark sensor must see a mapped surface")?;
+            Ok(Beam {
+                mount: sensor.mount,
+                distance: qty!((hit.distance) m),
+                max_range: qty!(2 m),
+                surface_mask: sensor.surface_mask,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut filter = ParticleFilter::new(pose, ParticleConfig::default().with_particles(64))
+        .ok_or("invalid Override MCL benchmark configuration")?;
+    if filter
+        .observe_position(&beams, &map, pose.heading)
+        .is_none()
+    {
+        return Err("Override MCL benchmark requires a usable range update");
+    }
+    measure("Override MCL, 64 particles and four ranges", 4_000, |_| {
+        black_box(filter.observe_position(black_box(&beams), black_box(&map), pose.heading));
+    });
+    Ok(())
 }
 
 fn main() -> Result<(), &'static str> {
@@ -146,5 +191,5 @@ fn main() -> Result<(), &'static str> {
         }));
         black_box(&filter);
     });
-    Ok(())
+    benchmark_override()
 }

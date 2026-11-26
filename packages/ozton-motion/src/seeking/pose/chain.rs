@@ -239,7 +239,8 @@ async fn execute<D: MotionExecution>(
             while end < segments.len()
                 && junction(&segments[end - 1], &segments[end]) == Junction::Blend
             {
-                count += segments[end].path().unwrap().samples().len() - 1;
+                let next = segments[end].path().ok_or(PoseMotionError::Configuration)?;
+                count += next.samples().len() - 1;
                 if count > MAX_POINTS {
                     break;
                 }
@@ -303,34 +304,33 @@ async fn plan_paths<D: MotionExecution>(
         return Ok((None, true));
     }
     drive.brake().map_err(PoseMotionError::StopFailed)?;
-    let paths: Vec<_> = segments.iter().map(|s| s.path().unwrap()).collect();
+    let paths: Vec<_> = segments
+        .iter()
+        .map(MotionSegment::path)
+        .collect::<Option<_>>()
+        .ok_or(PoseMotionError::Configuration)?;
     let (limits, uniform_scale) = blended_limits(
-        segments
+        paths
             .iter()
-            .map(|s| (s.path().unwrap(), s.engine.config)),
+            .copied()
+            .zip(segments.iter().map(|s| s.engine.config)),
     )
     .ok_or(PoseMotionError::Configuration)?;
-    let joined = if segments.len() > 1 {
-        Some(
-            Path::join_cooperative(&paths, limits, async || {
-                drive
-                    .wait_until(Instant::now() + Duration::from_millis(1))
-                    .await;
-                drive.motion_active()
-            })
-            .await
-            .map_err(|e| {
-                if e == ozton_math::path::PathError::Cancelled {
-                    PoseMotionError::Cancelled
-                } else {
-                    PoseMotionError::Configuration
-                }
-            })?,
-        )
-    } else {
-        None
-    };
-    Ok((joined, uniform_scale))
+    let joined = Path::join_cooperative(&paths, limits, async || {
+        drive
+            .wait_until(Instant::now() + Duration::from_millis(1))
+            .await;
+        drive.motion_active()
+    })
+    .await
+    .map_err(|e| {
+        if e == ozton_math::path::PathError::Cancelled {
+            PoseMotionError::Cancelled
+        } else {
+            PoseMotionError::Configuration
+        }
+    })?;
+    Ok((Some(joined), uniform_scale))
 }
 
 async fn run_paths<D: MotionExecution>(
@@ -338,8 +338,13 @@ async fn run_paths<D: MotionExecution>(
     segments: &mut [MotionSegment<'_>],
     plan: &PathPlan,
 ) -> MotionResult<D> {
-    let reverse = segments[0].reverse();
-    let path = plan.joined.as_ref().unwrap_or(segments[0].path().unwrap());
+    let first = segments.first().ok_or(PoseMotionError::Configuration)?;
+    let reverse = first.reverse();
+    let path = plan
+        .joined
+        .as_ref()
+        .or_else(|| first.path())
+        .ok_or(PoseMotionError::Configuration)?;
     let start = body_pose(path.start().pose, reverse);
     let target = body_pose(path.end().pose, reverse);
     let actual = drive.localization().pose();
@@ -355,7 +360,7 @@ async fn run_paths<D: MotionExecution>(
             "Trajectory start offset exceeds tuning threshold; continuing feedback"
         );
     }
-    let options = segments[0]
+    let options = first
         .engine
         .options(drive)
         .ok_or(PoseMotionError::Configuration)?;
@@ -363,7 +368,11 @@ async fn run_paths<D: MotionExecution>(
     let mut timeout = Duration::ZERO;
     let mut stages = Vec::with_capacity(segments.len());
     for segment in segments.iter_mut() {
-        distance += segment.path().unwrap().end().distance;
+        distance += segment
+            .path()
+            .ok_or(PoseMotionError::Configuration)?
+            .end()
+            .distance;
         let mut config = segment.engine.config;
         if !plan.uniform_scale {
             config.path.reference_speed_scale = 1.0;
@@ -376,7 +385,10 @@ async fn run_paths<D: MotionExecution>(
             actions: &mut segment.actions,
         });
     }
-    stages.last_mut().unwrap().end_distance = path.end().distance;
+    stages
+        .last_mut()
+        .ok_or(PoseMotionError::Configuration)?
+        .end_distance = path.end().distance;
     drive.localization_mut().release_wall_contact();
     let mut session = PoseSession::new(drive, options, stages[0].config)?;
     let result = session
@@ -395,6 +407,11 @@ async fn run_paths<D: MotionExecution>(
 }
 
 #[cfg(all(test, not(target_os = "vexos")))]
+#[allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "Exercise valid fixtures and fail immediately when test setup fails"
+)]
 mod tests {
     use ozton_math::{
         path::{Limits, Waypoint},
@@ -576,7 +593,7 @@ mod tests {
 
         fn dense_path(a: f64, b: f64, limits: Limits) -> Path {
             let points: Vec<_> = (0..=20)
-                .map(|i| Waypoint::new(DVec2::new(0.0, a + (b - a) * i as f64 / 20.0), 1.0))
+                .map(|i| Waypoint::new(DVec2::new(0.0, a + (b - a) * f64::from(i) / 20.0), 1.0))
                 .collect();
             Path::new(&points, limits).unwrap()
         }

@@ -93,7 +93,6 @@ impl LocalizationBuilder {
 
 impl<B: Boundary, R> LocalizationBuilder<B, R> {
     /// Supply the surveyed optical map. No motion policy is attached.
-    #[must_use]
     pub fn with_surface_map(mut self, map: SurfaceMap) -> Self {
         self.map = map;
         self
@@ -101,7 +100,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
 
     /// Optional measured physical bounds for corner/flush-wall registration.
     /// Does not add optical faces or configure motion containment.
-    #[must_use]
     pub fn with_contact_bounds(
         self,
         boundary: FieldBoundary,
@@ -131,7 +129,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
 
     /// Select a range-capable estimator. For pure odometry, use the default builder.
     /// A runtime estimator selection is conservatively treated as range-capable.
-    #[must_use]
     pub fn with_estimator(
         mut self,
         estimator: impl Into<Estimator>,
@@ -140,13 +137,11 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         self.require_ranges()
     }
 
-    #[must_use]
     pub fn with_odometry(mut self, odometry: OdometrySettings) -> Self {
         self.odometry = odometry;
         self
     }
 
-    #[must_use]
     pub fn with_distance_reset(
         mut self,
         config: DsrConfig,
@@ -155,7 +150,6 @@ impl<B: Boundary, R> LocalizationBuilder<B, R> {
         self.require_ranges()
     }
 
-    #[must_use]
     pub fn with_velocity_estimator(mut self, config: crate::VelocityConfig) -> Self {
         self.velocity = config;
         self

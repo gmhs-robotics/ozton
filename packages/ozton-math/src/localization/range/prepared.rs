@@ -71,7 +71,13 @@ pub(in crate::localization) struct DirectedFace {
     face: RayFace,
     denominator: f64,
     sign: f64,
+    lateral_min: f64,
+    lateral_max: f64,
 }
+
+// Conservative allowance for rounding when projecting unit rays onto their
+// lateral axis. The original intersection test still decides boundary hits.
+const PROJECTION_EPSILON: f64 = 8.0 * f64::EPSILON;
 
 pub(in crate::localization) fn prepare_direction(
     beam: DVec2,
@@ -88,10 +94,16 @@ pub(in crate::localization) fn prepare_direction(
         if denominator * denominator <= face.parallel_threshold {
             continue;
         }
+        let lateral_start = face.start.perp_dot(beam);
+        let lateral_end = lateral_start - denominator;
+        let slack = PROJECTION_EPSILON
+            * (face.start.abs().max_element() + face.segment.abs().max_element());
         directed.push(DirectedFace {
             face,
             denominator: denominator.abs(),
             sign: if denominator < 0.0 { -1.0 } else { 1.0 },
+            lateral_min: lateral_start.min(lateral_end) - slack,
+            lateral_max: lateral_start.max(lateral_end) + slack,
         });
     }
 }
@@ -100,6 +112,27 @@ pub(in crate::localization) fn directed_ray_distance(
     origin: DVec2,
     beam: DVec2,
     faces: &[DirectedFace],
+    maximum: f64,
+) -> Option<f64> {
+    // For a perimeter-only view the projection costs as much as checking the faces.
+    if faces.len() <= 4 {
+        return nearest_directed(origin, beam, faces.iter(), maximum);
+    }
+    let lateral = origin.perp_dot(beam);
+    let slack = PROJECTION_EPSILON * origin.abs().max_element();
+    let lower = lateral - slack;
+    let upper = lateral + slack;
+    let candidates = faces
+        .iter()
+        .filter(|face| !(upper < face.lateral_min || lower > face.lateral_max));
+    nearest_directed(origin, beam, candidates, maximum)
+}
+
+#[inline]
+fn nearest_directed<'a>(
+    origin: DVec2,
+    beam: DVec2,
+    faces: impl Iterator<Item = &'a DirectedFace>,
     maximum: f64,
 ) -> Option<f64> {
     let mut nearest = maximum;
@@ -206,6 +239,9 @@ mod tests {
                 DVec2::new(-1.0, -1.0),
                 crate::qty!(1 m),
             ),
+            Surface::new(DVec2::splat(0.2), DVec2::splat(0.4), crate::qty!(1 m)),
+            Surface::new(DVec2::splat(0.4), DVec2::new(0.6, 0.2), crate::qty!(1 m)),
+            Surface::new(DVec2::new(0.6, 0.2), DVec2::splat(0.2), crate::qty!(1 m)),
         ];
         let mut faces = alloc::vec::Vec::new();
         let mut directed = alloc::vec::Vec::new();
@@ -213,7 +249,15 @@ mod tests {
         for beam in [DVec2::Y, -DVec2::Y, DVec2::X, DVec2::new(0.6, 0.8)] {
             for mask in [0, 1, 2, 5, 7, u128::MAX] {
                 prepare_direction(beam, &faces, mask, &mut directed);
-                for origin in [DVec2::ZERO, DVec2::new(0.3, -0.4), DVec2::new(2.0, 2.0)] {
+                let vertex_ray = DVec2::ONE - beam;
+                for origin in [
+                    DVec2::ZERO,
+                    DVec2::new(0.3, -0.4),
+                    DVec2::new(2.0, 2.0),
+                    vertex_ray,
+                    vertex_ray + DVec2::splat(f64::EPSILON),
+                    vertex_ray - DVec2::splat(f64::EPSILON),
+                ] {
                     assert_eq!(
                         directed_ray_distance(origin, beam, &directed, 2.0),
                         prepared_ray_distance(origin, beam, &faces, mask, 2.0)

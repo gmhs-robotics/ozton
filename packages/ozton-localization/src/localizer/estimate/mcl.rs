@@ -14,6 +14,8 @@ use ozton_math::{
 
 use super::{MAX_RANGES, Observations, PoseEstimator, RangeRoles};
 
+mod recovery;
+
 /// Independent Monte Carlo pose correction with reusable transactional particle storage.
 pub struct Mcl {
     filter: ParticleFilter,
@@ -103,6 +105,7 @@ impl PoseEstimator for Mcl {
         let mut sensor_indices = [0; MAX_RANGES];
         let mut submitted_mask = 0u8;
         let mut residual_rejected = 0u8;
+        let mut lengthening_rejected = false;
         let mut geometry_rejected = 0u8;
         let mut count = 0;
         for (index, (sensor, report)) in observations
@@ -138,6 +141,7 @@ impl PoseEstimator for Mcl {
                 // with the timestamp-aligned sensor mount. Reuse its residual.
                 if constraint.residual.abs() > limit.value {
                     residual_rejected |= 1 << index;
+                    lengthening_rejected |= constraint.residual > limit.value;
                     continue;
                 }
             }
@@ -164,6 +168,23 @@ impl PoseEstimator for Mcl {
             sensor_indices[count] = index;
             submitted_mask |= 1 << index;
             count += 1;
+        }
+        if lengthening_rejected
+            && let Some(limit) = self.config.max_range_residual
+            && let Some(maximum) = self.config.max_recovery_translation
+            && let Some((pose, mask)) = recovery::recover(&observations, limit.value, maximum.value)
+        {
+            let change = pose.position - predicted.position;
+            if self.filter.translate(change) {
+                log_row!(
+                    Trace,
+                    "MCL",
+                    "status=recovered,used={mask},dx_m={:.5},dy_m={:.5}",
+                    change.x,
+                    change.y
+                );
+                return Some(pose);
+            }
         }
         if count == 0 {
             if residual_rejected != 0 || geometry_rejected != 0 {
@@ -197,9 +218,8 @@ impl PoseEstimator for Mcl {
             );
             return None;
         }
-        // Local Bayesian tracking must not create particles from the same
-        // measurement used to weight them. Explicit DSR/set_pose is the
-        // separate recovery path for a pose outside the motion prior.
+        // Use the measurements once. An accepted translation recovery above
+        // returns immediately instead of using its beams to weight particles.
         self.candidate.clone_from(&self.filter);
         let estimate = self.candidate.observe_position_with_quality(
             &beams[..count],

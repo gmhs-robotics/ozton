@@ -6,12 +6,17 @@ Ozton is a Rust workspace. Use its pinned nightly and V5 build configuration. If
 cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo test --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked --features ozton/logging -- -D warnings
 cargo check -p ozton --locked --all-features
 cargo check -p ozton --locked --no-default-features
 cargo check -p ozton --examples --locked --target thumbv7a-vex-v5
 ```
 
-These are host and cross-compile checks, not hardware tests. For firmware, build against the exact Ozton commit your application uses. Keep logging off for competition unless you deliberately need it.
+These commands check host behavior and cross-compilation. For hardware validation,
+build the exact firmware revisions with logging enabled. Match the BUILD record
+to the source, compare localization against measured positions, and inspect
+`PROFILE` for V5 control, MCL and SD latency under the installed field geometry.
+Keep logging off for competition unless you deliberately need it.
 
 ## Documentation
 

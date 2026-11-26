@@ -406,7 +406,7 @@ impl<'a, D: MotionExecution> PoseSession<'a, D> {
             let follower =
                 ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
                     .with_config(config.path)
-                    .prepare(config.timing.period, reverse)
+                    .and_then(|follower| follower.prepare(config.timing.period, reverse))
                     .ok_or(PoseMotionError::Configuration)?;
             followers.push(Some(follower));
         }

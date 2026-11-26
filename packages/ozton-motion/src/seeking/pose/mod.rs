@@ -70,7 +70,7 @@ impl Engine {
         drive: &impl ozton_drivetrain::model::DriveEncoders,
     ) -> Option<DriveOptions> {
         let config = self.config;
-        config.valid().then(|| ())?;
+        config.valid().then_some(())?;
         Some(config.options(drive.track_width()))
     }
 

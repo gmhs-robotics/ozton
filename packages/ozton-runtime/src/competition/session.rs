@@ -33,9 +33,17 @@ pub(crate) async fn compete<R: OztonCompete>(robot: Runtime<R>) -> ! {
     // Capture the connection identity when vexide creates the callback, not
     // when it first polls it. An unpolled callback may already be obsolete.
     match CompetitionRuntime::<Runtime<R>, Infallible, _, _, _, _, _>::builder(robot)
-        .on_connect(|robot| Box::pin(async { ControlFlow::Continue(robot.connected().await) }))
+        .on_connect(|robot| {
+            Box::pin(async {
+                robot.connected().await;
+                ControlFlow::Continue(())
+            })
+        })
         .on_disconnect(|robot| {
-            Box::pin(async { ControlFlow::Continue(robot.disconnected().await) })
+            Box::pin(async {
+                robot.disconnected().await;
+                ControlFlow::Continue(())
+            })
         })
         .while_disabled(|robot| mode_future(robot, CompetitionMode::Disabled))
         .while_autonomous(|robot| mode_future(robot, CompetitionMode::Autonomous))
@@ -51,17 +59,17 @@ pub(crate) async fn compete<R: OztonCompete>(robot: Runtime<R>) -> ! {
 async fn hold_mode(work: impl Future<Output = ()>, mut active: impl FnMut() -> bool) {
     let mut work = Some(Box::pin(work));
     poll_fn(|cx| {
-        if !active() {
+        if !active()
+            || work
+                .as_mut()
+                .is_some_and(|future| future.as_mut().poll(cx).is_ready())
+        {
             work = None;
-        } else if let Some(future) = &mut work {
-            if future.as_mut().poll(cx).is_ready() {
-                work = None;
-            }
         }
         // Never signal completion of a mode callback to a different phase.
         Poll::<()>::Pending
     })
-    .await
+    .await;
 }
 
 pub(super) async fn run_mode<R: OztonCompete>(

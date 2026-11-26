@@ -1,4 +1,6 @@
 //! Optional surveyed VEX perimeter presets and physical wall-contact registration.
+mod override_layout;
+pub use override_layout::{Goal, GoalKind, OVERRIDE, OVERRIDE_SKILLS, OverrideLayout};
 pub use ozton_math::localization::surface::{MotionMap, Surface, SurfaceMap};
 use ozton_math::{geometry::DVec2, uom::si::f64::Length};
 

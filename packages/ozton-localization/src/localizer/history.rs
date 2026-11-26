@@ -49,7 +49,9 @@ impl PoseHistory {
             return Some(pose);
         }
         let &(before, prior) = self.samples.get(upper.checked_sub(1)?)?;
-        let fraction = (time - before).as_secs_f64() / (after - before).as_secs_f64();
+        let elapsed = time.checked_sub(before)?;
+        let interval = after.checked_sub(before)?;
+        let fraction = elapsed.div_duration_f64(interval);
         Some(prior.interpolate(pose, fraction))
     }
 

@@ -26,6 +26,17 @@ fn orthogonal_beams_reduce_seeded_initial_error() {
     let mut filter = ParticleFilter::new(start, ParticleConfig::default()).unwrap();
     let estimate = filter.observe(&beams, &map).unwrap();
     assert!(estimate.pose.position.length() < start.position.length() * 0.6);
+
+    let malformed = Beam {
+        distance: crate::qty!((f64::NAN) m),
+        ..beams[0]
+    };
+    let mut reversed = ParticleFilter::new(start, ParticleConfig::default()).unwrap();
+    let other = reversed
+        .observe(&[beams[1], malformed, beams[0]], &map)
+        .unwrap();
+    assert_eq!(reversed.last_used_beams(), 0b101);
+    assert!(estimate.pose.position.distance(other.pose.position) < 1e-12);
 }
 
 #[test]

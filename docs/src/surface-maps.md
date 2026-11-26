@@ -29,3 +29,44 @@ Motion may start empty or inherit the physical map; adding a surface to
 model, with explicitly supplied containment dimensions and footprint. It does
 not enable runtime avoidance or replanning.
 
+## VEX V5 Override presets
+
+`ozton::localization::field::OVERRIDE` and `OVERRIDE_SKILLS` identify the Match
+and Robot Skills layouts. Both include the same nine installed goal housings
+in centered coordinates. Positive X points right, positive Y points forward,
+and heading 0° points along +Y. Select the actual portable or metal perimeter.
+
+```rust
+use ozton::{
+    drivetrain::Footprint,
+    localization::{LocalizationBuilder, field::{Field, OVERRIDE_SKILLS}},
+    qty,
+};
+
+let field = Field::PORTABLE;
+let layout = OVERRIDE_SKILLS;
+let bounds = field.contact_bounds().unwrap();
+let tracking_builder = LocalizationBuilder::new()
+    .with_surface_map(layout.surface_map(field).unwrap())
+    .with_contact_bounds(bounds);
+// Use surveyed chassis extents for the deployed robot.
+let footprint = Footprint::new(qty!(38 cm), qty!(38 cm)).unwrap();
+let path_clearance = layout.motion_map().unwrap()
+    .clearance(footprint, bounds.half_extents(), qty!(1 in))
+    .unwrap();
+```
+
+The optical map uses horizontal slices of the goal housings at the
+sensor's measured height. It has 116 faces before height filtering. The
+octagonal bands approximate tapered housings and openings. Verify clear
+returns at expected ranges with the actual field and hardware. The plan-view
+motion map uses full nominal goal footprints. Add independently surveyed
+constraints for the robot's mechanism envelope, other installed elements,
+and any route-specific restrictions.
+
+The goal centers and heights come from the official
+[field drawings](https://manuals.vex.com/v5/override/v2.1/appendix-a/).
+Robot Skills starts with a different distribution of movable elements
+according to [RSC4](https://manuals.vex.com/v5/override/v2.1/skills/#rsc4).
+Scoring elements and other robots are excluded from the optical map.
+

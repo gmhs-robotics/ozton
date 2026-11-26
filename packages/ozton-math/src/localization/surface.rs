@@ -8,6 +8,10 @@ use super::range::Surface as Face;
 use crate::path::clearance::{ConvexPolygon, Footprint, RectangularClearance};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Keep surfaces inline without an allocation per wall or polygon"
+)]
 enum Geometry {
     Wall([DVec2; 2]),
     Polygon(ConvexPolygon),

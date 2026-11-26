@@ -224,7 +224,7 @@ impl Pending {
         let kind = parts.next();
         let start = self.bytes.len();
         let result = if let (Some("DBG"), Some(kind)) = (prefix, kind) {
-            if matches!(kind, "EVENT" | "SD_GAP" | "SESSION")
+            if matches!(kind, "BUILD" | "EVENT" | "SD_GAP" | "SESSION")
                 || !parts.clone().all(|part| part.contains('='))
             {
                 writeln!(BatchWriter(&mut self.bytes), "{}", self.row)
@@ -462,6 +462,20 @@ mod tests {
         let output = String::from_utf8(pending.bytes).unwrap();
         assert!(output.contains("D,0,2,11\n"));
         assert!(output.contains("D,1,2,21\n"));
+    }
+
+    #[test]
+    fn build_metadata_is_self_describing_after_session_header() {
+        let mut pending = Pending::default();
+        let mut output = Vec::new();
+        pending.push(format_args!(
+            "DBG,BUILD,t_ms=0,commit=0000000000000000000000000000000000000001,configuration=skills-metal,level=INFO"
+        ));
+        pending.write(&mut output).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "DBG,SESSION,t_ms=0,schema=4,level=INFO\nDBG,BUILD,t_ms=0,commit=0000000000000000000000000000000000000001,configuration=skills-metal,level=INFO\n"
+        );
     }
 
     #[test]

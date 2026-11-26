@@ -95,14 +95,13 @@ async fn direct<D: MotionExecution>(
                 )
                 .await?;
         }
-        if let Some(heading) = final_heading {
-            if wrap_heading(heading - session.drive.localization().pose().heading)
+        if let Some(heading) = final_heading
+            && wrap_heading(heading - session.drive.localization().pose().heading)
                 .value
                 .abs()
                 > options.heading_tolerance.value
-            {
-                turn(session, heading, timeout).await?;
-            }
+        {
+            turn(session, heading, timeout).await?;
         }
         if session
             .drive

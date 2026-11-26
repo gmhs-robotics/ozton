@@ -12,6 +12,7 @@ The Python decoder is in the Ozton repository, not necessarily your application 
 
 ## What is recorded
 
+- An optional `BUILD` record contains the application name and version, application and Ozton Git revisions and tree states, compiler, Rust target, Cargo profile, and application configuration.
 - MOTION_STEP and PATH_TICK: target wheel speeds, measured pose and motion timing.
 - LOCALIZATION_POSE, LOCALIZATION_RANGE, TRACKING_INPUT and TRACKING_WHEEL: raw inputs, estimator output and correction decisions.
 - MCL and DSR: particle or reset decisions.
@@ -25,6 +26,15 @@ Motor rows use the port number as the stable identifier. Shared Ozton motor grou
 
 The scheduler may produce fewer samples; use actual timestamps. Serialization reuses scratch buffers and a bounded schema dictionary. `ozton::run` handles startup error and panic logging, SD writer lifetime and the startup duration. With logging disabled, no hardware-sampling task is started.
 
+Use `ozton::run_with_metadata` with a `runtime::BuildMetadata` value to emit one
+BUILD record before device initialization. The application supplies build-time
+information. Override captures both Git commits and reports each source tree
+as `clean`, `dirty`, or `unknown` when repository information is unavailable.
+A dirty commit identifies the base revision. Keep the build inputs or commit
+the changes when exact reproduction matters. `configuration` is the selected
+Override field profile. In older logs with no BUILD record, use the operator's
+run notes to identify the firmware.
+
 ## Read profiling records
 
 PROFILE rows summarize each active stage over a flush window (normally about one second). They include count, total_us, mean_us, max_us, p95_upper_us and over_budget. The p95 value is an upper histogram-bucket estimate, not an exact percentile. ControlInterval reports time between control ticks against the configured period plus 1 ms; other stages count samples exceeding the nominal 10 ms budget.
@@ -35,7 +45,7 @@ A long flush or planning spike may delay the next control tick. A high average i
 
 ## Format
 
-SESSION marks a new run. S rows define a schema ID, record kind and field names; R rows use that ID and list values. Uncompressed DBG records also occur. Schema 4 adds D rows: a hexadecimal change mask followed by only the changed values, with independent histories for named devices/ports. Full S/R keyframes are emitted after sync or recovery. All recorded timestamps and numeric precision are preserved; the decoder also reads schema 3. The writer keeps the file open, submits roughly 4 KiB per write, syncs about once a second and backs off after slow calls. SD_QUEUE reports backlog. Optional hardware sampling pauses under pressure and the bounded queue reserves space for operational records. No synchronous VEXos I/O call has a guaranteed latency. Preserve original logs so a later decoder can recover all available fields.
+SESSION marks a new run. BUILD is a plain DBG row so provenance stays readable directly on the card. S rows define a schema ID, record kind and field names. R rows use that ID and list values. Schema 4 adds D rows, which store a hexadecimal change mask and only the changed values, with independent histories for named devices and ports. Full S/R keyframes are emitted after sync or recovery. All recorded timestamps and numeric precision are preserved. The decoder also reads schema 3. The writer keeps the file open, submits roughly 4 KiB per write, syncs about once a second and backs off after slow calls. SD_QUEUE reports backlog. Optional hardware sampling pauses under pressure and the bounded queue reserves space for operational records. No synchronous VEXos I/O call has a guaranteed latency. Preserve original logs so a later decoder can recover all available fields.
 
 Startup records enter the bounded memory buffer immediately. SD file opening
 runs on the writer task after the hardware initialization future has yielded,

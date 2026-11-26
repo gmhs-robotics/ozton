@@ -85,7 +85,11 @@ def main():
             if args.legacy:
                 print(",".join(["DBG", kind] + [f"{k}={v}" for k, v in fields.items()]))
             else:
-                print(json.dumps({"session": session, "kind": kind, **{k: value(v) for k, v in fields.items()}}, allow_nan=False))
+                decoded = {
+                    k: unquote(v) if kind == "BUILD" and k != "t_ms" else value(v)
+                    for k, v in fields.items()
+                }
+                print(json.dumps({"session": session, "kind": kind, **decoded}, allow_nan=False))
 
 if __name__ == "__main__":
     main()

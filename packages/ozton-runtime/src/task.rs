@@ -183,6 +183,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::await_holding_refcell_ref,
+        reason = "The competing borrow must span worker ticks to exercise contention handling"
+    )]
     fn mechanism_worker_skips_conflicting_borrows() {
         use std::rc::Rc;
 

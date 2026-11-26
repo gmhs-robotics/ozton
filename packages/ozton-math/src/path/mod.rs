@@ -531,7 +531,7 @@ mod join_tests {
         let points: Vec<_> = (0..=20)
             .map(|i| {
                 Waypoint::new(
-                    DVec2::new(0.0, i as f64 * 0.1),
+                    DVec2::new(0.0, f64::from(i) * 0.1),
                     if i == 10 { 0.6 } else { 1.0 },
                 )
             })

@@ -59,17 +59,22 @@ impl<'path> ProfiledFollower<'path> {
 
     #[cfg(test)]
     pub fn with_guidance(mut self, guidance: crate::PathGuidance) -> Self {
-        self.guidance = guidance.into();
+        #[allow(
+            clippy::unwrap_used,
+            reason = "Test fixtures supply valid guidance constants"
+        )]
+        let guidance = Guidance::new(guidance).unwrap();
+        self.guidance = guidance;
         self
     }
 
-    pub fn with_config(mut self, config: crate::PathConfig) -> Self {
-        self.guidance = config.guidance.into();
+    pub fn with_config(mut self, config: crate::PathConfig) -> Option<Self> {
+        self.guidance = Guidance::new(config.guidance)?;
         self.reference_speed_scale = config.reference_speed_scale;
         self.prediction_latency = config.prediction_latency;
         self.adaptive_lookahead = config.adaptive_lookahead;
         self.heading_recovery = config.heading_recovery;
-        self
+        Some(self)
     }
 
     pub fn prepare(mut self, period: core::time::Duration, reverse: bool) -> Option<Self> {
@@ -187,11 +192,14 @@ impl<'path> ProfiledFollower<'path> {
                 let error = [local.y, -local.x, heading];
                 match self.guidance {
                     Guidance::Ramsete(controller) => controller.calculate(error, twist),
-                    Guidance::Lqr(_) => self
-                        .lqr
-                        .as_ref()
-                        .expect("LQR schedule")
-                        .calculate(t, error, twist),
+                    Guidance::Lqr(_) => {
+                        #[allow(
+                            clippy::expect_used,
+                            reason = "LQR preparation must succeed before trajectory output starts"
+                        )]
+                        let schedule = self.lqr.as_ref().expect("prepared LQR schedule");
+                        schedule.calculate(t, error, twist)
+                    }
                     Guidance::PurePursuit => unreachable!(),
                 }
             };

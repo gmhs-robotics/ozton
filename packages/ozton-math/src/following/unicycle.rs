@@ -66,7 +66,10 @@ pub struct LqrSchedule {
 
 impl Default for LtvLqr {
     fn default() -> Self {
-        Self::new([4.0, 16.0, 4.0], [1.0, 1.0]).unwrap()
+        Self {
+            state: [4.0, 16.0, 4.0],
+            input: [1.0, 1.0],
+        }
     }
 }
 
@@ -122,9 +125,9 @@ impl LtvLqr {
             let mut ad = term;
             let mut integral = term * dt;
             for n in 1..=12 {
-                term = (term * a) * (dt / n as f64);
+                term = (term * a) * (dt / f64::from(n));
                 ad += term;
-                integral += term * (dt / (n + 1) as f64);
+                integral += term * (dt / f64::from(n + 1));
             }
             let b0 = integral.x_axis;
             let b1 = integral.z_axis;

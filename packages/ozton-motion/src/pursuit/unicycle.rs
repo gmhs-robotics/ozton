@@ -11,12 +11,12 @@ pub(super) enum Guidance {
     Lqr(LtvLqr),
 }
 
-impl From<PathGuidance> for Guidance {
-    fn from(value: PathGuidance) -> Self {
+impl Guidance {
+    pub(super) fn new(value: PathGuidance) -> Option<Self> {
         match value {
-            PathGuidance::PurePursuit => Self::PurePursuit,
-            PathGuidance::Ramsete { b, zeta } => Self::Ramsete(Ramsete::new(b, zeta).unwrap()),
-            PathGuidance::Lqr { state, input } => Self::Lqr(LtvLqr::new(state, input).unwrap()),
+            PathGuidance::PurePursuit => Some(Self::PurePursuit),
+            PathGuidance::Ramsete { b, zeta } => Ramsete::new(b, zeta).map(Self::Ramsete),
+            PathGuidance::Lqr { state, input } => LtvLqr::new(state, input).map(Self::Lqr),
         }
     }
 }

@@ -35,6 +35,8 @@ pub struct ParticleConfig {
     pub max_range_residual: Option<Length>,
     /// Defer live range corrections above this yaw speed while still predicting pose.
     pub max_correction_yaw_rate: Option<AngularVelocity>,
+    /// Maximum translation for independent, redundant range recovery in the localizer.
+    pub max_recovery_translation: Option<Length>,
 }
 
 /// Configuration of the Monte Carlo localizer.
@@ -57,6 +59,7 @@ impl ParticleConfig {
         beam_model: BeamModel::DEFAULT,
         max_range_residual: None,
         max_correction_yaw_rate: None,
+        max_recovery_translation: None,
     };
 
     pub const fn new() -> Self {
@@ -114,6 +117,13 @@ impl ParticleConfig {
     #[must_use]
     pub const fn with_max_correction_yaw_rate(mut self, value: AngularVelocity) -> Self {
         self.max_correction_yaw_rate = Some(value);
+        self
+    }
+
+    /// Enable bounded recovery from a translation that exceeds local range gates.
+    #[must_use]
+    pub const fn with_max_recovery_translation(mut self, value: Length) -> Self {
+        self.max_recovery_translation = Some(value);
         self
     }
 }
@@ -204,10 +214,16 @@ impl ParticleFilter {
             || [
                 config.max_range_residual.map(|limit| limit.value),
                 config.max_correction_yaw_rate.map(|limit| limit.value),
+                config.max_recovery_translation.map(|limit| limit.value),
             ]
             .into_iter()
             .flatten()
             .any(|limit| !limit.is_finite() || limit <= 0.0)
+            || config.max_recovery_translation.is_some_and(|recovery| {
+                config
+                    .max_range_residual
+                    .is_none_or(|gate| recovery <= gate)
+            })
         {
             return None;
         }
@@ -252,6 +268,25 @@ impl ParticleFilter {
                 particle.pose = contact.project(particle.pose);
             }
         }
+    }
+
+    /// Shift the particle cloud after an independently verified translation.
+    /// A registered wall contact takes precedence over translation recovery.
+    pub fn translate(&mut self, change: DVec2) -> bool {
+        if self.contact.is_some()
+            || !change.is_finite()
+            || self
+                .particles
+                .iter()
+                .any(|p| !(p.pose.position + change).is_finite())
+        {
+            return false;
+        }
+        for particle in &mut self.particles {
+            particle.pose.position += change;
+        }
+        self.last_used_beams = 0;
+        true
     }
 
     fn reset_with_spread(&mut self, pose: Pose, spread: DVec3) {
@@ -303,6 +338,7 @@ impl ParticleFilter {
         map: &[Surface],
         heading: Angle,
     ) -> Option<Estimate> {
+        self.last_used_beams = 0;
         if !heading.value.is_finite() {
             return None;
         }
@@ -329,6 +365,7 @@ impl ParticleFilter {
         map: &[Surface],
         heading: Angle,
     ) -> Option<Estimate> {
+        self.last_used_beams = 0;
         if !heading.value.is_finite() || beams.len() != quality.len() {
             return None;
         }
@@ -350,16 +387,7 @@ impl ParticleFilter {
         quality: Option<&[BeamQuality]>,
     ) -> Option<Estimate> {
         self.last_used_beams = 0;
-        if beams.is_empty()
-            || map.is_empty()
-            || beams.iter().any(|beam| {
-                !beam.distance.value.is_finite()
-                    || !beam.max_range.value.is_finite()
-                    || beam.distance.value <= 0.0
-                    || beam.distance > beam.max_range
-                    || !beam.mount.is_finite()
-            })
-        {
+        if beams.is_empty() || map.is_empty() {
             return None;
         }
         // The immutable field normally stays unchanged for the full run.
@@ -376,8 +404,21 @@ impl ParticleFilter {
             }
         }
         let mut likelihoods = [f64::NAN; MAX_PARTICLES];
+        let mut posterior = [0.0; MAX_PARTICLES];
+        for (weight, particle) in posterior.iter_mut().zip(&self.particles) {
+            *weight = particle.weight;
+        }
+        let posterior = &mut posterior[..self.particles.len()];
         let mut used = false;
         for (index, beam) in beams.iter().enumerate() {
+            if !beam.distance.value.is_finite()
+                || !beam.max_range.value.is_finite()
+                || beam.distance.value <= 0.0
+                || beam.distance > beam.max_range
+                || !beam.mount.is_finite()
+            {
+                continue;
+            }
             let (minimum, sigma) =
                 quality.map_or((0.0, self.config.range_sigma.value), |quality| {
                     let q = quality[index];
@@ -437,37 +478,51 @@ impl ParticleFilter {
                         beam.max_range.value,
                     )
                 };
-                likelihoods[index] = if let Some(distance) = distance.filter(|d| *d >= minimum) {
+                likelihoods[index] = f64::NAN;
+                if let Some(distance) = distance.filter(|d| *d >= minimum) {
                     let (hit, likelihood) = model.likelihood(distance);
-                    modeled_weight += particle.weight;
-                    hit_evidence += particle.weight * hit;
-                    evidence += particle.weight * likelihood;
-                    likelihood
-                } else {
-                    f64::NAN
-                };
+                    if hit.is_finite() && likelihood.is_finite() {
+                        modeled_weight += particle.weight;
+                        hit_evidence += particle.weight * hit;
+                        evidence += particle.weight * likelihood;
+                        likelihoods[index] = likelihood;
+                    }
+                }
             }
             if modeled_weight <= 0.0
                 || evidence <= 0.0
+                || !evidence.is_finite()
                 || hit_evidence < evidence * self.config.beam_model.minimum_hit_probability
             {
                 continue;
             }
-            // Marginalize unknown geometry: a missing prediction receives
-            // the conditional mean likelihood of modeled particles. This
-            // keeps its prior mass unchanged, rather than rewarding or
-            // punishing a particle for seeing through an opening.
+            // Test every beam against the same prior. Missing geometry receives
+            // the prior conditional mean and contributes a factor of one.
             let mean = evidence / modeled_weight;
-            for (particle, &likelihood) in self.particles.iter_mut().zip(&likelihoods) {
-                if likelihood.is_finite() {
-                    particle.weight *= likelihood / mean;
-                }
+            let mut total = 0.0;
+            for (&weight, likelihood) in posterior.iter().zip(&mut likelihoods) {
+                *likelihood = if likelihood.is_finite() {
+                    weight * (*likelihood / mean)
+                } else {
+                    weight
+                };
+                total += *likelihood;
+            }
+            if !total.is_finite() || total <= 0.0 {
+                continue;
+            }
+            let inverse = total.recip();
+            for (weight, likelihood) in posterior.iter_mut().zip(&likelihoods) {
+                *weight = likelihood * inverse;
             }
             self.last_used_beams |= 1u128.checked_shl(index as u32).unwrap_or(0);
             used = true;
         }
         if !used {
             return None;
+        }
+        for (particle, weight) in self.particles.iter_mut().zip(posterior) {
+            particle.weight = *weight;
         }
         let mut estimate = if fixed_rotation.is_some() {
             let (position, deviation) = self.position_moments();

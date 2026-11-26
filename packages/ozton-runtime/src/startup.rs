@@ -2,15 +2,81 @@
 
 use std::{fmt::Display, future::Future, process::ExitCode};
 
+/// Git revision and working-tree state captured by the application's build.
+/// Use `"unknown"` when building from a source archive without Git information.
+#[derive(Debug, Clone, Copy)]
+pub struct SourceRevision {
+    pub commit: &'static str,
+    pub tree: &'static str,
+}
+
+/// Build provenance emitted once at startup when diagnostics are enabled.
+#[derive(Debug, Clone, Copy)]
+pub struct BuildMetadata {
+    pub application: &'static str,
+    pub version: &'static str,
+    pub source: SourceRevision,
+    pub ozton: SourceRevision,
+    pub compiler: &'static str,
+    pub target: &'static str,
+    pub profile: &'static str,
+    pub configuration: &'static str,
+}
+
+impl BuildMetadata {
+    #[cfg(feature = "logging")]
+    fn record(self) {
+        use ozton_diagnostics::serial::{Level, field, row};
+
+        row(
+            Level::Info,
+            std::time::Duration::ZERO,
+            "BUILD",
+            format_args!(
+                "application={},version={},commit={},tree={},ozton_commit={},ozton_tree={},compiler={},target={},profile={},configuration={}",
+                field(self.application),
+                field(self.version),
+                field(self.source.commit),
+                field(self.source.tree),
+                field(self.ozton.commit),
+                field(self.ozton.tree),
+                field(self.compiler),
+                field(self.target),
+                field(self.profile),
+                field(self.configuration),
+            ),
+        );
+    }
+}
+
 /// Initialize an application and run its competition runtime. Device construction
 /// belongs inside the async block so startup telemetry includes sensor calibration.
 /// No application-level panic hook, SD writer, or diagnostic task is needed.
 pub async fn run<A: Application, E: Display>(
     initialize: impl Future<Output = Result<A, E>>,
 ) -> ExitCode {
+    run_application(None, initialize).await
+}
+
+/// Start the competition application with a provenance row in USB and SD logs.
+pub async fn run_with_metadata<A: Application, E: Display>(
+    metadata: BuildMetadata,
+    initialize: impl Future<Output = Result<A, E>>,
+) -> ExitCode {
+    run_application(Some(metadata), initialize).await
+}
+
+async fn run_application<A: Application, E: Display>(
+    #[cfg_attr(not(feature = "logging"), allow(unused_variables))] metadata: Option<BuildMetadata>,
+    initialize: impl Future<Output = Result<A, E>>,
+) -> ExitCode {
     #[cfg(feature = "logging")]
     let started = std::time::Instant::now();
     let _startup = Startup::begin();
+    #[cfg(feature = "logging")]
+    if let Some(metadata) = metadata {
+        metadata.record();
+    }
     crate::log_event!(Info, "startup", "Initializing robot");
     match initialize.await {
         Ok(runtime) => {

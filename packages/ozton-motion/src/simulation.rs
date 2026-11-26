@@ -260,7 +260,7 @@ fn simulate_profile(
         }
         followers.push(Some(
             ProfiledFollower::new(path, config.path.lookahead, config.tuning.angular)
-                .with_config(config.path)
+                .with_config(config.path)?
                 .prepare(tick, reverse)?,
         ));
     }
@@ -429,7 +429,7 @@ fn simulate_profile(
         final_position_error_m: pose.position.distance(target.position),
         final_heading_error_rad: wrap_heading(target.heading - pose.heading).value.abs(),
         absolute_rotation_rad: rotation,
-        terminal_elapsed: terminal_started.map_or(Duration::ZERO, |t| elapsed - t),
+        terminal_elapsed: terminal_started.map_or(Duration::ZERO, |t| elapsed.saturating_sub(t)),
         terminal_rotation_rad: terminal_rotation,
         straight_yaw_rms_radps: (straight_yaw_squared / f64::from(straight_samples.max(1))).sqrt(),
         straight_samples,

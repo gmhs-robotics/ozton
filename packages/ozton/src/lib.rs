@@ -11,7 +11,7 @@ pub use ozton_math::{
 };
 pub use ozton_motion as motion;
 pub use ozton_runtime as runtime;
-pub use ozton_runtime::{route, run};
+pub use ozton_runtime::{route, run, run_with_metadata};
 pub use ozton_tracking::{self as tracking, shared_motors};
 pub use ozton_ui as ui;
 

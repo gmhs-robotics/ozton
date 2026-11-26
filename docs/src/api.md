@@ -23,3 +23,5 @@ Start with the ozton facade crate. It re-exports the workspace modules, macros a
 - [examples](https://github.com/gmhs-robotics/ozton/blob/main/packages/ozton/examples): complete firmware programs.
 
 Generate rustdoc against your own checked-out revision for exact method signatures. The source links above are useful for checking details but can change when the development branch advances.
+
+See [Surface maps](surface-maps.md) for the Override Match and Skills presets and [Logging and profiling](recording.md) for build metadata and telemetry decoding.

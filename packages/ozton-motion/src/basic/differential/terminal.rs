@@ -188,10 +188,11 @@ impl TerminalPose {
                         .value,
                 )
                 .unwrap_or(0.0);
-                let [linear, angular] =
-                    ozton_math::following::PolarPose::new(k_rho, k_alpha, k_beta)
-                        .unwrap()
-                        .calculate(feedback.pose, target, backing, max_speed);
+                let Some(polar) = ozton_math::following::PolarPose::new(k_rho, k_alpha, k_beta)
+                else {
+                    return ([0.0; 2], false, distance, changed);
+                };
+                let [linear, angular] = polar.calculate(feedback.pose, target, backing, max_speed);
                 let desired = wheel_speeds(
                     Velocity::new::<meter_per_second>(linear),
                     AngularVelocity::new::<radian_per_second>(angular),

@@ -141,13 +141,12 @@ within the sensor range, and passes normal incidence, edge, age and residual
 gates. An open ray is not a measurement of a virtual boundary. The virtual
 motion perimeter is separate from the surveyed reflecting map.
 
-Within MCL, let H be the particles with finite in-range predicted hits and
-L_i the robust Gaussian-plus-outlier likelihood. Their conditional mean
-likelihood is sum_H(w_i L_i) / sum_H(w_i). Multiply modeled weights by
-L_i divided by this mean; leave unmodeled weights unchanged. Thus the modeled
-and unmodeled groups retain their prior probability mass relative to each other.
-A beam with no modeled mass is skipped. No correction is returned if every beam
-is skipped. This is a missing-geometry model, not a negative free-space sensor.
+For each fresh MCL beam, compute its robust Gaussian-plus-outlier likelihood
+against the same motion prior. Gate the beam on the likelihood attributable
+to a modeled hit. Particles without a modeled intersection receive the
+prior's conditional mean likelihood among particles that have intersections.
+That makes missing geometry neutral for that beam. Combine the accepted beams
+before estimating and resampling. A beam with no modeled mass is skipped.
 
 The common translation fit accepts all coherent observations or a unique
 leave-one-out coherent set of at least two readings; ambiguous subsets are
@@ -158,10 +157,12 @@ Distance-only particle rays use prepared segment vectors and squared parallel
 thresholds, iterate the height-mask bits, and compare signed cross-product
 numerators before division. Only closer valid intersections require division.
 Fixed-heading updates share a rotated beam origin offset and direction across
-all particles. Free-heading updates cache each particle orientation across
-beams. Translation-only moments avoid circular-heading computations; the
-Box-Muller sampler reuses both independent normal variates. These are algebraic
-work reductions, not changes to the range noise or particle count.
+all particles. When the beam sees more than four nonparallel faces, each
+particle projects its ray origin once to rule out faces outside its lateral
+coordinate. The original intersection test handles rays near face endpoints.
+Free-heading updates cache each particle orientation across beams.
+Translation-only moments avoid circular-heading computations, and the
+Box-Muller sampler reuses both independent normal variates.
 
 Wheel odometry skips underdetermined pod-only fits, solves the combined system
 once (full-rank or partial as appropriate), and avoids yaw normalization when
@@ -169,6 +170,26 @@ heading is independently known. MCL logs distinguish lack of a new range packet
 from missing modeled surfaces, residual and other measurement rejections. The
 fraction of ticks with no new packet is not an estimator failure rate.
 
+### Recover larger local drift
+
+With a local range residual limit configured, opt into
+`MclConfig::with_max_recovery_translation` to recover translations larger than
+that limit. The recovery bound must exceed the residual limit. Recovery
+requires at least three fresh associated readings, two observable axes and
+a longer-than-predicted return. A large short return can influence recovery
+only when an opposing surface independently supports its displacement.
+The estimator checks candidate poses against the original map associations
+and can discard one unambiguously blocked range. Recovery shifts the particle
+cloud in X and Y while retaining tracked heading and particle spread.
+
+Override uses a 5 cm normal gate and a 30 cm recovery cap on Match and Skills
+fields during autonomous. Fast turns still pause range corrections. If
+multiple robots block the useful views, the field is weakly observed, or the
+robot starts farther away than the recovery window, tracking continues on
+odometry until usable readings return. For a known start, register the surveyed pose. An explicit
+stationary DSR is also available where enough clear readings are expected.
+Check `MCL`, `MCL_BEAMS`, and `LOCALIZATION_RANGE` on a practice field before
+relying on recovery during a match.
 
 ## V5 sensor range and distance-dependent accuracy
 

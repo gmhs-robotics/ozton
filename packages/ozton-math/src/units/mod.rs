@@ -53,7 +53,7 @@ impl Vec3<Length> {
 #[macro_export]
 macro_rules! qty {
     ($value:expr, $module:ident :: $ty:ident, $unit:ident $(,)?) => {
-        $crate::uom::si::f64::$ty::new::<$crate::uom::si::$module::$unit>($value as f64)
+        $crate::uom::si::f64::$ty::new::<$crate::uom::si::$module::$unit>($crate::qty!(@number $value))
     };
     ($value:literal $($unit:tt)+) => { $crate::qty!(@unit $value; $($unit)+) };
     (($value:expr) $($unit:tt)+) => { $crate::qty!(@unit $value; $($unit)+) };
@@ -117,7 +117,12 @@ macro_rules! qty {
     (@unit $value:expr; 1/m) => { $crate::qty!(@si $value, Curvature, 1.0) };
     (@si $value:expr, $ty:ident, $scale:expr) => {{
         use $crate::uom::{ConstZero, si::f64::$ty};
-        $ty { value: ($value as f64) * ($scale), ..$ty::ZERO }
+        $ty { value: $crate::qty!(@number $value) * ($scale), ..$ty::ZERO }
+    }};
+    (@number $value:expr) => {{
+        #[allow(clippy::cast_lossless, reason = "Unit literals also work in const contexts")]
+        let value = $value as f64;
+        value
     }};
     (@unit $value:expr; $($unit:tt)+) => {
         compile_error!(concat!("Unsupported qty! unit: ", stringify!($($unit)+)))

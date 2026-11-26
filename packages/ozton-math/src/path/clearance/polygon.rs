@@ -4,7 +4,7 @@
 use glam::DVec2;
 
 pub const MAX_POLYGON_VERTICES: usize = 16;
-pub const MAX_OBSTACLES: usize = 8;
+pub const MAX_OBSTACLES: usize = 12;
 pub type Obstacles = [Option<ConvexPolygon>; MAX_OBSTACLES];
 
 /// Counterclockwise convex polygon with cached bounds and bounded storage.

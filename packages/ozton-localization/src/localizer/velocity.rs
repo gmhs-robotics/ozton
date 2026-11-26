@@ -295,7 +295,7 @@ mod tests {
     fn acceleration_prediction_tracks_a_ramp_and_estimates_bias() {
         let mut filter = VelocityEstimator::default();
         for i in 0..200 {
-            let speed = i as f64 * 0.01;
+            let speed = f64::from(i) * 0.01;
             let result = filter.update(
                 delta(speed * 0.01),
                 0.01,

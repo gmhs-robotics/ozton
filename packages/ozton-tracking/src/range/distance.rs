@@ -145,7 +145,7 @@ impl PacketReport {
     fn due(&mut self, time: Duration, state: [bool; 3]) -> bool {
         const HEARTBEAT: Duration = Duration::from_millis(100);
         if self.last.is_none_or(|(last, previous)| {
-            state != previous || time < last || time - last >= HEARTBEAT
+            state != previous || time.checked_sub(last).is_none_or(|age| age >= HEARTBEAT)
         }) {
             self.last = Some((time, state));
             true

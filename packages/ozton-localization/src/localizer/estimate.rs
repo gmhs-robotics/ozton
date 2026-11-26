@@ -130,6 +130,10 @@ impl PoseEstimator for Odometry {
 
 /// Runtime selection for applications whose routes change algorithms after construction.
 #[doc(hidden)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Keep existing estimator variants inline without allocating on a mode switch"
+)]
 pub enum Filter {
     Odometry(Odometry),
     Ekf(Ekf),

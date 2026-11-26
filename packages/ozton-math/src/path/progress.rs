@@ -182,8 +182,8 @@ mod tests {
             qty!(1 m/s^2),
         );
         let points: Vec<_> = (0..=100)
-            .map(|i| Waypoint::new(DVec2::new(0.0, i as f64 * 0.002), 1.0))
-            .chain((1..=500).map(|i| Waypoint::new(DVec2::new(i as f64 * 0.002, 0.2), 1.0)))
+            .map(|i| Waypoint::new(DVec2::new(0.0, f64::from(i) * 0.002), 1.0))
+            .chain((1..=500).map(|i| Waypoint::new(DVec2::new(f64::from(i) * 0.002, 0.2), 1.0)))
             .collect();
         let path = Path::new(&points, limits).unwrap();
         let progress = Progress::new(&path);
